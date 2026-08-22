@@ -1,7 +1,8 @@
 {
   "values": {
     "appearance.theme.mode": "dark",
-    "appearance.wallpaper.dynamic_theme": true
+    "appearance.wallpaper.dynamic_theme": true,
+    "security.response.mode": "observe"
   },
   "version": 1
 }
