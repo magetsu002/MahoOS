@@ -1,0 +1,5 @@
+require("maho.core.windowing")
+require("maho.core.input")
+require("maho.appearance.decorations")
+require("maho.core.binds")
+require("maho.appearance.animations")

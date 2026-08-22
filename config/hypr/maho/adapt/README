@@ -1,0 +1,5 @@
+MahoOS adaptation layer.
+
+Empty by design during Foundation M1.
+Adaptive behavior must never be added without explicit state,
+policy, verification, rollback, and manual override semantics.

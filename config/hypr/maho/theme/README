@@ -1,0 +1,5 @@
+MahoOS canonical theme layer.
+
+M1 intentionally contains no dynamic theme implementation.
+The current colors remain frozen in core/windowing.lua until the
+theme engine receives its own acceptance-tested milestone.

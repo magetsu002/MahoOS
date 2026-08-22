@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+SRC="$ROOT/config/hypr"
+LIVE="$HOME/.config/hypr"
+
+STATE="$HOME/.local/share/maho"
+BACKUPS="$STATE/backups"
+
+mkdir -p "$STATE" "$BACKUPS"
+
+die() {
+    echo "mahoctl: $*" >&2
+    return 1
+}
+
+config_errors() {
+    hyprctl configerrors 2>&1
+}
+
+revision() {
+    git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf 'uncommitted'
+}
+
+doctor() {
+    local failed=0
+
+    echo "Maho OS doctor"
+    echo
+
+    for cmd in git rsync hyprctl diff sha256sum; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            printf 'PASS  %-12s %s\n' "$cmd" "$(command -v "$cmd")"
+        else
+            printf 'FAIL  %-12s missing\n' "$cmd"
+            failed=1
+        fi
+    done
+
+    echo
+
+    if [ -f "$SRC/hyprland.lua" ]; then
+        echo "PASS  source hyprland.lua"
+    else
+        echo "FAIL  source hyprland.lua missing"
+        failed=1
+    fi
+
+    if [ -d "$SRC/maho" ]; then
+        echo "PASS  source maho modules"
+    else
+        echo "FAIL  source maho modules missing"
+        failed=1
+    fi
+
+    if [ -f "$LIVE/hyprland.lua" ]; then
+        echo "PASS  live hyprland.lua"
+    else
+        echo "FAIL  live hyprland.lua missing"
+        failed=1
+    fi
+
+    echo
+
+    local err
+    err="$(config_errors)"
+
+    if [ -z "$err" ]; then
+        echo "PASS  Hyprland config errors: none"
+    else
+        echo "FAIL  Hyprland config errors:"
+        echo "$err"
+        failed=1
+    fi
+
+    return "$failed"
+}
+
+status() {
+    echo "Maho OS"
+    echo
+    echo "Repository: $ROOT"
+    echo "Revision:   $(revision)"
+    echo "Live:       $LIVE"
+    echo
+
+    local err
+    err="$(config_errors)"
+
+    if [ -z "$err" ]; then
+        echo "Hyprland:   green"
+    else
+        echo "Hyprland:   CONFIG ERROR"
+        echo "$err"
+    fi
+
+    echo
+
+    if diff -q "$SRC/hyprland.lua" "$LIVE/hyprland.lua" >/dev/null 2>&1 \
+       && diff -qr "$SRC/maho" "$LIVE/maho" >/dev/null 2>&1; then
+        echo "Managed config: synchronized"
+    else
+        echo "Managed config: DRIFT DETECTED"
+        echo "Run: mahoctl diff"
+    fi
+
+    if [ -f "$STATE/active-revision" ]; then
+        echo "Applied revision: $(cat "$STATE/active-revision")"
+    fi
+}
+
+show_diff() {
+    echo "=== hyprland.lua ==="
+    diff -u \
+        "$LIVE/hyprland.lua" \
+        "$SRC/hyprland.lua" \
+        2>/dev/null || true
+
+    echo
+    echo "=== maho modules ==="
+    diff -ruN \
+        "$LIVE/maho" \
+        "$SRC/maho" \
+        2>/dev/null || true
+}
+
+make_backup() {
+    local ts backup
+
+    ts="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUPS/$ts"
+
+    mkdir -p "$backup"
+
+    if [ -f "$LIVE/hyprland.lua" ]; then
+        cp -a "$LIVE/hyprland.lua" "$backup/"
+    fi
+
+    if [ -d "$LIVE/maho" ]; then
+        cp -a "$LIVE/maho" "$backup/"
+    fi
+
+    printf '%s\n' "$backup"
+}
+
+restore_backup() {
+    local backup="$1"
+
+    [ -d "$backup" ] || {
+        die "backup does not exist: $backup"
+        return 1
+    }
+
+    [ -f "$backup/hyprland.lua" ] || {
+        die "backup missing hyprland.lua"
+        return 1
+    }
+
+    cp -a "$backup/hyprland.lua" "$LIVE/hyprland.lua"
+
+    rm -rf "$LIVE/maho"
+
+    if [ -d "$backup/maho" ]; then
+        cp -a "$backup/maho" "$LIVE/maho"
+    fi
+}
+
+apply_config() {
+    echo "Maho OS apply"
+    echo
+
+    doctor >/dev/null || {
+        echo "Preflight doctor failed."
+        doctor
+        return 1
+    }
+
+    local backup
+    backup="$(make_backup)"
+
+    echo "Backup:"
+    echo "$backup"
+
+    echo
+    echo "Applying managed configuration..."
+
+    cp -a "$SRC/hyprland.lua" "$LIVE/hyprland.lua"
+
+    rm -rf "$LIVE/maho"
+    cp -a "$SRC/maho" "$LIVE/maho"
+
+    if ! hyprctl reload >/dev/null 2>&1; then
+        echo "Reload command failed."
+        echo "Rolling back..."
+
+        restore_backup "$backup"
+        hyprctl reload >/dev/null 2>&1 || true
+
+        echo "Rollback complete."
+        return 1
+    fi
+
+    sleep 1
+
+    local err
+    err="$(config_errors)"
+
+    if [ -n "$err" ]; then
+        echo "Configuration failed verification:"
+        echo "$err"
+
+        echo
+        echo "Rolling back..."
+
+        restore_backup "$backup"
+        hyprctl reload >/dev/null 2>&1 || true
+
+        echo "Rollback complete."
+        return 1
+    fi
+
+    revision > "$STATE/active-revision"
+
+    echo
+    echo "PASS"
+    echo "Applied revision: $(revision)"
+    echo "Hyprland config errors: none"
+}
+
+latest_backup() {
+    find "$BACKUPS" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -printf '%T@ %p\n' 2>/dev/null \
+        | sort -nr \
+        | head -1 \
+        | cut -d' ' -f2-
+}
+
+rollback_config() {
+    local backup="${1:-}"
+
+    if [ -z "$backup" ]; then
+        backup="$(latest_backup)"
+    fi
+
+    if [ -z "$backup" ]; then
+        die "no rollback backup exists"
+        return 1
+    fi
+
+    echo "Restoring:"
+    echo "$backup"
+
+    restore_backup "$backup" || return 1
+
+    hyprctl reload >/dev/null 2>&1 || true
+    sleep 1
+
+    local err
+    err="$(config_errors)"
+
+    if [ -n "$err" ]; then
+        echo "WARNING: restored configuration reports errors:"
+        echo "$err"
+        return 1
+    fi
+
+    echo "Rollback verified."
+}
+
+case "${1:-}" in
+    doctor)
+        doctor
+        ;;
+    status)
+        status
+        ;;
+    diff)
+        show_diff
+        ;;
+    apply)
+        apply_config
+        ;;
+    rollback)
+        rollback_config "${2:-}"
+        ;;
+    *)
+        cat <<'HELP'
+Maho OS control utility
+
+Usage:
+  mahoctl status
+  mahoctl doctor
+  mahoctl diff
+  mahoctl apply
+  mahoctl rollback [backup-directory]
+HELP
+        ;;
+esac
