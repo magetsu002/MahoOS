@@ -28,6 +28,7 @@ jobs:
             bin/maho-adapt \
             bin/maho-provenance \
             bin/maho-security \
+            bin/maho-setup \
             lib/authority.sh \
             lib/state.sh \
             lib/events.sh \
@@ -48,7 +49,8 @@ jobs:
             tests/wallpaper-policy.sh \
             tests/wallpaper-restore.sh \
             tests/provenance-contracts.sh \
-            tests/security-findings.sh
+            tests/security-findings.sh \
+            tests/setup-contracts.sh
 
       - name: JSON contracts
         shell: bash
@@ -111,3 +113,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/security-findings.sh
+
+      - name: V1 setup lifecycle tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/setup-contracts.sh
