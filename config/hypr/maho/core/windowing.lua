@@ -18,3 +18,25 @@ hl.config({
         hover_icon_on_border = true,
     },
 })
+
+-- QS Wallpaper Picker presentation.
+hl.window_rule({
+    name = "qs-wallpaper-picker",
+    match = {
+        title = "^(wallpaper-picker)$",
+    },
+
+    float = true,
+    center = true,
+    size = {
+        "monitor_w * 0.82",
+        "monitor_h * 0.45",
+    },
+
+    border_size = 0,
+    rounding = 0,
+    decorate = false,
+    no_shadow = true,
+    no_blur = true,
+})
+

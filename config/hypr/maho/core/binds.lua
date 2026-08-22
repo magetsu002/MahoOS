@@ -1,4 +1,4 @@
--- MahoOS stable muscle-memory bindings.
+-- Maho OS stable muscle-memory bindings.
 
 local mainMod = "SUPER"
 
@@ -6,6 +6,11 @@ local mainMod = "SUPER"
 hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd("kitty"))
 hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("firefox"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([[xdg-open "$HOME"]]))
+
+hl.bind(
+    mainMod .. " + W",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/qs-wallpaper-picker"]])
+)
 
 -- Window basics.
 hl.bind(mainMod .. " + Q", hl.dsp.window.close())
