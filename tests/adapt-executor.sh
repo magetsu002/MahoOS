@@ -29,21 +29,12 @@ cat > "$MAHO_ADAPTER_REGISTRY" <<'JSON'
 }
 JSON
 
-# shellcheck source=../lib/authority.sh
 source "$ROOT/lib/authority.sh"
-# shellcheck source=../lib/decision.sh
 source "$ROOT/lib/decision.sh"
-# shellcheck source=../lib/events.sh
 source "$ROOT/lib/events.sh"
 
-fail() {
-    echo "FAIL: $*" >&2
-    exit 1
-}
-
-execute() {
-    bash "$ROOT/bin/maho-adapt" execute "$1"
-}
+fail() { echo "FAIL: $*" >&2; exit 1; }
+execute() { bash "$ROOT/bin/maho-adapt" execute "$1"; }
 
 echo "=== registry ==="
 bash "$ROOT/bin/maho-adapt" validate-registry | grep -q '^PASS$'
@@ -93,8 +84,7 @@ CYCLE="$(printf '%s\n' "$RESULT" | python -c 'import json,sys; print(json.load(s
 maho_event_cycle "$CYCLE" | python -c '
 import json,sys
 rows=[json.loads(line) for line in sys.stdin if line.strip()]
-kinds=[r["kind"] for r in rows]
-assert kinds == [
+assert [r["kind"] for r in rows] == [
     "policy.decision",
     "authorization.allowed",
     "adapter.capture",
@@ -106,10 +96,34 @@ assert len({r["cycle_id"] for r in rows}) == 1
 '
 echo "PASS"
 
+echo "=== already-verified desired state does not mutate ==="
+BEFORE_HASH="$(sha256sum "$MAHO_TEST_ADAPTER_STATE" | cut -d' ' -f1)"
+RESULT="$(execute "$DECISION")"
+AFTER_HASH="$(sha256sum "$MAHO_TEST_ADAPTER_STATE" | cut -d' ' -f1)"
+[ "$BEFORE_HASH" = "$AFTER_HASH" ] || fail "already-satisfied execution rewrote adapter state"
+printf '%s\n' "$RESULT" | python -c '
+import json,sys
+r=json.load(sys.stdin)
+assert r["status"] == "verified"
+assert r["action"] == "adapt"
+assert "already verified" in r["reason"]
+'
+CYCLE="$(printf '%s\n' "$RESULT" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
+maho_event_cycle "$CYCLE" | python -c '
+import json,sys
+rows=[json.loads(line) for line in sys.stdin if line.strip()]
+assert [r["kind"] for r in rows] == [
+    "policy.decision",
+    "authorization.allowed",
+    "adaptation.satisfied",
+]
+'
+echo "PASS"
+
 echo "=== do-nothing never invokes adapter ==="
 printf '%s\n' '{"operation":"test-op","value":"stable"}' > "$MAHO_TEST_ADAPTER_STATE"
-DECISION="$(maho_decision_create test noop do-nothing test.resource 'nothing useful to do' '{}' '{}')"
-RESULT="$(execute "$DECISION")"
+DECISION_NOOP="$(maho_decision_create test noop do-nothing test.resource 'nothing useful to do' '{}' '{}')"
+RESULT="$(execute "$DECISION_NOOP")"
 printf '%s\n' "$RESULT" | python -c '
 import json,sys
 r=json.load(sys.stdin)
@@ -124,8 +138,8 @@ PY
 echo "PASS"
 
 echo "=== propose never invokes adapter ==="
-DECISION="$(maho_decision_create test review propose test.resource 'needs review' '{}' '{"operation":"test-op","value":"danger"}')"
-RESULT="$(execute "$DECISION")"
+DECISION_PROPOSE="$(maho_decision_create test review propose test.resource 'needs review' '{}' '{"operation":"test-op","value":"danger"}')"
+RESULT="$(execute "$DECISION_PROPOSE")"
 printf '%s\n' "$RESULT" | python -c '
 import json,sys
 r=json.load(sys.stdin)
@@ -153,11 +167,8 @@ PY
 echo "PASS"
 
 echo "=== readable non-executable shell adapter is supported ==="
-[ ! -x "$ROOT/tests/fixtures/fake-adapter.sh" ] || true
-# GitHub contents-created fixtures may not carry the executable bit. The v1
-# transaction layer intentionally executes trusted repository .sh adapters via bash.
-DECISION="$(maho_decision_create test example adapt test.resource 'shell adapter' '{}' '{"operation":"test-op","value":"shell-ok"}')"
-RESULT="$(execute "$DECISION")"
+DECISION_SHELL="$(maho_decision_create test example adapt test.resource 'shell adapter' '{}' '{"operation":"test-op","value":"shell-ok"}')"
+RESULT="$(execute "$DECISION_SHELL")"
 printf '%s\n' "$RESULT" | python -c 'import json,sys; assert json.load(sys.stdin)["status"] == "verified"'
 echo "PASS"
 
