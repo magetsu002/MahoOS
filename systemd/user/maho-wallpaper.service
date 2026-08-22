@@ -1,0 +1,11 @@
+[Unit]
+Description=Maho wallpaper observation and theme adaptation
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-wallpaper watch --theme
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

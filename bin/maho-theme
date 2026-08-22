@@ -291,11 +291,45 @@ print("rgba(" + argb[2:] + argb[:2] + ")")
 ' "$1"
 }
 
+maho_hyprctl() {
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        hyprctl "$@"
+        return
+    fi
+
+    local instance
+
+    instance="$(
+        hyprctl instances -j 2>/dev/null |
+        python -c '
+import json
+import sys
+
+try:
+    instances = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+if len(instances) != 1:
+    raise SystemExit(2)
+
+instance = instances[0].get("instance")
+
+if not isinstance(instance, str) or not instance:
+    raise SystemExit(1)
+
+print(instance)
+'
+    )" || return $?
+
+    hyprctl -i "$instance" "$@"
+}
+
 hypr_set_borders() {
     local active="$1"
     local inactive="$2"
 
-    hyprctl eval \
+    maho_hyprctl eval \
         "hl.config({ general = { col = {
             active_border = \"$active\",
             inactive_border = \"$inactive\"
@@ -317,7 +351,7 @@ hypr_apply_palette_file() {
     }
 
     local errors
-    errors="$(hyprctl configerrors 2>&1)"
+    errors="$(maho_hyprctl configerrors 2>&1)"
 
     [ -z "$errors" ] || {
         echo "$errors" >&2
@@ -357,12 +391,12 @@ for key in ("foreground", "primary"):
     local old_active old_inactive
 
     old_active="$(
-        hyprctl getoption general:col.active_border -j |
+        maho_hyprctl getoption general:col.active_border -j |
         python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
     )"
 
     old_inactive="$(
-        hyprctl getoption general:col.inactive_border -j |
+        maho_hyprctl getoption general:col.inactive_border -j |
         python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
     )"
 
@@ -402,12 +436,12 @@ for key in ("foreground", "primary"):
     local actual_active actual_inactive
 
     actual_active="$(
-        hyprctl getoption general:col.active_border -j |
+        maho_hyprctl getoption general:col.active_border -j |
         python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
     )"
 
     actual_inactive="$(
-        hyprctl getoption general:col.inactive_border -j |
+        maho_hyprctl getoption general:col.inactive_border -j |
         python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
     )"
 
