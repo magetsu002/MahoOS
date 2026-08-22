@@ -1,0 +1,46 @@
+name: core-contracts
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            bin/mahoctl \
+            bin/maho-theme \
+            bin/maho-wallpaper \
+            lib/authority.sh \
+            lib/state.sh \
+            lib/events.sh \
+            lib/intent.sh \
+            theme/backends/basic/generate \
+            theme/backends/matugen/generate \
+            tests/core-contracts.sh
+
+      - name: JSON contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m json.tool config/ownership.json >/dev/null
+          python -m json.tool config/intent.json >/dev/null
+
+      - name: Core contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/core-contracts.sh
