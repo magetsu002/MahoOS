@@ -87,38 +87,83 @@ print(json.dumps({"version":1,"max_millidegree_c":max_actual,"max_bucket_millide
 PY
 }
 
-signature() {
-    local domain="$1" data="$2"
-    python - "$domain" "$data" <<'PY'
+power_signature() {
+    local data="$1"
+    python - "$data" <<'PY'
 import hashlib,json,sys
-domain=sys.argv[1]; data=json.loads(sys.argv[2])
-if domain == "power":
-    normalized=[{"name":x.get("name"),"type":x.get("type"),"online":x.get("online"),"present":x.get("present"),"status":x.get("status"),"capacity_bucket_percent":x.get("capacity_bucket_percent")} for x in data.get("supplies",[])]
-elif domain == "thermal":
-    normalized={
-        "max_bucket_millidegree_c":data.get("max_bucket_millidegree_c"),
-        "sensors":[{"source":r.get("source"),"name":r.get("name"),"label":r.get("label")} for r in data.get("readings",[])],
-    }
-else: raise SystemExit(1)
+data=json.loads(sys.argv[1])
+normalized=[{"name":x.get("name"),"type":x.get("type"),"online":x.get("online"),"present":x.get("present"),"status":x.get("status"),"capacity_bucket_percent":x.get("capacity_bucket_percent")} for x in data.get("supplies",[])]
 raw=json.dumps(normalized,sort_keys=True,separators=(",",":")).encode()
 print(hashlib.sha256(raw).hexdigest())
 PY
 }
 
+thermal_reference_candidate() {
+    local data="$1" reference_file="$2"
+    python - "$data" "$reference_file" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+
+data=json.loads(sys.argv[1]); path=Path(sys.argv[2])
+current=int(data["max_millidegree_c"])
+topology=[{"source":r.get("source"),"name":r.get("name"),"label":r.get("label")} for r in data.get("readings",[])]
+topology_sha=hashlib.sha256(json.dumps(topology,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+previous=None
+if path.is_file():
+    try: previous=json.loads(path.read_text())
+    except Exception: previous=None
+if previous and previous.get("topology_sha256") == topology_sha:
+    try: reference=int(previous["max_millidegree_c"])
+    except Exception: reference=None
+    if reference is not None and abs(current-reference) < 5000:
+        raise SystemExit(3)
+print(json.dumps({"version":1,"max_millidegree_c":current,"topology_sha256":topology_sha},sort_keys=True))
+PY
+}
+
+write_atomic_private() {
+    local path="$1" content="$2" tmp
+    tmp="$path.$$"
+    printf '%s\n' "$content" > "$tmp" || return 1
+    chmod 0600 "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$path"
+}
+
 observe_domain_locked() {
-    local domain="$1" data sig sig_file previous=""
+    local domain="$1" data sig sig_file previous="" reference reference_file rc
     case "$domain" in
-        power) data="$(power_current)" || return 2 ;;
-        thermal) data="$(thermal_current)" || return 2 ;;
+        power)
+            data="$(power_current)" || return 2
+            sig="$(power_signature "$data")" || return 1
+            sig_file="$OBSERVER_STATE/power.signature"
+            [ ! -f "$sig_file" ] || previous="$(cat "$sig_file" 2>/dev/null || true)"
+            [ "$sig" != "$previous" ] || return 0
+            ;;
+        thermal)
+            data="$(thermal_current)" || return 2
+            reference_file="$OBSERVER_STATE/thermal.reference.json"
+            if reference="$(thermal_reference_candidate "$data" "$reference_file")"; then
+                :
+            else
+                rc=$?
+                [ "$rc" -eq 3 ] && return 0
+                return 1
+            fi
+            ;;
         *) echo "maho-observe: unknown domain: $domain" >&2; return 1 ;;
     esac
-    sig="$(signature "$domain" "$data")" || return 1
-    sig_file="$OBSERVER_STATE/$domain.signature"
-    [ ! -f "$sig_file" ] || previous="$(cat "$sig_file" 2>/dev/null || true)"
-    [ "$sig" != "$previous" ] || return 0
+
     maho_state_publish "$domain" sysfs "$data" >/dev/null || return 1
-    printf '%s\n' "$sig" > "$sig_file"
-    chmod 0600 "$sig_file" 2>/dev/null || true
+
+    case "$domain" in
+        power)
+            write_atomic_private "$sig_file" "$sig" || return 1
+            ;;
+        thermal)
+            write_atomic_private "$reference_file" "$reference" || return 1
+            ;;
+    esac
+
     maho_event_emit "$domain" "$domain.changed" observed info "Normalized $domain state changed" "" sysfs "$data" >/dev/null 2>&1 || true
 }
 
@@ -168,6 +213,7 @@ doctor() {
     thermal_current >/dev/null 2>&1 && echo "PASS  thermal sysfs observer" || echo "INFO  thermal sysfs capability unavailable"
     declare -F maho_state_publish >/dev/null 2>&1 && echo "PASS  normalized state publisher" || echo "FAIL  normalized state publisher unavailable"
     command -v flock >/dev/null 2>&1 && echo "PASS  observer concurrency lock" || echo "INFO  flock unavailable; duplicate concurrent observations are not serialized"
+    echo "INFO  thermal event hysteresis: 5 C from last published reference"
     true
 }
 
@@ -189,8 +235,8 @@ Usage:
 
 The observer only reads kernel-exposed state and publishes normalized Maho
 state. Missing power or thermal providers disable that capability only.
-Thermal change events are keyed to the hottest 5 C band plus sensor topology,
-not every small per-sensor fluctuation.
+Thermal events use a 5 C change threshold from the last published hottest
+reading plus sensor-topology changes, preventing boundary chatter.
 HELP
         ;;
 esac
