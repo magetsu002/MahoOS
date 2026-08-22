@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+FS_ROOT="${MAHO_FS_ROOT:-/}"
+PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
+SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
+MONITOR_STATE="$SEC_STATE/monitor-v2"
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+EVENTS="$ROOT/lib/events.sh"
+PROBE="$ROOT/lib/security_probe.py"
+SECURITY="$ROOT/bin/maho-security"
+PROVENANCE="$ROOT/bin/maho-provenance"
+
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+
+mkdir -p "$MONITOR_STATE"
+chmod 0700 "$MONITOR_STATE" 2>/dev/null || true
+
+emit_event() {
+    maho_event_emit security "$@" >/dev/null 2>&1 || true
+}
+
+probe() {
+    [ -r "$PROBE" ] || return 1
+    python "$PROBE" "$@"
+}
+
+record_state() {
+    local key="$1" payload="$2"
+    python - "$MONITOR_STATE" "$key" "$payload" <<'PY'
+import hashlib,json,os,re,sys,uuid
+from pathlib import Path
+root=Path(sys.argv[1]); key=sys.argv[2]; payload=json.loads(sys.argv[3])
+if not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}",key): raise SystemExit("invalid monitor state key")
+root.mkdir(parents=True,exist_ok=True); os.chmod(root,0o700)
+path=root/f"{key}.json"; previous=None
+if path.is_file():
+    try: previous=json.loads(path.read_text())
+    except Exception: previous=None
+raw=lambda v: json.dumps(v,sort_keys=True,separators=(",",":"))
+changed=previous is None or raw(previous) != raw(payload)
+result={"changed":changed,"first":previous is None,"previous_result":previous.get("result") if isinstance(previous,dict) else None,"current_result":payload.get("result") if isinstance(payload,dict) else None}
+if changed:
+    data=(json.dumps(payload,indent=2,sort_keys=True)+"\n").encode()
+    tmp=path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+    try:
+        os.fchmod(fd,0o600); offset=0
+        while offset < len(data): offset += os.write(fd,data[offset:])
+        os.fsync(fd)
+    finally: os.close(fd)
+    os.replace(tmp,path); os.chmod(path,0o600)
+print(json.dumps(result,sort_keys=True))
+PY
+}
+
+transition_fields() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("1" if r.get("changed") else "0")
+print("1" if r.get("first") else "0")
+print(r.get("previous_result") or "")
+print(r.get("current_result") or "")
+PY
+}
+
+package_state() {
+    python - "$DB_ROOT" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+root=Path(sys.argv[1]); packages=[]
+if not root.is_dir():
+    print(json.dumps({"result":"unavailable","packages":0,"state_sha256":None},sort_keys=True)); raise SystemExit(0)
+for desc in sorted(root.glob("*/desc")):
+    try:
+        raw=desc.read_bytes(); lines=raw.decode(errors="replace").splitlines()
+    except OSError: continue
+    values={}; i=0
+    while i < len(lines):
+        if lines[i] in {"%NAME%","%VERSION%"} and i+1 < len(lines): values[lines[i].strip("%")]=lines[i+1]
+        i+=1
+    if values.get("NAME") and values.get("VERSION"):
+        packages.append({"name":values["NAME"],"version":values["VERSION"],"desc_sha256":hashlib.sha256(raw).hexdigest()})
+state=hashlib.sha256(json.dumps(packages,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+print(json.dumps({"result":"observed","packages":len(packages),"state_sha256":state},sort_keys=True))
+PY
+}
+
+package_cycle() {
+    local payload transition changed first previous current
+    payload="$(package_state)" || return 1
+    transition="$(record_state packages "$payload")" || return 1
+    mapfile -t fields < <(transition_fields "$transition")
+    changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$current" = observed ] || return 0
+    [ "$changed" = 1 ] || return 0
+
+    # Evidence capture is automatic, trust is not. Snapshot never selects a baseline.
+    if [ -r "$PROVENANCE" ]; then
+        bash "$PROVENANCE" snapshot >/dev/null 2>&1 || true
+        if [ -f "$SEC_STATE/provenance/baseline.json" ]; then
+            bash "$PROVENANCE" check >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if [ "$first" = 0 ]; then
+        emit_event packages.state-transition observed info \
+            "Observed installed package state change and captured a new untrusted provenance snapshot" \
+            security.packages pacman-local-db "$payload"
+    fi
+}
+
+persistence_cycle() {
+    local payload transition changed first previous current
+    payload="$(probe persistence check --state-root "$SEC_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    transition="$(record_state persistence "$payload")" || return 1
+    mapfile -t fields < <(transition_fields "$transition")
+    changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 1 ] || return 0
+
+    case "$current" in
+        changed)
+            emit_event persistence.changed observed medium \
+                "Security monitor observed persistence drift from the user-selected baseline" \
+                security.persistence maho "$payload"
+            ;;
+        clean)
+            if [ "$previous" = changed ]; then
+                emit_event persistence.restored verified info \
+                    "Persistence inventory returned to the user-selected baseline" \
+                    security.persistence maho "$payload"
+            fi
+            ;;
+    esac
+}
+
+runtime_cycle() {
+    local payload transition changed previous current
+    payload="$(probe runtime --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --uid "$(id -u)" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    transition="$(record_state runtime "$payload")" || return 1
+    mapfile -t fields < <(transition_fields "$transition")
+    changed="${fields[0]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 1 ] || return 0
+
+    case "$current" in
+        observed)
+            emit_event runtime.executable-observation observed medium \
+                "Security monitor observed new or changed runtime executable evidence; no process was modified" \
+                security.processes procfs "$payload"
+            ;;
+        clean)
+            if [ "$previous" = observed ]; then
+                emit_event runtime.executable-cleared verified info \
+                    "Previously observed runtime executable signals are no longer present" \
+                    security.processes procfs "$payload"
+            fi
+            ;;
+    esac
+}
+
+integrity_due() {
+    local interval="${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}" path="$MONITOR_STATE/integrity-last-run"
+    [[ "$interval" =~ ^[0-9]+$ ]] || interval=1800
+    python - "$path" "$interval" <<'PY'
+import time,sys
+from pathlib import Path
+path=Path(sys.argv[1]); interval=int(sys.argv[2]); last=0
+try: last=int(path.read_text().strip())
+except Exception: pass
+raise SystemExit(0 if time.time()-last >= interval else 1)
+PY
+}
+
+mark_integrity_run() {
+    local path="$MONITOR_STATE/integrity-last-run" tmp="$MONITOR_STATE/.integrity-last-run.$$"
+    umask 077
+    date +%s > "$tmp" && chmod 0600 "$tmp" 2>/dev/null && mv -f "$tmp" "$path"
+}
+
+integrity_cycle() {
+    integrity_due || return 0
+    local payload transition changed first previous current
+    payload="$(probe integrity --scope critical --db-root "$DB_ROOT" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    mark_integrity_run || true
+    transition="$(record_state integrity "$payload")" || return 1
+    mapfile -t fields < <(transition_fields "$transition")
+    changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 1 ] || return 0
+
+    case "$current" in
+        changed)
+            emit_event files.integrity-drift observed high \
+                "Periodic critical package-file integrity scan observed drift from local pacman mtree metadata" \
+                security.files pacman-mtree "$payload"
+            ;;
+        partial)
+            emit_event files.integrity-partial observed low \
+                "Periodic critical package-file integrity scan was incomplete" \
+                security.files pacman-mtree "$payload"
+            ;;
+        clean)
+            if [ "$previous" = changed ] || [ "$previous" = partial ]; then
+                emit_event files.integrity-restored verified info \
+                    "Critical package-file integrity returned to expected local pacman mtree state" \
+                    security.files pacman-mtree "$payload"
+            fi
+            ;;
+    esac
+}
+
+finding_state() {
+    local file="$1"
+    python - "$file" "$DB_ROOT" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+path=Path(sys.argv[1]); root=Path(sys.argv[2])
+try: f=json.loads(path.read_text())
+except Exception:
+    print(json.dumps({"result":"invalid","file":str(path)},sort_keys=True)); raise SystemExit(0)
+name=(f.get("package") or {}).get("name"); affected=set((f.get("package") or {}).get("versions") or []); installed=None
+if name and root.is_dir():
+    for desc in root.glob("*/desc"):
+        try: lines=desc.read_text(errors="replace").splitlines()
+        except OSError: continue
+        values={}; i=0
+        while i < len(lines):
+            if lines[i] in {"%NAME%","%VERSION%"} and i+1 < len(lines): values[lines[i].strip("%")]=lines[i+1]
+            i+=1
+        if values.get("NAME") == name:
+            installed=values.get("VERSION"); break
+result="affected" if installed in affected else "not-affected"
+print(json.dumps({"result":result,"finding_id":f.get("id"),"package":name,"installed_version":installed,"finding_sha256":hashlib.sha256(path.read_bytes()).hexdigest()},sort_keys=True))
+PY
+}
+
+findings_cycle() {
+    local dir="$SEC_STATE/findings" file payload key transition changed
+    [ -d "$dir" ] || return 0
+    while IFS= read -r file; do
+        payload="$(finding_state "$file")" || continue
+        key="finding-$(printf '%s' "$file" | sha256sum | cut -c1-20)"
+        transition="$(record_state "$key" "$payload")" || continue
+        changed="$(printf '%s\n' "$transition" | python -c 'import json,sys; print("1" if json.load(sys.stdin).get("changed") else "0")')"
+        [ "$changed" = 1 ] || continue
+        case "$(printf '%s\n' "$payload" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')" in
+            affected|not-affected)
+                # Process only when the finding/package relationship changes.
+                # Affected becomes PROPOSE; not-affected becomes DO NOTHING.
+                bash "$SECURITY" process "$file" >/dev/null 2>&1 || true
+                ;;
+        esac
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.json' -print | sort)
+}
+
+cycle() {
+    package_cycle || true
+    persistence_cycle || true
+    runtime_cycle || true
+    integrity_cycle || true
+    findings_cycle || true
+}
+
+watch() {
+    local poll="${MAHO_SECURITY_POLL:-300}"
+    [[ "$poll" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll=300
+    while :; do
+        cycle
+        sleep "$poll"
+    done
+}
+
+doctor() {
+    echo "Maho security monitor"
+    [ -r "$PROBE" ] && python -m py_compile "$PROBE" >/dev/null 2>&1 && echo "PASS  security probe" || echo "FAIL  security probe unavailable"
+    [ -r "$PROVENANCE" ] && echo "PASS  package provenance engine" || echo "FAIL  package provenance engine"
+    [ -r "$SECURITY" ] && echo "PASS  security finding pipeline" || echo "FAIL  security finding pipeline"
+    echo "INFO  package state: captures untrusted evidence snapshots on change"
+    echo "INFO  persistence: transition-aware; user baseline required"
+    echo "INFO  runtime: transition-aware heuristic evidence only"
+    echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
+    echo "INFO  finding reevaluation: only when finding/install relationship changes"
+    echo "INFO  automatic mutation: none"
+}
+
+case "${1:-}" in
+    cycle) cycle ;;
+    watch) watch ;;
+    doctor) doctor ;;
+    *)
+        cat <<'HELP'
+Maho stateful read-only security monitor
+
+Usage:
+  maho-security-monitor cycle
+  maho-security-monitor watch
+  maho-security-monitor doctor
+
+The monitor captures package-state evidence without trusting it, detects
+persistence/runtime transitions without repeating identical alerts, performs a
+periodic critical package-file integrity scan, and reevaluates stored package
+findings when their installed-version relationship changes. It never performs
+a containment or recovery mutation.
+HELP
+        ;;
+esac
