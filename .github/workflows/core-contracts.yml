@@ -51,8 +51,15 @@ jobs:
             tests/wallpaper-restore.sh \
             tests/provenance-contracts.sh \
             tests/security-findings.sh \
+            tests/security-probes.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh
+
+      - name: Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile lib/security_probe.py
 
       - name: JSON contracts
         shell: bash
@@ -115,6 +122,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/security-findings.sh
+
+      - name: Security integrity and persistence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/security-probes.sh
 
       - name: V1 setup lifecycle tests
         shell: bash
