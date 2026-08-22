@@ -29,6 +29,7 @@ jobs:
             bin/maho-adapt \
             bin/maho-provenance \
             bin/maho-security \
+            bin/maho-contain \
             bin/maho-setup \
             lib/authority.sh \
             lib/state.sh \
@@ -52,6 +53,7 @@ jobs:
             tests/provenance-contracts.sh \
             tests/security-findings.sh \
             tests/security-probes.sh \
+            tests/security-containment.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh
 
@@ -59,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile lib/security_probe.py
+          python -m py_compile lib/security_probe.py lib/security_containment.py
 
       - name: JSON contracts
         shell: bash
@@ -128,6 +130,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/security-probes.sh
+
+      - name: Security containment tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/security-containment.sh
 
       - name: V1 setup lifecycle tests
         shell: bash
