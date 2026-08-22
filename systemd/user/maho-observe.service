@@ -1,0 +1,11 @@
+[Unit]
+Description=Maho read-only environment observation
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-observe watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
