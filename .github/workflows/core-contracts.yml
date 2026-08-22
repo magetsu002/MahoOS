@@ -59,6 +59,7 @@ jobs:
             tests/security-monitor.sh \
             tests/security-incidents.sh \
             tests/security-preflight.sh \
+            tests/security-boundaries.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh
 
@@ -70,7 +71,8 @@ jobs:
             lib/security_probe.py \
             lib/security_containment.py \
             lib/security_incident.py \
-            lib/security_preflight.py
+            lib/security_preflight.py \
+            lib/security_boundary.py
 
       - name: JSON contracts
         shell: bash
@@ -163,6 +165,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/security-preflight.sh
+
+      - name: Security boundary observation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/security-boundaries.sh
 
       - name: V1 setup lifecycle tests
         shell: bash

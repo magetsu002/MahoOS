@@ -11,6 +11,7 @@ MONITOR_STATE="$SEC_STATE/monitor-v2"
 XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 EVENTS="$ROOT/lib/events.sh"
 PROBE="$ROOT/lib/security_probe.py"
+BOUNDARY="$ROOT/lib/security_boundary.py"
 SECURITY="$ROOT/bin/maho-security"
 PROVENANCE="$ROOT/bin/maho-provenance"
 GUARD="$ROOT/bin/maho-guard"
@@ -29,6 +30,11 @@ emit_event() {
 probe() {
     [ -r "$PROBE" ] || return 1
     python "$PROBE" "$@"
+}
+
+boundary() {
+    [ -r "$BOUNDARY" ] || return 1
+    python "$BOUNDARY" "$@"
 }
 
 record_state() {
@@ -102,7 +108,6 @@ package_cycle() {
     [ "$current" = observed ] || return 0
     [ "$changed" = 1 ] || return 0
 
-    # Evidence capture is automatic, trust is not. Snapshot never selects a baseline.
     if [ -r "$PROVENANCE" ]; then
         bash "$PROVENANCE" snapshot >/dev/null 2>&1 || true
         if [ -f "$SEC_STATE/provenance/baseline.json" ]; then
@@ -160,6 +165,43 @@ runtime_cycle() {
                 emit_event runtime.executable-cleared verified info \
                     "Previously observed runtime executable signals are no longer present" \
                     security.processes procfs "$payload"
+            fi
+            ;;
+    esac
+}
+
+privilege_cycle() {
+    local payload transition changed first
+    payload="$(boundary privilege --fs-root "$FS_ROOT" --home "$HOME" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    transition="$(record_state privilege "$payload")" || return 1
+    mapfile -t fields < <(transition_fields "$transition")
+    changed="${fields[0]}"; first="${fields[1]}"
+    [ "$changed" = 1 ] || return 0
+    [ "$first" = 0 ] || return 0
+    emit_event privilege.boundary-transition observed high \
+        "Security monitor observed a change in high-authority persistence or privilege boundary files; shadow policy only" \
+        security.privilege maho-boundary "$payload"
+}
+
+network_cycle() {
+    local payload transition changed first previous current
+    payload="$(boundary network --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --uid "$(id -u)" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    transition="$(record_state network "$payload")" || return 1
+    mapfile -t fields < <(transition_fields "$transition")
+    changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 1 ] || return 0
+    [ "$first" = 0 ] || return 0
+    case "$current" in
+        observed)
+            emit_event network.listener-transition observed low \
+                "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface" \
+                security.network procfs "$payload"
+            ;;
+        clean)
+            if [ "$previous" = observed ]; then
+                emit_event network.listener-cleared verified info \
+                    "Previously observed current-user non-loopback TCP listener exposure cleared" \
+                    security.network procfs "$payload"
             fi
             ;;
     esac
@@ -251,8 +293,6 @@ findings_cycle() {
         [ "$changed" = 1 ] || continue
         case "$(printf '%s\n' "$payload" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')" in
             affected|not-affected)
-                # Process only when the finding/package relationship changes.
-                # Affected becomes PROPOSE; not-affected becomes DO NOTHING.
                 bash "$SECURITY" process "$file" >/dev/null 2>&1 || true
                 ;;
         esac
@@ -260,9 +300,6 @@ findings_cycle() {
 }
 
 incident_cycle() {
-    # Correlation is intentionally downstream of observation. The guard only
-    # mutates Maho's private incident state and records shadow decisions; it
-    # does not signal processes, alter packages, or change host policy.
     [ -r "$GUARD" ] || return 0
     bash "$GUARD" reconcile >/dev/null 2>&1 || true
 }
@@ -271,6 +308,8 @@ cycle() {
     package_cycle || true
     persistence_cycle || true
     runtime_cycle || true
+    privilege_cycle || true
+    network_cycle || true
     integrity_cycle || true
     findings_cycle || true
     incident_cycle || true
@@ -288,12 +327,15 @@ watch() {
 doctor() {
     echo "Maho security monitor"
     [ -r "$PROBE" ] && python -m py_compile "$PROBE" >/dev/null 2>&1 && echo "PASS  security probe" || echo "FAIL  security probe unavailable"
+    [ -r "$BOUNDARY" ] && python -m py_compile "$BOUNDARY" >/dev/null 2>&1 && echo "PASS  privilege/network boundary observer" || echo "FAIL  privilege/network boundary observer"
     [ -r "$PROVENANCE" ] && echo "PASS  package provenance engine" || echo "FAIL  package provenance engine"
     [ -r "$SECURITY" ] && echo "PASS  security finding pipeline" || echo "FAIL  security finding pipeline"
     [ -r "$GUARD" ] && echo "PASS  incident shadow-prevention guard" || echo "FAIL  incident shadow-prevention guard"
     echo "INFO  package state: captures untrusted evidence snapshots on change"
     echo "INFO  persistence: transition-aware; user baseline required"
     echo "INFO  runtime: transition-aware heuristic evidence only"
+    echo "INFO  privilege boundaries: transition-aware, no trust claim"
+    echo "INFO  network exposure: current-user non-loopback TCP listeners"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
     echo "INFO  finding reevaluation: only when finding/install relationship changes"
     echo "INFO  incident correlation: every monitor cycle after observations settle"
@@ -314,11 +356,11 @@ Usage:
   maho-security-monitor doctor
 
 The monitor captures package-state evidence without trusting it, detects
-persistence/runtime transitions without repeating identical alerts, performs a
-periodic critical package-file integrity scan, reevaluates stored package
-findings when their installed-version relationship changes, then reconciles
-that evidence into incident-level shadow prevention decisions. It never
-performs containment or recovery mutation automatically.
+persistence/runtime/privilege/network transitions without repeating identical
+alerts, performs a periodic critical package-file integrity scan, reevaluates
+stored package findings, then reconciles that evidence into incident-level
+shadow prevention decisions. It never performs containment or recovery
+mutation automatically.
 HELP
         ;;
 esac

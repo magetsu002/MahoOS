@@ -49,12 +49,10 @@ is_managed_launcher() {
     local name="$1" path
     path="$(launcher_path "$name")"
     [ -e "$path" ] || [ -L "$path" ] || return 1
-
     if [ -L "$path" ]; then
         [ "$(readlink -f -- "$path" 2>/dev/null || true)" = "$ROOT/bin/$name" ]
         return
     fi
-
     grep -Fq "$MARKER" "$path" 2>/dev/null
 }
 
@@ -62,18 +60,15 @@ is_managed_unit() {
     local name="$1" source target
     source="$(unit_source "$name")"
     target="$(unit_target "$name")"
-
     if [ -L "$target" ]; then
         [ "$(readlink -f -- "$target" 2>/dev/null || true)" = "$source" ]
         return
     fi
-
     [ -f "$target" ] && cmp -s "$target" "$source"
 }
 
 preflight() {
     local failed=0 name file
-
     [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
 
     for name in "${COMMANDS[@]}"; do
@@ -108,6 +103,7 @@ preflight() {
         "$ROOT/lib/security_containment.py" \
         "$ROOT/lib/security_incident.py" \
         "$ROOT/lib/security_preflight.py" \
+        "$ROOT/lib/security_boundary.py" \
         >/dev/null 2>&1; then
         echo "PASS  python security modules"
     else
@@ -149,12 +145,10 @@ preflight() {
 write_launcher() {
     local name="$1" target tmp
     target="$(launcher_path "$name")"
-
     if { [ -e "$target" ] || [ -L "$target" ]; } && ! is_managed_launcher "$name"; then
         die "refusing to overwrite unmanaged command: $target"
         return 1
     fi
-
     mkdir -p "$BIN_DIR"
     tmp="$BIN_DIR/.${name}.$$"
     cat > "$tmp" <<EOF_LAUNCHER
@@ -172,19 +166,16 @@ install_unit() {
     source="$(unit_source "$name")"
     target="$(unit_target "$name")"
     mkdir -p "$UNIT_DIR"
-
     if { [ -e "$target" ] || [ -L "$target" ]; } && ! is_managed_unit "$name"; then
         die "refusing to replace unmanaged user unit: $target"
         return 1
     fi
-
     rm -f "$target"
     ln -s "$source" "$target"
 }
 
 systemd_available() {
-    command -v systemctl >/dev/null 2>&1 &&
-        systemctl --user show-environment >/dev/null 2>&1
+    command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
 
 install() {
@@ -219,14 +210,12 @@ install() {
     else
         echo "INFO  systemd user manager unavailable; service start deferred"
     fi
-
     echo
     echo "PASS: Maho OS V1 user setup complete"
 }
 
 status() {
     local failed=0 name
-
     echo "Maho OS V1 setup status"
     echo "Repository: $ROOT"
     echo
@@ -260,14 +249,12 @@ status() {
     else
         echo "INFO  systemd user manager unavailable"
     fi
-
     return "$failed"
 }
 
 uninstall() {
     echo "Maho OS V1 user uninstall"
     local name target path
-
     if systemd_available; then
         for name in "${UNITS[@]}"; do
             systemctl --user disable --now "$name" >/dev/null 2>&1 || true

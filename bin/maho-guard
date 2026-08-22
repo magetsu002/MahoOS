@@ -5,6 +5,8 @@ set -u
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+FS_ROOT="${MAHO_FS_ROOT:-/}"
+PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
 INCIDENT_ENGINE="$ROOT/lib/security_incident.py"
 PREFLIGHT_ENGINE="$ROOT/lib/security_preflight.py"
 INTENT="$ROOT/lib/intent.sh"
@@ -42,7 +44,7 @@ autonomy_level() {
 }
 
 emit_incident_changes() {
-    local result="$1" line kind risk payload summary status
+    local result="$1" kind risk payload summary status
     while IFS=$'\t' read -r kind risk payload; do
         [ -n "$kind" ] || continue
         case "$kind" in
@@ -92,7 +94,14 @@ reconcile_command() {
     local mode level result
     mode="$(prevention_mode)"
     level="$(autonomy_level)"
-    result="$(python "$INCIDENT_ENGINE" reconcile --state-root "$SEC_STATE" --db-root "$DB_ROOT" --prevention-mode "$mode" --autonomy-level "$level")" || return 1
+    result="$(python "$INCIDENT_ENGINE" reconcile \
+        --state-root "$SEC_STATE" \
+        --db-root "$DB_ROOT" \
+        --proc-root "$PROC_ROOT" \
+        --fs-root "$FS_ROOT" \
+        --uid "$(id -u)" \
+        --prevention-mode "$mode" \
+        --autonomy-level "$level")" || return 1
     emit_incident_changes "$result"
     pretty_reconcile "$result"
 }
@@ -190,10 +199,11 @@ Usage:
   maho-guard doctor
 
 V1 guard policy is intentionally frictionless and shadow-only. It correlates
-current finding, package-file integrity, persistence and runtime evidence into
-incidents, scores confidence/risk/reversibility, and records what Maho would do
-without automatically mutating the system. PKGBUILD preflight is static and
-never sources or executes untrusted build instructions.
+current finding, package-file integrity, persistence, privilege, runtime and
+network evidence into incidents, scores confidence/risk/reversibility, and
+records what Maho would do without automatically mutating the system.
+PKGBUILD preflight is static and never sources or executes untrusted build
+instructions.
 HELP
         ;;
 esac

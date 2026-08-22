@@ -8,15 +8,14 @@ import hashlib
 import json
 import os
 import re
-import shutil
-import sys
 from pathlib import Path
 
-from security_probe import atomic_private, normalized_package_paths, package_records, stable_hash
+from security_probe import atomic_private, normalized_package_paths, package_records, read_process, stable_hash
 
 VERSION = 1
 INCIDENT_RE = re.compile(r"^inc-[a-z0-9._-]+-[0-9a-f]{16}$")
 RISK_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+RECENT_PRIVILEGE_SECONDS = 1800
 
 WEIGHTS = {
     "confirmed-finding": 60,
@@ -25,18 +24,9 @@ WEIGHTS = {
     "privilege-boundary": 48,
     "persistence-drift": 34,
     "runtime-executable": 18,
+    "affected-package-process": 12,
+    "network-exposure": 16,
 }
-
-SENSITIVE_PERSISTENCE_PREFIXES = (
-    "/etc/sudoers",
-    "/etc/polkit-1/",
-    "/etc/systemd/system/",
-    "/etc/modules-load.d/",
-    "/etc/modprobe.d/",
-    "/etc/pacman.d/hooks/",
-    "/etc/mkinitcpio",
-    "/boot/",
-)
 
 
 def now_utc() -> str:
@@ -66,6 +56,34 @@ def path_package_index(db_root: Path) -> dict[str, str]:
         for path in normalized_package_paths(record):
             index.setdefault(path, record["name"])
     return index
+
+
+def package_process_map(db_root: Path, proc_root: Path, fs_root: Path, uid: int | None) -> dict[str, list[dict]]:
+    index = path_package_index(db_root)
+    mapped: dict[str, list[dict]] = {}
+    if not proc_root.is_dir():
+        return mapped
+    for proc in proc_root.iterdir():
+        if not proc.name.isdigit() or not proc.is_dir():
+            continue
+        item = read_process(proc, fs_root)
+        if not item:
+            continue
+        if uid is not None and item.get("uid") != uid:
+            continue
+        package = index.get(str(item.get("relative_exe") or ""))
+        if not package:
+            continue
+        mapped.setdefault(package, []).append(
+            {
+                "pid": item.get("pid"),
+                "name": item.get("name"),
+                "exe": item.get("exe"),
+            }
+        )
+    for rows in mapped.values():
+        rows.sort(key=lambda x: int(x.get("pid") or 0))
+    return mapped
 
 
 def signal(kind: str, source: str, weight: int, details: dict, confidence: str = "heuristic") -> dict:
@@ -106,8 +124,8 @@ def confidence_for(signals: list[dict], score: int) -> str:
 
 
 def unique_signal_set(signals: list[dict]) -> list[dict]:
-    # Repeated evidence of the same class must not inflate risk indefinitely.
-    # Keep the strongest item per kind and retain a bounded sample of details.
+    # Repeated evidence of one class must not inflate risk indefinitely.
+    # Keep the strongest item per kind and retain only a bounded correlation sample.
     by_kind: dict[str, dict] = {}
     for item in signals:
         kind = item["kind"]
@@ -119,6 +137,20 @@ def unique_signal_set(signals: list[dict]) -> list[dict]:
             if len(samples) < 8:
                 samples.append(item.get("details", {}))
     return [by_kind[k] for k in sorted(by_kind)]
+
+
+def pids_from_signals(signals: list[dict]) -> list[int]:
+    pids: list[int] = []
+    for item in signals:
+        details = item.get("details") or {}
+        candidates = list(details.get("pids") or [])
+        for row in details.get("processes") or []:
+            if isinstance(row, dict):
+                candidates.append(row.get("pid"))
+        for pid in candidates:
+            if isinstance(pid, int) and pid not in pids:
+                pids.append(pid)
+    return sorted(pids)
 
 
 def build_incident(
@@ -139,15 +171,7 @@ def build_incident(
     confidence = confidence_for(signals, score)
 
     confirmed_finding = any(s["kind"] == "confirmed-finding" for s in signals)
-    runtime_pids: list[int] = []
-    for s in signals:
-        if s["kind"] != "runtime-executable":
-            continue
-        for pid in s.get("details", {}).get("pids", []):
-            if isinstance(pid, int) and pid not in runtime_pids:
-                runtime_pids.append(pid)
-    runtime_pids.sort()
-
+    runtime_pids = pids_from_signals(signals)
     containment_eligible = subject_type == "package" and confirmed_finding and bool(runtime_pids)
     response_reversible = containment_eligible
 
@@ -163,19 +187,13 @@ def build_incident(
     if score >= 80 and containment_eligible and provenance_baseline:
         recommended = "contain-and-prepare-recovery"
 
-    if prevention_mode == "off":
-        shadow_action = "none"
-    else:
-        shadow_action = recommended
+    shadow_action = "none" if prevention_mode == "off" else recommended
 
-    # V1 prevention remains shadow-only. No incident assessment mutates system
-    # state. The separate containment command still requires explicit user
-    # confirmation and re-validates the target at execution time.
+    # Shadow prevention is the safe calibration stage. The assessment never
+    # mutates host state. Explicit containment remains separately gated and
+    # revalidated at execution time.
     enforced_action = "none"
-
-    attention = "silent"
-    if risk == "critical" and confidence == "confirmed":
-        attention = "notification"
+    attention = "notification" if risk == "critical" and confidence == "confirmed" else "silent"
 
     core = {
         "version": VERSION,
@@ -210,45 +228,45 @@ def build_incident(
     return core
 
 
-def collect_groups(security_state: Path, db_root: Path) -> dict[tuple[str, str], list[dict]]:
+def recent_timestamp(value: str | None, seconds: int) -> bool:
+    if not value:
+        return False
+    try:
+        stamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=dt.timezone.utc)
+    age = (dt.datetime.now(dt.timezone.utc) - stamp.astimezone(dt.timezone.utc)).total_seconds()
+    return -5 <= age <= seconds
+
+
+def collect_groups(security_state: Path, db_root: Path, proc_root: Path, fs_root: Path, uid: int | None) -> dict[tuple[str, str], list[dict]]:
     monitor = security_state / "monitor-v2"
     groups: dict[tuple[str, str], list[dict]] = {}
     path_index = path_package_index(db_root)
     versions = installed_versions(db_root)
+    processes = package_process_map(db_root, proc_root, fs_root, uid)
 
     persistence = read_json(monitor / "persistence.json", {}) or {}
     if persistence.get("result") == "changed":
-        changed_rows = []
-        changed_rows.extend(persistence.get("added") or [])
-        for row in persistence.get("changed") or []:
-            if isinstance(row, dict):
-                changed_rows.append(row.get("after") or row)
-        sensitive = []
-        ordinary = []
-        for row in changed_rows:
-            if not isinstance(row, dict):
-                continue
-            path = str(row.get("path") or "")
-            if any(path == p.rstrip("/") or path.startswith(p) for p in SENSITIVE_PERSISTENCE_PREFIXES):
-                sensitive.append(row)
-            else:
-                ordinary.append(row)
-        if sensitive:
-            add_signal(groups, "host", "local", signal(
-                "privilege-boundary",
-                "persistence-baseline",
-                WEIGHTS["privilege-boundary"],
-                {"items": sensitive[:20], "count": len(sensitive)},
-                "corroborated",
-            ))
-        if ordinary or not changed_rows:
-            add_signal(groups, "host", "local", signal(
-                "persistence-drift",
-                "persistence-baseline",
-                WEIGHTS["persistence-drift"],
-                {"added": persistence.get("added", [])[:20], "changed": persistence.get("changed", [])[:20]},
-                "corroborated",
-            ))
+        add_signal(groups, "host", "local", signal(
+            "persistence-drift",
+            "persistence-baseline",
+            WEIGHTS["persistence-drift"],
+            {"added": (persistence.get("added") or [])[:20], "changed": (persistence.get("changed") or [])[:20]},
+            "corroborated",
+        ))
+
+    privilege = read_json(monitor / "privilege-signal.json", {}) or {}
+    if privilege.get("result") == "observed" and recent_timestamp(privilege.get("observed_at"), RECENT_PRIVILEGE_SECONDS):
+        add_signal(groups, "host", "local", signal(
+            "privilege-boundary",
+            "privilege-transition",
+            WEIGHTS["privilege-boundary"],
+            {"added": (privilege.get("added") or [])[:20], "removed": (privilege.get("removed") or [])[:20], "changed": (privilege.get("changed") or [])[:20]},
+            "corroborated",
+        ))
 
     integrity = read_json(monitor / "integrity.json", {}) or {}
     if integrity.get("result") == "changed":
@@ -286,11 +304,7 @@ def collect_groups(security_state: Path, db_root: Path) -> dict[tuple[str, str],
                 continue
             rel = str(row.get("relative_exe") or "")
             package = path_index.get(rel)
-            item = {
-                "pid": row.get("pid"),
-                "exe": row.get("exe"),
-                "signals": row.get("signals") or [],
-            }
+            item = {"pid": row.get("pid"), "exe": row.get("exe"), "signals": row.get("signals") or []}
             if package:
                 mapped.setdefault(package, []).append(item)
             else:
@@ -340,6 +354,50 @@ def collect_groups(security_state: Path, db_root: Path) -> dict[tuple[str, str],
                 },
                 "confirmed" if confidence == "confirmed" else "corroborated",
             ))
+            rows = processes.get(str(package)) or []
+            if rows:
+                add_signal(groups, "package", str(package), signal(
+                    "affected-package-process",
+                    "procfs",
+                    WEIGHTS["affected-package-process"],
+                    {"pids": [int(r["pid"]) for r in rows if isinstance(r.get("pid"), int)], "processes": rows[:20]},
+                    "corroborated",
+                ))
+
+    # Network exposure is intentionally a correlation amplifier, never a noisy
+    # standalone incident. A developer listening on 0.0.0.0 should not trigger
+    # Maho by itself. It matters when another signal already implicates the same
+    # package or the host.
+    network = read_json(monitor / "network.json", {}) or {}
+    if network.get("result") == "observed":
+        mapped_network: dict[str, list[dict]] = {}
+        unmapped_network: list[dict] = []
+        for row in network.get("exposed") or []:
+            if not isinstance(row, dict):
+                continue
+            package = path_index.get(str(row.get("relative_exe") or ""))
+            if package:
+                mapped_network.setdefault(package, []).append(row)
+            else:
+                unmapped_network.append(row)
+        for package, rows in mapped_network.items():
+            if ("package", package) not in groups:
+                continue
+            add_signal(groups, "package", package, signal(
+                "network-exposure",
+                "procfs-network",
+                WEIGHTS["network-exposure"],
+                {"listeners": rows[:20], "count": len(rows)},
+                "heuristic",
+            ))
+        if unmapped_network and ("host", "local") in groups:
+            add_signal(groups, "host", "local", signal(
+                "network-exposure",
+                "procfs-network",
+                WEIGHTS["network-exposure"],
+                {"listeners": unmapped_network[:20], "count": len(unmapped_network)},
+                "heuristic",
+            ))
 
     return groups
 
@@ -347,6 +405,8 @@ def collect_groups(security_state: Path, db_root: Path) -> dict[tuple[str, str],
 def reconcile(args) -> dict:
     security_state = Path(args.state_root)
     db_root = Path(args.db_root)
+    proc_root = Path(args.proc_root)
+    fs_root = Path(args.fs_root)
     active_dir = security_state / "incidents" / "active"
     archive_dir = security_state / "incidents" / "archive"
     active_dir.mkdir(parents=True, exist_ok=True)
@@ -354,21 +414,13 @@ def reconcile(args) -> dict:
     os.chmod(active_dir, 0o700)
     os.chmod(archive_dir, 0o700)
 
-    groups = collect_groups(security_state, db_root)
+    groups = collect_groups(security_state, db_root, proc_root, fs_root, args.uid)
     provenance_baseline = (security_state / "provenance" / "baseline.json").is_file()
     persistence_baseline = (security_state / "persistence" / "baseline.json").is_file()
 
     current: dict[str, dict] = {}
     for (subject_type, subject_id), signals in groups.items():
-        incident = build_incident(
-            subject_type,
-            subject_id,
-            signals,
-            args.prevention_mode,
-            args.autonomy_level,
-            provenance_baseline,
-            persistence_baseline,
-        )
+        incident = build_incident(subject_type, subject_id, signals, args.prevention_mode, args.autonomy_level, provenance_baseline, persistence_baseline)
         current[incident["incident_id"]] = incident
 
     previous: dict[str, dict] = {}
@@ -464,6 +516,9 @@ def build_parser() -> argparse.ArgumentParser:
     rec = sub.add_parser("reconcile")
     rec.add_argument("--state-root", required=True)
     rec.add_argument("--db-root", required=True)
+    rec.add_argument("--proc-root", default="/proc")
+    rec.add_argument("--fs-root", default="/")
+    rec.add_argument("--uid", type=int)
     rec.add_argument("--prevention-mode", choices=("off", "shadow"), default="shadow")
     rec.add_argument("--autonomy-level", choices=("observe", "guard", "contain", "recover"), default="guard")
 
@@ -493,7 +548,7 @@ def main() -> int:
             "status": "ok",
             "automatic_system_mutation": False,
             "unit_of_reasoning": "incident",
-            "risk_inputs": ["finding", "integrity", "persistence", "runtime", "source-diversity"],
+            "risk_inputs": ["finding", "integrity", "persistence", "privilege-transition", "runtime", "affected-package-process", "network-correlation", "source-diversity"],
         }
     else:
         raise SystemExit("unknown command")
