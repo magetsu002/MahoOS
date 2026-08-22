@@ -5,11 +5,17 @@ set -u
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 SRC="$ROOT/config/hypr"
 LIVE="$HOME/.config/hypr"
+AUTHORITY="$ROOT/lib/authority.sh"
 
 STATE="$HOME/.local/share/maho"
 BACKUPS="$STATE/backups"
 
 mkdir -p "$STATE" "$BACKUPS"
+
+if [ -r "$AUTHORITY" ]; then
+    # shellcheck source=../lib/authority.sh
+    source "$AUTHORITY"
+fi
 
 die() {
     echo "mahoctl: $*" >&2
@@ -24,13 +30,25 @@ revision() {
     git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf 'uncommitted'
 }
 
+require_authority() {
+    [ -r "$AUTHORITY" ] || {
+        die "authority layer missing: $AUTHORITY"
+        return 1
+    }
+
+    declare -F maho_owner_get >/dev/null 2>&1 || {
+        die "authority layer failed to load"
+        return 1
+    }
+}
+
 doctor() {
     local failed=0
 
     echo "Maho OS doctor"
     echo
 
-    for cmd in git rsync hyprctl diff sha256sum; do
+    for cmd in git rsync hyprctl diff sha256sum python; do
         if command -v "$cmd" >/dev/null 2>&1; then
             printf 'PASS  %-12s %s\n' "$cmd" "$(command -v "$cmd")"
         else
@@ -59,6 +77,16 @@ doctor() {
         echo "PASS  live hyprland.lua"
     else
         echo "FAIL  live hyprland.lua missing"
+        failed=1
+    fi
+
+    if require_authority >/dev/null 2>&1 &&
+       maho_owner_validate_file "$MAHO_OWNERSHIP_DEFAULTS" >/dev/null 2>&1 &&
+       maho_owner_validate_file "$MAHO_OWNERSHIP_OVERRIDES" >/dev/null 2>&1
+    then
+        echo "PASS  authority registry"
+    else
+        echo "FAIL  authority registry"
         failed=1
     fi
 
@@ -108,6 +136,10 @@ status() {
 
     if [ -f "$STATE/active-revision" ]; then
         echo "Applied revision: $(cat "$STATE/active-revision")"
+    fi
+
+    if require_authority >/dev/null 2>&1; then
+        echo "Theme borders owner: $(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf 'unknown')"
     fi
 }
 
@@ -272,6 +304,134 @@ rollback_config() {
     echo "Rollback verified."
 }
 
+capability_line() {
+    local available="$1"
+    local name="$2"
+    local detail="${3:-}"
+
+    if [ "$available" = "1" ]; then
+        printf 'AVAILABLE    %-32s %s\n' "$name" "$detail"
+    else
+        printf 'UNAVAILABLE  %-32s %s\n' "$name" "$detail"
+    fi
+}
+
+capabilities() {
+    echo "Maho capabilities"
+    echo
+
+    if command -v hyprctl >/dev/null 2>&1 &&
+       hyprctl instances -j >/dev/null 2>&1
+    then
+        capability_line 1 session.hyprland
+    else
+        capability_line 0 session.hyprland
+    fi
+
+    if command -v awww >/dev/null 2>&1; then
+        capability_line 1 wallpaper.provider.awww "$(command -v awww)"
+    else
+        capability_line 0 wallpaper.provider.awww
+    fi
+
+    if command -v mpvpaper >/dev/null 2>&1; then
+        capability_line 1 wallpaper.provider.mpvpaper "$(command -v mpvpaper)"
+    else
+        capability_line 0 wallpaper.provider.mpvpaper
+    fi
+
+    if command -v matugen >/dev/null 2>&1 &&
+       [ -x "$ROOT/theme/backends/matugen/generate" ]
+    then
+        capability_line 1 theme.backend.matugen "$(command -v matugen)"
+    else
+        capability_line 0 theme.backend.matugen
+    fi
+
+    if command -v magick >/dev/null 2>&1 &&
+       [ -x "$ROOT/theme/backends/basic/generate" ]
+    then
+        capability_line 1 theme.backend.basic "$(command -v magick)"
+    else
+        capability_line 0 theme.backend.basic
+    fi
+
+    if command -v ffmpeg >/dev/null 2>&1 &&
+       command -v ffprobe >/dev/null 2>&1
+    then
+        capability_line 1 theme.video-frame
+    else
+        capability_line 0 theme.video-frame
+    fi
+
+    if command -v snapper >/dev/null 2>&1; then
+        capability_line 1 recovery.snapper "$(command -v snapper)"
+    else
+        capability_line 0 recovery.snapper
+    fi
+
+    if command -v findmnt >/dev/null 2>&1 &&
+       [ "$(findmnt -n -o FSTYPE / 2>/dev/null || true)" = "btrfs" ]
+    then
+        capability_line 1 filesystem.btrfs
+    else
+        capability_line 0 filesystem.btrfs
+    fi
+
+    if command -v systemctl >/dev/null 2>&1 &&
+       systemctl --user show-environment >/dev/null 2>&1
+    then
+        capability_line 1 lifecycle.systemd-user
+    else
+        capability_line 0 lifecycle.systemd-user
+    fi
+
+    echo
+
+    if require_authority >/dev/null 2>&1; then
+        echo "Authority"
+        maho_owner_list
+    else
+        echo "Authority unavailable"
+    fi
+}
+
+owner_command() {
+    require_authority || return 1
+
+    case "${1:-}" in
+        get)
+            [ -n "${2:-}" ] || {
+                die "usage: mahoctl owner get RESOURCE"
+                return 1
+            }
+            maho_owner_get "$2"
+            ;;
+        set)
+            [ -n "${2:-}" ] && [ -n "${3:-}" ] || {
+                die "usage: mahoctl owner set RESOURCE maho|integration|user"
+                return 1
+            }
+            maho_owner_set "$2" "$3"
+            ;;
+        unset)
+            [ -n "${2:-}" ] || {
+                die "usage: mahoctl owner unset RESOURCE"
+                return 1
+            }
+            maho_owner_unset "$2"
+            printf '%s = %s\n' "$2" "$(maho_owner_get "$2")"
+            ;;
+        list)
+            maho_owner_list
+            ;;
+        *)
+            die "usage: mahoctl owner get|set|unset|list ..."
+            return 1
+            ;;
+    esac
+}
+
 case "${1:-}" in
     doctor)
         doctor
@@ -288,6 +448,12 @@ case "${1:-}" in
     rollback)
         rollback_config "${2:-}"
         ;;
+    capabilities)
+        capabilities
+        ;;
+    owner)
+        owner_command "${2:-}" "${3:-}" "${4:-}"
+        ;;
     *)
         cat <<'HELP'
 Maho OS control utility
@@ -298,6 +464,17 @@ Usage:
   mahoctl diff
   mahoctl apply
   mahoctl rollback [backup-directory]
+  mahoctl capabilities
+  mahoctl owner list
+  mahoctl owner get RESOURCE
+  mahoctl owner set RESOURCE maho|integration|user
+  mahoctl owner unset RESOURCE
+
+Ownership precedence:
+  user override > Maho default > safety default (user)
+
+Only resources with effective owner "maho" may be mutated automatically.
+Manual user commands remain authoritative.
 HELP
         ;;
 esac

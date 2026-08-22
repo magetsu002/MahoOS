@@ -6,8 +6,18 @@ ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/wallpaper"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/wallpaper"
 LOG="$STATE/watch.log"
+AUTHORITY="$ROOT/lib/authority.sh"
 
 mkdir -p "$STATE" "$CACHE"
+
+if [ -r "$AUTHORITY" ] && source "$AUTHORITY" 2>/dev/null; then
+    :
+else
+    # Safe degradation: without the authority layer, automatic mutation is denied.
+    maho_owner_get() {
+        printf '%s\n' user
+    }
+fi
 
 log() {
     printf '%s  %s\n' \
@@ -178,11 +188,22 @@ theme_command() {
 adapt() {
     local kind="${1:-}"
     local path="${2:-}"
+    local context="${3:-manual}"
     local source="$path"
     local theme
 
     [ "$kind" = image ] || [ "$kind" = video ] || return 1
     [ -f "$path" ] || return 1
+
+    if [ "$context" = "automatic" ]; then
+        local owner
+        owner="$(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf '%s\n' user)"
+
+        if [ "$owner" != "maho" ]; then
+            log "INFO automatic theme adaptation skipped: appearance.hyprland.borders owner=$owner"
+            return 0
+        fi
+    fi
 
     theme="$(theme_command)" || {
         log "INFO theme engine unavailable; leaving appearance unchanged"
@@ -246,7 +267,7 @@ PY
         "${MAHO_THEME_MODE:-dark}" \
         >> "$LOG" 2>&1
     then
-        log "PASS adapted $kind wallpaper: $path"
+        log "PASS adaptation cycle: $kind wallpaper: $path"
     else
         log "INFO theme adaptation unavailable/failed; previous state preserved"
     fi
@@ -306,7 +327,7 @@ print(d["path"])
 '
                     )
 
-                    adapt "${fields[0]}" "${fields[1]}"
+                    adapt "${fields[0]}" "${fields[1]}" automatic
                 fi
 
                 last="$fingerprint"
@@ -346,6 +367,10 @@ doctor() {
     theme_command >/dev/null 2>&1 &&
         echo "PASS  theme adapter" ||
         echo "INFO  theme adapter unavailable"
+
+    local owner
+    owner="$(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf '%s\n' user)"
+    echo "INFO  automatic border authority: $owner"
 }
 
 case "${1:-}" in
@@ -358,7 +383,7 @@ case "${1:-}" in
         ;;
 
     adapt)
-        adapt "${2:-}" "${3:-}"
+        adapt "${2:-}" "${3:-}" manual
         ;;
 
     watch)
@@ -380,6 +405,11 @@ MAHO_WALLPAPER_PROVIDER may be:
   awww
   mpvpaper
   /absolute/path/to/custom-provider
+
+Automatic theme mutation requires:
+  appearance.hyprland.borders = maho
+
+Manual "adapt" remains a direct user action and is not blocked by ownership policy.
 HELP
         ;;
 esac
