@@ -1,6 +1,7 @@
 {
   "resources": {
-    "appearance.hyprland.borders": "maho"
+    "appearance.hyprland.borders": "maho",
+    "appearance.wallpaper.runtime": "maho"
   },
   "version": 1
 }
