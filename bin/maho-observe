@@ -98,7 +98,7 @@ print(hashlib.sha256(raw).hexdigest())
 PY
 }
 
-thermal_reference_candidate() {
+thermal_transition_candidate() {
     local data="$1" reference_file="$2"
     python - "$data" "$reference_file" <<'PY'
 import hashlib,json,sys
@@ -108,16 +108,48 @@ data=json.loads(sys.argv[1]); path=Path(sys.argv[2])
 current=int(data["max_millidegree_c"])
 topology=[{"source":r.get("source"),"name":r.get("name"),"label":r.get("label")} for r in data.get("readings",[])]
 topology_sha=hashlib.sha256(json.dumps(topology,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+levels=["normal","warm","hot","critical"]
+
+def classify(temp):
+    if temp >= 95000: return "critical"
+    if temp >= 85000: return "hot"
+    if temp >= 75000: return "warm"
+    return "normal"
+
 previous=None
 if path.is_file():
     try: previous=json.loads(path.read_text())
     except Exception: previous=None
-if previous and previous.get("topology_sha256") == topology_sha:
-    try: reference=int(previous["max_millidegree_c"])
-    except Exception: reference=None
-    if reference is not None and abs(current-reference) < 5000:
+
+new_level=classify(current)
+reason="initial"
+previous_level=None
+
+if previous and previous.get("topology_sha256") == topology_sha and previous.get("level") in levels:
+    previous_level=previous["level"]
+    old_i=levels.index(previous_level)
+    new_i=levels.index(new_level)
+
+    if new_i < old_i:
+        release={"warm":70000,"hot":80000,"critical":90000}.get(previous_level)
+        if release is not None and current > release:
+            raise SystemExit(3)
+    elif new_i == old_i:
         raise SystemExit(3)
-print(json.dumps({"version":1,"max_millidegree_c":current,"topology_sha256":topology_sha},sort_keys=True))
+
+    reason="level-transition"
+elif previous:
+    previous_level=previous.get("level")
+    reason="topology-change"
+
+print(json.dumps({
+    "version":1,
+    "level":new_level,
+    "previous_level":previous_level,
+    "max_millidegree_c":current,
+    "topology_sha256":topology_sha,
+    "reason":reason,
+},sort_keys=True))
 PY
 }
 
@@ -130,7 +162,7 @@ write_atomic_private() {
 }
 
 observe_domain_locked() {
-    local domain="$1" data sig sig_file previous="" reference reference_file rc
+    local domain="$1" data sig sig_file previous="" transition reference_file rc summary details
     case "$domain" in
         power)
             data="$(power_current)" || return 2
@@ -138,33 +170,46 @@ observe_domain_locked() {
             sig_file="$OBSERVER_STATE/power.signature"
             [ ! -f "$sig_file" ] || previous="$(cat "$sig_file" 2>/dev/null || true)"
             [ "$sig" != "$previous" ] || return 0
+            maho_state_publish "$domain" sysfs "$data" >/dev/null || return 1
+            write_atomic_private "$sig_file" "$sig" || return 1
+            summary="Normalized power state changed"
+            details="$data"
             ;;
         thermal)
             data="$(thermal_current)" || return 2
+            maho_state_publish "$domain" sysfs "$data" >/dev/null || return 1
             reference_file="$OBSERVER_STATE/thermal.reference.json"
-            if reference="$(thermal_reference_candidate "$data" "$reference_file")"; then
+            if transition="$(thermal_transition_candidate "$data" "$reference_file")"; then
                 :
             else
                 rc=$?
                 [ "$rc" -eq 3 ] && return 0
                 return 1
             fi
+            write_atomic_private "$reference_file" "$transition" || return 1
+            rm -f "$OBSERVER_STATE/thermal.signature" 2>/dev/null || true
+            summary="$(python - "$transition" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1]); t=r["max_millidegree_c"]/1000
+prev=r.get("previous_level")
+if r["reason"] == "topology-change":
+    print(f"Thermal sensor topology changed; context is {r['level']} at {t:.1f} C")
+elif prev:
+    print(f"Thermal context changed {prev} -> {r['level']} at {t:.1f} C")
+else:
+    print(f"Thermal context initialized as {r['level']} at {t:.1f} C")
+PY
+)"
+            details="$(python - "$transition" "$data" <<'PY'
+import json,sys
+print(json.dumps({"transition":json.loads(sys.argv[1]),"thermal":json.loads(sys.argv[2])},sort_keys=True))
+PY
+)"
             ;;
         *) echo "maho-observe: unknown domain: $domain" >&2; return 1 ;;
     esac
 
-    maho_state_publish "$domain" sysfs "$data" >/dev/null || return 1
-
-    case "$domain" in
-        power)
-            write_atomic_private "$sig_file" "$sig" || return 1
-            ;;
-        thermal)
-            write_atomic_private "$reference_file" "$reference" || return 1
-            ;;
-    esac
-
-    maho_event_emit "$domain" "$domain.changed" observed info "Normalized $domain state changed" "" sysfs "$data" >/dev/null 2>&1 || true
+    maho_event_emit "$domain" "$domain.changed" observed info "$summary" "" sysfs "$details" >/dev/null 2>&1 || true
 }
 
 observe_domain() {
@@ -213,7 +258,8 @@ doctor() {
     thermal_current >/dev/null 2>&1 && echo "PASS  thermal sysfs observer" || echo "INFO  thermal sysfs capability unavailable"
     declare -F maho_state_publish >/dev/null 2>&1 && echo "PASS  normalized state publisher" || echo "FAIL  normalized state publisher unavailable"
     command -v flock >/dev/null 2>&1 && echo "PASS  observer concurrency lock" || echo "INFO  flock unavailable; duplicate concurrent observations are not serialized"
-    echo "INFO  thermal event hysteresis: 5 C from last published reference"
+    echo "INFO  thermal context bands: normal <75 C, warm >=75 C, hot >=85 C, critical >=95 C"
+    echo "INFO  thermal downward hysteresis: 5 C below each transition"
     true
 }
 
@@ -235,8 +281,9 @@ Usage:
 
 The observer only reads kernel-exposed state and publishes normalized Maho
 state. Missing power or thermal providers disable that capability only.
-Thermal events use a 5 C change threshold from the last published hottest
-reading plus sensor-topology changes, preventing boundary chatter.
+Thermal events represent context transitions rather than ordinary CPU jitter:
+normal <75 C, warm >=75 C, hot >=85 C, critical >=95 C, with 5 C downward
+hysteresis. Sensor-topology changes are also observable events.
 HELP
         ;;
 esac
