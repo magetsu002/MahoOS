@@ -38,6 +38,10 @@ source "$ROOT/lib/events.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+event_count() {
+    maho_event_tail 100 | grep -c 'thermal.changed' || true
+}
+
 echo "=== current normalization ==="
 bash "$ROOT/bin/maho-observe" current power | python -c '
 import json,sys
@@ -63,33 +67,56 @@ bash "$ROOT/bin/maho-observe" once all
 maho_state_get power >/dev/null
 maho_state_get thermal >/dev/null
 [ "$(maho_event_tail 20 | grep -c 'power.changed')" -eq 1 ] || fail "expected one power event"
-[ "$(maho_event_tail 20 | grep -c 'thermal.changed')" -eq 1 ] || fail "expected one thermal event"
+[ "$(event_count)" -eq 1 ] || fail "expected one thermal event"
 echo "PASS"
 
-echo "=== same thermal band is quiet ==="
-printf '62900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
-printf '62800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
+echo "=== small thermal movement is quiet ==="
+printf '64900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '64800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
 bash "$ROOT/bin/maho-observe" once thermal
-[ "$(maho_event_tail 20 | grep -c 'thermal.changed')" -eq 1 ] || fail "sub-band thermal jitter emitted another event"
+[ "$(event_count)" -eq 1 ] || fail "sub-threshold thermal movement emitted another event"
 echo "PASS"
 
-echo "=== crossing thermal band emits one event ==="
-printf '65100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+echo "=== fixed bucket boundary chatter is quiet ==="
+printf '69900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '69800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
 bash "$ROOT/bin/maho-observe" once thermal
-[ "$(maho_event_tail 20 | grep -c 'thermal.changed')" -eq 2 ] || fail "thermal band transition was not observed"
+[ "$(event_count)" -eq 2 ] || fail "expected 5 C threshold transition"
+printf '70100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '70000\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
+bash "$ROOT/bin/maho-observe" once thermal
+printf '69900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '69850\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
+bash "$ROOT/bin/maho-observe" once thermal
+[ "$(event_count)" -eq 2 ] || fail "thermal chatter around 70 C emitted duplicate events"
+echo "PASS"
+
+echo "=== genuine 5 C movement emits one event ==="
+printf '75100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+bash "$ROOT/bin/maho-observe" once thermal
+[ "$(event_count)" -eq 3 ] || fail "5 C thermal movement was not observed"
 echo "PASS"
 
 echo "=== concurrent observations dedupe ==="
-rm -f "$XDG_STATE_HOME/maho/observer/thermal.signature"
-BEFORE="$(maho_event_tail 100 | grep -c 'thermal.changed')"
+rm -f "$XDG_STATE_HOME/maho/observer/thermal.reference.json"
+BEFORE="$(event_count)"
 bash "$ROOT/bin/maho-observe" once thermal &
 P1=$!
 bash "$ROOT/bin/maho-observe" once thermal &
 P2=$!
 wait "$P1"
 wait "$P2"
-AFTER="$(maho_event_tail 100 | grep -c 'thermal.changed')"
+AFTER="$(event_count)"
 [ "$AFTER" -eq $((BEFORE + 1)) ] || fail "concurrent observers emitted duplicate thermal events"
+echo "PASS"
+
+echo "=== sensor topology change emits event ==="
+printf 'Extra sensor\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp2_label"
+printf '75100\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp2_input"
+BEFORE="$(event_count)"
+bash "$ROOT/bin/maho-observe" once thermal
+AFTER="$(event_count)"
+[ "$AFTER" -eq $((BEFORE + 1)) ] || fail "sensor topology change was not observed"
 echo "PASS"
 
 echo "=== missing capability is non-fatal ==="
