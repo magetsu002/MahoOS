@@ -3,7 +3,7 @@ Description=Maho wallpaper observation and theme adaptation
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/maho-wallpaper watch --theme
+ExecStart=%h/.local/bin/maho-wallpaper watch
 Restart=on-failure
 RestartSec=2
 

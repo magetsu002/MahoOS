@@ -30,7 +30,8 @@ jobs:
             lib/intent.sh \
             theme/backends/basic/generate \
             theme/backends/matugen/generate \
-            tests/core-contracts.sh
+            tests/core-contracts.sh \
+            tests/wallpaper-policy.sh
 
       - name: JSON contracts
         shell: bash
@@ -44,3 +45,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/core-contracts.sh
+
+      - name: Wallpaper policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/wallpaper-policy.sh
