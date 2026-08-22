@@ -74,14 +74,6 @@ run_watch_once() {
     [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ] || fail "watch exited unexpectedly: $rc"
 }
 
-adapter_value() {
-    python - "$MAHO_TEST_ADAPTER_STATE" <<'PY'
-import json,sys
-from pathlib import Path
-print(json.loads(Path(sys.argv[1]).read_text()).get("path", "unchanged"))
-PY
-}
-
 echo "=== user ownership blocks automation ==="
 maho_owner_set appearance.hyprland.borders user >/dev/null
 BEFORE="$(cat "$MAHO_TEST_ADAPTER_STATE")"
@@ -109,10 +101,14 @@ python - "$MAHO_TEST_ADAPTER_STATE" "$IMAGE" <<'PY'
 import json,os,sys
 from pathlib import Path
 d=json.loads(Path(sys.argv[1]).read_text())
-assert d["operation"] == "apply-wallpaper-theme"
-assert d["kind"] == "image"
-assert d["path"] == os.path.realpath(sys.argv[2])
-assert d["mode"] == "dark"
+expected={
+    "operation":"apply-wallpaper-theme",
+    "kind":"image",
+    "path":os.path.realpath(sys.argv[2]),
+    "mode":"dark",
+}
+if d != expected:
+    raise SystemExit(f"adapter state mismatch: expected={expected!r} actual={d!r}")
 PY
 LAST="$(maho_event_last appearance)"
 CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
@@ -126,6 +122,7 @@ maho_event_cycle "$CYCLE" | python -c '
 import json,sys
 rows=[json.loads(line) for line in sys.stdin if line.strip()]
 kinds=[r["kind"] for r in rows]
+assert kinds[0] == "wallpaper.changed"
 assert "authorization.allowed" in kinds
 assert "adapter.capture" in kinds
 assert "adapter.apply" in kinds
