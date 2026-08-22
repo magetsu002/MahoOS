@@ -26,80 +26,44 @@ die() {
 
 validate_registry() {
     python - "$REGISTRY" "$ROOT" <<'PY'
-import json
-import os
-import re
-import sys
+import json,os,re,sys
 from pathlib import Path
-
-registry = Path(sys.argv[1])
-root = Path(sys.argv[2]).resolve()
-
-if not registry.is_file():
-    raise SystemExit(f"adapter registry unavailable: {registry}")
-
-try:
-    data = json.loads(registry.read_text())
-except Exception as exc:
-    raise SystemExit(f"invalid adapter registry JSON: {exc}")
-
-if data.get("version") != 1:
-    raise SystemExit("unsupported adapter registry version")
-operations = data.get("operations")
-if not isinstance(operations, dict):
-    raise SystemExit("adapter registry operations must be an object")
-
-name = re.compile(r"^[a-z0-9._-]+$")
-for operation, entry in operations.items():
-    if not isinstance(operation, str) or not name.fullmatch(operation):
-        raise SystemExit(f"invalid adapter operation: {operation!r}")
-    if not isinstance(entry, dict):
-        raise SystemExit(f"adapter entry must be an object: {operation}")
-    domain = entry.get("domain")
-    resource = entry.get("resource")
-    adapter = entry.get("adapter")
-    if not isinstance(domain, str) or not name.fullmatch(domain):
-        raise SystemExit(f"invalid adapter domain for {operation}")
-    if not isinstance(resource, str) or not name.fullmatch(resource):
-        raise SystemExit(f"invalid adapter resource for {operation}")
-    if not isinstance(adapter, str) or not adapter or os.path.isabs(adapter):
-        raise SystemExit(f"adapter path must be repository-relative for {operation}")
-    resolved = (root / adapter).resolve()
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        raise SystemExit(f"adapter escapes repository root for {operation}")
-    if resolved.suffix != ".sh":
-        raise SystemExit(f"adapter must be a shell adapter for v1: {operation}")
-
-print(json.dumps(data, sort_keys=True))
+registry=Path(sys.argv[1]); root=Path(sys.argv[2]).resolve()
+if not registry.is_file(): raise SystemExit(f"adapter registry unavailable: {registry}")
+try: data=json.loads(registry.read_text())
+except Exception as exc: raise SystemExit(f"invalid adapter registry JSON: {exc}")
+if data.get("version") != 1: raise SystemExit("unsupported adapter registry version")
+operations=data.get("operations")
+if not isinstance(operations,dict): raise SystemExit("adapter registry operations must be an object")
+name=re.compile(r"^[a-z0-9._-]+$")
+for operation,entry in operations.items():
+    if not isinstance(operation,str) or not name.fullmatch(operation): raise SystemExit(f"invalid adapter operation: {operation!r}")
+    if not isinstance(entry,dict): raise SystemExit(f"adapter entry must be an object: {operation}")
+    domain=entry.get("domain"); resource=entry.get("resource"); adapter=entry.get("adapter")
+    if not isinstance(domain,str) or not name.fullmatch(domain): raise SystemExit(f"invalid adapter domain for {operation}")
+    if not isinstance(resource,str) or not name.fullmatch(resource): raise SystemExit(f"invalid adapter resource for {operation}")
+    if not isinstance(adapter,str) or not adapter or os.path.isabs(adapter): raise SystemExit(f"adapter path must be repository-relative for {operation}")
+    resolved=(root/adapter).resolve()
+    try: resolved.relative_to(root)
+    except ValueError: raise SystemExit(f"adapter escapes repository root for {operation}")
+    if resolved.suffix != ".sh": raise SystemExit(f"adapter must be a shell adapter for v1: {operation}")
+print(json.dumps(data,sort_keys=True))
 PY
 }
 
 resolve_adapter() {
-    local operation="$1"
-    local domain="$2"
-    local resource="$3"
-
+    local operation="$1" domain="$2" resource="$3"
     validate_registry >/dev/null || return 1
-
     python - "$REGISTRY" "$ROOT" "$operation" "$domain" "$resource" <<'PY'
-import json
-import sys
+import json,sys
 from pathlib import Path
-
-registry, root, operation, domain, resource = sys.argv[1:]
-data = json.loads(Path(registry).read_text())
-entry = data["operations"].get(operation)
-if not isinstance(entry, dict):
-    raise SystemExit(f"no adapter registered for operation: {operation}")
-if entry.get("domain") != domain:
-    raise SystemExit("adapter domain does not match decision domain")
-if entry.get("resource") != resource:
-    raise SystemExit("adapter resource does not match decision resource")
-adapter = (Path(root).resolve() / entry["adapter"]).resolve()
-if not adapter.is_file():
-    raise SystemExit(f"registered adapter is unavailable: {adapter}")
+registry,root,operation,domain,resource=sys.argv[1:]
+data=json.loads(Path(registry).read_text()); entry=data["operations"].get(operation)
+if not isinstance(entry,dict): raise SystemExit(f"no adapter registered for operation: {operation}")
+if entry.get("domain") != domain: raise SystemExit("adapter domain does not match decision domain")
+if entry.get("resource") != resource: raise SystemExit("adapter resource does not match decision resource")
+adapter=(Path(root).resolve()/entry["adapter"]).resolve()
+if not adapter.is_file(): raise SystemExit(f"registered adapter is unavailable: {adapter}")
 print(adapter)
 PY
 }
@@ -111,100 +75,69 @@ emit_cycle_event() {
 }
 
 result_json() {
-    local cycle="$1"
-    local status="$2"
-    local action="$3"
-    local domain="$4"
-    local resource="$5"
-    local reason="$6"
-
+    local cycle="$1" status="$2" action="$3" domain="$4" resource="$5" reason="$6"
     python - "$cycle" "$status" "$action" "$domain" "$resource" "$reason" <<'PY'
-import json
-import sys
-cycle, status, action, domain, resource, reason = sys.argv[1:]
-print(json.dumps({
-    "version": 1,
-    "cycle_id": cycle,
-    "status": status,
-    "action": action,
-    "domain": domain,
-    "resource": resource or None,
-    "reason": reason,
-}, sort_keys=True))
+import json,sys
+cycle,status,action,domain,resource,reason=sys.argv[1:]
+print(json.dumps({"version":1,"cycle_id":cycle,"status":status,"action":action,"domain":domain,"resource":resource or None,"reason":reason},sort_keys=True))
 PY
 }
 
 execute_decision() {
     local raw="${1:-}"
-    [ -n "$raw" ] || {
-        die "decision JSON is required"
-        return 1
-    }
+    [ -n "$raw" ] || { die "decision JSON is required"; return 1; }
 
     local decision
     decision="$(maho_decision_validate "$raw")" || return 1
 
     local domain action resource reason operation desired cycle owner adapter result
-    mapfile -t fields < <(
-        python - "$decision" <<'PY'
-import json
-import sys
-
-d = json.loads(sys.argv[1])
-print(d["domain"])
-print(d["action"])
-print(d.get("resource") or "")
-print(d["reason"])
-print(d.get("desired", {}).get("operation") or "")
-print(json.dumps(d.get("desired", {}), sort_keys=True))
+    mapfile -t fields < <(python - "$decision" <<'PY'
+import json,sys
+d=json.loads(sys.argv[1])
+print(d["domain"]); print(d["action"]); print(d.get("resource") or ""); print(d["reason"])
+print(d.get("desired",{}).get("operation") or ""); print(json.dumps(d.get("desired",{}),sort_keys=True))
 PY
-    ) || return 1
+) || return 1
+    domain="${fields[0]}"; action="${fields[1]}"; resource="${fields[2]}"; reason="${fields[3]}"; operation="${fields[4]}"; desired="${fields[5]}"
 
-    domain="${fields[0]}"
-    action="${fields[1]}"
-    resource="${fields[2]}"
-    reason="${fields[3]}"
-    operation="${fields[4]}"
-    desired="${fields[5]}"
-
-    cycle="$(maho_cycle_new "$domain")" || return 1
+    cycle="${MAHO_ADAPT_CYCLE_ID:-}"
+    if [ -n "$cycle" ]; then
+        maho_cycle_valid "$cycle" || { die "invalid supplied adaptation cycle: $cycle"; return 1; }
+        case "$cycle" in
+            "cyc-$domain-"*) ;;
+            *) die "supplied cycle domain does not match decision domain"; return 1 ;;
+        esac
+    else
+        cycle="$(maho_cycle_new "$domain")" || return 1
+    fi
 
     case "$action" in
         do-nothing)
-            emit_cycle_event "$cycle" "$domain" policy.decision skipped info \
-                "$reason" "$resource" policy "$decision"
+            emit_cycle_event "$cycle" "$domain" policy.decision skipped info "$reason" "$resource" policy "$decision"
             result_json "$cycle" skipped "$action" "$domain" "$resource" "$reason"
             return 0
             ;;
         propose)
-            emit_cycle_event "$cycle" "$domain" policy.decision proposed info \
-                "$reason" "$resource" policy "$decision"
+            emit_cycle_event "$cycle" "$domain" policy.decision proposed info "$reason" "$resource" policy "$decision"
             result_json "$cycle" proposed "$action" "$domain" "$resource" "$reason"
             return 0
             ;;
-        adapt)
-            ;;
-        *)
-            die "unsupported decision action: $action"
-            return 1
-            ;;
+        adapt) ;;
+        *) die "unsupported decision action: $action"; return 1 ;;
     esac
 
     [ -n "$resource" ] || {
-        emit_cycle_event "$cycle" "$domain" authorization.denied failed high \
-            "Adapt decision has no resource and cannot be authorized" "" executor "$decision"
-        die "adapt decision requires a resource"
-        return 1
+        emit_cycle_event "$cycle" "$domain" authorization.denied failed high "Adapt decision has no resource and cannot be authorized" "" executor "$decision"
+        die "adapt decision requires a resource"; return 1
     }
 
     owner="$(maho_owner_get "$resource" 2>/dev/null || printf '%s\n' user)"
     if [ "$owner" != maho ]; then
         local denied_reason="Execution-time ownership check denied automatic mutation: owner=$owner"
-        emit_cycle_event "$cycle" "$domain" authorization.denied skipped info \
-            "$denied_reason" "$resource" executor \
+        emit_cycle_event "$cycle" "$domain" authorization.denied skipped info "$denied_reason" "$resource" executor \
             "$(python - "$owner" "$decision" <<'PY'
-import json, sys
-print(json.dumps({"owner":sys.argv[1],"decision":json.loads(sys.argv[2])}, sort_keys=True))
+import json,sys
+print(json.dumps({"owner":sys.argv[1],"decision":json.loads(sys.argv[2])},sort_keys=True))
 PY
 )"
         result_json "$cycle" skipped "$action" "$domain" "$resource" "$denied_reason"
@@ -212,44 +145,32 @@ PY
     fi
 
     [ -n "$operation" ] || {
-        emit_cycle_event "$cycle" "$domain" adapter.resolve failed high \
-            "Adapt decision is missing a registered operation" "$resource" executor "$decision"
-        die "adapt decision desired state requires operation"
-        return 1
+        emit_cycle_event "$cycle" "$domain" adapter.resolve failed high "Adapt decision is missing a registered operation" "$resource" executor "$decision"
+        die "adapt decision desired state requires operation"; return 1
     }
 
     adapter="$(resolve_adapter "$operation" "$domain" "$resource")" || {
-        emit_cycle_event "$cycle" "$domain" adapter.resolve failed high \
-            "No valid adapter could be resolved for the authorized decision" \
-            "$resource" executor \
+        emit_cycle_event "$cycle" "$domain" adapter.resolve failed high "No valid adapter could be resolved for the authorized decision" "$resource" executor \
             "$(python - "$operation" <<'PY'
-import json, sys
+import json,sys
 print(json.dumps({"operation":sys.argv[1]}))
 PY
 )"
         return 1
     }
 
-    emit_cycle_event "$cycle" "$domain" policy.decision observed info \
-        "$reason" "$resource" policy "$decision"
-    emit_cycle_event "$cycle" "$domain" authorization.allowed verified info \
-        "Execution-time ownership check permits the registered adapter" \
-        "$resource" executor \
+    emit_cycle_event "$cycle" "$domain" policy.decision observed info "$reason" "$resource" policy "$decision"
+    emit_cycle_event "$cycle" "$domain" authorization.allowed verified info "Execution-time ownership check permits the registered adapter" "$resource" executor \
         "$(python - "$owner" "$operation" "$adapter" <<'PY'
-import json, sys
-print(json.dumps({"owner":sys.argv[1],"operation":sys.argv[2],"adapter":sys.argv[3]}, sort_keys=True))
+import json,sys
+print(json.dumps({"owner":sys.argv[1],"operation":sys.argv[2],"adapter":sys.argv[3]},sort_keys=True))
 PY
 )"
 
-    if result="$(
-        MAHO_TRANSACTION_CYCLE_ID="$cycle" \
-            maho_transaction_execute "$adapter" "$desired" "$domain" "$resource"
-    )"; then
-        emit_cycle_event "$cycle" "$domain" adaptation.completed verified info \
-            "Adaptation cycle completed with verified desired state" \
-            "$resource" executor \
+    if result="$(MAHO_TRANSACTION_CYCLE_ID="$cycle" maho_transaction_execute "$adapter" "$desired" "$domain" "$resource")"; then
+        emit_cycle_event "$cycle" "$domain" adaptation.completed verified info "Adaptation cycle completed with verified desired state" "$resource" executor \
             "$(python - "$operation" <<'PY'
-import json, sys
+import json,sys
 print(json.dumps({"operation":sys.argv[1]}))
 PY
 )"
@@ -257,11 +178,9 @@ PY
         return 0
     fi
 
-    emit_cycle_event "$cycle" "$domain" adaptation.failed failed high \
-        "Adaptation cycle failed; inspect adapter and rollback events in this cycle" \
-        "$resource" executor \
+    emit_cycle_event "$cycle" "$domain" adaptation.failed failed high "Adaptation cycle failed; inspect adapter and rollback events in this cycle" "$resource" executor \
         "$(python - "$operation" <<'PY'
-import json, sys
+import json,sys
 print(json.dumps({"operation":sys.argv[1]}))
 PY
 )"
@@ -270,7 +189,7 @@ PY
 
 list_adapters() {
     validate_registry | python -c '
-import json, sys
+import json,sys
 r=json.load(sys.stdin)
 for operation in sorted(r["operations"]):
     e=r["operations"][operation]
@@ -279,19 +198,13 @@ for operation in sorted(r["operations"]):
 }
 
 case "${1:-}" in
-    execute)
-        execute_decision "${2:-}"
-        ;;
+    execute) execute_decision "${2:-}" ;;
     execute-file)
         [ -f "${2:-}" ] || { die "decision file does not exist: ${2:-}"; exit 1; }
         execute_decision "$(cat "$2")"
         ;;
-    validate-registry)
-        validate_registry >/dev/null && echo "PASS"
-        ;;
-    list)
-        list_adapters
-        ;;
+    validate-registry) validate_registry >/dev/null && echo "PASS" ;;
+    list) list_adapters ;;
     *)
         cat <<'HELP'
 Maho generic adaptation executor
@@ -302,9 +215,9 @@ Usage:
   maho-adapt validate-registry
   maho-adapt list
 
-The executor never invents mutations. It accepts a validated policy decision,
-rechecks resource ownership at execution time, resolves an explicitly
-registered adapter, and runs it through capture/apply/verify/rollback.
+MAHO_ADAPT_CYCLE_ID may carry a validated observer-created cycle into the
+executor so observation, policy, authorization, mutation and verification are
+all one wheel spin.
 HELP
         ;;
 esac
