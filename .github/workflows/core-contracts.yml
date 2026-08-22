@@ -25,6 +25,7 @@ jobs:
             bin/maho-theme \
             bin/maho-wallpaper \
             bin/maho-wallpaper-session \
+            bin/maho-observe \
             bin/maho-adapt \
             bin/maho-provenance \
             bin/maho-security \
@@ -50,7 +51,8 @@ jobs:
             tests/wallpaper-restore.sh \
             tests/provenance-contracts.sh \
             tests/security-findings.sh \
-            tests/setup-contracts.sh
+            tests/setup-contracts.sh \
+            tests/environment-observers.sh
 
       - name: JSON contracts
         shell: bash
@@ -119,3 +121,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/setup-contracts.sh
+
+      - name: Environment observer tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/environment-observers.sh
