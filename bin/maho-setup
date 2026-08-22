@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN_DIR="${HOME}/.local/bin"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+UNIT_NAME="maho-wallpaper.service"
+UNIT_SOURCE="$ROOT/systemd/user/$UNIT_NAME"
+UNIT_TARGET="$UNIT_DIR/$UNIT_NAME"
+MARKER="# managed-by: maho-setup v1"
+
+COMMANDS=(
+    mahoctl
+    maho-theme
+    maho-wallpaper
+    maho-wallpaper-session
+    maho-adapt
+    maho-provenance
+    maho-security
+    maho-setup
+)
+
+die() {
+    echo "maho-setup: $*" >&2
+    return 1
+}
+
+launcher_path() {
+    printf '%s/%s\n' "$BIN_DIR" "$1"
+}
+
+is_managed_launcher() {
+    local name="$1"
+    local path
+    path="$(launcher_path "$name")"
+
+    [ -e "$path" ] || [ -L "$path" ] || return 1
+
+    if [ -L "$path" ]; then
+        local target
+        target="$(readlink -f -- "$path" 2>/dev/null || true)"
+        [ "$target" = "$ROOT/bin/$name" ]
+        return
+    fi
+
+    grep -Fq "$MARKER" "$path" 2>/dev/null
+}
+
+preflight() {
+    local failed=0
+
+    [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
+    [ -r "$UNIT_SOURCE" ] || { echo "FAIL  wallpaper user service missing"; failed=1; }
+
+    local name
+    for name in "${COMMANDS[@]}"; do
+        if [ -r "$ROOT/bin/$name" ]; then
+            printf 'PASS  source %-24s\n' "$name"
+        else
+            printf 'FAIL  source %-24s missing\n' "$name"
+            failed=1
+        fi
+    done
+
+    for file in \
+        config/ownership.json \
+        config/intent.json \
+        config/adapters.json
+    do
+        if python -m json.tool "$ROOT/$file" >/dev/null 2>&1; then
+            printf 'PASS  json   %s\n' "$file"
+        else
+            printf 'FAIL  json   %s\n' "$file"
+            failed=1
+        fi
+    done
+
+    bash -n \
+        "$ROOT/bin/mahoctl" \
+        "$ROOT/bin/maho-theme" \
+        "$ROOT/bin/maho-wallpaper" \
+        "$ROOT/bin/maho-wallpaper-session" \
+        "$ROOT/bin/maho-adapt" \
+        "$ROOT/bin/maho-provenance" \
+        "$ROOT/bin/maho-security" \
+        "$ROOT/bin/maho-setup" \
+        "$ROOT/lib/authority.sh" \
+        "$ROOT/lib/intent.sh" \
+        "$ROOT/lib/state.sh" \
+        "$ROOT/lib/events.sh" \
+        "$ROOT/lib/decision.sh" \
+        "$ROOT/lib/policy.sh" \
+        "$ROOT/lib/cycle.sh" \
+        "$ROOT/lib/transaction.sh" \
+        "$ROOT/adapters/appearance/wallpaper-theme.sh" \
+        >/dev/null 2>&1 || {
+            echo "FAIL  shell syntax"
+            failed=1
+        }
+
+    [ "$failed" -eq 0 ] && echo "PASS  shell syntax"
+    return "$failed"
+}
+
+write_launcher() {
+    local name="$1"
+    local target
+    target="$(launcher_path "$name")"
+
+    if { [ -e "$target" ] || [ -L "$target" ]; } && ! is_managed_launcher "$name"; then
+        die "refusing to overwrite unmanaged command: $target"
+        return 1
+    fi
+
+    mkdir -p "$BIN_DIR"
+
+    local tmp="$BIN_DIR/.${name}.$$"
+    cat > "$tmp" <<EOF_LAUNCHER
+#!/usr/bin/env bash
+$MARKER
+export MAHO_ROOT="$ROOT"
+bash "$ROOT/bin/$name" "\$@"
+EOF_LAUNCHER
+    chmod 0755 "$tmp"
+    mv -f "$tmp" "$target"
+}
+
+install_unit() {
+    mkdir -p "$UNIT_DIR"
+
+    if { [ -e "$UNIT_TARGET" ] || [ -L "$UNIT_TARGET" ]; }; then
+        if [ -L "$UNIT_TARGET" ]; then
+            local existing
+            existing="$(readlink -f -- "$UNIT_TARGET" 2>/dev/null || true)"
+            [ "$existing" = "$UNIT_SOURCE" ] || {
+                die "refusing to replace unmanaged user unit: $UNIT_TARGET"
+                return 1
+            }
+        elif ! cmp -s "$UNIT_TARGET" "$UNIT_SOURCE"; then
+            die "refusing to replace unmanaged user unit: $UNIT_TARGET"
+            return 1
+        fi
+    fi
+
+    rm -f "$UNIT_TARGET"
+    ln -s "$UNIT_SOURCE" "$UNIT_TARGET"
+}
+
+systemd_available() {
+    command -v systemctl >/dev/null 2>&1 &&
+        systemctl --user show-environment >/dev/null 2>&1
+}
+
+install() {
+    echo "Maho OS V1 setup"
+    echo
+
+    preflight || return 1
+
+    echo
+    echo "Installing user commands..."
+    local name
+    for name in "${COMMANDS[@]}"; do
+        write_launcher "$name" || return 1
+        printf 'PASS  %s\n' "$(launcher_path "$name")"
+    done
+
+    echo
+    echo "Installing user service..."
+    install_unit || return 1
+    echo "PASS  $UNIT_TARGET"
+
+    if systemd_available; then
+        systemctl --user daemon-reload
+        if systemctl --user enable --now "$UNIT_NAME" >/dev/null 2>&1; then
+            echo "PASS  $UNIT_NAME enabled and started"
+        else
+            echo "INFO  $UNIT_NAME could not be started now; CLI installation remains valid"
+        fi
+    else
+        echo "INFO  systemd user manager unavailable; service installation deferred"
+    fi
+
+    echo
+    echo "PASS: Maho OS V1 user setup complete"
+}
+
+status() {
+    local failed=0
+
+    echo "Maho OS V1 setup status"
+    echo "Repository: $ROOT"
+    echo
+
+    local name
+    for name in "${COMMANDS[@]}"; do
+        if is_managed_launcher "$name"; then
+            printf 'PASS  command %-24s\n' "$name"
+        else
+            printf 'INFO  command %-24s not managed by this checkout\n' "$name"
+            failed=1
+        fi
+    done
+
+    if [ -L "$UNIT_TARGET" ] && [ "$(readlink -f -- "$UNIT_TARGET" 2>/dev/null || true)" = "$UNIT_SOURCE" ]; then
+        echo "PASS  wallpaper user unit installed"
+    else
+        echo "INFO  wallpaper user unit not installed from this checkout"
+        failed=1
+    fi
+
+    if systemd_available; then
+        if systemctl --user is-active --quiet "$UNIT_NAME"; then
+            echo "PASS  wallpaper service active"
+        else
+            echo "INFO  wallpaper service inactive"
+        fi
+    else
+        echo "INFO  systemd user manager unavailable"
+    fi
+
+    return "$failed"
+}
+
+uninstall() {
+    echo "Maho OS V1 user uninstall"
+
+    if systemd_available; then
+        systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 || true
+    fi
+
+    if [ -L "$UNIT_TARGET" ] && [ "$(readlink -f -- "$UNIT_TARGET" 2>/dev/null || true)" = "$UNIT_SOURCE" ]; then
+        rm -f "$UNIT_TARGET"
+        echo "REMOVED  $UNIT_TARGET"
+    elif [ -e "$UNIT_TARGET" ]; then
+        echo "KEPT     unmanaged user unit $UNIT_TARGET"
+    fi
+
+    local name path
+    for name in "${COMMANDS[@]}"; do
+        path="$(launcher_path "$name")"
+        if is_managed_launcher "$name"; then
+            rm -f "$path"
+            echo "REMOVED  $path"
+        elif [ -e "$path" ] || [ -L "$path" ]; then
+            echo "KEPT     unmanaged command $path"
+        fi
+    done
+
+    if systemd_available; then
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+    fi
+
+    echo "PASS: Maho-managed user wiring removed; user data and configuration preserved"
+}
+
+case "${1:-}" in
+    install)
+        install
+        ;;
+    status)
+        status
+        ;;
+    uninstall)
+        uninstall
+        ;;
+    preflight)
+        preflight
+        ;;
+    *)
+        cat <<'HELP'
+Maho OS V1 user setup
+
+Usage:
+  bash bin/maho-setup preflight
+  bash bin/maho-setup install
+  maho-setup status
+  maho-setup uninstall
+
+This setup only wires the current checkout into the user session. It does not
+install packages, modify system packages, require root, or claim ownership of
+unrelated user configuration. Existing unmanaged commands/units are preserved.
+HELP
+        ;;
+esac
