@@ -1,0 +1,12 @@
+[Unit]
+Description=Maho read-only security evidence watch
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-security watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
