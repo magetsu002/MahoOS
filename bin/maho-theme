@@ -206,6 +206,202 @@ PY
     sha256sum "$CACHE/candidate.json"
 }
 
+hypr_gradient_to_rgba() {
+    python -c '
+import re, sys
+
+value = sys.argv[1].strip()
+m = re.fullmatch(r"([0-9a-fA-F]{8}) 0deg", value)
+
+if not m:
+    raise SystemExit(
+        "unsupported existing border gradient: " + repr(value)
+    )
+
+argb = m.group(1).lower()
+print("rgba(" + argb[2:] + argb[:2] + ")")
+' "$1"
+}
+
+hypr_set_borders() {
+    local active="$1"
+    local inactive="$2"
+
+    hyprctl eval \
+        "hl.config({ general = { col = {
+            active_border = \"$active\",
+            inactive_border = \"$inactive\"
+        }}})"
+}
+
+hypr_apply_palette_file() {
+    local palette="$1"
+    local publish="${2:-0}"
+
+    [ -f "$palette" ] || {
+        die "palette does not exist: $palette"
+        return 1
+    }
+
+    command -v hyprctl >/dev/null 2>&1 || {
+        die "hyprctl is unavailable"
+        return 1
+    }
+
+    local errors
+    errors="$(hyprctl configerrors 2>&1)"
+
+    [ -z "$errors" ] || {
+        echo "$errors" >&2
+        die "Hyprland already has configuration errors"
+        return 1
+    }
+
+    local colors
+    mapfile -t colors < <(
+        python -c '
+import json, re, sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+
+for key in ("foreground", "primary"):
+    value = data["colors"][key]
+
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        raise SystemExit("invalid palette color: " + repr(value))
+
+    print(value[1:].lower())
+' "$palette"
+    )
+
+    [ "${#colors[@]}" -eq 2 ] || {
+        die "failed to read palette colors"
+        return 1
+    }
+
+    local new_active="rgba(${colors[0]}ff)"
+    local new_inactive="rgba(${colors[1]}ff)"
+
+    local expected_active="ff${colors[0]} 0deg"
+    local expected_inactive="ff${colors[1]} 0deg"
+
+    local old_active old_inactive
+
+    old_active="$(
+        hyprctl getoption general:col.active_border -j |
+        python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
+    )"
+
+    old_inactive="$(
+        hyprctl getoption general:col.inactive_border -j |
+        python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
+    )"
+
+    local rollback_active rollback_inactive
+
+    rollback_active="$(hypr_gradient_to_rgba "$old_active")" || {
+        die "existing active border is user-managed or unsupported; leaving it alone"
+        return 1
+    }
+
+    rollback_inactive="$(hypr_gradient_to_rgba "$old_inactive")" || {
+        die "existing inactive border is user-managed or unsupported; leaving it alone"
+        return 1
+    }
+
+    local result
+
+    result="$(
+        hypr_set_borders \
+            "$new_active" \
+            "$new_inactive" \
+            2>&1
+    )"
+
+    if [ "$result" != "ok" ]; then
+        hypr_set_borders \
+            "$rollback_active" \
+            "$rollback_inactive" \
+            >/dev/null 2>&1 || true
+
+        die "Hyprland rejected theme application"
+        return 1
+    fi
+
+    sleep 0.1
+
+    local actual_active actual_inactive
+
+    actual_active="$(
+        hyprctl getoption general:col.active_border -j |
+        python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
+    )"
+
+    actual_inactive="$(
+        hyprctl getoption general:col.inactive_border -j |
+        python -c 'import json,sys; print(json.load(sys.stdin)["gradient"])'
+    )"
+
+    if [ "${actual_active,,}" != "${expected_active,,}" ] ||
+       [ "${actual_inactive,,}" != "${expected_inactive,,}" ]
+    then
+        hypr_set_borders \
+            "$rollback_active" \
+            "$rollback_inactive" \
+            >/dev/null 2>&1 || true
+
+        die "verification failed; previous borders restored"
+        return 1
+    fi
+
+    if [ "$publish" = "1" ]; then
+        mkdir -p "$CACHE"
+
+        if [ -f "$CACHE/active.json" ]; then
+            cp "$CACHE/active.json" "$CACHE/.previous.json.$$"
+            mv "$CACHE/.previous.json.$$" "$CACHE/previous.json"
+        fi
+
+        cp "$palette" "$CACHE/.active.json.$$"
+        mv "$CACHE/.active.json.$$" "$CACHE/active.json"
+    fi
+
+    echo "PASS"
+    echo "Active border:   $actual_active"
+    echo "Inactive border: $actual_inactive"
+}
+
+apply_hypr_candidate() {
+    local candidate="$CACHE/candidate.json"
+
+    [ -f "$candidate" ] || {
+        die "no candidate palette exists"
+        return 1
+    }
+
+    hypr_apply_palette_file "$candidate" 1
+}
+
+restore_hypr_active() {
+    local active="$CACHE/active.json"
+
+    [ -f "$active" ] || {
+        die "no active palette exists"
+        return 1
+    }
+
+    hypr_apply_palette_file "$active" 0
+}
+
+apply_wallpaper() {
+    local wallpaper="${1:-}"
+    local mode="${2:-dark}"
+
+    generate "$wallpaper" "$mode" || return 1
+    apply_hypr_candidate
+}
+
 show_candidate() {
     local candidate="$CACHE/candidate.json"
 
@@ -245,6 +441,18 @@ case "${1:-}" in
         candidate_hash
         ;;
 
+    apply-hypr)
+        apply_hypr_candidate
+        ;;
+
+    restore-hypr)
+        restore_hypr_active
+        ;;
+
+    apply)
+        apply_wallpaper "${2:-}" "${3:-dark}"
+        ;;
+
     *)
         cat <<'HELP'
 Maho OS theme engine
@@ -254,9 +462,12 @@ Usage:
   maho-theme generate WALLPAPER [dark|light]
   maho-theme show
   maho-theme hash
+  maho-theme apply WALLPAPER [dark|light]
+  maho-theme apply-hypr
+  maho-theme restore-hypr
 
-M3.1 only creates a candidate palette.
-It does not activate themes or modify live application configuration.
+Generation alone does not modify the desktop.
+Applying a wallpaper generates, validates, applies, and verifies its palette.
 HELP
         ;;
 esac
