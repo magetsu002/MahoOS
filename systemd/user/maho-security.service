@@ -1,10 +1,10 @@
 [Unit]
-Description=Maho read-only security evidence watch
+Description=Maho stateful read-only security evidence monitor
 After=default.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/maho-security watch
+ExecStart=%h/.local/bin/maho-security-monitor watch
 Restart=on-failure
 RestartSec=5
 
