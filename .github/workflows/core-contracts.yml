@@ -24,6 +24,7 @@ jobs:
             bin/mahoctl \
             bin/maho-theme \
             bin/maho-wallpaper \
+            bin/maho-wallpaper-session \
             bin/maho-provenance \
             bin/maho-security \
             lib/authority.sh \
@@ -41,6 +42,7 @@ jobs:
             tests/cycle-contracts.sh \
             tests/transaction-contracts.sh \
             tests/wallpaper-policy.sh \
+            tests/wallpaper-restore.sh \
             tests/provenance-contracts.sh \
             tests/security-findings.sh
 
@@ -80,6 +82,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/wallpaper-policy.sh
+
+      - name: Wallpaper restore tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/wallpaper-restore.sh
 
       - name: Security provenance tests
         shell: bash
