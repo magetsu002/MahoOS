@@ -3,7 +3,7 @@ Description=Maho wallpaper runtime restoration, observation and theme adaptation
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/maho-wallpaper-session run
+ExecStart=/usr/bin/bash %h/.local/bin/maho-wallpaper-session run
 Restart=on-failure
 RestartSec=2
 
