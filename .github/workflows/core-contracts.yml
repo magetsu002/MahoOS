@@ -25,6 +25,7 @@ jobs:
             bin/maho-theme \
             bin/maho-wallpaper \
             bin/maho-wallpaper-session \
+            bin/maho-adapt \
             bin/maho-provenance \
             bin/maho-security \
             lib/authority.sh \
@@ -35,12 +36,15 @@ jobs:
             lib/policy.sh \
             lib/cycle.sh \
             lib/transaction.sh \
+            adapters/appearance/wallpaper-theme.sh \
+            tests/fixtures/fake-adapter.sh \
             theme/backends/basic/generate \
             theme/backends/matugen/generate \
             tests/core-contracts.sh \
             tests/policy-contracts.sh \
             tests/cycle-contracts.sh \
             tests/transaction-contracts.sh \
+            tests/adapt-executor.sh \
             tests/wallpaper-policy.sh \
             tests/wallpaper-restore.sh \
             tests/provenance-contracts.sh \
@@ -52,6 +56,7 @@ jobs:
           set -euo pipefail
           python -m json.tool config/ownership.json >/dev/null
           python -m json.tool config/intent.json >/dev/null
+          python -m json.tool config/adapters.json >/dev/null
 
       - name: Core contract tests
         shell: bash
@@ -76,6 +81,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/transaction-contracts.sh
+
+      - name: Generic adaptation executor tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/adapt-executor.sh
 
       - name: Wallpaper policy tests
         shell: bash
