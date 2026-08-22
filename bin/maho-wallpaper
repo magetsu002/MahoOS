@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/wallpaper"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/wallpaper"
+LOG="$STATE/watch.log"
+
+mkdir -p "$STATE" "$CACHE"
+
+log() {
+    printf '%s  %s\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" \
+        "$*" >> "$LOG"
+}
+
+mpvpaper_state() {
+    python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+paths = set()
+
+for proc in Path("/proc").iterdir():
+    if not proc.name.isdigit():
+        continue
+
+    try:
+        if (proc / "comm").read_text().strip() != "mpvpaper":
+            continue
+
+        args = [
+            os.fsdecode(x)
+            for x in (proc / "cmdline").read_bytes().split(b"\0")
+            if x
+        ]
+
+        if args:
+            path = os.path.realpath(args[-1])
+
+            if os.path.isfile(path):
+                paths.add(path)
+    except (OSError, PermissionError):
+        pass
+
+if len(paths) > 1:
+    raise SystemExit(2)
+
+if not paths:
+    raise SystemExit(1)
+
+print(json.dumps({
+    "version": 1,
+    "provider": "mpvpaper",
+    "kind": "video",
+    "path": next(iter(paths)),
+}, sort_keys=True))
+PY
+}
+
+awww_state() {
+    command -v awww >/dev/null 2>&1 || return 1
+
+    awww query -j 2>/dev/null | python -c '
+import json
+import os
+import sys
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+paths = {
+    os.path.realpath(output["displaying"]["image"])
+    for outputs in data.values()
+    for output in outputs
+    if output.get("displaying", {}).get("image")
+    and os.path.isfile(output["displaying"]["image"])
+}
+
+if len(paths) > 1:
+    raise SystemExit(2)
+
+if not paths:
+    raise SystemExit(1)
+
+print(json.dumps({
+    "version": 1,
+    "provider": "awww",
+    "kind": "image",
+    "path": next(iter(paths)),
+}, sort_keys=True))
+'
+}
+
+validate_state() {
+    python -c '
+import json, os, sys
+
+data = json.loads(sys.stdin.read())
+
+if data.get("version") != 1:
+    raise SystemExit(1)
+
+if data.get("kind") not in ("image", "video"):
+    raise SystemExit(1)
+
+if not isinstance(data.get("provider"), str):
+    raise SystemExit(1)
+
+path = data.get("path")
+
+if not isinstance(path, str) or not os.path.isfile(path):
+    raise SystemExit(1)
+
+print(json.dumps(data, sort_keys=True))
+'
+}
+
+current() {
+    local requested="${MAHO_WALLPAPER_PROVIDER:-auto}"
+    local out rc
+
+    case "$requested" in
+        auto)
+            if out="$(mpvpaper_state)"; then
+                printf '%s\n' "$out"
+                return 0
+            else
+                rc=$?
+                [ "$rc" -eq 2 ] && return 2
+            fi
+
+            if out="$(awww_state)"; then
+                printf '%s\n' "$out"
+                return 0
+            else
+                rc=$?
+                [ "$rc" -eq 2 ] && return 2
+            fi
+
+            return 1
+            ;;
+
+        mpvpaper)
+            mpvpaper_state
+            ;;
+
+        awww)
+            awww_state
+            ;;
+
+        /*)
+            [ -x "$requested" ] || return 1
+            "$requested" | validate_state
+            ;;
+
+        *)
+            echo "maho-wallpaper: unknown provider: $requested" >&2
+            return 1
+            ;;
+    esac
+}
+
+theme_command() {
+    if command -v maho-theme >/dev/null 2>&1; then
+        command -v maho-theme
+    elif [ -x "$ROOT/bin/maho-theme" ]; then
+        printf '%s\n' "$ROOT/bin/maho-theme"
+    else
+        return 1
+    fi
+}
+
+adapt() {
+    local kind="${1:-}"
+    local path="${2:-}"
+    local source="$path"
+    local theme
+
+    [ "$kind" = image ] || [ "$kind" = video ] || return 1
+    [ -f "$path" ] || return 1
+
+    theme="$(theme_command)" || {
+        log "INFO theme engine unavailable; leaving appearance unchanged"
+        return 0
+    }
+
+    if [ "$kind" = video ]; then
+        if ! command -v ffmpeg >/dev/null 2>&1 ||
+           ! command -v ffprobe >/dev/null 2>&1
+        then
+            log "INFO video palette extraction unavailable; leaving appearance unchanged"
+            return 0
+        fi
+
+        local duration seek frame tmp
+
+        duration="$(
+            ffprobe \
+                -v error \
+                -show_entries format=duration \
+                -of default=noprint_wrappers=1:nokey=1 \
+                "$path" 2>/dev/null || true
+        )"
+
+        seek="$(
+            python - "$duration" <<'PY'
+import sys
+
+try:
+    duration = float(sys.argv[1])
+except Exception:
+    duration = 2.0
+
+print(f"{duration * 0.25 if duration > 4 else 0.5:.3f}")
+PY
+        )"
+
+        frame="$CACHE/video-frame.jpg"
+        tmp="$CACHE/.video-frame.$$.jpg"
+
+        if ! ffmpeg \
+            -loglevel error \
+            -y \
+            -ss "$seek" \
+            -i "$path" \
+            -frames:v 1 \
+            -q:v 2 \
+            "$tmp"
+        then
+            rm -f "$tmp"
+            log "WARN failed to extract video frame"
+            return 0
+        fi
+
+        mv "$tmp" "$frame"
+        source="$frame"
+    fi
+
+    if "$theme" apply \
+        "$source" \
+        "${MAHO_THEME_MODE:-dark}" \
+        >> "$LOG" 2>&1
+    then
+        log "PASS adapted $kind wallpaper: $path"
+    else
+        log "INFO theme adaptation unavailable/failed; previous state preserved"
+    fi
+
+    return 0
+}
+
+watch() {
+    local theme_enabled=0
+    local last=""
+
+    [ "${1:-}" = "--theme" ] && theme_enabled=1
+
+    log "watch started theme=$theme_enabled"
+
+    while :; do
+        local state rc fingerprint
+
+        if state="$(current)"; then
+            fingerprint="$(
+                printf '%s' "$state" |
+                python -c '
+import json, os, sys
+
+d = json.load(sys.stdin)
+s = os.stat(d["path"])
+
+print(
+    d["provider"],
+    d["kind"],
+    d["path"],
+    s.st_mtime_ns,
+    s.st_size,
+    sep="|",
+)
+'
+            )"
+
+            if [ "$fingerprint" != "$last" ]; then
+                printf '%s\n' "$state" \
+                    > "$STATE/.current.json.$$"
+                mv \
+                    "$STATE/.current.json.$$" \
+                    "$STATE/current.json"
+
+                log "observed $fingerprint"
+
+                if [ "$theme_enabled" -eq 1 ]; then
+                    local fields
+                    mapfile -t fields < <(
+                        printf '%s' "$state" |
+                        python -c '
+import json, sys
+d = json.load(sys.stdin)
+print(d["kind"])
+print(d["path"])
+'
+                    )
+
+                    adapt "${fields[0]}" "${fields[1]}"
+                fi
+
+                last="$fingerprint"
+            fi
+        else
+            rc=$?
+
+            if [ "$rc" -eq 2 ]; then
+                log "INFO multiple wallpapers detected; refusing to guess"
+            fi
+        fi
+
+        sleep "${MAHO_WALLPAPER_POLL:-0.75}"
+    done
+}
+
+doctor() {
+    echo "Maho wallpaper"
+
+    command -v python >/dev/null 2>&1 &&
+        echo "PASS  python" ||
+        echo "FAIL  python"
+
+    command -v awww >/dev/null 2>&1 &&
+        echo "PASS  provider awww" ||
+        echo "INFO  provider awww unavailable"
+
+    command -v mpvpaper >/dev/null 2>&1 &&
+        echo "PASS  provider mpvpaper" ||
+        echo "INFO  provider mpvpaper unavailable"
+
+    command -v ffmpeg >/dev/null 2>&1 &&
+    command -v ffprobe >/dev/null 2>&1 &&
+        echo "PASS  video frame extraction" ||
+        echo "INFO  video coloring unavailable"
+
+    theme_command >/dev/null 2>&1 &&
+        echo "PASS  theme adapter" ||
+        echo "INFO  theme adapter unavailable"
+}
+
+case "${1:-}" in
+    current)
+        current
+        ;;
+
+    doctor)
+        doctor
+        ;;
+
+    adapt)
+        adapt "${2:-}" "${3:-}"
+        ;;
+
+    watch)
+        watch "${2:-}"
+        ;;
+
+    *)
+        cat <<'HELP'
+Usage:
+  maho-wallpaper current
+  maho-wallpaper doctor
+  maho-wallpaper adapt image PATH
+  maho-wallpaper adapt video PATH
+  maho-wallpaper watch
+  maho-wallpaper watch --theme
+
+MAHO_WALLPAPER_PROVIDER may be:
+  auto
+  awww
+  mpvpaper
+  /absolute/path/to/custom-provider
+HELP
+        ;;
+esac
