@@ -30,7 +30,7 @@ chmod +x "$TMP/fake-bin/systemctl"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-contain maho-setup)
+COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-contain maho-setup)
 UNITS=(maho-wallpaper.service maho-observe.service maho-security.service)
 
 echo "=== preflight ==="
@@ -50,6 +50,7 @@ for unit in "${UNITS[@]}"; do
     [ "$(readlink -f "$target")" = "$ROOT/systemd/user/$unit" ] || fail "user service targets wrong checkout: $unit"
     grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not enabled: $unit"
 done
+grep -q 'maho-security-monitor watch' "$ROOT/systemd/user/maho-security.service" || fail "security service does not use stateful monitor"
 "$HOME/.local/bin/maho-adapt" validate-registry | grep -q '^PASS$'
 echo "PASS"
 
