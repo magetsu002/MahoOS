@@ -1,0 +1,10 @@
+{
+  "operations": {
+    "apply-wallpaper-theme": {
+      "adapter": "adapters/appearance/wallpaper-theme.sh",
+      "domain": "appearance",
+      "resource": "appearance.hyprland.borders"
+    }
+  },
+  "version": 1
+}
