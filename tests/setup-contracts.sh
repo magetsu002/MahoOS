@@ -22,6 +22,7 @@ case "$*" in
     '--user show-environment') exit 0 ;;
     '--user is-active --quiet maho-wallpaper.service') exit 0 ;;
     '--user is-active --quiet maho-observe.service') exit 0 ;;
+    '--user is-active --quiet maho-security.service') exit 0 ;;
     *) exit 0 ;;
 esac
 EOF_SYSTEMCTL
@@ -30,7 +31,7 @@ chmod +x "$TMP/fake-bin/systemctl"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-setup)
-UNITS=(maho-wallpaper.service maho-observe.service)
+UNITS=(maho-wallpaper.service maho-observe.service maho-security.service)
 
 echo "=== preflight ==="
 bash "$ROOT/bin/maho-setup" preflight >/dev/null
