@@ -16,6 +16,7 @@ COMMANDS=(
     maho-adapt
     maho-provenance
     maho-security
+    maho-security-monitor
     maho-contain
     maho-setup
 )
@@ -117,6 +118,7 @@ preflight() {
         "$ROOT/bin/maho-adapt" \
         "$ROOT/bin/maho-provenance" \
         "$ROOT/bin/maho-security" \
+        "$ROOT/bin/maho-security-monitor" \
         "$ROOT/bin/maho-contain" \
         "$ROOT/bin/maho-setup" \
         "$ROOT/lib/authority.sh" \
@@ -306,9 +308,10 @@ Usage:
 
 Setup wires the current checkout into the user session. It installs no system
 packages and uses no root access. Existing unmanaged commands and units are
-preserved rather than overwritten. The Maho security service is read-only; the
-separate maho-contain command requires a confirmed finding and explicit user
-confirmation before reversible user-process containment.
+preserved rather than overwritten. The Maho security service runs the stateful
+read-only monitor; the separate maho-contain command requires a confirmed
+finding and explicit user confirmation before reversible user-process
+containment.
 HELP
         ;;
 esac
