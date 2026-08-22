@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/wallpaper"
+LOG="$STATE/watch.log"
+AUTHORITY="$ROOT/lib/authority.sh"
+INTENT="$ROOT/lib/intent.sh"
+EVENTS="$ROOT/lib/events.sh"
+
+mkdir -p "$STATE"
+
+if ! { [ -r "$AUTHORITY" ] && source "$AUTHORITY" 2>/dev/null; }; then
+    maho_owner_get() { printf '%s\n' user; }
+fi
+if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then
+    maho_intent_bool() { return 1; }
+fi
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+
+log() {
+    printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"
+}
+
+emit_event() {
+    maho_event_emit "$@" >/dev/null 2>&1 || true
+}
+
+saved_state() {
+    local current="$STATE/current.json"
+
+    if [ -f "$current" ]; then
+        python - "$current" <<'PY'
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text())
+except Exception:
+    raise SystemExit(1)
+
+if data.get("version") != 1:
+    raise SystemExit(1)
+if data.get("kind") not in {"image", "video"}:
+    raise SystemExit(1)
+provider = data.get("provider")
+if not isinstance(provider, str) or not re.fullmatch(r"[a-z0-9._-]+", provider):
+    raise SystemExit(1)
+wallpaper = data.get("path")
+if not isinstance(wallpaper, str):
+    raise SystemExit(1)
+wallpaper = os.path.realpath(wallpaper)
+if not os.path.isfile(wallpaper):
+    raise SystemExit(1)
+
+print(json.dumps({
+    "version": 1,
+    "provider": provider,
+    "kind": data["kind"],
+    "path": wallpaper,
+}, sort_keys=True))
+PY
+        return $?
+    fi
+
+    # Optional migration path from the existing picker integration. Maho does
+    # not require the picker; if its cache is absent there is simply no state
+    # to restore yet. Once restored, the observer publishes Maho-owned state.
+    local picker="${XDG_CACHE_HOME:-$HOME/.cache}/wallpaper_picker/last_wallpaper"
+    [ -f "$picker" ] || return 1
+
+    python - "$picker" "${QS_WALLPAPER_DIR:-$HOME/Pictures/Wallpapers}" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+cache = Path(sys.argv[1])
+default_root = Path(sys.argv[2])
+try:
+    raw = cache.read_text().strip()
+    kind, stored = raw.split("|", 1)
+except Exception:
+    raise SystemExit(1)
+
+if kind not in {"image", "video"}:
+    raise SystemExit(1)
+
+wallpaper = Path(stored)
+if not wallpaper.is_absolute():
+    wallpaper = default_root / wallpaper
+wallpaper = Path(os.path.realpath(wallpaper))
+if not wallpaper.is_file():
+    raise SystemExit(1)
+
+print(json.dumps({
+    "version": 1,
+    "provider": "mpvpaper" if kind == "video" else "awww",
+    "kind": kind,
+    "path": str(wallpaper),
+}, sort_keys=True))
+PY
+}
+
+wait_for_graphical_session() {
+    [ "${MAHO_WALLPAPER_SESSION_SKIP_WAIT:-0}" = "1" ] && return 0
+    command -v hyprctl >/dev/null 2>&1 || return 0
+
+    local i
+    for i in $(seq 1 40); do
+        hyprctl instances -j >/dev/null 2>&1 && return 0
+        sleep 0.25
+    done
+
+    return 0
+}
+
+ensure_awww() {
+    command -v awww >/dev/null 2>&1 || return 1
+    command -v awww-daemon >/dev/null 2>&1 || return 1
+
+    if awww query -j >/dev/null 2>&1; then
+        return 0
+    fi
+
+    awww-daemon >> "$LOG" 2>&1 &
+
+    local i
+    for i in $(seq 1 20); do
+        awww query -j >/dev/null 2>&1 && return 0
+        sleep 0.1
+    done
+
+    return 1
+}
+
+verify_awww_image() {
+    local expected="$1"
+
+    awww query -j 2>/dev/null | python -c '
+import json
+import os
+import sys
+
+expected = os.path.realpath(sys.argv[1])
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+paths = {
+    os.path.realpath(output["displaying"]["image"])
+    for outputs in data.values()
+    for output in outputs
+    if output.get("displaying", {}).get("image")
+}
+raise SystemExit(0 if paths == {expected} else 1)
+' "$expected"
+}
+
+restore_image() {
+    local path="$1"
+
+    ensure_awww || return 1
+    pkill -x mpvpaper >/dev/null 2>&1 || true
+
+    awww img \
+        --transition-type fade \
+        --transition-duration 0.4 \
+        "$path" >/dev/null 2>&1 || return 1
+
+    verify_awww_image "$path"
+}
+
+restore_video() {
+    local path="$1"
+
+    command -v mpvpaper >/dev/null 2>&1 || return 1
+
+    pkill -x mpvpaper >/dev/null 2>&1 || true
+    if command -v awww >/dev/null 2>&1; then
+        awww clear >/dev/null 2>&1 || true
+    fi
+
+    mpvpaper \
+        -o 'loop --no-audio --hwdec=auto --profile=high-quality --video-sync=display-resample --interpolation --tscale=oversample --panscan=1.0 --video-unscaled=no' \
+        '*' \
+        "$path" \
+        >> /tmp/mpvpaper.log 2>&1 &
+
+    local pid=$!
+    sleep 0.35
+    kill -0 "$pid" 2>/dev/null || return 1
+
+    python - "$pid" "$path" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+pid = sys.argv[1]
+expected = os.path.realpath(sys.argv[2])
+try:
+    args = [
+        os.fsdecode(x)
+        for x in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        if x
+    ]
+except OSError:
+    raise SystemExit(1)
+
+raise SystemExit(0 if args and os.path.realpath(args[-1]) == expected else 1)
+PY
+}
+
+restore_saved() {
+    local owner state kind provider path details
+
+    owner="$(maho_owner_get appearance.wallpaper.runtime 2>/dev/null || printf '%s\n' user)"
+    if [ "$owner" != "maho" ]; then
+        log "INFO wallpaper restore skipped: appearance.wallpaper.runtime owner=$owner"
+        emit_event appearance wallpaper.restore skipped info \
+            "Saved wallpaper restore skipped because Maho does not own the wallpaper runtime" \
+            appearance.wallpaper.runtime maho \
+            "$(python - "$owner" <<'PY'
+import json, sys
+print(json.dumps({"reason":"ownership","owner":sys.argv[1]}))
+PY
+)"
+        return 0
+    fi
+
+    if ! maho_intent_bool appearance.wallpaper.restore_on_login true 2>/dev/null; then
+        log "INFO wallpaper restore disabled by user intent"
+        emit_event appearance wallpaper.restore skipped info \
+            "Saved wallpaper restore is disabled by user intent" \
+            appearance.wallpaper.runtime maho '{"reason":"intent_disabled"}'
+        return 0
+    fi
+
+    state="$(saved_state)" || {
+        log "INFO no saved wallpaper state to restore"
+        return 0
+    }
+
+    mapfile -t fields < <(
+        printf '%s' "$state" | python -c '
+import json, sys
+d=json.load(sys.stdin)
+print(d["provider"])
+print(d["kind"])
+print(d["path"])
+'
+    )
+    provider="${fields[0]}"
+    kind="${fields[1]}"
+    path="${fields[2]}"
+
+    case "$provider:$kind" in
+        awww:image)
+            restore_image "$path"
+            ;;
+        mpvpaper:video)
+            restore_video "$path"
+            ;;
+        *)
+            log "INFO saved wallpaper provider cannot be restored automatically: $provider/$kind"
+            emit_event appearance wallpaper.restore skipped info \
+                "Saved wallpaper provider has no restore adapter" \
+                appearance.wallpaper.runtime "$provider" "$state"
+            return 0
+            ;;
+    esac
+
+    if [ $? -eq 0 ]; then
+        log "PASS restored saved $kind wallpaper: $path"
+        details="$(python - "$provider" "$kind" "$path" <<'PY'
+import json, sys
+print(json.dumps({"provider":sys.argv[1],"kind":sys.argv[2],"path":sys.argv[3]}))
+PY
+)"
+        emit_event appearance wallpaper.restored verified info \
+            "Saved wallpaper runtime restored and verified" \
+            appearance.wallpaper.runtime "$provider" "$details"
+        return 0
+    fi
+
+    log "WARN saved wallpaper restore failed: $provider/$kind $path"
+    emit_event appearance wallpaper.restore failed low \
+        "Saved wallpaper runtime could not be restored" \
+        appearance.wallpaper.runtime "$provider" "$state"
+    return 1
+}
+
+run_session() {
+    wait_for_graphical_session
+    restore_saved || true
+
+    [ "${MAHO_WALLPAPER_SESSION_NO_WATCH:-0}" = "1" ] && return 0
+
+    exec "$ROOT/bin/maho-wallpaper" watch
+}
+
+case "${1:-run}" in
+    restore)
+        wait_for_graphical_session
+        restore_saved
+        ;;
+    run)
+        run_session
+        ;;
+    *)
+        echo "usage: maho-wallpaper-session [restore|run]" >&2
+        exit 1
+        ;;
+esac
