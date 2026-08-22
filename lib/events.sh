@@ -11,6 +11,10 @@ maho_event_valid_name() {
     [[ "${1:-}" =~ ^[a-z0-9._-]+$ ]]
 }
 
+maho_event_valid_cycle() {
+    [ -z "${1:-}" ] || [[ "$1" =~ ^cyc-[a-z0-9._-]+-[0-9]{8}T[0-9]{6}-[a-f0-9]{10}$ ]]
+}
+
 maho_event_emit() {
     local domain="${1:-}"
     local kind="${2:-}"
@@ -20,6 +24,7 @@ maho_event_emit() {
     local resource="${6:-}"
     local source="${7:-}"
     local details_json="${8:-}"
+    local cycle_id="${MAHO_CYCLE_ID:-}"
 
     [ -n "$details_json" ] || details_json='{}'
 
@@ -31,6 +36,10 @@ maho_event_emit() {
         maho_event_die "invalid kind: $kind"
         return 1
     }
+    maho_event_valid_cycle "$cycle_id" || {
+        maho_event_die "invalid cycle id: $cycle_id"
+        return 1
+    }
     [ -n "$summary" ] || {
         maho_event_die "summary is required"
         return 1
@@ -40,7 +49,7 @@ maho_event_emit() {
 
     python - \
         "$MAHO_EVENT_LOG" "$domain" "$kind" "$status" "$risk" \
-        "$summary" "$resource" "$source" "$details_json" <<'PY'
+        "$summary" "$resource" "$source" "$details_json" "$cycle_id" <<'PY'
 import datetime as dt
 import fcntl
 import json
@@ -49,7 +58,18 @@ import sys
 import uuid
 from pathlib import Path
 
-log_path, domain, kind, status, risk, summary, resource, source, details_raw = sys.argv[1:]
+(
+    log_path,
+    domain,
+    kind,
+    status,
+    risk,
+    summary,
+    resource,
+    source,
+    details_raw,
+    cycle_id,
+) = sys.argv[1:]
 
 valid_status = {
     "observed", "skipped", "proposed", "verified", "failed",
@@ -73,6 +93,7 @@ now = dt.datetime.now(dt.timezone.utc)
 payload = {
     "version": 1,
     "id": "evt-" + now.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:10],
+    "cycle_id": cycle_id or None,
     "at": now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
     "domain": domain,
     "kind": kind,
@@ -126,11 +147,13 @@ with path.open() as f:
 
 for line in lines:
     data = json.loads(line)
+    cycle = data.get("cycle_id") or "-"
     print(
         f"{data.get('at', 'unknown')}  "
         f"{data.get('domain', 'unknown'):<12} "
         f"{data.get('status', 'unknown'):<11} "
         f"{data.get('kind', 'unknown'):<28} "
+        f"cycle={cycle}  "
         f"{data.get('summary', '')}"
     )
 PY
@@ -204,5 +227,43 @@ with path.open() as f:
             raise SystemExit(0)
 
 raise SystemExit(1)
+PY
+}
+
+maho_event_cycle() {
+    local cycle_id="${1:-}"
+
+    maho_event_valid_cycle "$cycle_id" || {
+        maho_event_die "invalid cycle id: $cycle_id"
+        return 1
+    }
+    [ -n "$cycle_id" ] || {
+        maho_event_die "cycle id is required"
+        return 1
+    }
+
+    python - "$MAHO_EVENT_LOG" "$cycle_id" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+cycle_id = sys.argv[2]
+if not path.is_file():
+    raise SystemExit(1)
+
+found = False
+with path.open() as f:
+    for line in f:
+        try:
+            data = json.loads(line)
+        except Exception:
+            continue
+        if data.get("cycle_id") == cycle_id:
+            print(json.dumps(data, sort_keys=True))
+            found = True
+
+if not found:
+    raise SystemExit(1)
 PY
 }
