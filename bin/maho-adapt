@@ -167,6 +167,21 @@ print(json.dumps({"owner":sys.argv[1],"operation":sys.argv[2],"adapter":sys.argv
 PY
 )"
 
+    # Verifiers are read-only by contract. This preflight makes reconciliation
+    # cheap: if reality already matches desired state, do not mutate anything.
+    if MAHO_CYCLE_ID="$cycle" maho_transaction_adapter_call "$adapter" verify "$desired" >/dev/null 2>&1; then
+        local satisfied_reason="Desired state is already verified; no mutation was necessary"
+        emit_cycle_event "$cycle" "$domain" adaptation.satisfied verified info \
+            "$satisfied_reason" "$resource" executor \
+            "$(python - "$operation" <<'PY'
+import json,sys
+print(json.dumps({"operation":sys.argv[1]}))
+PY
+)"
+        result_json "$cycle" verified "$action" "$domain" "$resource" "$satisfied_reason"
+        return 0
+    fi
+
     if result="$(MAHO_TRANSACTION_CYCLE_ID="$cycle" maho_transaction_execute "$adapter" "$desired" "$domain" "$resource")"; then
         emit_cycle_event "$cycle" "$domain" adaptation.completed verified info "Adaptation cycle completed with verified desired state" "$resource" executor \
             "$(python - "$operation" <<'PY'
@@ -215,9 +230,9 @@ Usage:
   maho-adapt validate-registry
   maho-adapt list
 
-MAHO_ADAPT_CYCLE_ID may carry a validated observer-created cycle into the
-executor so observation, policy, authorization, mutation and verification are
-all one wheel spin.
+Before mutating, Maho asks the registered adapter whether desired state is
+already true. A verified state produces no mutation. MAHO_ADAPT_CYCLE_ID can
+carry an observer-created cycle through the whole wheel.
 HELP
         ;;
 esac
