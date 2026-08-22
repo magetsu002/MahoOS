@@ -40,6 +40,44 @@ maho_transaction_emit() {
     fi
 }
 
+maho_transaction_adapter_available() {
+    local adapter="${1:-}"
+
+    case "$adapter" in
+        /*)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    [ -f "$adapter" ] || return 1
+
+    if [ -x "$adapter" ]; then
+        return 0
+    fi
+
+    case "$adapter" in
+        *.sh)
+            [ -r "$adapter" ]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+maho_transaction_adapter_call() {
+    local adapter="$1"
+    shift
+
+    if [ -x "$adapter" ]; then
+        MAHO_CYCLE_ID="${MAHO_CYCLE_ID:-}" "$adapter" "$@"
+    else
+        MAHO_CYCLE_ID="${MAHO_CYCLE_ID:-}" bash "$adapter" "$@"
+    fi
+}
+
 maho_transaction_rollback() {
     local cycle="$1"
     local adapter="$2"
@@ -49,13 +87,13 @@ maho_transaction_rollback() {
     local adapter_name="$6"
     local cause="$7"
 
-    if ! MAHO_CYCLE_ID="$cycle" "$adapter" rollback "$before"; then
+    if ! MAHO_CYCLE_ID="$cycle" maho_transaction_adapter_call "$adapter" rollback "$before"; then
         maho_transaction_emit "$cycle" "$domain" adapter.rollback failed high \
             "Rollback command failed after $cause" "$resource" "$adapter_name" '{}'
         return 1
     fi
 
-    if ! MAHO_CYCLE_ID="$cycle" "$adapter" verify-rollback "$before"; then
+    if ! MAHO_CYCLE_ID="$cycle" maho_transaction_adapter_call "$adapter" verify-rollback "$before"; then
         maho_transaction_emit "$cycle" "$domain" adapter.rollback failed high \
             "Rollback command returned success but previous state could not be verified after $cause" \
             "$resource" "$adapter_name" '{}'
@@ -87,8 +125,8 @@ maho_transaction_execute() {
             ;;
     esac
 
-    [ -x "$adapter" ] || {
-        maho_transaction_die "adapter is not executable: $adapter"
+    maho_transaction_adapter_available "$adapter" || {
+        maho_transaction_die "adapter is unavailable: $adapter"
         return 1
     }
 
@@ -110,10 +148,19 @@ maho_transaction_execute() {
         return 1
     }
 
-    cycle="$(maho_cycle_new "$domain")" || return 1
+    cycle="${MAHO_TRANSACTION_CYCLE_ID:-}"
+    if [ -n "$cycle" ]; then
+        declare -F maho_cycle_valid >/dev/null 2>&1 && maho_cycle_valid "$cycle" || {
+            maho_transaction_die "invalid supplied cycle id: $cycle"
+            return 1
+        }
+    else
+        cycle="$(maho_cycle_new "$domain")" || return 1
+    fi
+
     adapter_name="$(basename -- "$adapter")"
 
-    before="$(MAHO_CYCLE_ID="$cycle" "$adapter" capture "$desired")" || {
+    before="$(MAHO_CYCLE_ID="$cycle" maho_transaction_adapter_call "$adapter" capture "$desired")" || {
         maho_transaction_emit "$cycle" "$domain" adapter.capture failed low \
             "Adapter failed to capture pre-mutation state" "$resource" "$adapter_name" \
             "$(python - "$adapter" <<'PY'
@@ -138,7 +185,7 @@ print(json.dumps({"adapter": sys.argv[1]}))
 PY
 )"
 
-    if ! MAHO_CYCLE_ID="$cycle" "$adapter" apply "$desired"; then
+    if ! MAHO_CYCLE_ID="$cycle" maho_transaction_adapter_call "$adapter" apply "$desired"; then
         maho_transaction_emit "$cycle" "$domain" adapter.apply failed low \
             "Adapter apply step failed" "$resource" "$adapter_name" '{}'
 
@@ -151,7 +198,7 @@ PY
     maho_transaction_emit "$cycle" "$domain" adapter.apply observed info \
         "Adapter mutation applied; verification pending" "$resource" "$adapter_name" '{}'
 
-    if MAHO_CYCLE_ID="$cycle" "$adapter" verify "$desired"; then
+    if MAHO_CYCLE_ID="$cycle" maho_transaction_adapter_call "$adapter" verify "$desired"; then
         maho_transaction_emit "$cycle" "$domain" adapter.verify verified info \
             "Adapter mutation verified against desired state" "$resource" "$adapter_name" '{}'
 
