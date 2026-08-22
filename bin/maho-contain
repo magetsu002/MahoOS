@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+FS_ROOT="${MAHO_FS_ROOT:-/}"
+PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
+SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
+ENGINE="$ROOT/lib/security_containment.py"
+SECURITY="$ROOT/bin/maho-security"
+EVENTS="$ROOT/lib/events.sh"
+
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then maho_event_emit() { return 0; }; fi
+
+emit_event() { maho_event_emit security "$@" >/dev/null 2>&1 || true; }
+
+confirmed_target() {
+    local finding="$1" canonical
+    canonical="$(bash "$SECURITY" validate "$finding")" || return 1
+    python - "$DB_ROOT" "$canonical" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1]); f=json.loads(sys.argv[2])
+if f.get("confidence") != "confirmed":
+    raise SystemExit("containment requires confidence=confirmed")
+name=f["package"]["name"]; affected=set(f["package"]["versions"]); installed=None
+for desc in root.glob("*/desc"):
+    try: lines=desc.read_text(errors="replace").splitlines()
+    except OSError: continue
+    values={}; i=0
+    while i < len(lines):
+        if lines[i] in {"%NAME%","%VERSION%"} and i+1 < len(lines): values[lines[i].strip("%")]=lines[i+1]
+        i+=1
+    if values.get("NAME") == name:
+        installed=values.get("VERSION"); break
+if installed not in affected:
+    raise SystemExit("installed package version does not match confirmed finding")
+print(json.dumps({"package":name,"version":installed,"finding_id":f["id"],"severity":f["severity"],"confidence":f["confidence"]},sort_keys=True))
+PY
+}
+
+pretty_freeze() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("Maho process containment")
+print("Result: ",r.get("result")); print("Package:",r.get("package")); print("Session:",r.get("session_id") or "none")
+print("Frozen: ",len(r.get("contained",[]))); print("Failed: ",len(r.get("failed",[])))
+for p in r.get("contained",[]): print(f"  STOPPED PID {p['pid']:<7} {p.get('name','?'):<20} {p.get('exe','?')}")
+for p in r.get("failed",[]): print(f"  SKIPPED PID {p.get('pid','?'):<7} {p.get('reason','?')}")
+if r.get("contained"):
+    print(); print("Processes are frozen with SIGSTOP, not killed. Release with:")
+    print("  maho-contain release " + r["session_id"])
+PY
+}
+
+pretty_release() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("Maho containment release")
+print("Result: ",r.get("result")); print("Session:",r.get("session_id")); print("Released:",len(r.get("released",[]))); print("Skipped: ",len(r.get("skipped",[])))
+for p in r.get("released",[]): print(f"  RESUMED PID {p['pid']}")
+for p in r.get("skipped",[]): print(f"  SKIPPED PID {p.get('pid','?')} {p.get('reason','?')}")
+PY
+}
+
+freeze_command() {
+    local finding="${1:-}" confirm="${2:-}" target package version finding_id severity result status
+    [ -f "$finding" ] || { echo "maho-contain: finding file is required" >&2; return 1; }
+    [ "$confirm" = "--confirm" ] || {
+        echo "Refusing to signal processes without explicit confirmation." >&2
+        echo "Review first: maho-security investigate $finding" >&2
+        echo "Then run:    maho-contain freeze $finding --confirm" >&2
+        return 1
+    }
+    [ -r "$ENGINE" ] || { echo "maho-contain: containment engine unavailable" >&2; return 1; }
+
+    target="$(confirmed_target "$finding")" || return 1
+    mapfile -t fields < <(printf '%s\n' "$target" | python -c 'import json,sys; d=json.load(sys.stdin); print(d["package"]); print(d["version"]); print(d["finding_id"]); print(d["severity"])')
+    package="${fields[0]}"; version="${fields[1]}"; finding_id="${fields[2]}"; severity="${fields[3]}"
+
+    result="$(python "$ENGINE" freeze "$package" --version "$version" --finding-id "$finding_id" --db-root "$DB_ROOT" --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --state-root "$SEC_STATE" --uid "$(id -u)")" || return 1
+    pretty_freeze "$result"
+    status="$(printf '%s\n' "$result" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    case "$status" in
+        contained|partial)
+            emit_event containment.process-freeze contained "$severity" "User explicitly froze visible user-owned processes belonging to a confirmed affected package" security.processes user "$result"
+            ;;
+        no-targets)
+            emit_event containment.no-targets verified info "Confirmed affected package had no visible user-owned processes eligible for containment" security.processes maho "$result"
+            ;;
+    esac
+}
+
+release_command() {
+    local session="${1:-}" result status
+    [ -n "$session" ] || { echo "usage: maho-contain release SESSION_ID" >&2; return 1; }
+    result="$(python "$ENGINE" release "$session" --proc-root "$PROC_ROOT" --state-root "$SEC_STATE")" || return 1
+    pretty_release "$result"
+    status="$(printf '%s\n' "$result" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    emit_event containment.release verified info "User explicitly released a reversible Maho process-containment session" security.processes user "$result"
+}
+
+list_command() {
+    python - "$SEC_STATE/containment" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+if not root.is_dir(): raise SystemExit(0)
+for path in sorted(root.glob("contain-*.json")):
+    try: d=json.loads(path.read_text())
+    except Exception: continue
+    print(f"{d.get('session_id','?')}  {d.get('package','?')} {d.get('installed_version','?')}  processes={len(d.get('processes',[]))}")
+PY
+}
+
+case "${1:-}" in
+    freeze) freeze_command "${2:-}" "${3:-}" ;;
+    release) release_command "${2:-}" ;;
+    list) list_command ;;
+    doctor)
+        echo "Maho containment"
+        [ -r "$ENGINE" ] && python -m py_compile "$ENGINE" >/dev/null 2>&1 && echo "PASS  containment engine" || echo "FAIL  containment engine"
+        echo "INFO  scope: visible processes owned by the current user only"
+        echo "INFO  mechanism: reversible SIGSTOP / SIGCONT"
+        echo "INFO  finding gate: exact installed version + confidence=confirmed"
+        echo "INFO  explicit --confirm required; never invoked automatically"
+        ;;
+    *)
+        cat <<'HELP'
+Maho explicit process containment
+
+Usage:
+  maho-contain freeze FINDING.json --confirm
+  maho-contain release SESSION_ID
+  maho-contain list
+  maho-contain doctor
+
+Containment is deliberately narrow in V1. It only freezes visible user-owned
+processes whose executable belongs to the exact package/version in a confirmed
+finding. It excludes the invoking process ancestry, records PID start times to
+prevent PID-reuse mistakes, verifies SIGSTOP, and can reversibly SIGCONT the
+same processes. It never runs automatically and does not claim host recovery.
+HELP
+        ;;
+esac
