@@ -24,6 +24,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -36,6 +37,13 @@ argument = sys.argv[4]
 snapshots = state_root / "snapshots"
 baseline_path = state_root / "baseline.json"
 latest_path = state_root / "latest.json"
+
+NAME_RE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
+
+
+def secure_dir(path):
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, 0o700)
 
 
 def parse_desc(path):
@@ -115,23 +123,73 @@ def manifest_hash(manifest):
 
 
 def atomic_write(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
+    secure_dir(state_root)
+    secure_dir(path.parent)
     tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
-    tmp.write_bytes(data)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        offset = 0
+        while offset < len(data):
+            offset += os.write(fd, data[offset:])
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     os.replace(tmp, path)
+    os.chmod(path, 0o600)
 
 
 def validate_manifest(manifest):
     if manifest.get("version") != 1 or manifest.get("kind") != "arch-packages":
         raise SystemExit("unsupported provenance manifest")
-    if not isinstance(manifest.get("packages"), dict):
+    if manifest.get("source") != "pacman-local-db":
+        raise SystemExit("unsupported provenance source")
+    packages = manifest.get("packages")
+    if not isinstance(packages, dict):
         raise SystemExit("invalid provenance package map")
+    if len(packages) > 100000:
+        raise SystemExit("provenance package map is unreasonably large")
+
+    for key, item in packages.items():
+        if not isinstance(key, str) or not NAME_RE.fullmatch(key):
+            raise SystemExit("invalid provenance package key")
+        if not isinstance(item, dict) or item.get("name") != key:
+            raise SystemExit(f"invalid provenance package entry: {key}")
+        version = item.get("version")
+        if not isinstance(version, str) or not version or len(version) > 512:
+            raise SystemExit(f"invalid provenance package version: {key}")
+        digest = item.get("desc_sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise SystemExit(f"invalid provenance package metadata hash: {key}")
 
 
 def load_manifest(path):
+    if not path.is_file():
+        raise SystemExit(f"provenance manifest does not exist: {path}")
     data = json.loads(path.read_text())
     validate_manifest(data)
     return data
+
+
+def trusted_snapshot_path(argument):
+    if argument == "latest":
+        source = latest_path.resolve()
+        if not source.is_file():
+            raise SystemExit("no latest provenance snapshot exists")
+        return source
+
+    source = Path(argument).expanduser().resolve()
+    snapshot_root = snapshots.resolve()
+    try:
+        source.relative_to(snapshot_root)
+    except ValueError:
+        raise SystemExit(
+            "trusted baseline source must be a Maho provenance snapshot; "
+            "capture one with 'maho-provenance snapshot' first"
+        )
+    if not source.is_file():
+        raise SystemExit(f"snapshot does not exist: {source}")
+    return source
 
 
 def compare(base, current):
@@ -160,6 +218,7 @@ def compare(base, current):
 
 if command == "snapshot":
     manifest = capture_manifest()
+    validate_manifest(manifest)
     data = canonical_bytes(manifest)
     digest = hashlib.sha256(data).hexdigest()
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -175,8 +234,8 @@ if command == "snapshot":
 
 elif command == "baseline-set":
     if not argument:
-        raise SystemExit("snapshot path is required")
-    source = Path(argument).expanduser().resolve()
+        raise SystemExit("snapshot path or 'latest' is required")
+    source = trusted_snapshot_path(argument)
     manifest = load_manifest(source)
     data = canonical_bytes(manifest)
     atomic_write(baseline_path, data)
@@ -186,6 +245,13 @@ elif command == "baseline-set":
         "source": str(source),
         "sha256": hashlib.sha256(data).hexdigest(),
         "packages": len(manifest["packages"]),
+    }, sort_keys=True))
+
+elif command == "baseline-clear":
+    baseline_path.unlink(missing_ok=True)
+    print(json.dumps({
+        "result": "baseline-cleared",
+        "path": str(baseline_path),
     }, sort_keys=True))
 
 elif command in {"check", "diff"}:
@@ -243,6 +309,8 @@ elif kind == "baseline-set":
     print("Packages:", r["packages"])
     print("SHA256:  ", r["sha256"])
     print("Baseline:", r["path"])
+elif kind == "baseline-cleared":
+    print("Trusted package baseline cleared.")
 elif kind == "baseline":
     print("Maho package provenance baseline")
     print("Captured:", r.get("captured_at"))
@@ -289,8 +357,14 @@ case "${1:-}" in
                 RESULT="$(run_provenance baseline-show)" || exit $?
                 pretty_result "$RESULT"
                 ;;
+            clear)
+                RESULT="$(run_provenance baseline-clear)" || exit $?
+                pretty_result "$RESULT"
+                emit_security_event packages.baseline-cleared observed info \
+                    "User cleared the trusted package provenance baseline" security.packages user "$RESULT"
+                ;;
             *)
-                echo "usage: maho-provenance baseline set SNAPSHOT | baseline show" >&2
+                echo "usage: maho-provenance baseline set SNAPSHOT|latest | baseline show | baseline clear" >&2
                 exit 1
                 ;;
         esac
@@ -324,13 +398,15 @@ Maho package provenance
 Usage:
   maho-provenance snapshot
   maho-provenance baseline set SNAPSHOT
+  maho-provenance baseline set latest
   maho-provenance baseline show
+  maho-provenance baseline clear
   maho-provenance check
   maho-provenance diff [SNAPSHOT]
 
-This component is read-only with respect to the operating system.
-A baseline is never trusted automatically: only an explicit user command selects it.
-Package changes are evidence, not proof of compromise.
+A baseline is never trusted automatically. Baseline selection accepts only
+snapshots captured into Maho's private provenance store (or the explicit
+'latest' alias). Package changes remain evidence, not proof of compromise.
 HELP
         ;;
 esac
