@@ -17,199 +17,453 @@ EXECUTOR="$ROOT/bin/maho-adapt"
 
 mkdir -p "$STATE" "$CACHE"
 
-if ! { [ -r "$AUTHORITY" ] && source "$AUTHORITY" 2>/dev/null; }; then maho_owner_get() { printf '%s\n' user; }; fi
-if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then maho_intent_get() { printf '%s\n' null; }; maho_intent_bool() { return 1; }; fi
-if ! { [ -r "$STATE_LIB" ] && source "$STATE_LIB" 2>/dev/null; }; then maho_state_publish() { return 0; }; fi
-if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then maho_event_emit() { return 0; }; fi
-if ! { [ -r "$POLICY" ] && source "$POLICY" 2>/dev/null; }; then maho_policy_wallpaper_theme() { return 1; }; fi
-if ! { [ -r "$CYCLE_LIB" ] && source "$CYCLE_LIB" 2>/dev/null; }; then maho_cycle_new() { return 1; }; fi
+if ! { [ -r "$AUTHORITY" ] && source "$AUTHORITY" 2>/dev/null; }; then
+    maho_owner_get() { printf '%s\n' user; }
+fi
+if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then
+    maho_intent_get() { printf '%s\n' null; }
+    maho_intent_bool() { return 1; }
+fi
+if ! { [ -r "$STATE_LIB" ] && source "$STATE_LIB" 2>/dev/null; }; then
+    maho_state_publish() { return 0; }
+fi
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+if ! { [ -r "$POLICY" ] && source "$POLICY" 2>/dev/null; }; then
+    maho_policy_wallpaper_theme() { return 1; }
+fi
+if ! { [ -r "$CYCLE_LIB" ] && source "$CYCLE_LIB" 2>/dev/null; }; then
+    maho_cycle_new() { return 1; }
+fi
 
-log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; }
-emit_event() { maho_event_emit "$@" >/dev/null 2>&1 || true; }
-emit_cycle_event() { local cycle="$1"; shift; MAHO_CYCLE_ID="$cycle" maho_event_emit "$@" >/dev/null 2>&1 || true; }
+log() {
+    printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"
+}
+
+emit_event() {
+    maho_event_emit "$@" >/dev/null 2>&1 || true
+}
+
+emit_cycle_event() {
+    local cycle="$1"
+    shift
+    MAHO_CYCLE_ID="$cycle" maho_event_emit "$@" >/dev/null 2>&1 || true
+}
 
 mpvpaper_state() {
     python - <<'PY'
-import json,os
+import json
+import os
 from pathlib import Path
-paths=set()
+
+paths = set()
 for proc in Path("/proc").iterdir():
-    if not proc.name.isdigit(): continue
+    if not proc.name.isdigit():
+        continue
     try:
-        if (proc/"comm").read_text().strip() != "mpvpaper": continue
-        args=[os.fsdecode(x) for x in (proc/"cmdline").read_bytes().split(b"\0") if x]
+        if (proc / "comm").read_text().strip() != "mpvpaper":
+            continue
+        args = [
+            os.fsdecode(x)
+            for x in (proc / "cmdline").read_bytes().split(b"\0")
+            if x
+        ]
         if args:
-            path=os.path.realpath(args[-1])
-            if os.path.isfile(path): paths.add(path)
-    except (OSError,PermissionError): pass
-if len(paths)>1: raise SystemExit(2)
-if not paths: raise SystemExit(1)
-print(json.dumps({"version":1,"provider":"mpvpaper","kind":"video","path":next(iter(paths))},sort_keys=True))
+            path = os.path.realpath(args[-1])
+            if os.path.isfile(path):
+                paths.add(path)
+    except (OSError, PermissionError):
+        pass
+
+if len(paths) > 1:
+    raise SystemExit(2)
+if not paths:
+    raise SystemExit(1)
+
+print(json.dumps({
+    "version": 1,
+    "provider": "mpvpaper",
+    "kind": "video",
+    "path": next(iter(paths)),
+}, sort_keys=True))
 PY
 }
 
 awww_state() {
     command -v awww >/dev/null 2>&1 || return 1
+
     awww query -j 2>/dev/null | python -c '
-import json,os,sys
-try: data=json.load(sys.stdin)
-except Exception: raise SystemExit(1)
-paths={os.path.realpath(output["displaying"]["image"]) for outputs in data.values() for output in outputs if output.get("displaying",{}).get("image") and os.path.isfile(output["displaying"]["image"])}
-if len(paths)>1: raise SystemExit(2)
-if not paths: raise SystemExit(1)
-print(json.dumps({"version":1,"provider":"awww","kind":"image","path":next(iter(paths))},sort_keys=True))
+import json
+import os
+import sys
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+paths = {
+    os.path.realpath(output["displaying"]["image"])
+    for outputs in data.values()
+    for output in outputs
+    if output.get("displaying", {}).get("image")
+    and os.path.isfile(output["displaying"]["image"])
+}
+
+if len(paths) > 1:
+    raise SystemExit(2)
+if not paths:
+    raise SystemExit(1)
+
+print(json.dumps({
+    "version": 1,
+    "provider": "awww",
+    "kind": "image",
+    "path": next(iter(paths)),
+}, sort_keys=True))
 '
 }
 
 validate_state() {
     python -c '
-import json,os,re,sys
-data=json.loads(sys.stdin.read())
-if data.get("version") != 1: raise SystemExit(1)
-if data.get("kind") not in ("image","video"): raise SystemExit(1)
-if not isinstance(data.get("provider"),str) or not re.fullmatch(r"[a-z0-9._-]+",data["provider"]): raise SystemExit(1)
-path=data.get("path")
-if not isinstance(path,str) or not os.path.isfile(path): raise SystemExit(1)
-data["path"]=os.path.realpath(path)
-print(json.dumps(data,sort_keys=True))
+import json
+import os
+import re
+import sys
+
+data = json.loads(sys.stdin.read())
+if data.get("version") != 1:
+    raise SystemExit(1)
+if data.get("kind") not in ("image", "video"):
+    raise SystemExit(1)
+if not isinstance(data.get("provider"), str) or not re.fullmatch(r"[a-z0-9._-]+", data["provider"]):
+    raise SystemExit(1)
+path = data.get("path")
+if not isinstance(path, str) or not os.path.isfile(path):
+    raise SystemExit(1)
+data["path"] = os.path.realpath(path)
+print(json.dumps(data, sort_keys=True))
 '
 }
 
 current() {
-    local requested="${MAHO_WALLPAPER_PROVIDER:-auto}" out rc
+    local requested="${MAHO_WALLPAPER_PROVIDER:-auto}"
+    local out rc
+
     case "$requested" in
         auto)
-            if out="$(mpvpaper_state)"; then printf '%s\n' "$out"; return 0; else rc=$?; [ "$rc" -eq 2 ] && return 2; fi
-            if out="$(awww_state)"; then printf '%s\n' "$out"; return 0; else rc=$?; [ "$rc" -eq 2 ] && return 2; fi
+            if out="$(mpvpaper_state)"; then
+                printf '%s\n' "$out"
+                return 0
+            else
+                rc=$?
+                [ "$rc" -eq 2 ] && return 2
+            fi
+
+            if out="$(awww_state)"; then
+                printf '%s\n' "$out"
+                return 0
+            else
+                rc=$?
+                [ "$rc" -eq 2 ] && return 2
+            fi
+
             return 1
             ;;
-        mpvpaper) mpvpaper_state ;;
-        awww) awww_state ;;
-        /*) [ -x "$requested" ] || return 1; "$requested" | validate_state ;;
-        *) echo "maho-wallpaper: unknown provider: $requested" >&2; return 1 ;;
+        mpvpaper)
+            mpvpaper_state
+            ;;
+        awww)
+            awww_state
+            ;;
+        /*)
+            [ -x "$requested" ] || return 1
+            "$requested" | validate_state
+            ;;
+        *)
+            echo "maho-wallpaper: unknown provider: $requested" >&2
+            return 1
+            ;;
     esac
 }
 
 theme_command() {
-    if command -v maho-theme >/dev/null 2>&1; then command -v maho-theme
-    elif [ -r "$ROOT/bin/maho-theme" ]; then printf '%s\n' "$ROOT/bin/maho-theme"
-    else return 1; fi
+    if command -v maho-theme >/dev/null 2>&1; then
+        command -v maho-theme
+    elif [ -r "$ROOT/bin/maho-theme" ]; then
+        printf '%s\n' "$ROOT/bin/maho-theme"
+    else
+        return 1
+    fi
 }
 
 theme_mode() {
-    if [ -n "${MAHO_THEME_MODE:-}" ]; then printf '%s\n' "$MAHO_THEME_MODE"; return; fi
+    if [ -n "${MAHO_THEME_MODE:-}" ]; then
+        printf '%s\n' "$MAHO_THEME_MODE"
+        return
+    fi
+
     local value
     value="$(maho_intent_get appearance.theme.mode 2>/dev/null || printf '%s\n' '"dark"')"
-    printf '%s\n' "$value" | python -c 'import json,sys
-try: value=json.load(sys.stdin)
-except Exception: value="dark"
-print(value if value in ("dark","light") else "dark")'
+
+    printf '%s\n' "$value" | python -c '
+import json, sys
+try:
+    value = json.load(sys.stdin)
+except Exception:
+    value = "dark"
+print(value if value in ("dark", "light") else "dark")
+'
 }
 
 publish_wallpaper_state() {
-    local state="$1" provider
-    provider="$(printf '%s' "$state" | python -c 'import json,sys; print(json.load(sys.stdin)["provider"])')" || return 1
+    local state="$1"
+    local provider
+
+    provider="$(
+        printf '%s' "$state" |
+        python -c 'import json,sys; print(json.load(sys.stdin)["provider"])'
+    )" || return 1
+
     maho_state_publish wallpaper "$provider" "$state" >/dev/null 2>&1 || true
 }
 
 manual_adapt() {
-    local kind="${1:-}" path="${2:-}" source mode theme
+    local kind="${1:-}"
+    local path="${2:-}"
+    local source mode theme
+
     [ "$kind" = image ] || [ "$kind" = video ] || return 1
     [ -f "$path" ] || return 1
+
     theme="$(theme_command)" || return 1
     source="$path"
+
     if [ "$kind" = video ]; then
-        command -v ffmpeg >/dev/null 2>&1 || return 1; command -v ffprobe >/dev/null 2>&1 || return 1
+        command -v ffmpeg >/dev/null 2>&1 || return 1
+        command -v ffprobe >/dev/null 2>&1 || return 1
+
         local duration seek frame tmp
-        duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$path" 2>/dev/null || true)"
-        seek="$(python - "$duration" <<'PY'
+        duration="$(
+            ffprobe -v error -show_entries format=duration \
+                -of default=noprint_wrappers=1:nokey=1 "$path" 2>/dev/null || true
+        )"
+        seek="$(
+            python - "$duration" <<'PY'
 import sys
-try: d=float(sys.argv[1])
-except Exception: d=2.0
-print(f"{d*0.25 if d>4 else 0.5:.3f}")
+try:
+    duration = float(sys.argv[1])
+except Exception:
+    duration = 2.0
+print(f"{duration * 0.25 if duration > 4 else 0.5:.3f}")
 PY
-)"
-        frame="$CACHE/video-frame.jpg"; tmp="$CACHE/.video-frame.$$.jpg"
-        ffmpeg -loglevel error -y -ss "$seek" -i "$path" -frames:v 1 -q:v 2 "$tmp" || { rm -f "$tmp"; return 1; }
-        mv "$tmp" "$frame"; source="$frame"
+        )"
+
+        frame="$CACHE/video-frame.jpg"
+        tmp="$CACHE/.video-frame.$$.jpg"
+
+        if ! ffmpeg -loglevel error -y -ss "$seek" -i "$path" -frames:v 1 -q:v 2 "$tmp"; then
+            rm -f "$tmp"
+            return 1
+        fi
+
+        mv "$tmp" "$frame"
+        source="$frame"
     fi
+
     mode="$(theme_mode)"
     bash "$theme" apply "$source" "$mode"
 }
 
 run_automatic_cycle() {
-    local state="$1" cycle="$2" decision result
-    [ -r "$POLICY" ] || { log "WARN policy layer unavailable; no automatic mutation performed"; return 0; }
-    [ -r "$EXECUTOR" ] || { log "WARN adaptation executor unavailable; no automatic mutation performed"; return 0; }
-    decision="$(maho_policy_wallpaper_theme "$state")" || { log "WARN wallpaper policy failed; no automatic mutation performed"; return 0; }
-    if result="$(MAHO_ADAPT_CYCLE_ID="$cycle" bash "$EXECUTOR" execute "$decision" 2>>"$LOG")"; then log "cycle $result"; else log "WARN adaptation executor failed; inspect wheel history cycle=$cycle"; fi
+    local state="$1"
+    local cycle="$2"
+    local decision result
+
+    [ -r "$POLICY" ] || {
+        log "WARN policy layer unavailable; no automatic mutation performed"
+        return 0
+    }
+    [ -r "$EXECUTOR" ] || {
+        log "WARN adaptation executor unavailable; no automatic mutation performed"
+        return 0
+    }
+
+    decision="$(maho_policy_wallpaper_theme "$state")" || {
+        log "WARN wallpaper policy failed; no automatic mutation performed"
+        return 0
+    }
+
+    if result="$(
+        MAHO_ADAPT_CYCLE_ID="$cycle" \
+            bash "$EXECUTOR" execute "$decision" 2>>"$LOG"
+    )"; then
+        log "cycle $result"
+        printf '%s\n' "$result"
+        return 0
+    fi
+
+    log "WARN adaptation executor failed; inspect wheel history cycle=$cycle"
+    return 1
+}
+
+persist_observation() {
+    local state="$1"
+
+    printf '%s\n' "$state" > "$STATE/.current.json.$$"
+    mv "$STATE/.current.json.$$" "$STATE/current.json"
+    publish_wallpaper_state "$state"
+}
+
+process_state() {
+    local state="$1"
+    local force_theme="${2:-0}"
+    local provider kind path cycle result
+
+    mapfile -t fields < <(
+        printf '%s' "$state" |
+        python -c '
+import json, sys
+d = json.load(sys.stdin)
+print(d["provider"])
+print(d["kind"])
+print(d["path"])
+'
+    ) || return 1
+
+    provider="${fields[0]}"
+    kind="${fields[1]}"
+    path="${fields[2]}"
+
+    persist_observation "$state"
+    log "observed $provider|$kind|$path"
+
+    cycle="$(maho_cycle_new appearance 2>/dev/null || true)"
+    if [ -n "$cycle" ]; then
+        emit_cycle_event "$cycle" appearance wallpaper.changed observed info \
+            "Wallpaper state changed" "" "$provider" "$state"
+    else
+        emit_event appearance wallpaper.changed observed info \
+            "Wallpaper state changed" "" "$provider" "$state"
+    fi
+
+    if [ "$force_theme" = 1 ]; then
+        if manual_adapt "$kind" "$path" >>"$LOG" 2>&1; then
+            printf '%s\n' "manual-adaptation-complete"
+            return 0
+        fi
+        log "WARN forced manual theme adaptation failed"
+        return 1
+    fi
+
+    [ -n "$cycle" ] || {
+        log "WARN cycle layer unavailable; automatic mutation refused"
+        return 1
+    }
+
+    result="$(run_automatic_cycle "$state" "$cycle")" || return 1
+    printf '%s\n' "$result"
+}
+
+once() {
+    local force_theme=0
+    local state rc
+    [ "${1:-}" = "--theme" ] && force_theme=1
+
+    if state="$(current)"; then
+        process_state "$state" "$force_theme"
+        return $?
+    fi
+
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        emit_event appearance wallpaper.ambiguous skipped info \
+            "Multiple wallpaper states were detected; Maho refused to guess" "" wallpaper '{}'
+        echo "maho-wallpaper: multiple wallpapers detected; refusing to guess" >&2
+    fi
+    return "$rc"
 }
 
 watch() {
-    local force_theme=0 last=""
+    local force_theme=0
+    local last=""
     [ "${1:-}" = "--theme" ] && force_theme=1
+
     log "watch started generic_executor=1 force_theme=$force_theme"
 
     while :; do
         local state rc fingerprint
+
         if state="$(current)"; then
-            fingerprint="$(printf '%s' "$state" | python -c 'import json,os,sys
-d=json.load(sys.stdin); s=os.stat(d["path"]); print(d["provider"],d["kind"],d["path"],s.st_mtime_ns,s.st_size,sep="|")')"
+            fingerprint="$(
+                printf '%s' "$state" |
+                python -c '
+import json, os, sys
+d = json.load(sys.stdin)
+s = os.stat(d["path"])
+print(d["provider"], d["kind"], d["path"], s.st_mtime_ns, s.st_size, sep="|")
+'
+            )"
+
             if [ "$fingerprint" != "$last" ]; then
-                printf '%s\n' "$state" > "$STATE/.current.json.$$"; mv "$STATE/.current.json.$$" "$STATE/current.json"
-                publish_wallpaper_state "$state"; log "observed $fingerprint"
-
-                local provider kind path cycle
-                mapfile -t fields < <(printf '%s' "$state" | python -c 'import json,sys
-d=json.load(sys.stdin); print(d["provider"]); print(d["kind"]); print(d["path"])')
-                provider="${fields[0]}"; kind="${fields[1]}"; path="${fields[2]}"
-                cycle="$(maho_cycle_new appearance 2>/dev/null || true)"
-                if [ -n "$cycle" ]; then
-                    emit_cycle_event "$cycle" appearance wallpaper.changed observed info "Wallpaper state changed" "" "$provider" "$state"
-                else
-                    emit_event appearance wallpaper.changed observed info "Wallpaper state changed" "" "$provider" "$state"
-                fi
-
-                if [ "$force_theme" = 1 ]; then
-                    manual_adapt "$kind" "$path" >>"$LOG" 2>&1 || log "WARN forced manual theme adaptation failed"
-                elif [ -n "$cycle" ]; then
-                    run_automatic_cycle "$state" "$cycle"
-                else
-                    log "WARN cycle layer unavailable; automatic mutation refused"
-                fi
+                process_state "$state" "$force_theme" >/dev/null 2>&1 || true
                 last="$fingerprint"
             fi
         else
             rc=$?
             if [ "$rc" -eq 2 ]; then
                 log "INFO multiple wallpapers detected; refusing to guess"
-                emit_event appearance wallpaper.ambiguous skipped info "Multiple wallpaper states were detected; Maho refused to guess" "" wallpaper '{}'
+                emit_event appearance wallpaper.ambiguous skipped info \
+                    "Multiple wallpaper states were detected; Maho refused to guess" "" wallpaper '{}'
             fi
         fi
+
         sleep "${MAHO_WALLPAPER_POLL:-0.75}"
     done
 }
 
 doctor() {
     echo "Maho wallpaper"
+
     command -v python >/dev/null 2>&1 && echo "PASS  python" || echo "FAIL  python"
     command -v awww >/dev/null 2>&1 && echo "PASS  provider awww" || echo "INFO  provider awww unavailable"
     command -v mpvpaper >/dev/null 2>&1 && echo "PASS  provider mpvpaper" || echo "INFO  provider mpvpaper unavailable"
-    command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 && echo "PASS  video frame extraction" || echo "INFO  video coloring unavailable"
+    command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 &&
+        echo "PASS  video frame extraction" || echo "INFO  video coloring unavailable"
     theme_command >/dev/null 2>&1 && echo "PASS  theme engine" || echo "INFO  theme engine unavailable"
     [ -r "$POLICY" ] && echo "PASS  wallpaper policy" || echo "FAIL  wallpaper policy unavailable"
     [ -r "$CYCLE_LIB" ] && echo "PASS  adaptation cycle layer" || echo "FAIL  adaptation cycle layer unavailable"
-    if [ -r "$EXECUTOR" ] && bash "$EXECUTOR" validate-registry >/dev/null 2>&1; then echo "PASS  generic adaptation executor"; else echo "FAIL  generic adaptation executor unavailable"; fi
+
+    if [ -r "$EXECUTOR" ] && bash "$EXECUTOR" validate-registry >/dev/null 2>&1; then
+        echo "PASS  generic adaptation executor"
+    else
+        echo "FAIL  generic adaptation executor unavailable"
+    fi
+
     local owner intent
-    owner="$(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf '%s\n' user)"; intent="$(maho_intent_get appearance.wallpaper.dynamic_theme 2>/dev/null || printf '%s\n' null)"
-    echo "INFO  automatic border authority: $owner"; echo "INFO  dynamic theme intent: $intent"
+    owner="$(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf '%s\n' user)"
+    intent="$(maho_intent_get appearance.wallpaper.dynamic_theme 2>/dev/null || printf '%s\n' null)"
+    echo "INFO  automatic border authority: $owner"
+    echo "INFO  dynamic theme intent: $intent"
 }
 
 case "${1:-}" in
-    current) current ;;
-    doctor) doctor ;;
-    adapt) manual_adapt "${2:-}" "${3:-}" ;;
-    watch) watch "${2:-}" ;;
+    current)
+        current
+        ;;
+    doctor)
+        doctor
+        ;;
+    adapt)
+        manual_adapt "${2:-}" "${3:-}"
+        ;;
+    once)
+        once "${2:-}"
+        ;;
+    watch)
+        watch "${2:-}"
+        ;;
     *)
         cat <<'HELP'
 Usage:
@@ -217,11 +471,13 @@ Usage:
   maho-wallpaper doctor
   maho-wallpaper adapt image PATH
   maho-wallpaper adapt video PATH
+  maho-wallpaper once
+  maho-wallpaper once --theme
   maho-wallpaper watch
   maho-wallpaper watch --theme
 
-Normal watch mode uses one correlated wheel cycle from observation through
-policy, authorization, transactional adapter execution and verification.
+"once" completes exactly one observation/policy/execution cycle and exits.
+Normal watch mode repeats that same wheel only when observed wallpaper state changes.
 HELP
         ;;
 esac
