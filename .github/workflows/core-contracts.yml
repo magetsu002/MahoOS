@@ -33,11 +33,13 @@ jobs:
             lib/decision.sh \
             lib/policy.sh \
             lib/cycle.sh \
+            lib/transaction.sh \
             theme/backends/basic/generate \
             theme/backends/matugen/generate \
             tests/core-contracts.sh \
             tests/policy-contracts.sh \
             tests/cycle-contracts.sh \
+            tests/transaction-contracts.sh \
             tests/wallpaper-policy.sh \
             tests/provenance-contracts.sh \
             tests/security-findings.sh
@@ -66,6 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/cycle-contracts.sh
+
+      - name: Transaction adapter tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/transaction-contracts.sh
 
       - name: Wallpaper policy tests
         shell: bash
