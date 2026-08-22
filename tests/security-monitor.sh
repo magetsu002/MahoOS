@@ -130,8 +130,9 @@ echo "PASS"
 
 echo "=== monitor doctor remains non-mutating by contract ==="
 DOCTOR="$(bash "$MONITOR" doctor)"
-grep -q 'automatic mutation: none' <<< "$DOCTOR"
+grep -q 'automatic system mutation: none' <<< "$DOCTOR"
 grep -q 'package state: captures untrusted evidence snapshots on change' <<< "$DOCTOR"
+grep -q 'incident correlation:' <<< "$DOCTOR"
 echo "PASS"
 
 echo "ALL SECURITY MONITOR CONTRACTS PASS"
