@@ -4,17 +4,25 @@ set -u
 
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+FS_ROOT="${MAHO_FS_ROOT:-/}"
+PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
 SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 EVENTS="$ROOT/lib/events.sh"
 INTENT="$ROOT/lib/intent.sh"
 POLICY="$ROOT/lib/policy.sh"
 CYCLE="$ROOT/lib/cycle.sh"
 EXECUTOR="$ROOT/bin/maho-adapt"
+PROVENANCE="$ROOT/bin/maho-provenance"
+PROBE="$ROOT/lib/security_probe.py"
 
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then maho_event_emit() { return 0; }; fi
 if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then maho_intent_get() { printf '%s\n' '"observe"'; }; fi
 if ! { [ -r "$POLICY" ] && source "$POLICY" 2>/dev/null; }; then maho_policy_security_package_match() { return 1; }; fi
 if ! { [ -r "$CYCLE" ] && source "$CYCLE" 2>/dev/null; }; then maho_cycle_new() { return 1; }; fi
+
+mkdir -p "$SEC_STATE"
+chmod 0700 "$SEC_STATE" 2>/dev/null || true
 
 emit_security_event() { maho_event_emit security "$@" >/dev/null 2>&1 || true; }
 emit_security_cycle_event() { local cycle="$1"; shift; MAHO_CYCLE_ID="$cycle" maho_event_emit security "$@" >/dev/null 2>&1 || true; }
@@ -28,6 +36,11 @@ try: value=json.load(sys.stdin)
 except Exception: value="observe"
 print(value if value == "observe" else "observe")
 '
+}
+
+probe() {
+    [ -r "$PROBE" ] || { echo "maho-security: security probe unavailable: $PROBE" >&2; return 1; }
+    python "$PROBE" "$@"
 }
 
 validate_finding() {
@@ -91,6 +104,45 @@ assessment_for_file() {
     evaluate_finding "$finding"
 }
 
+enrich_assessment() {
+    local assessment="$1" package version impact integrity
+    mapfile -t values < <(printf '%s\n' "$assessment" | python -c 'import json,sys; d=json.load(sys.stdin); print(d["package"]); print(d.get("installed_version") or "")')
+    package="${values[0]}"; version="${values[1]}"
+    if [ -n "$version" ]; then
+        impact="$(probe impact "$package" --version "$version" --db-root "$DB_ROOT" --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --home "$HOME" --xdg-config "$XDG_CONFIG" 2>/dev/null || printf '%s\n' '{}')"
+        integrity="$(probe integrity --package "$package" --db-root "$DB_ROOT" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{}')"
+    else
+        impact='{}'; integrity='{}'
+    fi
+    python - "$assessment" "$impact" "$integrity" <<'PY'
+import json,sys
+assessment=json.loads(sys.argv[1]); impact=json.loads(sys.argv[2]); integrity=json.loads(sys.argv[3])
+assessment["impact"]=impact
+assessment["integrity"]=integrity
+print(json.dumps(assessment,sort_keys=True))
+PY
+}
+
+plan_for_assessment() {
+    local assessment="$1"
+    python - "$assessment" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1]); actions=[]
+if r.get("result") == "affected":
+    actions.append({"step":"preserve-evidence","reason":"Capture evidence before changing affected state","authorization_required":False})
+    impact=r.get("impact") or {}; integ=r.get("integrity") or {}
+    if impact.get("running_processes"):
+        actions.append({"step":"contain-running-processes","reason":"Affected package currently has visible running processes","authorization_required":True,"targets":[p.get("pid") for p in impact["running_processes"]]})
+    if impact.get("enabled_units"):
+        actions.append({"step":"review-persistence","reason":"Affected package contributes enabled systemd units","authorization_required":True,"targets":[u.get("link") for u in impact["enabled_units"]]})
+    if integ.get("result") == "changed":
+        actions.append({"step":"restore-package-files","reason":"Package-owned files differ from local pacman mtree metadata","authorization_required":True})
+    actions.append({"step":"restore-trusted-package","reason":"Replace or roll back the affected package from a trusted source","authorization_required":True})
+    actions.append({"step":"verify-recovery","reason":"Re-run integrity, persistence, process and package checks before declaring recovery","authorization_required":False})
+print(json.dumps({"version":1,"kind":"security-response-plan","finding_id":r.get("finding_id"),"package":r.get("package"),"installed_version":r.get("installed_version"),"result":r.get("result"),"automatic_mutation":False,"actions":actions},sort_keys=True))
+PY
+}
+
 pretty_evaluation() {
     python - "$1" "$(response_mode)" <<'PY'
 import json,sys
@@ -99,7 +151,77 @@ print("Maho security finding assessment")
 print("Finding:   ",r["finding_id"]); print("Source:    ",r["finding_source"]); print("Severity:  ",r["severity"]); print("Confidence:",r["confidence"])
 print("Package:   ",r["package"]); print("Installed: ",r["installed_version"] or "not installed"); print("Result:    ",r["result"]); print("Policy:    ",mode)
 print(); print(r["summary"])
-if r["result"] == "affected": print(); print("No automatic containment or recovery was performed.")
+if r["result"] == "affected": print(); print("Automatic containment remains disabled; Maho can investigate and produce a response plan.")
+PY
+}
+
+pretty_impact() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("Maho package impact correlation")
+print("Package:   ",r.get("package")); print("Installed: ",r.get("installed_version") or "not installed")
+print("Files:     ",r.get("package_file_count",0)); print("Processes: ",len(r.get("running_processes",[]))); print("Units:     ",len(r.get("enabled_units",[])))
+for p in r.get("running_processes",[])[:20]: print(f"  PID {p['pid']:<7} {p.get('name','?'):<20} {p.get('exe','?')}")
+for u in r.get("enabled_units",[])[:20]: print(f"  UNIT {u.get('link')} -> {u.get('unit_file')}")
+PY
+}
+
+pretty_integrity() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("Maho package file integrity")
+print("Result:   ",r.get("result")); print("Scope:    ",r.get("scope")); print("Packages: ",r.get("packages",0)); print("Checked:  ",r.get("checked",0))
+print("Modified: ",len(r.get("modified",[]))); print("Missing:  ",len(r.get("missing",[]))); print("Retyped:  ",len(r.get("type_changed",[]))); print("Unreadable:",len(r.get("unreadable",[])))
+for kind in ("modified","missing","type_changed"):
+    for item in r.get(kind,[])[:15]: print(f"  {kind.upper():<12} {item.get('package','?')}: {item.get('path','?')}")
+print(); print(r.get("trust_note",""))
+PY
+}
+
+pretty_runtime() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1]); rows=r.get("observations",[])
+print("Maho runtime executable observations")
+print("Result:",r.get("result")); print("Signals:",len(rows))
+for p in rows[:20]: print(f"  PID {p['pid']:<7} {','.join(p.get('signals',[])):<40} {p.get('exe','?')}")
+if rows: print(); print(r.get("trust_note",""))
+PY
+}
+
+pretty_persistence() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1]); kind=r.get("result")
+if kind == "snapshot":
+    print("Maho persistence snapshot"); print("Items:",r["items"]); print("Saved:",r["path"]); print("State:",r["state_sha256"])
+elif kind == "baseline-set":
+    print("Trusted persistence baseline selected by user"); print("Items:",r["items"]); print("Baseline:",r["path"])
+elif kind == "baseline-cleared": print("Trusted persistence baseline cleared.")
+elif kind == "baseline":
+    print("Maho persistence baseline"); print("Captured:",r.get("captured_at")); print("Items:",r["items"]); print("Path:",r["path"])
+elif kind == "no-baseline":
+    print("No trusted persistence baseline is configured."); print("Expected:",r["path"])
+elif kind in {"clean","changed"}:
+    print("Maho persistence check"); print("Result: ",kind); print("Added:  ",len(r.get("added",[]))); print("Removed:",len(r.get("removed",[]))); print("Changed:",len(r.get("changed",[])))
+    for item in r.get("added",[])[:15]: print("  ADDED   ",item.get("path"))
+    for item in r.get("removed",[])[:15]: print("  REMOVED ",item.get("path"))
+    for item in r.get("changed",[])[:15]: print("  CHANGED ",item.get("path"))
+PY
+}
+
+pretty_plan() {
+    python - "$1" <<'PY'
+import json,sys
+p=json.loads(sys.argv[1]); print("Maho security response plan")
+print("Package:",p.get("package")); print("Automatic mutation:","disabled")
+if not p.get("actions"): print("No response actions required for this finding.")
+for i,a in enumerate(p.get("actions",[]),1):
+    gate="USER APPROVAL" if a.get("authorization_required") else "read-only"
+    print(f"{i}. {a['step']} [{gate}]")
+    print(f"   {a['reason']}")
 PY
 }
 
@@ -122,21 +244,25 @@ PY
 }
 
 process_assessment() {
-    local assessment="$1" cycle decision status severity source result
+    local assessment="$1" cycle decision status severity source result enriched plan
     cycle="$(maho_cycle_new security)" || return 1
-    mapfile -t fields < <(printf '%s\n' "$assessment" | python -c 'import json,sys
-d=json.load(sys.stdin); print(d["result"]); print(d["severity"]); print(d["finding_source"])')
+    enriched="$(enrich_assessment "$assessment")" || return 1
+    mapfile -t fields < <(printf '%s\n' "$enriched" | python -c 'import json,sys; d=json.load(sys.stdin); print(d["result"]); print(d["severity"]); print(d["finding_source"])')
     status="${fields[0]}"; severity="${fields[1]}"; source="${fields[2]}"
 
     if [ "$status" = affected ]; then
-        emit_security_cycle_event "$cycle" finding.assessed observed "$severity" "Normalized security evidence matches an installed package version" security.packages "$source" "$assessment"
+        emit_security_cycle_event "$cycle" finding.assessed observed "$severity" "Security evidence matches an installed package; runtime impact and package integrity were correlated" security.packages "$source" "$enriched"
     else
-        emit_security_cycle_event "$cycle" finding.assessed verified info "Normalized security evidence does not match the installed package version" security.packages "$source" "$assessment"
+        emit_security_cycle_event "$cycle" finding.assessed verified info "Normalized security evidence does not match the installed package version" security.packages "$source" "$enriched"
     fi
 
-    decision="$(maho_policy_security_package_match "$assessment")" || return 1
+    decision="$(maho_policy_security_package_match "$enriched")" || return 1
     [ -r "$EXECUTOR" ] || { echo "maho-security: adaptation executor unavailable" >&2; return 1; }
     result="$(MAHO_ADAPT_CYCLE_ID="$cycle" bash "$EXECUTOR" execute "$decision")" || return 1
+    if [ "$status" = affected ]; then
+        plan="$(plan_for_assessment "$enriched")"
+        emit_security_cycle_event "$cycle" response.plan proposed "$severity" "Prepared a non-mutating security response plan; user approval is required for containment or recovery" security.response maho "$plan"
+    fi
     printf '%s\n' "$result"
 }
 
@@ -151,6 +277,171 @@ for path in sorted(root.glob("*.json")):
     except Exception: continue
     print(f"{d.get('severity','?'):<8} {d.get('confidence','?'):<10} {d.get('source','?'):<20} {d.get('id','?')}")
 PY
+}
+
+persistence_probe() {
+    probe persistence "$@" --state-root "$SEC_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG" --fs-root "$FS_ROOT"
+}
+
+integrity_command() {
+    local mode="${1:-critical}" result status
+    case "$mode" in
+        critical|full)
+            result="$(probe integrity --scope "$mode" --db-root "$DB_ROOT" --fs-root "$FS_ROOT")" || return 1
+            ;;
+        package)
+            [ -n "${2:-}" ] || { echo "usage: maho-security integrity package NAME" >&2; return 1; }
+            result="$(probe integrity --package "$2" --db-root "$DB_ROOT" --fs-root "$FS_ROOT")" || return 1
+            ;;
+        *) echo "usage: maho-security integrity [critical|full|package NAME]" >&2; return 1 ;;
+    esac
+    pretty_integrity "$result"
+    status="$(printf '%s\n' "$result" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    case "$status" in
+        clean) emit_security_event files.integrity verified info "Package-owned files match local pacman mtree metadata in the requested scope" security.files pacman-mtree "$result" ;;
+        changed) emit_security_event files.integrity-drift observed high "Package-owned files differ from local pacman mtree metadata; this is evidence requiring investigation" security.files pacman-mtree "$result" ;;
+        partial) emit_security_event files.integrity-partial observed low "Package file integrity scan was incomplete because some files were unreadable" security.files pacman-mtree "$result" ;;
+    esac
+}
+
+persistence_command() {
+    local sub="${1:-}" result status
+    case "$sub" in
+        snapshot) result="$(persistence_probe snapshot)" ;;
+        baseline)
+            case "${2:-}" in
+                set) result="$(persistence_probe baseline-set "${3:-}")" ;;
+                show) result="$(persistence_probe baseline-show)" ;;
+                clear) result="$(persistence_probe baseline-clear)" ;;
+                *) echo "usage: maho-security persistence baseline set SNAPSHOT|latest | show | clear" >&2; return 1 ;;
+            esac
+            ;;
+        check) result="$(persistence_probe check)" ;;
+        *) echo "usage: maho-security persistence snapshot|check|baseline ..." >&2; return 1 ;;
+    esac || return 1
+    pretty_persistence "$result"
+    status="$(printf '%s\n' "$result" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    case "$status" in
+        snapshot) emit_security_event persistence.snapshot observed info "Captured current persistence inventory without trusting it" security.persistence maho "$result" ;;
+        baseline-set) emit_security_event persistence.baseline verified info "User selected a trusted persistence baseline" security.persistence user "$result" ;;
+        baseline-cleared) emit_security_event persistence.baseline-cleared observed info "User cleared the trusted persistence baseline" security.persistence user "$result" ;;
+        clean) emit_security_event persistence.check verified info "Persistence inventory matches the user-selected baseline" security.persistence maho "$result" ;;
+        changed) emit_security_event persistence.changed observed medium "Persistence inventory differs from the user-selected baseline" security.persistence maho "$result" ;;
+    esac
+}
+
+runtime_command() {
+    local result status
+    result="$(probe runtime --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --uid "$(id -u)")" || return 1
+    pretty_runtime "$result"
+    status="$(printf '%s\n' "$result" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    if [ "$status" = observed ]; then
+        emit_security_event runtime.executable-observation observed medium "Runtime executable heuristics found evidence worth reviewing; no process was modified" security.processes procfs "$result"
+    else
+        emit_security_event runtime.executable-check verified info "No high-signal user runtime executable observations were found" security.processes procfs "$result"
+    fi
+}
+
+signature_changed() {
+    local name="$1" payload="$2" dir="$SEC_STATE/monitor" path previous="" digest
+    mkdir -p "$dir"; chmod 0700 "$dir" 2>/dev/null || true
+    path="$dir/$name.sha256"
+    digest="$(printf '%s\n' "$payload" | python -c 'import hashlib,json,sys; d=json.load(sys.stdin); print(hashlib.sha256(json.dumps(d,sort_keys=True,separators=(",",":")).encode()).hexdigest())')" || return 1
+    [ ! -f "$path" ] || previous="$(cat "$path" 2>/dev/null || true)"
+    [ "$digest" != "$previous" ] || return 1
+    umask 077
+    printf '%s\n' "$digest" > "$path"
+    chmod 0600 "$path" 2>/dev/null || true
+    return 0
+}
+
+watch_once() {
+    local persistence runtime status assessment enriched key
+    persistence="$(persistence_probe check 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    status="$(printf '%s\n' "$persistence" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    if [ "$status" = changed ] && signature_changed persistence "$persistence"; then
+        emit_security_event persistence.changed observed medium "Continuous security watch observed persistence drift from the user-selected baseline" security.persistence maho "$persistence"
+    fi
+
+    runtime="$(probe runtime --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --uid "$(id -u)" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    status="$(printf '%s\n' "$runtime" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    if [ "$status" = observed ] && signature_changed runtime "$runtime"; then
+        emit_security_event runtime.executable-observation observed medium "Continuous security watch observed a new runtime executable signal" security.processes procfs "$runtime"
+    fi
+
+    if [ -d "$SEC_STATE/findings" ]; then
+        while IFS= read -r file; do
+            assessment="$(assessment_for_file "$file" 2>/dev/null || true)"
+            [ -n "$assessment" ] || continue
+            status="$(printf '%s\n' "$assessment" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+            [ "$status" = affected ] || continue
+            enriched="$(enrich_assessment "$assessment")" || continue
+            key="finding-$(printf '%s\n' "$assessment" | python -c 'import hashlib,json,sys; d=json.load(sys.stdin); print(hashlib.sha256(d["finding_id"].encode()).hexdigest()[:16])')"
+            if signature_changed "$key" "$enriched"; then
+                process_assessment "$assessment" >/dev/null || true
+            fi
+        done < <(find "$SEC_STATE/findings" -maxdepth 1 -type f -name '*.json' -print | sort)
+    fi
+}
+
+watch() {
+    local poll="${MAHO_SECURITY_POLL:-300}"
+    [[ "$poll" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll=300
+    while :; do
+        watch_once || true
+        sleep "$poll"
+    done
+}
+
+audit() {
+    echo "=============================="
+    echo "Maho security audit"
+    echo "=============================="
+    echo
+    echo "--- Package provenance ---"
+    if [ -r "$PROVENANCE" ]; then bash "$PROVENANCE" check || true; else echo "INFO provenance engine unavailable"; fi
+    echo
+    echo "--- Critical package-file integrity ---"
+    integrity_command critical || true
+    echo
+    echo "--- Persistence baseline ---"
+    persistence_command check || true
+    echo
+    echo "--- Runtime executable evidence ---"
+    runtime_command || true
+    echo
+    echo "--- Stored security findings ---"
+    if [ -d "$SEC_STATE/findings" ] && find "$SEC_STATE/findings" -maxdepth 1 -type f -name '*.json' | grep -q .; then
+        while IFS= read -r file; do
+            echo
+            RESULT="$(assessment_for_file "$file" 2>/dev/null || true)"
+            [ -n "$RESULT" ] || continue
+            pretty_evaluation "$RESULT"
+            if [ "$(printf '%s\n' "$RESULT" | python -c 'import json,sys; print(json.load(sys.stdin)["result"])')" = affected ]; then
+                ENRICHED="$(enrich_assessment "$RESULT")"
+                echo
+                pretty_impact "$(printf '%s\n' "$ENRICHED" | python -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("impact",{})))')"
+                echo
+                pretty_plan "$(plan_for_assessment "$ENRICHED")"
+            fi
+        done < <(find "$SEC_STATE/findings" -maxdepth 1 -type f -name '*.json' -print | sort)
+    else
+        echo "No stored normalized security findings."
+    fi
+}
+
+posture() {
+    local findings=0
+    [ ! -d "$SEC_STATE/findings" ] || findings="$(find "$SEC_STATE/findings" -maxdepth 1 -type f -name '*.json' | wc -l)"
+    echo "Maho security posture"
+    echo "Response mode:        $(response_mode)"
+    echo "Stored findings:      $findings"
+    echo "Package baseline:     $([ -f "$SEC_STATE/provenance/baseline.json" ] && echo configured || echo not-configured)"
+    echo "Persistence baseline: $([ -f "$SEC_STATE/persistence/baseline.json" ] && echo configured || echo not-configured)"
+    echo "Integrity engine:     $([ -r "$PROBE" ] && echo available || echo unavailable)"
+    echo "Continuous watch:     read-only evidence + proposals"
+    echo "Auto containment:     disabled"
+    echo "Recovery mutation:    disabled pending explicit authorization contracts"
 }
 
 case "${1:-}" in
@@ -176,6 +467,25 @@ case "${1:-}" in
         echo
         process_assessment "$RESULT"
         ;;
+    investigate)
+        RESULT="$(assessment_for_file "${2:-}")" || exit $?
+        pretty_evaluation "$RESULT"
+        ENRICHED="$(enrich_assessment "$RESULT")" || exit $?
+        if [ "$(printf '%s\n' "$ENRICHED" | python -c 'import json,sys; print(json.load(sys.stdin)["result"])')" = affected ]; then
+            echo
+            pretty_impact "$(printf '%s\n' "$ENRICHED" | python -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("impact",{})))')"
+            echo
+            pretty_integrity "$(printf '%s\n' "$ENRICHED" | python -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("integrity",{})))')"
+            echo
+            pretty_plan "$(plan_for_assessment "$ENRICHED")"
+        fi
+        ;;
+    plan)
+        RESULT="$(assessment_for_file "${2:-}")" || exit $?
+        ENRICHED="$(enrich_assessment "$RESULT")" || exit $?
+        PLAN="$(plan_for_assessment "$ENRICHED")"
+        pretty_plan "$PLAN"
+        ;;
     ingest)
         CANONICAL="$(validate_finding "${2:-}")" || exit $?
         STORED="$(store_finding "$CANONICAL")" || exit $?
@@ -188,32 +498,77 @@ case "${1:-}" in
     list)
         list_findings
         ;;
+    integrity)
+        integrity_command "${2:-critical}" "${3:-}"
+        ;;
+    impact)
+        [ -n "${2:-}" ] || { echo "usage: maho-security impact PACKAGE [VERSION]" >&2; exit 1; }
+        RESULT="$(probe impact "$2" ${3:+--version "$3"} --db-root "$DB_ROOT" --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --home "$HOME" --xdg-config "$XDG_CONFIG")" || exit $?
+        pretty_impact "$RESULT"
+        ;;
+    runtime)
+        runtime_command
+        ;;
+    persistence)
+        shift
+        persistence_command "$@"
+        ;;
+    audit)
+        audit
+        ;;
+    posture)
+        posture
+        ;;
+    watch-once)
+        watch_once
+        ;;
+    watch)
+        watch
+        ;;
     doctor)
         echo "Maho security"
         [ -d "$DB_ROOT" ] && echo "PASS  pacman local database" || echo "INFO  pacman local database unavailable"
         [ -r "$POLICY" ] && echo "PASS  security policy" || echo "FAIL  security policy unavailable"
         [ -r "$EXECUTOR" ] && echo "PASS  adaptation executor" || echo "FAIL  adaptation executor unavailable"
+        [ -r "$PROBE" ] && python -m py_compile "$PROBE" >/dev/null 2>&1 && echo "PASS  integrity/impact/persistence probe" || echo "FAIL  security probe unavailable"
         echo "INFO  response mode: $(response_mode)"
         echo "INFO  supported finding type: package-version (exact versions only)"
-        echo "INFO  automatic containment: not implemented"
+        echo "INFO  critical-file integrity: local pacman mtree comparison"
+        echo "INFO  runtime process heuristics: evidence only"
+        echo "INFO  persistence drift: explicit user baseline required"
+        echo "INFO  automatic containment: disabled"
         true
         ;;
     *)
         cat <<'HELP'
-Maho security evidence pipeline
+Maho security evidence, investigation and response-planning pipeline
 
 Usage:
+  maho-security audit
+  maho-security posture
+  maho-security integrity [critical|full|package NAME]
+  maho-security impact PACKAGE [VERSION]
+  maho-security runtime
+  maho-security persistence snapshot
+  maho-security persistence baseline set SNAPSHOT|latest
+  maho-security persistence baseline show
+  maho-security persistence baseline clear
+  maho-security persistence check
   maho-security validate FINDING.json
   maho-security evaluate FINDING.json
-  maho-security decision FINDING.json
+  maho-security investigate FINDING.json
+  maho-security plan FINDING.json
   maho-security process FINDING.json
   maho-security ingest FINDING.json
   maho-security list
+  maho-security watch-once
+  maho-security watch
   maho-security doctor
 
-process/ingest route security evidence through the same Maho wheel used by
-appearance. In v1 an affected package produces PROPOSE, never an automatic
-security mutation. Ingested evidence is normalized and stored privately.
+V1 security is defensive and fail-closed: observation, integrity evidence,
+persistence drift, package impact correlation and response planning are live.
+Containment/recovery mutations are intentionally not automatic. Findings and
+local metadata are evidence, not proof that a deeply compromised host is clean.
 HELP
         ;;
 esac
