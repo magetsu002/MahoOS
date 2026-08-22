@@ -91,7 +91,8 @@ fi
 echo "PASS"
 
 echo "=== installed affected version ==="
-"$ROOT/bin/maho-security" evaluate "$AFFECTED" | grep -q 'affected'
+EVAL_OUTPUT="$("$ROOT/bin/maho-security" evaluate "$AFFECTED")"
+grep -q 'affected' <<< "$EVAL_OUTPUT"
 source "$ROOT/lib/events.sh"
 maho_event_last security | python -c '
 import json,sys
@@ -106,7 +107,8 @@ assert e["details"]["confidence"] == "confirmed"
 echo "PASS"
 
 echo "=== installed version not affected ==="
-"$ROOT/bin/maho-security" evaluate "$SAFE" | grep -q 'not-affected'
+EVAL_OUTPUT="$("$ROOT/bin/maho-security" evaluate "$SAFE")"
+grep -q 'not-affected' <<< "$EVAL_OUTPUT"
 maho_event_last security | python -c '
 import json,sys
 e=json.load(sys.stdin)
@@ -156,13 +158,14 @@ assert r["action"] == "do-nothing"
 echo "PASS"
 
 echo "=== investigate renders correlation and response plan ==="
-"$ROOT/bin/maho-security" investigate "$AFFECTED" | grep -q 'Maho security response plan'
-"$ROOT/bin/maho-security" investigate "$AFFECTED" | grep -q 'restore-trusted-package'
+INVESTIGATE="$("$ROOT/bin/maho-security" investigate "$AFFECTED")"
+grep -q 'Maho security response plan' <<< "$INVESTIGATE"
+grep -q 'restore-trusted-package' <<< "$INVESTIGATE"
 echo "PASS"
 
 echo "=== ingest persists normalized evidence privately ==="
 OUTPUT="$("$ROOT/bin/maho-security" ingest "$AFFECTED")"
-printf '%s\n' "$OUTPUT" | grep -q 'Stored normalized finding:'
+grep -q 'Stored normalized finding:' <<< "$OUTPUT"
 FINDINGS="$XDG_STATE_HOME/maho/security/findings"
 [ "$(find "$FINDINGS" -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 1 ]
 [ "$(stat -c '%a' "$FINDINGS")" = 700 ]
@@ -178,11 +181,13 @@ PY
 echo "PASS"
 
 echo "=== safe response posture ==="
-"$ROOT/bin/maho-security" doctor | grep -q 'response mode: observe'
-"$ROOT/bin/maho-security" doctor | grep -q 'automatic containment: disabled'
-"$ROOT/bin/maho-security" doctor | grep -q 'adaptation executor'
-"$ROOT/bin/maho-security" doctor | grep -q 'integrity/impact/persistence probe'
-"$ROOT/bin/maho-security" posture | grep -q 'Auto containment:     disabled'
+DOCTOR="$("$ROOT/bin/maho-security" doctor)"
+POSTURE="$("$ROOT/bin/maho-security" posture)"
+grep -q 'response mode: observe' <<< "$DOCTOR"
+grep -q 'automatic containment: disabled' <<< "$DOCTOR"
+grep -q 'adaptation executor' <<< "$DOCTOR"
+grep -q 'integrity/impact/persistence probe' <<< "$DOCTOR"
+grep -q 'Auto containment:     disabled' <<< "$POSTURE"
 echo "PASS"
 
 echo "ALL SECURITY FINDING CONTRACTS PASS"
