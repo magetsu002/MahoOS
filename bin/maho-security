@@ -4,180 +4,152 @@ set -u
 
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 EVENTS="$ROOT/lib/events.sh"
 INTENT="$ROOT/lib/intent.sh"
+POLICY="$ROOT/lib/policy.sh"
+CYCLE="$ROOT/lib/cycle.sh"
+EXECUTOR="$ROOT/bin/maho-adapt"
 
-if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
-    maho_event_emit() { return 0; }
-fi
-if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then
-    maho_intent_get() { printf '%s\n' '"observe"'; }
-fi
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then maho_event_emit() { return 0; }; fi
+if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then maho_intent_get() { printf '%s\n' '"observe"'; }; fi
+if ! { [ -r "$POLICY" ] && source "$POLICY" 2>/dev/null; }; then maho_policy_security_package_match() { return 1; }; fi
+if ! { [ -r "$CYCLE" ] && source "$CYCLE" 2>/dev/null; }; then maho_cycle_new() { return 1; }; fi
 
-emit_security_event() {
-    maho_event_emit security "$@" >/dev/null 2>&1 || true
-}
+emit_security_event() { maho_event_emit security "$@" >/dev/null 2>&1 || true; }
+emit_security_cycle_event() { local cycle="$1"; shift; MAHO_CYCLE_ID="$cycle" maho_event_emit security "$@" >/dev/null 2>&1 || true; }
 
 response_mode() {
     local value
     value="$(maho_intent_get security.response.mode 2>/dev/null || printf '%s\n' '"observe"')"
-
     printf '%s\n' "$value" | python -c '
-import json, sys
-try:
-    value = json.load(sys.stdin)
-except Exception:
-    value = "observe"
+import json,sys
+try: value=json.load(sys.stdin)
+except Exception: value="observe"
 print(value if value == "observe" else "observe")
 '
 }
 
 validate_finding() {
     local file="${1:-}"
-
-    [ -f "$file" ] || {
-        echo "maho-security: finding file does not exist: $file" >&2
-        return 1
-    }
-
+    [ -f "$file" ] || { echo "maho-security: finding file does not exist: $file" >&2; return 1; }
     python - "$file" <<'PY'
-import json
-import re
-import sys
+import json,re,sys
 from pathlib import Path
-
-path = Path(sys.argv[1])
-data = json.loads(path.read_text())
-
-required = {"version", "id", "source", "type", "severity", "confidence", "summary", "package"}
-missing = sorted(required - set(data))
-if missing:
-    raise SystemExit(f"finding missing required fields: {missing}")
-
-if data.get("version") != 1:
-    raise SystemExit("unsupported finding version")
-
-name_re = re.compile(r"^[a-zA-Z0-9._:+@/-]+$")
-source_re = re.compile(r"^[a-z0-9._-]+$")
-
-if not isinstance(data["id"], str) or not data["id"].strip():
-    raise SystemExit("finding id must be a non-empty string")
-if not isinstance(data["source"], str) or not source_re.fullmatch(data["source"]):
-    raise SystemExit("finding source must match [a-z0-9._-]+")
-if data["type"] != "package-version":
-    raise SystemExit("only exact package-version findings are currently supported")
-if data["severity"] not in {"info", "low", "medium", "high", "critical"}:
-    raise SystemExit("invalid finding severity")
-if data["confidence"] not in {"low", "medium", "high", "confirmed"}:
-    raise SystemExit("invalid finding confidence")
-if not isinstance(data["summary"], str) or not data["summary"].strip():
-    raise SystemExit("finding summary must be a non-empty string")
-
-package = data["package"]
-if not isinstance(package, dict):
-    raise SystemExit("finding package must be an object")
-name = package.get("name")
-versions = package.get("versions")
-if not isinstance(name, str) or not name_re.fullmatch(name):
-    raise SystemExit("invalid package name")
-if not isinstance(versions, list) or not versions:
-    raise SystemExit("package versions must be a non-empty array")
-if any(not isinstance(v, str) or not v for v in versions):
-    raise SystemExit("package versions must contain non-empty strings")
-
-canonical = {
-    "version": 1,
-    "id": data["id"],
-    "source": data["source"],
-    "type": data["type"],
-    "severity": data["severity"],
-    "confidence": data["confidence"],
-    "summary": data["summary"],
-    "package": {
-        "name": name,
-        "versions": sorted(set(versions)),
-    },
-}
-
-print(json.dumps(canonical, sort_keys=True))
+path=Path(sys.argv[1]); data=json.loads(path.read_text())
+required={"version","id","source","type","severity","confidence","summary","package"}
+missing=sorted(required-set(data))
+if missing: raise SystemExit(f"finding missing required fields: {missing}")
+if data.get("version") != 1: raise SystemExit("unsupported finding version")
+name_re=re.compile(r"^[a-zA-Z0-9._:+@/-]+$"); source_re=re.compile(r"^[a-z0-9._-]+$")
+if not isinstance(data["id"],str) or not data["id"].strip(): raise SystemExit("finding id must be a non-empty string")
+if len(data["id"]) > 256: raise SystemExit("finding id is too long")
+if not isinstance(data["source"],str) or not source_re.fullmatch(data["source"]): raise SystemExit("finding source must match [a-z0-9._-]+")
+if data["type"] != "package-version": raise SystemExit("only exact package-version findings are currently supported")
+if data["severity"] not in {"info","low","medium","high","critical"}: raise SystemExit("invalid finding severity")
+if data["confidence"] not in {"low","medium","high","confirmed"}: raise SystemExit("invalid finding confidence")
+if not isinstance(data["summary"],str) or not data["summary"].strip(): raise SystemExit("finding summary must be a non-empty string")
+if len(data["summary"]) > 4096: raise SystemExit("finding summary is too long")
+package=data["package"]
+if not isinstance(package,dict): raise SystemExit("finding package must be an object")
+name=package.get("name"); versions=package.get("versions")
+if not isinstance(name,str) or not name_re.fullmatch(name): raise SystemExit("invalid package name")
+if not isinstance(versions,list) or not versions: raise SystemExit("package versions must be a non-empty array")
+if len(versions) > 256: raise SystemExit("too many affected versions")
+if any(not isinstance(v,str) or not v or len(v)>256 for v in versions): raise SystemExit("package versions must contain bounded non-empty strings")
+canonical={"version":1,"id":data["id"],"source":data["source"],"type":data["type"],"severity":data["severity"],"confidence":data["confidence"],"summary":data["summary"],"package":{"name":name,"versions":sorted(set(versions))}}
+print(json.dumps(canonical,sort_keys=True))
 PY
 }
 
 evaluate_finding() {
     local finding_json="$1"
-
     python - "$DB_ROOT" "$finding_json" <<'PY'
-import json
-import sys
+import json,sys
 from pathlib import Path
-
-db_root = Path(sys.argv[1])
-finding = json.loads(sys.argv[2])
-
-if not db_root.is_dir():
-    raise SystemExit(f"pacman local database is unavailable: {db_root}")
-
-name = finding["package"]["name"]
-affected_versions = set(finding["package"]["versions"])
-installed_version = None
-
+db_root=Path(sys.argv[1]); finding=json.loads(sys.argv[2])
+if not db_root.is_dir(): raise SystemExit(f"pacman local database is unavailable: {db_root}")
+name=finding["package"]["name"]; affected=set(finding["package"]["versions"]); installed=None
 for desc in db_root.glob("*/desc"):
-    try:
-        lines = desc.read_text(errors="replace").splitlines()
-    except OSError:
-        continue
-
-    values = {}
-    i = 0
+    try: lines=desc.read_text(errors="replace").splitlines()
+    except OSError: continue
+    values={}; i=0
     while i < len(lines):
-        line = lines[i]
-        if line in {"%NAME%", "%VERSION%"} and i + 1 < len(lines):
-            values[line.strip("%")]=lines[i + 1]
-        i += 1
-
+        line=lines[i]
+        if line in {"%NAME%","%VERSION%"} and i+1 < len(lines): values[line.strip("%")]=lines[i+1]
+        i+=1
     if values.get("NAME") == name:
-        installed_version = values.get("VERSION")
-        break
-
-result = "affected" if installed_version in affected_versions else "not-affected"
-
-print(json.dumps({
-    "result": result,
-    "finding_id": finding["id"],
-    "finding_source": finding["source"],
-    "severity": finding["severity"],
-    "confidence": finding["confidence"],
-    "package": name,
-    "affected_versions": sorted(affected_versions),
-    "installed_version": installed_version,
-    "summary": finding["summary"],
-}, sort_keys=True))
+        installed=values.get("VERSION"); break
+result="affected" if installed in affected else "not-affected"
+print(json.dumps({"result":result,"finding_id":finding["id"],"finding_source":finding["source"],"severity":finding["severity"],"confidence":finding["confidence"],"package":name,"affected_versions":sorted(affected),"installed_version":installed,"summary":finding["summary"]},sort_keys=True))
 PY
+}
+
+assessment_for_file() {
+    local finding
+    finding="$(validate_finding "$1")" || return 1
+    evaluate_finding "$finding"
 }
 
 pretty_evaluation() {
     python - "$1" "$(response_mode)" <<'PY'
-import json
-import sys
-
-r = json.loads(sys.argv[1])
-mode = sys.argv[2]
-
+import json,sys
+r=json.loads(sys.argv[1]); mode=sys.argv[2]
 print("Maho security finding assessment")
-print("Finding:   ", r["finding_id"])
-print("Source:    ", r["finding_source"])
-print("Severity:  ", r["severity"])
-print("Confidence:", r["confidence"])
-print("Package:   ", r["package"])
-print("Installed: ", r["installed_version"] or "not installed")
-print("Result:    ", r["result"])
-print("Policy:    ", mode)
-print()
-print(r["summary"])
+print("Finding:   ",r["finding_id"]); print("Source:    ",r["finding_source"]); print("Severity:  ",r["severity"]); print("Confidence:",r["confidence"])
+print("Package:   ",r["package"]); print("Installed: ",r["installed_version"] or "not installed"); print("Result:    ",r["result"]); print("Policy:    ",mode)
+print(); print(r["summary"])
+if r["result"] == "affected": print(); print("No automatic containment or recovery was performed.")
+PY
+}
 
-if r["result"] == "affected":
-    print()
-    print("No automatic containment or recovery was performed.")
+store_finding() {
+    local canonical="$1"
+    python - "$SEC_STATE/findings" "$canonical" <<'PY'
+import hashlib,json,os,sys
+from pathlib import Path
+root=Path(sys.argv[1]); raw=sys.argv[2]; data=json.loads(raw)
+serialized=json.dumps(data,indent=2,sort_keys=True)+"\n"; digest=hashlib.sha256(serialized.encode()).hexdigest()
+root.mkdir(parents=True,exist_ok=True); os.chmod(root,0o700)
+path=root/f"{digest}.json"; tmp=root/f".{digest}.{os.getpid()}.tmp"
+fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+try:
+    os.write(fd,serialized.encode()); os.fsync(fd)
+finally: os.close(fd)
+os.replace(tmp,path); os.chmod(path,0o600)
+print(path)
+PY
+}
+
+process_assessment() {
+    local assessment="$1" cycle decision status severity source result
+    cycle="$(maho_cycle_new security)" || return 1
+    mapfile -t fields < <(printf '%s\n' "$assessment" | python -c 'import json,sys
+d=json.load(sys.stdin); print(d["result"]); print(d["severity"]); print(d["finding_source"])')
+    status="${fields[0]}"; severity="${fields[1]}"; source="${fields[2]}"
+
+    if [ "$status" = affected ]; then
+        emit_security_cycle_event "$cycle" finding.assessed observed "$severity" "Normalized security evidence matches an installed package version" security.packages "$source" "$assessment"
+    else
+        emit_security_cycle_event "$cycle" finding.assessed verified info "Normalized security evidence does not match the installed package version" security.packages "$source" "$assessment"
+    fi
+
+    decision="$(maho_policy_security_package_match "$assessment")" || return 1
+    [ -r "$EXECUTOR" ] || { echo "maho-security: adaptation executor unavailable" >&2; return 1; }
+    result="$(MAHO_ADAPT_CYCLE_ID="$cycle" bash "$EXECUTOR" execute "$decision")" || return 1
+    printf '%s\n' "$result"
+}
+
+list_findings() {
+    python - "$SEC_STATE/findings" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+if not root.is_dir(): raise SystemExit(0)
+for path in sorted(root.glob("*.json")):
+    try: d=json.loads(path.read_text())
+    except Exception: continue
+    print(f"{d.get('severity','?'):<8} {d.get('confidence','?'):<10} {d.get('source','?'):<20} {d.get('id','?')}")
 PY
 }
 
@@ -185,53 +157,62 @@ case "${1:-}" in
     validate)
         validate_finding "${2:-}"
         ;;
-
     evaluate)
-        FINDING="$(validate_finding "${2:-}")" || exit $?
-        RESULT="$(evaluate_finding "$FINDING")" || exit $?
+        RESULT="$(assessment_for_file "${2:-}")" || exit $?
         pretty_evaluation "$RESULT"
-
         STATUS="$(printf '%s' "$RESULT" | python -c 'import json,sys; print(json.load(sys.stdin)["result"])')"
         SEVERITY="$(printf '%s' "$RESULT" | python -c 'import json,sys; print(json.load(sys.stdin)["severity"])')"
         SOURCE="$(printf '%s' "$RESULT" | python -c 'import json,sys; print(json.load(sys.stdin)["finding_source"])')"
-
-        if [ "$STATUS" = "affected" ]; then
-            emit_security_event supply-chain.package-match observed "$SEVERITY" \
-                "A normalized security finding matches an installed package version; no automatic response was performed" \
-                security.packages "$SOURCE" "$RESULT"
-        else
-            emit_security_event supply-chain.package-check verified info \
-                "The normalized security finding does not match the installed package version" \
-                security.packages "$SOURCE" "$RESULT"
-        fi
+        if [ "$STATUS" = affected ]; then emit_security_event supply-chain.package-match observed "$SEVERITY" "A normalized security finding matches an installed package version; no automatic response was performed" security.packages "$SOURCE" "$RESULT"
+        else emit_security_event supply-chain.package-check verified info "The normalized security finding does not match the installed package version" security.packages "$SOURCE" "$RESULT"; fi
         ;;
-
+    decision)
+        RESULT="$(assessment_for_file "${2:-}")" || exit $?
+        maho_policy_security_package_match "$RESULT"
+        ;;
+    process)
+        RESULT="$(assessment_for_file "${2:-}")" || exit $?
+        pretty_evaluation "$RESULT"
+        echo
+        process_assessment "$RESULT"
+        ;;
+    ingest)
+        CANONICAL="$(validate_finding "${2:-}")" || exit $?
+        STORED="$(store_finding "$CANONICAL")" || exit $?
+        echo "Stored normalized finding: $STORED"
+        RESULT="$(evaluate_finding "$CANONICAL")" || exit $?
+        pretty_evaluation "$RESULT"
+        echo
+        process_assessment "$RESULT"
+        ;;
+    list)
+        list_findings
+        ;;
     doctor)
         echo "Maho security"
         [ -d "$DB_ROOT" ] && echo "PASS  pacman local database" || echo "INFO  pacman local database unavailable"
+        [ -r "$POLICY" ] && echo "PASS  security policy" || echo "FAIL  security policy unavailable"
+        [ -r "$EXECUTOR" ] && echo "PASS  adaptation executor" || echo "FAIL  adaptation executor unavailable"
         echo "INFO  response mode: $(response_mode)"
         echo "INFO  supported finding type: package-version (exact versions only)"
         echo "INFO  automatic containment: not implemented"
         ;;
-
     *)
         cat <<'HELP'
-Maho security finding evaluator
+Maho security evidence pipeline
 
 Usage:
   maho-security validate FINDING.json
   maho-security evaluate FINDING.json
+  maho-security decision FINDING.json
+  maho-security process FINDING.json
+  maho-security ingest FINDING.json
+  maho-security list
   maho-security doctor
 
-Finding contract v1:
-  type: package-version
-  exact affected versions only
-  severity: info|low|medium|high|critical
-  confidence: low|medium|high|confirmed
-
-This layer normalizes and evaluates evidence only.
-A match is not permission to mutate the system.
-No containment or recovery action is performed by this component.
+process/ingest route security evidence through the same Maho wheel used by
+appearance. In v1 an affected package produces PROPOSE, never an automatic
+security mutation. Ingested evidence is normalized and stored privately.
 HELP
         ;;
 esac
