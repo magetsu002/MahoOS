@@ -11,8 +11,10 @@ export XDG_STATE_HOME="$TMP/state"
 export XDG_CONFIG_HOME="$TMP/config"
 export MAHO_ROOT="$ROOT"
 export MAHO_PACMAN_DB_ROOT="$TMP/pacman-local"
+export MAHO_FS_ROOT="$TMP/fs"
+export MAHO_PROC_ROOT="$TMP/proc"
 
-mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$MAHO_PACMAN_DB_ROOT/beta-2.0-1"
+mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$MAHO_PACMAN_DB_ROOT/beta-2.0-1" "$MAHO_FS_ROOT" "$MAHO_PROC_ROOT"
 
 cat > "$MAHO_PACMAN_DB_ROOT/beta-2.0-1/desc" <<'EOF_DESC'
 %NAME%
@@ -26,6 +28,9 @@ x86_64
 
 %PACKAGER%
 Maho Test Builder
+
+%FILES%
+usr/bin/beta
 
 EOF_DESC
 
@@ -87,7 +92,6 @@ echo "PASS"
 
 echo "=== installed affected version ==="
 "$ROOT/bin/maho-security" evaluate "$AFFECTED" | grep -q 'affected'
-# shellcheck source=../lib/events.sh
 source "$ROOT/lib/events.sh"
 maho_event_last security | python -c '
 import json,sys
@@ -113,7 +117,7 @@ assert e["details"]["installed_version"] == "2.0-1"
 '
 echo "PASS"
 
-echo "=== affected evidence becomes proposal in one wheel cycle ==="
+echo "=== affected evidence becomes proposal plus response plan in one wheel cycle ==="
 OUTPUT="$("$ROOT/bin/maho-security" process "$AFFECTED")"
 RESULT="$(printf '%s\n' "$OUTPUT" | tail -1)"
 printf '%s\n' "$RESULT" | python -c '
@@ -128,10 +132,15 @@ CYCLE_ID="$(printf '%s\n' "$RESULT" | python -c 'import json,sys; print(json.loa
 maho_event_cycle "$CYCLE_ID" | python -c '
 import json,sys
 rows=[json.loads(line) for line in sys.stdin if line.strip()]
-assert [r["kind"] for r in rows] == ["finding.assessed", "policy.decision"]
+assert [r["kind"] for r in rows] == ["finding.assessed", "policy.decision", "response.plan"]
 assert rows[0]["risk"] == "critical"
 assert rows[1]["status"] == "proposed"
+assert rows[2]["status"] == "proposed"
+assert rows[2]["details"]["automatic_mutation"] is False
+assert any(a["step"] == "restore-trusted-package" for a in rows[2]["details"]["actions"])
 assert all(r["cycle_id"] == rows[0]["cycle_id"] for r in rows)
+assert "impact" in rows[0]["details"]
+assert "integrity" in rows[0]["details"]
 '
 echo "PASS"
 
@@ -144,6 +153,11 @@ r=json.load(sys.stdin)
 assert r["status"] == "skipped"
 assert r["action"] == "do-nothing"
 '
+echo "PASS"
+
+echo "=== investigate renders correlation and response plan ==="
+"$ROOT/bin/maho-security" investigate "$AFFECTED" | grep -q 'Maho security response plan'
+"$ROOT/bin/maho-security" investigate "$AFFECTED" | grep -q 'restore-trusted-package'
 echo "PASS"
 
 echo "=== ingest persists normalized evidence privately ==="
@@ -165,8 +179,10 @@ echo "PASS"
 
 echo "=== safe response posture ==="
 "$ROOT/bin/maho-security" doctor | grep -q 'response mode: observe'
-"$ROOT/bin/maho-security" doctor | grep -q 'automatic containment: not implemented'
+"$ROOT/bin/maho-security" doctor | grep -q 'automatic containment: disabled'
 "$ROOT/bin/maho-security" doctor | grep -q 'adaptation executor'
+"$ROOT/bin/maho-security" doctor | grep -q 'integrity/impact/persistence probe'
+"$ROOT/bin/maho-security" posture | grep -q 'Auto containment:     disabled'
 echo "PASS"
 
 echo "ALL SECURITY FINDING CONTRACTS PASS"
