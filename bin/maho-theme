@@ -4,7 +4,7 @@ set -u
 
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme"
-TEMPLATE="$ROOT/theme/backends/matugen/palette.raw.json"
+BACKENDS="$ROOT/theme/backends"
 
 die() {
     echo "maho-theme: $*" >&2
@@ -17,23 +17,108 @@ doctor() {
     echo "Maho OS theme doctor"
     echo
 
-    for cmd in matugen python realpath sha256sum; do
+    for cmd in python realpath sha256sum; do
         if command -v "$cmd" >/dev/null 2>&1; then
-            printf 'PASS  %-10s %s\n' "$cmd" "$(command -v "$cmd")"
+            printf 'PASS  %-12s %s\n' \
+                "$cmd" "$(command -v "$cmd")"
         else
-            printf 'FAIL  %-10s missing\n' "$cmd"
+            printf 'FAIL  %-12s missing\n' "$cmd"
             failed=1
         fi
     done
 
-    if [ -f "$TEMPLATE" ]; then
-        echo "PASS  Matugen palette template"
+    echo
+
+    if command -v matugen >/dev/null 2>&1 &&
+       [ -x "$BACKENDS/matugen/generate" ]
+    then
+        echo "PASS  backend      matugen"
     else
-        echo "FAIL  Matugen palette template missing"
-        failed=1
+        echo "INFO  backend      matugen unavailable"
+    fi
+
+    if command -v magick >/dev/null 2>&1 &&
+       [ -x "$BACKENDS/basic/generate" ]
+    then
+        echo "PASS  backend      basic"
+    else
+        echo "INFO  backend      basic unavailable"
+    fi
+
+    if ! command -v matugen >/dev/null 2>&1 &&
+       ! command -v magick >/dev/null 2>&1
+    then
+        echo
+        echo "INFO  No automatic palette backend is available."
+        echo "INFO  Maho itself remains usable; theme generation is disabled."
     fi
 
     return "$failed"
+}
+
+resolve_backend() {
+    local requested="${MAHO_THEME_BACKEND:-auto}"
+
+    case "$requested" in
+        auto)
+            if command -v matugen >/dev/null 2>&1 &&
+               [ -x "$BACKENDS/matugen/generate" ]
+            then
+                printf '%s\n' "$BACKENDS/matugen/generate"
+                return 0
+            fi
+
+            if command -v magick >/dev/null 2>&1 &&
+               [ -x "$BACKENDS/basic/generate" ]
+            then
+                printf '%s\n' "$BACKENDS/basic/generate"
+                return 0
+            fi
+
+            die "no palette backend is available"
+            return 1
+            ;;
+
+        matugen|basic)
+            local backend="$BACKENDS/$requested/generate"
+
+            [ -x "$backend" ] || {
+                die "backend is unavailable: $requested"
+                return 1
+            }
+
+            case "$requested" in
+                matugen)
+                    command -v matugen >/dev/null 2>&1 || {
+                        die "matugen backend selected but matugen is missing"
+                        return 1
+                    }
+                    ;;
+                basic)
+                    command -v magick >/dev/null 2>&1 || {
+                        die "basic backend selected but ImageMagick is missing"
+                        return 1
+                    }
+                    ;;
+            esac
+
+            printf '%s\n' "$backend"
+            ;;
+
+        /*)
+            [ -x "$requested" ] || {
+                die "custom backend is not executable: $requested"
+                return 1
+            }
+
+            printf '%s\n' "$requested"
+            ;;
+
+        *)
+            die "unknown backend: $requested"
+            return 1
+            ;;
+    esac
 }
 
 generate() {
@@ -59,53 +144,36 @@ generate() {
         return 1
     }
 
-    command -v matugen >/dev/null 2>&1 || {
-        die "matugen is not installed"
-        return 1
-    }
+    local backend
+    backend="$(resolve_backend)" || return 1
 
     local wall
     wall="$(realpath "$wallpaper")" || return 1
 
-    local txn_root txn config raw canonical
+    local txn_root txn raw canonical
     txn_root="$CACHE/transactions"
     txn="$txn_root/$(date +%Y%m%d-%H%M%S)-$$"
 
     mkdir -p "$txn"
 
-    config="$txn/matugen.toml"
     raw="$txn/raw.json"
     canonical="$txn/palette.json"
 
-    cat > "$config" <<CFG
-[config]
-
-[config.wallpaper]
-command = "true"
-arguments = []
-set = false
-
-[templates.maho]
-input_path = '$TEMPLATE'
-output_path = '$raw'
-CFG
-
     echo "Generating candidate palette..."
-    echo "Source: $wall"
-    echo "Mode:   $mode"
+    echo "Source:  $wall"
+    echo "Mode:    $mode"
+    echo "Backend: $(basename "$(dirname "$backend")")"
 
-    if ! matugen --prefer=saturation -c "$config" image "$wall" -m "$mode" \
-        >"$txn/matugen.stdout" \
-        2>"$txn/matugen.stderr"
+    if ! "$backend" "$wall" "$mode" "$raw"         >"$txn/backend.stdout"         2>"$txn/backend.stderr"
     then
         echo
-        echo "Matugen failed:"
-        cat "$txn/matugen.stderr"
+        echo "Palette backend failed:"
+        tail -30 "$txn/backend.stderr"
         return 1
     fi
 
     [ -s "$raw" ] || {
-        die "Matugen produced no palette"
+        die "palette backend produced no output"
         return 1
     }
 

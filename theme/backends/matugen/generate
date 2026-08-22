@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+wall="$1"
+mode="$2"
+out="$3"
+
+root="$(
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &&
+    pwd
+)"
+
+template="$root/backends/matugen/palette.raw.json"
+tmp="$(mktemp -d)"
+
+cleanup() {
+    rm -rf "$tmp"
+}
+trap cleanup EXIT
+
+config="$tmp/matugen.toml"
+
+cat > "$config" <<CFG
+[config]
+
+[config.wallpaper]
+command = "true"
+arguments = []
+set = false
+
+[templates.maho]
+input_path = '$template'
+output_path = '$out'
+CFG
+
+matugen \
+    --prefer=saturation \
+    -c "$config" \
+    image "$wall" \
+    -m "$mode"
