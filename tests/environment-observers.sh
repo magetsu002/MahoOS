@@ -42,6 +42,10 @@ event_count() {
     maho_event_tail 100 | grep -c 'thermal.changed' || true
 }
 
+last_thermal() {
+    maho_event_last thermal
+}
+
 echo "=== current normalization ==="
 bash "$ROOT/bin/maho-observe" current power | python -c '
 import json,sys
@@ -62,39 +66,71 @@ assert len(t["readings"]) == 2
 '
 echo "PASS"
 
-echo "=== first observation publishes state ==="
+echo "=== first observation publishes normal context ==="
 bash "$ROOT/bin/maho-observe" once all
 maho_state_get power >/dev/null
 maho_state_get thermal >/dev/null
 [ "$(maho_event_tail 20 | grep -c 'power.changed')" -eq 1 ] || fail "expected one power event"
 [ "$(event_count)" -eq 1 ] || fail "expected one thermal event"
+last_thermal | python -c '
+import json,sys
+e=json.load(sys.stdin)
+assert e["details"]["transition"]["level"] == "normal"
+assert e["details"]["transition"]["reason"] == "initial"
+'
 echo "PASS"
 
-echo "=== small thermal movement is quiet ==="
+echo "=== ordinary CPU jitter stays quiet but state refreshes ==="
 printf '64900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
 printf '64800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
 bash "$ROOT/bin/maho-observe" once thermal
-[ "$(event_count)" -eq 1 ] || fail "sub-threshold thermal movement emitted another event"
-echo "PASS"
-
-echo "=== fixed bucket boundary chatter is quiet ==="
-printf '69900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
-printf '69800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
-bash "$ROOT/bin/maho-observe" once thermal
-[ "$(event_count)" -eq 2 ] || fail "expected 5 C threshold transition"
+[ "$(event_count)" -eq 1 ] || fail "normal thermal jitter emitted another event"
+maho_state_get thermal | python -c '
+import json,sys
+s=json.load(sys.stdin)
+assert s["data"]["max_millidegree_c"] == 64900
+'
 printf '70100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
 printf '70000\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
 bash "$ROOT/bin/maho-observe" once thermal
-printf '69900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
-printf '69850\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
-bash "$ROOT/bin/maho-observe" once thermal
-[ "$(event_count)" -eq 2 ] || fail "thermal chatter around 70 C emitted duplicate events"
+[ "$(event_count)" -eq 1 ] || fail "70 C boundary chatter emitted an event"
 echo "PASS"
 
-echo "=== genuine 5 C movement emits one event ==="
+echo "=== entering warm context emits one event ==="
 printf '75100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '74800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
 bash "$ROOT/bin/maho-observe" once thermal
-[ "$(event_count)" -eq 3 ] || fail "5 C thermal movement was not observed"
+[ "$(event_count)" -eq 2 ] || fail "warm transition was not observed"
+last_thermal | python -c '
+import json,sys
+e=json.load(sys.stdin); t=e["details"]["transition"]
+assert t["previous_level"] == "normal"
+assert t["level"] == "warm"
+assert t["reason"] == "level-transition"
+'
+echo "PASS"
+
+echo "=== downward hysteresis prevents warm chatter ==="
+printf '72100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '71800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
+bash "$ROOT/bin/maho-observe" once thermal
+[ "$(event_count)" -eq 2 ] || fail "warm context dropped without crossing hysteresis release"
+printf '69900\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '69800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
+bash "$ROOT/bin/maho-observe" once thermal
+[ "$(event_count)" -eq 3 ] || fail "normal re-entry after hysteresis was not observed"
+echo "PASS"
+
+echo "=== direct jump to hot context is observed ==="
+printf '85100\n' > "$MAHO_SYSFS_ROOT/class/thermal/thermal_zone0/temp"
+printf '84800\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp1_input"
+bash "$ROOT/bin/maho-observe" once thermal
+[ "$(event_count)" -eq 4 ] || fail "hot transition was not observed"
+last_thermal | python -c '
+import json,sys
+e=json.load(sys.stdin); t=e["details"]["transition"]
+assert t["level"] == "hot"
+'
 echo "PASS"
 
 echo "=== concurrent observations dedupe ==="
@@ -112,11 +148,16 @@ echo "PASS"
 
 echo "=== sensor topology change emits event ==="
 printf 'Extra sensor\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp2_label"
-printf '75100\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp2_input"
+printf '85100\n' > "$MAHO_SYSFS_ROOT/class/hwmon/hwmon0/temp2_input"
 BEFORE="$(event_count)"
 bash "$ROOT/bin/maho-observe" once thermal
 AFTER="$(event_count)"
 [ "$AFTER" -eq $((BEFORE + 1)) ] || fail "sensor topology change was not observed"
+last_thermal | python -c '
+import json,sys
+e=json.load(sys.stdin)
+assert e["details"]["transition"]["reason"] == "topology-change"
+'
 echo "PASS"
 
 echo "=== missing capability is non-fatal ==="
