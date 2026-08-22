@@ -107,14 +107,20 @@ payload = {
 
 path = Path(log_path)
 path.parent.mkdir(parents=True, exist_ok=True)
+os.chmod(path.parent, 0o700)
 line = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
 
-with path.open("a", encoding="utf-8") as f:
-    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-    f.write(line)
-    f.flush()
-    os.fsync(f.fileno())
-    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8", closefd=False) as f:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        f.write(line)
+        f.flush()
+        os.fsync(fd)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+finally:
+    os.close(fd)
 
 print(payload["id"])
 PY
@@ -139,14 +145,23 @@ count = int(sys.argv[2])
 if not path.is_file() or count == 0:
     raise SystemExit(0)
 
-lines = deque(maxlen=count)
+rows = deque(maxlen=count)
 with path.open() as f:
     for line in f:
-        if line.strip():
-            lines.append(line)
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except Exception:
+            # A crash can leave a partial final JSONL record. History readers
+            # must preserve access to the last valid events instead of failing.
+            continue
+        if data.get("version") != 1:
+            continue
+        rows.append(data)
 
-for line in lines:
-    data = json.loads(line)
+for data in rows:
     cycle = data.get("cycle_id") or "-"
     print(
         f"{data.get('at', 'unknown')}  "

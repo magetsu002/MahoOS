@@ -121,6 +121,21 @@ if maho_event_emit appearance bad observed impossible 'bad risk' '' '' '{}' >/de
     fail "invalid risk accepted"
 fi
 
+assert_eq 600 "$(stat -c '%a' "$MAHO_EVENT_LOG")" "event log permissions"
+assert_eq 700 "$(stat -c '%a' "$(dirname "$MAHO_EVENT_LOG")")" "event history directory permissions"
+
+echo "PASS"
+
+echo "=== event history tolerates partial records ==="
+printf '%s' '{"version":1,"id":"partial"' >> "$MAHO_EVENT_LOG"
+TAIL_OUTPUT="$(maho_event_tail 10)" || fail "event history failed on a partial JSONL record"
+printf '%s\n' "$TAIL_OUTPUT" | grep -q 'theme.applied' || fail "valid history disappeared after partial record"
+maho_event_last appearance | python -c '
+import json, sys
+event = json.load(sys.stdin)
+assert event["kind"] == "theme.applied"
+assert event["status"] == "verified"
+'
 echo "PASS"
 
 echo "=== registry validation ==="
