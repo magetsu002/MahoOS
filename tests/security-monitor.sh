@@ -46,7 +46,17 @@ source "$ROOT/lib/events.sh"
 
 count_kind() {
     local kind="$1"
-    maho_event_tail 500 | python -c 'import json,sys; kind=sys.argv[1]; print(sum(1 for line in sys.stdin if line.strip() and json.loads(line).get("kind") == kind))' "$kind"
+    python - "$MAHO_EVENT_LOG" "$kind" <<'PY'
+import json,sys
+from pathlib import Path
+path=Path(sys.argv[1]); kind=sys.argv[2]; count=0
+if path.is_file():
+    for line in path.read_text().splitlines():
+        try: row=json.loads(line)
+        except Exception: continue
+        if row.get("version") == 1 and row.get("kind") == kind: count += 1
+print(count)
+PY
 }
 
 echo "=== first package observation captures evidence but not trust ==="
