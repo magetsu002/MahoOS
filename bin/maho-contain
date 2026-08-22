@@ -9,6 +9,7 @@ PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
 SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 ENGINE="$ROOT/lib/security_containment.py"
 SECURITY="$ROOT/bin/maho-security"
+PROVENANCE="$ROOT/bin/maho-provenance"
 EVENTS="$ROOT/lib/events.sh"
 
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then maho_event_emit() { return 0; }; fi
@@ -38,6 +39,41 @@ if installed not in affected:
     raise SystemExit("installed package version does not match confirmed finding")
 print(json.dumps({"package":name,"version":installed,"finding_id":f["id"],"severity":f["severity"],"confidence":f["confidence"]},sort_keys=True))
 PY
+}
+
+preserve_evidence() {
+    local finding="$1" finding_id="$2" package="$3" version="$4" package_snapshot="unavailable" persistence_snapshot="unavailable"
+
+    # Store and process the normalized finding before changing process state.
+    # This captures package impact, file-integrity evidence, policy decision and
+    # the non-mutating response plan in the normal security wheel history.
+    bash "$SECURITY" ingest "$finding" >/dev/null || return 1
+
+    if [ -r "$PROVENANCE" ]; then
+        bash "$PROVENANCE" snapshot >/dev/null || return 1
+        package_snapshot="captured"
+    fi
+
+    # Persistence snapshots are evidence only and are never trusted automatically.
+    bash "$SECURITY" persistence snapshot >/dev/null || return 1
+    persistence_snapshot="captured"
+
+    local details
+    details="$(python - "$finding_id" "$package" "$version" "$package_snapshot" "$persistence_snapshot" <<'PY'
+import json,sys
+print(json.dumps({
+    "finding_id":sys.argv[1],
+    "package":sys.argv[2],
+    "installed_version":sys.argv[3],
+    "package_provenance_snapshot":sys.argv[4],
+    "persistence_snapshot":sys.argv[5],
+    "trust_changed":False,
+},sort_keys=True))
+PY
+)"
+    emit_event containment.evidence-preserved verified info \
+        "Preserved normalized finding, package provenance and persistence evidence before explicit process containment" \
+        security.evidence maho "$details"
 }
 
 pretty_freeze() {
@@ -80,6 +116,12 @@ freeze_command() {
     target="$(confirmed_target "$finding")" || return 1
     mapfile -t fields < <(printf '%s\n' "$target" | python -c 'import json,sys; d=json.load(sys.stdin); print(d["package"]); print(d["version"]); print(d["finding_id"]); print(d["severity"])')
     package="${fields[0]}"; version="${fields[1]}"; finding_id="${fields[2]}"; severity="${fields[3]}"
+
+    # Evidence before mutation is part of the containment contract.
+    preserve_evidence "$finding" "$finding_id" "$package" "$version" || {
+        echo "maho-contain: refusing containment because pre-containment evidence capture failed" >&2
+        return 1
+    }
 
     result="$(python "$ENGINE" freeze "$package" --version "$version" --finding-id "$finding_id" --db-root "$DB_ROOT" --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --state-root "$SEC_STATE" --uid "$(id -u)")" || return 1
     pretty_freeze "$result"
@@ -126,6 +168,7 @@ case "${1:-}" in
         echo "INFO  scope: visible processes owned by the current user only"
         echo "INFO  mechanism: reversible SIGSTOP / SIGCONT"
         echo "INFO  finding gate: exact installed version + confidence=confirmed"
+        echo "INFO  evidence: normalized finding + package/persistence snapshots before SIGSTOP"
         echo "INFO  explicit --confirm required; never invoked automatically"
         ;;
     *)
@@ -140,9 +183,11 @@ Usage:
 
 Containment is deliberately narrow in V1. It only freezes visible user-owned
 processes whose executable belongs to the exact package/version in a confirmed
-finding. It excludes the invoking process ancestry, records PID start times to
-prevent PID-reuse mistakes, verifies SIGSTOP, and can reversibly SIGCONT the
-same processes. It never runs automatically and does not claim host recovery.
+finding. Before SIGSTOP, Maho stores/processes the finding and captures private
+package-provenance and persistence snapshots without trusting them. It excludes
+the invoking process ancestry, records PID start times to prevent PID-reuse
+mistakes, verifies SIGSTOP, and can reversibly SIGCONT the same processes. It
+never runs automatically and does not claim host recovery.
 HELP
         ;;
 esac
