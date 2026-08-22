@@ -33,23 +33,15 @@ cat > "$MAHO_ADAPTER_REGISTRY" <<'JSON'
 }
 JSON
 
-# shellcheck source=../lib/authority.sh
 source "$ROOT/lib/authority.sh"
-# shellcheck source=../lib/intent.sh
 source "$ROOT/lib/intent.sh"
-# shellcheck source=../lib/state.sh
 source "$ROOT/lib/state.sh"
-# shellcheck source=../lib/events.sh
 source "$ROOT/lib/events.sh"
 
-fail() {
-    echo "FAIL: $*" >&2
-    exit 1
-}
+fail() { echo "FAIL: $*" >&2; exit 1; }
 
 IMAGE="$TMP/wallpaper.jpg"
 printf 'fake-image-data\n' > "$IMAGE"
-
 PROVIDER="$TMP/provider"
 cat > "$PROVIDER" <<EOF_PROVIDER
 #!/usr/bin/env bash
@@ -82,9 +74,8 @@ run_watch_once
 maho_event_last appearance | python -c '
 import json,sys
 e=json.load(sys.stdin)
-assert e["kind"] == "policy.decision"
-assert e["status"] == "skipped"
-assert "does not own" in e["summary"]
+if e["kind"] != "policy.decision" or e["status"] != "skipped" or "does not own" not in e["summary"]:
+    raise SystemExit("unexpected user-owned event: "+json.dumps(e,sort_keys=True))
 '
 maho_state_get wallpaper | python -c '
 import json,sys
@@ -101,33 +92,27 @@ python - "$MAHO_TEST_ADAPTER_STATE" "$IMAGE" <<'PY'
 import json,os,sys
 from pathlib import Path
 d=json.loads(Path(sys.argv[1]).read_text())
-expected={
-    "operation":"apply-wallpaper-theme",
-    "kind":"image",
-    "path":os.path.realpath(sys.argv[2]),
-    "mode":"dark",
-}
+expected={"operation":"apply-wallpaper-theme","kind":"image","path":os.path.realpath(sys.argv[2]),"mode":"dark"}
 if d != expected:
     raise SystemExit(f"adapter state mismatch: expected={expected!r} actual={d!r}")
 PY
 LAST="$(maho_event_last appearance)"
-CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
 printf '%s\n' "$LAST" | python -c '
 import json,sys
 e=json.load(sys.stdin)
-assert e["kind"] == "adaptation.completed"
-assert e["status"] == "verified"
+if e["kind"] != "adaptation.completed" or e["status"] != "verified":
+    raise SystemExit("unexpected completion event: "+json.dumps(e,sort_keys=True))
 '
-maho_event_cycle "$CYCLE" | python -c '
+CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
+CYCLE_ROWS="$(maho_event_cycle "$CYCLE")"
+printf '%s\n' "$CYCLE_ROWS" | python -c '
 import json,sys
 rows=[json.loads(line) for line in sys.stdin if line.strip()]
 kinds=[r["kind"] for r in rows]
-assert kinds[0] == "wallpaper.changed"
-assert "authorization.allowed" in kinds
-assert "adapter.capture" in kinds
-assert "adapter.apply" in kinds
-assert "adapter.verify" in kinds
-assert kinds[-1] == "adaptation.completed"
+required=["wallpaper.changed","authorization.allowed","adapter.capture","adapter.apply","adapter.verify","adaptation.completed"]
+missing=[k for k in required if k not in kinds]
+if missing or kinds[0] != "wallpaper.changed" or kinds[-1] != "adaptation.completed":
+    raise SystemExit("unexpected cycle kinds: "+repr(kinds)+" missing="+repr(missing))
 '
 echo "PASS"
 
@@ -143,9 +128,8 @@ PY
 maho_event_last appearance | python -c '
 import json,sys
 e=json.load(sys.stdin)
-assert e["kind"] == "policy.decision"
-assert e["status"] == "skipped"
-assert "disabled by user intent" in e["summary"]
+if e["kind"] != "policy.decision" or e["status"] != "skipped" or "disabled by user intent" not in e["summary"]:
+    raise SystemExit("unexpected intent-disabled event: "+json.dumps(e,sort_keys=True))
 '
 echo "PASS"
 
