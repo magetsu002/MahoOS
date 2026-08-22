@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/security/aur-builds"
+PREFLIGHT="$ROOT/lib/security_preflight.py"
+EVENTS="$ROOT/lib/events.sh"
+BWRAP="${MAHO_BWRAP:-$(command -v bwrap 2>/dev/null || true)}"
+MAKEPKG="${MAHO_MAKEPKG:-$(command -v makepkg 2>/dev/null || true)}"
+
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+
+emit_event() {
+    maho_event_emit security "$@" >/dev/null 2>&1 || true
+}
+
+capability_check() {
+    [ -n "$BWRAP" ] && [ -x "$BWRAP" ] || {
+        echo "maho-aur-build: bubblewrap is unavailable; isolated build capability is unavailable" >&2
+        return 2
+    }
+    [ -n "$MAKEPKG" ] && [ -x "$MAKEPKG" ] || {
+        echo "maho-aur-build: makepkg is unavailable; isolated build capability is unavailable" >&2
+        return 2
+    }
+    [ -r "$PREFLIGHT" ] || {
+        echo "maho-aur-build: static preflight engine is unavailable" >&2
+        return 2
+    }
+}
+
+stage_source() {
+    local source="$1"
+    python - "$source" "$CACHE_ROOT" <<'PY'
+import hashlib,os,shutil,sys
+from pathlib import Path
+src=Path(sys.argv[1]).expanduser().resolve(); cache=Path(sys.argv[2])
+if not src.is_dir(): raise SystemExit(f"AUR source directory does not exist: {src}")
+pkg=src/'PKGBUILD'
+if not pkg.is_file(): raise SystemExit(f"PKGBUILD missing: {pkg}")
+digest=hashlib.sha256(pkg.read_bytes()).hexdigest()
+stage=cache/f"aur-{digest[:20]}"
+cache.mkdir(parents=True,exist_ok=True); os.chmod(cache,0o700)
+if stage.exists(): shutil.rmtree(stage)
+ignore=shutil.ignore_patterns('.git','.SRCINFO','pkg','src','*.pkg.tar.*','*.log')
+shutil.copytree(src,stage,symlinks=True,ignore=ignore)
+os.chmod(stage,0o700)
+print(stage)
+PY
+}
+
+sandbox_common() {
+    local stage="$1"
+    printf '%s\0' \
+        --die-with-parent \
+        --new-session \
+        --unshare-user-try \
+        --unshare-pid \
+        --unshare-ipc \
+        --unshare-uts \
+        --cap-drop ALL \
+        --ro-bind / / \
+        --proc /proc \
+        --dev /dev \
+        --tmpfs /home \
+        --tmpfs /root \
+        --tmpfs /tmp \
+        --tmpfs /var/tmp \
+        --tmpfs /run/user \
+        --bind "$stage" /build \
+        --chdir /build \
+        --setenv HOME /home/maho \
+        --setenv XDG_CONFIG_HOME /home/maho/.config \
+        --setenv XDG_CACHE_HOME /home/maho/.cache \
+        --setenv XDG_STATE_HOME /home/maho/.local/state \
+        --unsetenv SSH_AUTH_SOCK \
+        --unsetenv GPG_AGENT_INFO \
+        --unsetenv DBUS_SESSION_BUS_ADDRESS \
+        --unsetenv XDG_RUNTIME_DIR
+}
+
+run_sandbox() {
+    local stage="$1" phase="$2"
+    local -a args=()
+    while IFS= read -r -d '' item; do args+=("$item"); done < <(sandbox_common "$stage")
+    if [ "$phase" = build ]; then
+        args+=(--unshare-net)
+    fi
+    if [ "$phase" = fetch ]; then
+        args+=(-- "$MAKEPKG" --verifysource --noconfirm)
+    else
+        args+=(-- "$MAKEPKG" --noconfirm --cleanbuild --clean --force)
+    fi
+    "$BWRAP" "${args[@]}"
+}
+
+record_result() {
+    local stage="$1" preflight="$2" status="$3" phase="$4"
+    python - "$SEC_STATE" "$stage" "$preflight" "$status" "$phase" <<'PY'
+import datetime as dt,json,os,sys,uuid
+from pathlib import Path
+state=Path(sys.argv[1]); stage=Path(sys.argv[2]); pre=json.loads(sys.argv[3]); status=sys.argv[4]; phase=sys.argv[5]
+packages=sorted(str(p) for p in stage.glob('*.pkg.tar.*') if p.is_file())
+payload={
+    'version':1,
+    'kind':'aur-isolated-build',
+    'at':dt.datetime.now(dt.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),
+    'status':status,
+    'phase':phase,
+    'stage':str(stage),
+    'pkgbuild_sha256':pre.get('sha256'),
+    'preflight_risk':pre.get('risk'),
+    'preflight_score':pre.get('score'),
+    'sandbox':{
+        'host_root':'read-only',
+        'host_home':'hidden',
+        'root_home':'hidden',
+        'runtime_user_dir':'hidden',
+        'process_namespace':'isolated',
+        'capabilities':'dropped',
+        'fetch_network':'available',
+        'build_network':'isolated',
+    },
+    'packages':packages,
+    'automatic_install':False,
+}
+out=state/'aur-builds'; out.mkdir(parents=True,exist_ok=True); os.chmod(out,0o700)
+path=out/f"build-{pre.get('sha256','unknown')[:20]}.json"
+data=(json.dumps(payload,indent=2,sort_keys=True)+'\n').encode(); tmp=path.with_name(f'.{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp')
+fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+try:
+    os.fchmod(fd,0o600); off=0
+    while off<len(data): off+=os.write(fd,data[off:])
+    os.fsync(fd)
+finally: os.close(fd)
+os.replace(tmp,path); os.chmod(path,0o600)
+print(json.dumps(payload,sort_keys=True))
+PY
+}
+
+pretty_result() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print('Maho isolated AUR build')
+print('Status:        ',r['status'])
+print('Phase:         ',r['phase'])
+print('Preflight:     ',r['preflight_risk'],f"({r['preflight_score']}/100)")
+print('Stage:         ',r['stage'])
+print('Host home:      hidden')
+print('Build network:  isolated')
+print('Capabilities:   dropped')
+print('Auto install:   no')
+if r.get('packages'):
+    print('Packages:')
+    for p in r['packages']: print('  '+p)
+else:
+    print('Packages:       none produced')
+PY
+}
+
+build_command() {
+    local source="${1:-}" confirm="${2:-}" preflight risk stage result
+    [ -n "$source" ] || { echo "usage: maho-aur-build /path/to/aur/source [--confirm-risk]" >&2; return 1; }
+    capability_check || return $?
+
+    preflight="$(python "$PREFLIGHT" pkgbuild "$source/PKGBUILD" --state-root "$SEC_STATE")" || return 1
+    risk="$(python - "$preflight" <<'PY'
+import json,sys
+print(json.loads(sys.argv[1]).get('risk','info'))
+PY
+)"
+
+    case "$risk" in
+        high|critical)
+            if [ "$confirm" != "--confirm-risk" ]; then
+                echo "Maho refused to execute a high-risk PKGBUILD even inside the sandbox without one explicit review decision." >&2
+                echo "Review:  maho-guard pkgbuild $source/PKGBUILD" >&2
+                echo "Build:   maho-aur-build $source --confirm-risk" >&2
+                return 3
+            fi
+            ;;
+    esac
+
+    stage="$(stage_source "$source")" || return 1
+
+    if ! run_sandbox "$stage" fetch; then
+        result="$(record_result "$stage" "$preflight" failed fetch)"
+        emit_event prevention.aur-build-failed failed "$risk" \
+            "Isolated AUR source-fetch/verification phase failed; nothing was installed" \
+            security.package-build maho-aur-build "$result"
+        pretty_result "$result"
+        return 1
+    fi
+
+    if ! run_sandbox "$stage" build; then
+        result="$(record_result "$stage" "$preflight" failed build)"
+        emit_event prevention.aur-build-failed failed "$risk" \
+            "Isolated AUR build phase failed; nothing was installed" \
+            security.package-build maho-aur-build "$result"
+        pretty_result "$result"
+        return 1
+    fi
+
+    result="$(record_result "$stage" "$preflight" verified complete)"
+    emit_event prevention.aur-build verified "$risk" \
+        "AUR package was built in a bounded Bubblewrap sandbox; output was not installed automatically" \
+        security.package-build maho-aur-build "$result"
+    pretty_result "$result"
+}
+
+doctor_command() {
+    echo "Maho isolated AUR build"
+    [ -r "$PREFLIGHT" ] && python -m py_compile "$PREFLIGHT" >/dev/null 2>&1 && echo "PASS  static preflight" || echo "FAIL  static preflight"
+    [ -n "$BWRAP" ] && [ -x "$BWRAP" ] && echo "AVAILABLE  bubblewrap: $BWRAP" || echo "UNAVAILABLE bubblewrap"
+    [ -n "$MAKEPKG" ] && [ -x "$MAKEPKG" ] && echo "AVAILABLE  makepkg: $MAKEPKG" || echo "UNAVAILABLE makepkg"
+    echo "INFO  host root: read-only"
+    echo "INFO  host home/root/run-user: hidden"
+    echo "INFO  source fetch: network available in sandbox"
+    echo "INFO  build/package phase: network namespace isolated"
+    echo "INFO  automatic installation: never"
+    echo "INFO  high/critical static preflight: explicit --confirm-risk required"
+}
+
+case "${1:-}" in
+    build) shift; build_command "$@" ;;
+    doctor) doctor_command ;;
+    *)
+        if [ -n "${1:-}" ] && [ "${1#-}" = "$1" ]; then
+            build_command "$@"
+        else
+            cat <<'HELP'
+Maho isolated AUR build
+
+Usage:
+  maho-aur-build /path/to/aur/source
+  maho-aur-build /path/to/aur/source --confirm-risk
+  maho-aur-build doctor
+
+The source directory is copied into Maho cache first. PKGBUILD preflight never
+executes it. If execution proceeds, both makepkg phases run under Bubblewrap
+with a read-only host root, hidden host homes/runtime secrets, isolated process
+namespaces and dropped capabilities. The build/package phase additionally has
+no network. Produced package files stay in the private staging directory and
+are never installed automatically. This reduces blast radius; it is not a
+kernel/VM security boundary and cannot guarantee safety against kernel exploits.
+HELP
+        fi
+        ;;
+esac
