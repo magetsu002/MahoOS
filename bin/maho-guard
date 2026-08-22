@@ -9,6 +9,7 @@ FS_ROOT="${MAHO_FS_ROOT:-/}"
 PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
 INCIDENT_ENGINE="$ROOT/lib/security_incident.py"
 PREFLIGHT_ENGINE="$ROOT/lib/security_preflight.py"
+AUR_BUILD="$ROOT/bin/maho-aur-build"
 INTENT="$ROOT/lib/intent.sh"
 EVENTS="$ROOT/lib/events.sh"
 
@@ -168,11 +169,18 @@ print("Record:     ",r.get("record_path","not-persisted"))
 PY
 }
 
+aur_build_command() {
+    [ -r "$AUR_BUILD" ] || { echo "maho-guard: isolated AUR build capability unavailable" >&2; return 2; }
+    shift
+    bash "$AUR_BUILD" "$@"
+}
+
 doctor_command() {
     echo "Maho security guard"
     [ -r "$INCIDENT_ENGINE" ] && python -m py_compile "$INCIDENT_ENGINE" >/dev/null 2>&1 && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
     [ -r "$PREFLIGHT_ENGINE" ] && python -m py_compile "$PREFLIGHT_ENGINE" >/dev/null 2>&1 && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
-    command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend (isolated execution not enabled)"
+    [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
+    command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
     echo "INFO  autonomy target: $(autonomy_level)"
     echo "INFO  unit of reasoning: correlated incident"
@@ -186,6 +194,7 @@ case "${1:-}" in
     status) status_command ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
+    aur-build) aur_build_command "$@" ;;
     doctor) doctor_command ;;
     *)
         cat <<'HELP'
@@ -196,14 +205,16 @@ Usage:
   maho-guard status
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
+  maho-guard aur-build /path/to/aur/source [--confirm-risk]
   maho-guard doctor
 
 V1 guard policy is intentionally frictionless and shadow-only. It correlates
 current finding, package-file integrity, persistence, privilege, runtime and
 network evidence into incidents, scores confidence/risk/reversibility, and
 records what Maho would do without automatically mutating the system.
-PKGBUILD preflight is static and never sources or executes untrusted build
-instructions.
+PKGBUILD static preflight never executes untrusted instructions. Optional AUR
+execution uses the separate bounded Bubblewrap build path and never installs
+the produced package automatically.
 HELP
         ;;
 esac
