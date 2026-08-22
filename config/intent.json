@@ -3,6 +3,8 @@
     "appearance.theme.mode": "dark",
     "appearance.wallpaper.dynamic_theme": true,
     "appearance.wallpaper.restore_on_login": true,
+    "security.autonomy.level": "guard",
+    "security.prevention.mode": "shadow",
     "security.response.mode": "observe"
   },
   "version": 1

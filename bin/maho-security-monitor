@@ -13,6 +13,7 @@ EVENTS="$ROOT/lib/events.sh"
 PROBE="$ROOT/lib/security_probe.py"
 SECURITY="$ROOT/bin/maho-security"
 PROVENANCE="$ROOT/bin/maho-provenance"
+GUARD="$ROOT/bin/maho-guard"
 
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
     maho_event_emit() { return 0; }
@@ -33,7 +34,7 @@ probe() {
 record_state() {
     local key="$1" payload="$2"
     python - "$MONITOR_STATE" "$key" "$payload" <<'PY'
-import hashlib,json,os,re,sys,uuid
+import json,os,re,sys,uuid
 from pathlib import Path
 root=Path(sys.argv[1]); key=sys.argv[2]; payload=json.loads(sys.argv[3])
 if not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}",key): raise SystemExit("invalid monitor state key")
@@ -258,12 +259,21 @@ findings_cycle() {
     done < <(find "$dir" -maxdepth 1 -type f -name '*.json' -print | sort)
 }
 
+incident_cycle() {
+    # Correlation is intentionally downstream of observation. The guard only
+    # mutates Maho's private incident state and records shadow decisions; it
+    # does not signal processes, alter packages, or change host policy.
+    [ -r "$GUARD" ] || return 0
+    bash "$GUARD" reconcile >/dev/null 2>&1 || true
+}
+
 cycle() {
     package_cycle || true
     persistence_cycle || true
     runtime_cycle || true
     integrity_cycle || true
     findings_cycle || true
+    incident_cycle || true
 }
 
 watch() {
@@ -280,12 +290,14 @@ doctor() {
     [ -r "$PROBE" ] && python -m py_compile "$PROBE" >/dev/null 2>&1 && echo "PASS  security probe" || echo "FAIL  security probe unavailable"
     [ -r "$PROVENANCE" ] && echo "PASS  package provenance engine" || echo "FAIL  package provenance engine"
     [ -r "$SECURITY" ] && echo "PASS  security finding pipeline" || echo "FAIL  security finding pipeline"
+    [ -r "$GUARD" ] && echo "PASS  incident shadow-prevention guard" || echo "FAIL  incident shadow-prevention guard"
     echo "INFO  package state: captures untrusted evidence snapshots on change"
     echo "INFO  persistence: transition-aware; user baseline required"
     echo "INFO  runtime: transition-aware heuristic evidence only"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
     echo "INFO  finding reevaluation: only when finding/install relationship changes"
-    echo "INFO  automatic mutation: none"
+    echo "INFO  incident correlation: every monitor cycle after observations settle"
+    echo "INFO  automatic system mutation: none"
 }
 
 case "${1:-}" in
@@ -303,9 +315,10 @@ Usage:
 
 The monitor captures package-state evidence without trusting it, detects
 persistence/runtime transitions without repeating identical alerts, performs a
-periodic critical package-file integrity scan, and reevaluates stored package
-findings when their installed-version relationship changes. It never performs
-a containment or recovery mutation.
+periodic critical package-file integrity scan, reevaluates stored package
+findings when their installed-version relationship changes, then reconciles
+that evidence into incident-level shadow prevention decisions. It never
+performs containment or recovery mutation automatically.
 HELP
         ;;
 esac

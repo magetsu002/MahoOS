@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
+DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+INCIDENT_ENGINE="$ROOT/lib/security_incident.py"
+PREFLIGHT_ENGINE="$ROOT/lib/security_preflight.py"
+INTENT="$ROOT/lib/intent.sh"
+EVENTS="$ROOT/lib/events.sh"
+
+if ! { [ -r "$INTENT" ] && source "$INTENT" 2>/dev/null; }; then
+    maho_intent_get() { printf '%s\n' 'null'; }
+fi
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+
+intent_string() {
+    local key="$1" fallback="$2" raw
+    raw="$(maho_intent_get "$key" 2>/dev/null || printf '%s\n' null)"
+    python - "$fallback" "$raw" <<'PY'
+import json,sys
+fallback=sys.argv[1]
+try: value=json.loads(sys.argv[2])
+except Exception: value=None
+print(value if isinstance(value,str) and value else fallback)
+PY
+}
+
+prevention_mode() {
+    local value
+    value="$(intent_string security.prevention.mode shadow)"
+    case "$value" in off|shadow) printf '%s\n' "$value" ;; *) printf '%s\n' shadow ;; esac
+}
+
+autonomy_level() {
+    local value
+    value="$(intent_string security.autonomy.level guard)"
+    case "$value" in observe|guard|contain|recover) printf '%s\n' "$value" ;; *) printf '%s\n' guard ;; esac
+}
+
+emit_incident_changes() {
+    local result="$1" line kind risk payload summary status
+    while IFS=$'\t' read -r kind risk payload; do
+        [ -n "$kind" ] || continue
+        case "$kind" in
+            created)
+                summary="Maho opened a correlated security incident in shadow prevention mode"
+                status="observed"
+                ;;
+            updated)
+                summary="Maho updated a security incident after new or changed evidence"
+                status="observed"
+                ;;
+            resolved)
+                summary="Maho resolved an incident because the correlated active evidence cleared"
+                status="verified"
+                risk="info"
+                ;;
+            *) continue ;;
+        esac
+        maho_event_emit security "incident.$kind" "$status" "$risk" "$summary" security.incident maho-guard "$payload" >/dev/null 2>&1 || true
+    done < <(python - "$result" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+for kind in ("created","updated","resolved"):
+    for item in r.get(kind,[]):
+        print(kind+"\t"+str(item.get("risk","info"))+"\t"+json.dumps(item,sort_keys=True,separators=(",",":")))
+PY
+)
+}
+
+pretty_reconcile() {
+    python - "$1" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("Maho security guard")
+print("Prevention:  ",r.get("prevention_mode"))
+print("Autonomy:    ",r.get("autonomy_level"))
+print("Active:      ",r.get("active",0))
+print("Highest risk:",r.get("highest_risk","info"))
+print("System mutation: none (shadow policy)")
+changes=len(r.get("created",[]))+len(r.get("updated",[]))+len(r.get("resolved",[]))
+print("Incident changes:",changes)
+PY
+}
+
+reconcile_command() {
+    [ -r "$INCIDENT_ENGINE" ] || { echo "maho-guard: incident engine unavailable" >&2; return 1; }
+    local mode level result
+    mode="$(prevention_mode)"
+    level="$(autonomy_level)"
+    result="$(python "$INCIDENT_ENGINE" reconcile --state-root "$SEC_STATE" --db-root "$DB_ROOT" --prevention-mode "$mode" --autonomy-level "$level")" || return 1
+    emit_incident_changes "$result"
+    pretty_reconcile "$result"
+}
+
+status_command() {
+    [ -r "$INCIDENT_ENGINE" ] || { echo "maho-guard: incident engine unavailable" >&2; return 1; }
+    local rows
+    rows="$(python "$INCIDENT_ENGINE" list --state-root "$SEC_STATE")" || return 1
+    python - "$(prevention_mode)" "$(autonomy_level)" "$rows" <<'PY'
+import json,sys
+mode,level=sys.argv[1:3]; rows=json.loads(sys.argv[3])
+print("Maho security guard status")
+print(f"Prevention: {mode}   Autonomy target: {level}")
+print("Enforcement: shadow only; no automatic system mutation")
+print()
+if not rows:
+    print("No active correlated security incidents.")
+else:
+    for r in rows:
+        s=r.get("subject",{})
+        print(f"{r.get('risk','info').upper():8} {r.get('score',0):3}  {r.get('incident_id')}  {s.get('type')}:{s.get('id')}")
+        print(f"          confidence={r.get('confidence')}  would={r.get('shadow_action')}  attention={r.get('attention')}")
+PY
+}
+
+incident_command() {
+    local id="${1:-}"
+    [ -n "$id" ] || { echo "usage: maho-guard incident INCIDENT_ID" >&2; return 1; }
+    python "$INCIDENT_ENGINE" show "$id" --state-root "$SEC_STATE" | python -m json.tool
+}
+
+pkgbuild_command() {
+    local file="${1:-}" result risk status
+    [ -n "$file" ] || { echo "usage: maho-guard pkgbuild /path/to/PKGBUILD" >&2; return 1; }
+    [ -r "$PREFLIGHT_ENGINE" ] || { echo "maho-guard: preflight engine unavailable" >&2; return 1; }
+    result="$(python "$PREFLIGHT_ENGINE" pkgbuild "$file" --state-root "$SEC_STATE")" || return 1
+    risk="$(python - "$result" <<'PY'
+import json,sys
+print(json.loads(sys.argv[1]).get("risk","info"))
+PY
+)"
+    status="observed"
+    case "$risk" in high|critical) status="proposed" ;; esac
+    maho_event_emit security prevention.pkgbuild-preflight "$status" "$risk" \
+        "Maho statically evaluated an AUR PKGBUILD without sourcing or executing it" \
+        security.package-build maho-guard "$result" >/dev/null 2>&1 || true
+    python - "$result" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+print("Maho PKGBUILD preflight")
+print("Risk:      ",r["risk"],f"({r['score']}/100)")
+print("Decision:  ",r["recommended_action"])
+print("Execution:  PKGBUILD was NOT sourced or executed")
+print("Build net:  ",r["network_during_build"])
+print("Host home:  ",r["host_home_access"])
+if r.get("signals"):
+    print("Signals:")
+    for s in r["signals"]:
+        lines=",".join(str(o.get("line")) for o in s.get("occurrences",[]))
+        print(f"  {s['severity'].upper():8} {s['id']}  lines={lines}")
+else:
+    print("Signals:    none from bounded static rules")
+print("Record:     ",r.get("record_path","not-persisted"))
+PY
+}
+
+doctor_command() {
+    echo "Maho security guard"
+    [ -r "$INCIDENT_ENGINE" ] && python -m py_compile "$INCIDENT_ENGINE" >/dev/null 2>&1 && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
+    [ -r "$PREFLIGHT_ENGINE" ] && python -m py_compile "$PREFLIGHT_ENGINE" >/dev/null 2>&1 && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
+    command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend (isolated execution not enabled)"
+    echo "INFO  prevention mode: $(prevention_mode)"
+    echo "INFO  autonomy target: $(autonomy_level)"
+    echo "INFO  unit of reasoning: correlated incident"
+    echo "INFO  default interruption: silent; critical confirmed incidents may warrant one notification"
+    echo "INFO  automatic system mutation: none; shadow prevention only"
+    echo "INFO  explicit containment remains separately confirmed and execution-time revalidated"
+}
+
+case "${1:-}" in
+    reconcile) reconcile_command ;;
+    status) status_command ;;
+    incident) incident_command "${2:-}" ;;
+    pkgbuild) pkgbuild_command "${2:-}" ;;
+    doctor) doctor_command ;;
+    *)
+        cat <<'HELP'
+Maho incident-oriented shadow prevention guard
+
+Usage:
+  maho-guard reconcile
+  maho-guard status
+  maho-guard incident INCIDENT_ID
+  maho-guard pkgbuild /path/to/PKGBUILD
+  maho-guard doctor
+
+V1 guard policy is intentionally frictionless and shadow-only. It correlates
+current finding, package-file integrity, persistence and runtime evidence into
+incidents, scores confidence/risk/reversibility, and records what Maho would do
+without automatically mutating the system. PKGBUILD preflight is static and
+never sources or executes untrusted build instructions.
+HELP
+        ;;
+esac

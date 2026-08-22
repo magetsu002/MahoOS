@@ -1,5 +1,5 @@
 [Unit]
-Description=Maho stateful read-only security evidence monitor
+Description=Maho security evidence and shadow-prevention watch
 After=default.target
 
 [Service]

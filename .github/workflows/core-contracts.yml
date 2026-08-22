@@ -30,6 +30,7 @@ jobs:
             bin/maho-provenance \
             bin/maho-security \
             bin/maho-security-monitor \
+            bin/maho-guard \
             bin/maho-contain \
             bin/maho-setup \
             lib/authority.sh \
@@ -56,6 +57,8 @@ jobs:
             tests/security-probes.sh \
             tests/security-containment.sh \
             tests/security-monitor.sh \
+            tests/security-incidents.sh \
+            tests/security-preflight.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh
 
@@ -63,7 +66,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile lib/security_probe.py lib/security_containment.py
+          python -m py_compile \
+            lib/security_probe.py \
+            lib/security_containment.py \
+            lib/security_incident.py \
+            lib/security_preflight.py
 
       - name: JSON contracts
         shell: bash
@@ -144,6 +151,18 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/security-monitor.sh
+
+      - name: Security incident correlation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/security-incidents.sh
+
+      - name: Security prevention preflight tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/security-preflight.sh
 
       - name: V1 setup lifecycle tests
         shell: bash

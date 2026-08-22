@@ -17,6 +17,7 @@ COMMANDS=(
     maho-provenance
     maho-security
     maho-security-monitor
+    maho-guard
     maho-contain
     maho-setup
 )
@@ -102,7 +103,12 @@ preflight() {
         fi
     done
 
-    if python -m py_compile "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" >/dev/null 2>&1; then
+    if python -m py_compile \
+        "$ROOT/lib/security_probe.py" \
+        "$ROOT/lib/security_containment.py" \
+        "$ROOT/lib/security_incident.py" \
+        "$ROOT/lib/security_preflight.py" \
+        >/dev/null 2>&1; then
         echo "PASS  python security modules"
     else
         echo "FAIL  python security modules"
@@ -119,6 +125,7 @@ preflight() {
         "$ROOT/bin/maho-provenance" \
         "$ROOT/bin/maho-security" \
         "$ROOT/bin/maho-security-monitor" \
+        "$ROOT/bin/maho-guard" \
         "$ROOT/bin/maho-contain" \
         "$ROOT/bin/maho-setup" \
         "$ROOT/lib/authority.sh" \
@@ -309,9 +316,9 @@ Usage:
 Setup wires the current checkout into the user session. It installs no system
 packages and uses no root access. Existing unmanaged commands and units are
 preserved rather than overwritten. The Maho security service runs the stateful
-read-only monitor; the separate maho-contain command requires a confirmed
-finding and explicit user confirmation before reversible user-process
-containment.
+read-only monitor and incident-oriented shadow guard; the separate
+maho-contain command requires a confirmed finding and explicit user
+confirmation before reversible user-process containment.
 HELP
         ;;
 esac
