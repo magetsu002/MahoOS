@@ -11,7 +11,6 @@ export XDG_STATE_HOME="$TMP/state"
 export XDG_CACHE_HOME="$TMP/cache"
 export XDG_CONFIG_HOME="$TMP/config"
 export MAHO_ROOT="$ROOT"
-export MAHO_WALLPAPER_POLL=0.05
 export PATH="$TMP/bin:$PATH"
 export MAHO_TEST_THEME_CALLS="$TMP/theme-calls"
 export MAHO_TEST_ADAPTER_STATE="$TMP/adapter-state.json"
@@ -57,19 +56,14 @@ exit 0
 EOF_THEME
 chmod +x "$TMP/bin/maho-theme"
 
-run_watch_once() {
-    local rc
-    set +e
-    timeout 1s bash "$ROOT/bin/maho-wallpaper" watch >/dev/null 2>&1
-    rc=$?
-    set -e
-    [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ] || fail "watch exited unexpectedly: $rc"
+run_once() {
+    bash "$ROOT/bin/maho-wallpaper" once >/dev/null
 }
 
 echo "=== user ownership blocks automation ==="
 maho_owner_set appearance.hyprland.borders user >/dev/null
 BEFORE="$(cat "$MAHO_TEST_ADAPTER_STATE")"
-run_watch_once
+run_once
 [ "$(cat "$MAHO_TEST_ADAPTER_STATE")" = "$BEFORE" ] || fail "adapter ran while resource was user-owned"
 maho_event_last appearance | python -c '
 import json,sys
@@ -87,7 +81,7 @@ echo "PASS"
 
 echo "=== maho ownership permits generic adaptation ==="
 maho_owner_set appearance.hyprland.borders maho >/dev/null
-run_watch_once
+run_once
 python - "$MAHO_TEST_ADAPTER_STATE" "$IMAGE" <<'PY'
 import json,os,sys
 from pathlib import Path
@@ -104,22 +98,20 @@ if e["kind"] != "adaptation.completed" or e["status"] != "verified":
     raise SystemExit("unexpected completion event: "+json.dumps(e,sort_keys=True))
 '
 CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
-CYCLE_ROWS="$(maho_event_cycle "$CYCLE")"
-printf '%s\n' "$CYCLE_ROWS" | python -c '
+maho_event_cycle "$CYCLE" | python -c '
 import json,sys
 rows=[json.loads(line) for line in sys.stdin if line.strip()]
 kinds=[r["kind"] for r in rows]
-required=["wallpaper.changed","authorization.allowed","adapter.capture","adapter.apply","adapter.verify","adaptation.completed"]
-missing=[k for k in required if k not in kinds]
-if missing or kinds[0] != "wallpaper.changed" or kinds[-1] != "adaptation.completed":
-    raise SystemExit("unexpected cycle kinds: "+repr(kinds)+" missing="+repr(missing))
+expected=["wallpaper.changed","policy.decision","authorization.allowed","adapter.capture","adapter.apply","adapter.verify","adaptation.completed"]
+if kinds != expected:
+    raise SystemExit("unexpected cycle kinds: "+repr(kinds))
 '
 echo "PASS"
 
 echo "=== user intent disables adaptation ==="
 maho_intent_set appearance.wallpaper.dynamic_theme false >/dev/null
 printf '%s\n' '{"operation":"sentinel","value":"stable"}' > "$MAHO_TEST_ADAPTER_STATE"
-run_watch_once
+run_once
 python - "$MAHO_TEST_ADAPTER_STATE" <<'PY'
 import json,sys
 from pathlib import Path
