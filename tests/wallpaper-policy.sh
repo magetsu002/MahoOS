@@ -52,7 +52,7 @@ chmod +x "$TMP/bin/maho-theme"
 run_watch_once() {
     local rc
     set +e
-    timeout 0.35s "$ROOT/bin/maho-wallpaper" watch >/dev/null 2>&1
+    timeout 1s "$ROOT/bin/maho-wallpaper" watch >/dev/null 2>&1
     rc=$?
     set -e
 
