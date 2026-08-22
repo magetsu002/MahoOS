@@ -19,18 +19,18 @@ maho_event_emit() {
     local summary="${5:-}"
     local resource="${6:-}"
     local source="${7:-}"
-    local details_json="${8:-{}}"
+    local details_json="${8:-}"
+
+    [ -n "$details_json" ] || details_json='{}'
 
     maho_event_valid_name "$domain" || {
         maho_event_die "invalid domain: $domain"
         return 1
     }
-
     maho_event_valid_name "$kind" || {
         maho_event_die "invalid kind: $kind"
         return 1
     }
-
     [ -n "$summary" ] || {
         maho_event_die "summary is required"
         return 1
@@ -39,15 +39,8 @@ maho_event_emit() {
     mkdir -p "$(dirname "$MAHO_EVENT_LOG")"
 
     python - \
-        "$MAHO_EVENT_LOG" \
-        "$domain" \
-        "$kind" \
-        "$status" \
-        "$risk" \
-        "$summary" \
-        "$resource" \
-        "$source" \
-        "$details_json" <<'PY'
+        "$MAHO_EVENT_LOG" "$domain" "$kind" "$status" "$risk" \
+        "$summary" "$resource" "$source" "$details_json" <<'PY'
 import datetime as dt
 import fcntl
 import json
@@ -56,27 +49,11 @@ import sys
 import uuid
 from pathlib import Path
 
-(
-    log_path,
-    domain,
-    kind,
-    status,
-    risk,
-    summary,
-    resource,
-    source,
-    details_raw,
-) = sys.argv[1:]
+log_path, domain, kind, status, risk, summary, resource, source, details_raw = sys.argv[1:]
 
 valid_status = {
-    "observed",
-    "skipped",
-    "proposed",
-    "verified",
-    "failed",
-    "rolled_back",
-    "contained",
-    "recovered",
+    "observed", "skipped", "proposed", "verified", "failed",
+    "rolled_back", "contained", "recovered",
 }
 valid_risk = {"info", "low", "medium", "high", "critical"}
 
@@ -89,16 +66,13 @@ try:
     details = json.loads(details_raw)
 except Exception as exc:
     raise SystemExit(f"invalid event details JSON: {exc}")
-
 if not isinstance(details, dict):
     raise SystemExit("event details must be a JSON object")
 
 now = dt.datetime.now(dt.timezone.utc)
-event_id = "evt-" + now.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:10]
-
 payload = {
     "version": 1,
-    "id": event_id,
+    "id": "evt-" + now.strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:10],
     "at": now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
     "domain": domain,
     "kind": kind,
@@ -121,7 +95,7 @@ with path.open("a", encoding="utf-8") as f:
     os.fsync(f.fileno())
     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-print(event_id)
+print(payload["id"])
 PY
 }
 
@@ -141,15 +115,13 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 count = int(sys.argv[2])
-
 if not path.is_file() or count == 0:
     raise SystemExit(0)
 
 lines = deque(maxlen=count)
 with path.open() as f:
     for line in f:
-        line = line.strip()
-        if line:
+        if line.strip():
             lines.append(line)
 
 for line in lines:
@@ -181,16 +153,12 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 domain = sys.argv[2]
-
 if not path.is_file():
     raise SystemExit(1)
 
 last = None
 with path.open() as f:
     for line in f:
-        line = line.strip()
-        if not line:
-            continue
         try:
             data = json.loads(line)
         except Exception:
@@ -203,7 +171,6 @@ with path.open() as f:
 
 if last is None:
     raise SystemExit(1)
-
 print(json.dumps(last, indent=2, sort_keys=True))
 PY
 }
@@ -223,15 +190,11 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 event_id = sys.argv[2]
-
 if not path.is_file():
     raise SystemExit(1)
 
 with path.open() as f:
     for line in f:
-        line = line.strip()
-        if not line:
-            continue
         try:
             data = json.loads(line)
         except Exception:

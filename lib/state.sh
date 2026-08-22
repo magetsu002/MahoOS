@@ -14,7 +14,9 @@ maho_state_valid_name() {
 maho_state_publish() {
     local domain="${1:-}"
     local provider="${2:-}"
-    local data_json="${3:-{}}"
+    local data_json="${3:-}"
+
+    [ -n "$data_json" ] || data_json='{}'
 
     maho_state_valid_name "$domain" || {
         maho_state_die "invalid domain: $domain"
@@ -61,9 +63,7 @@ state_dir.mkdir(parents=True, exist_ok=True)
 path = state_dir / f"{domain}.json"
 tmp = state_dir / f".{domain}.{os.getpid()}.tmp"
 
-tmp.write_text(
-    json.dumps(payload, indent=2, sort_keys=True) + "\n"
-)
+tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 os.replace(tmp, path)
 
 print(path)
