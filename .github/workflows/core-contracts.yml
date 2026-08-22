@@ -24,6 +24,7 @@ jobs:
             bin/mahoctl \
             bin/maho-theme \
             bin/maho-wallpaper \
+            bin/maho-provenance \
             lib/authority.sh \
             lib/state.sh \
             lib/events.sh \
@@ -31,7 +32,8 @@ jobs:
             theme/backends/basic/generate \
             theme/backends/matugen/generate \
             tests/core-contracts.sh \
-            tests/wallpaper-policy.sh
+            tests/wallpaper-policy.sh \
+            tests/provenance-contracts.sh
 
       - name: JSON contracts
         shell: bash
@@ -51,3 +53,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/wallpaper-policy.sh
+
+      - name: Security provenance tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/provenance-contracts.sh

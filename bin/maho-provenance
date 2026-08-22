@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
+PROV_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security/provenance"
+EVENTS="$ROOT/lib/events.sh"
+
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+
+emit_security_event() {
+    maho_event_emit security "$@" >/dev/null 2>&1 || true
+}
+
+run_provenance() {
+    local command="$1"
+    local argument="${2:-}"
+
+    python - "$command" "$DB_ROOT" "$PROV_STATE" "$argument" <<'PY'
+import datetime as dt
+import hashlib
+import json
+import os
+import sys
+import uuid
+from pathlib import Path
+
+command = sys.argv[1]
+db_root = Path(sys.argv[2])
+state_root = Path(sys.argv[3])
+argument = sys.argv[4]
+
+snapshots = state_root / "snapshots"
+baseline_path = state_root / "baseline.json"
+latest_path = state_root / "latest.json"
+
+
+def parse_desc(path):
+    lines = path.read_text(errors="replace").splitlines()
+    sections = {}
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("%") and line.endswith("%"):
+            key = line.strip("%")
+            i += 1
+            values = []
+            while i < len(lines) and lines[i] != "":
+                values.append(lines[i])
+                i += 1
+            sections[key] = values
+        i += 1
+    return sections
+
+
+def first(sections, key, default=None):
+    values = sections.get(key) or []
+    return values[0] if values else default
+
+
+def capture_manifest():
+    if not db_root.is_dir():
+        raise SystemExit(f"pacman local database is unavailable: {db_root}")
+
+    packages = {}
+    for desc in sorted(db_root.glob("*/desc")):
+        try:
+            raw = desc.read_bytes()
+            sections = parse_desc(desc)
+        except OSError:
+            continue
+
+        name = first(sections, "NAME")
+        version = first(sections, "VERSION")
+        if not name or not version:
+            continue
+
+        reason_raw = first(sections, "REASON")
+        reason = {"0": "explicit", "1": "dependency"}.get(
+            reason_raw, reason_raw or "unknown"
+        )
+
+        packages[name] = {
+            "name": name,
+            "version": version,
+            "arch": first(sections, "ARCH", "unknown"),
+            "packager": first(sections, "PACKAGER", "unknown"),
+            "install_date": first(sections, "INSTALLDATE"),
+            "reason": reason,
+            "validation": sections.get("VALIDATION", []),
+            "desc_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+
+    return {
+        "version": 1,
+        "kind": "arch-packages",
+        "captured_at": dt.datetime.now(dt.timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
+        "source": "pacman-local-db",
+        "db_root": str(db_root),
+        "packages": packages,
+    }
+
+
+def canonical_bytes(manifest):
+    return (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
+
+
+def manifest_hash(manifest):
+    return hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+
+
+def atomic_write(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def validate_manifest(manifest):
+    if manifest.get("version") != 1 or manifest.get("kind") != "arch-packages":
+        raise SystemExit("unsupported provenance manifest")
+    if not isinstance(manifest.get("packages"), dict):
+        raise SystemExit("invalid provenance package map")
+
+
+def load_manifest(path):
+    data = json.loads(path.read_text())
+    validate_manifest(data)
+    return data
+
+
+def compare(base, current):
+    bp = base["packages"]
+    cp = current["packages"]
+    added = sorted(set(cp) - set(bp))
+    removed = sorted(set(bp) - set(cp))
+    changed = []
+
+    for name in sorted(set(bp) & set(cp)):
+        before = bp[name]
+        after = cp[name]
+        if (
+            before.get("version") != after.get("version")
+            or before.get("desc_sha256") != after.get("desc_sha256")
+        ):
+            changed.append({
+                "name": name,
+                "before": before.get("version"),
+                "after": after.get("version"),
+                "metadata_changed": before.get("desc_sha256") != after.get("desc_sha256"),
+            })
+
+    return added, removed, changed
+
+
+if command == "snapshot":
+    manifest = capture_manifest()
+    data = canonical_bytes(manifest)
+    digest = hashlib.sha256(data).hexdigest()
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = snapshots / f"{stamp}-{uuid.uuid4().hex[:8]}.json"
+    atomic_write(path, data)
+    atomic_write(latest_path, data)
+    print(json.dumps({
+        "result": "snapshot",
+        "path": str(path),
+        "sha256": digest,
+        "packages": len(manifest["packages"]),
+    }, sort_keys=True))
+
+elif command == "baseline-set":
+    if not argument:
+        raise SystemExit("snapshot path is required")
+    source = Path(argument).expanduser().resolve()
+    manifest = load_manifest(source)
+    data = canonical_bytes(manifest)
+    atomic_write(baseline_path, data)
+    print(json.dumps({
+        "result": "baseline-set",
+        "path": str(baseline_path),
+        "source": str(source),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "packages": len(manifest["packages"]),
+    }, sort_keys=True))
+
+elif command in {"check", "diff"}:
+    base_path = Path(argument).expanduser().resolve() if argument else baseline_path
+    if not base_path.is_file():
+        print(json.dumps({"result": "no-baseline", "path": str(base_path)}, sort_keys=True))
+        raise SystemExit(0)
+
+    base = load_manifest(base_path)
+    current = capture_manifest()
+    added, removed, changed = compare(base, current)
+    result = "clean" if not (added or removed or changed) else "changed"
+    print(json.dumps({
+        "result": result,
+        "baseline": str(base_path),
+        "baseline_sha256": manifest_hash(base),
+        "current_sha256": manifest_hash(current),
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+    }, sort_keys=True))
+
+elif command == "baseline-show":
+    if not baseline_path.is_file():
+        print(json.dumps({"result": "no-baseline", "path": str(baseline_path)}, sort_keys=True))
+    else:
+        manifest = load_manifest(baseline_path)
+        print(json.dumps({
+            "result": "baseline",
+            "path": str(baseline_path),
+            "sha256": manifest_hash(manifest),
+            "captured_at": manifest.get("captured_at"),
+            "packages": len(manifest["packages"]),
+        }, sort_keys=True))
+else:
+    raise SystemExit(f"unknown provenance command: {command}")
+PY
+}
+
+pretty_result() {
+    python - "$1" <<'PY'
+import json
+import sys
+
+r = json.loads(sys.argv[1])
+kind = r.get("result")
+
+if kind == "snapshot":
+    print("Maho package provenance snapshot")
+    print("Packages:", r["packages"])
+    print("SHA256:  ", r["sha256"])
+    print("Saved:   ", r["path"])
+elif kind == "baseline-set":
+    print("Trusted package baseline selected by user")
+    print("Packages:", r["packages"])
+    print("SHA256:  ", r["sha256"])
+    print("Baseline:", r["path"])
+elif kind == "baseline":
+    print("Maho package provenance baseline")
+    print("Captured:", r.get("captured_at"))
+    print("Packages:", r["packages"])
+    print("SHA256:  ", r["sha256"])
+    print("Path:    ", r["path"])
+elif kind == "no-baseline":
+    print("No trusted package baseline is configured.")
+    print("Expected:", r["path"])
+elif kind in ("clean", "changed"):
+    print("Maho package provenance check")
+    print("Result:  ", kind)
+    print("Added:   ", len(r["added"]))
+    print("Removed: ", len(r["removed"]))
+    print("Changed: ", len(r["changed"]))
+    if r["added"]:
+        print("Added packages: " + ", ".join(r["added"]))
+    if r["removed"]:
+        print("Removed packages: " + ", ".join(r["removed"]))
+    for item in r["changed"]:
+        print("Changed package: {} {} -> {}".format(
+            item["name"], item["before"], item["after"]
+        ))
+PY
+}
+
+case "${1:-}" in
+    snapshot)
+        RESULT="$(run_provenance snapshot)" || exit $?
+        pretty_result "$RESULT"
+        emit_security_event packages.snapshot observed info \
+            "Captured installed package provenance" security.packages pacman-local-db "$RESULT"
+        ;;
+
+    baseline)
+        case "${2:-}" in
+            set)
+                RESULT="$(run_provenance baseline-set "${3:-}")" || exit $?
+                pretty_result "$RESULT"
+                emit_security_event packages.baseline verified info \
+                    "User selected a trusted package provenance baseline" security.packages user "$RESULT"
+                ;;
+            show)
+                RESULT="$(run_provenance baseline-show)" || exit $?
+                pretty_result "$RESULT"
+                ;;
+            *)
+                echo "usage: maho-provenance baseline set SNAPSHOT | baseline show" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    check)
+        RESULT="$(run_provenance check)" || exit $?
+        pretty_result "$RESULT"
+        STATUS="$(printf '%s' "$RESULT" | python -c 'import json,sys; print(json.load(sys.stdin)["result"])')"
+        case "$STATUS" in
+            clean)
+                emit_security_event packages.check verified info \
+                    "Installed package provenance matches the user-selected baseline" security.packages pacman-local-db "$RESULT"
+                ;;
+            changed)
+                emit_security_event packages.changed observed info \
+                    "Installed package provenance differs from the user-selected baseline" security.packages pacman-local-db "$RESULT"
+                ;;
+        esac
+        ;;
+
+    diff)
+        RESULT="$(run_provenance diff "${2:-}")" || exit $?
+        pretty_result "$RESULT"
+        ;;
+
+    *)
+        cat <<'HELP'
+Maho package provenance
+
+Usage:
+  maho-provenance snapshot
+  maho-provenance baseline set SNAPSHOT
+  maho-provenance baseline show
+  maho-provenance check
+  maho-provenance diff [SNAPSHOT]
+
+This component is read-only with respect to the operating system.
+A baseline is never trusted automatically: only an explicit user command selects it.
+Package changes are evidence, not proof of compromise.
+HELP
+        ;;
+esac
