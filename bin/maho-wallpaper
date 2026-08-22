@@ -11,6 +11,8 @@ AUTHORITY="$ROOT/lib/authority.sh"
 INTENT="$ROOT/lib/intent.sh"
 STATE_LIB="$ROOT/lib/state.sh"
 EVENTS="$ROOT/lib/events.sh"
+POLICY="$ROOT/lib/policy.sh"
+EXECUTOR="$ROOT/bin/maho-adapt"
 
 mkdir -p "$STATE" "$CACHE"
 
@@ -27,6 +29,9 @@ fi
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
     maho_event_emit() { return 0; }
 fi
+if ! { [ -r "$POLICY" ] && source "$POLICY" 2>/dev/null; }; then
+    maho_policy_wallpaper_theme() { return 1; }
+fi
 
 log() {
     printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"
@@ -42,92 +47,67 @@ import json
 import os
 from pathlib import Path
 
-paths = set()
+paths=set()
 for proc in Path("/proc").iterdir():
     if not proc.name.isdigit():
         continue
     try:
-        if (proc / "comm").read_text().strip() != "mpvpaper":
+        if (proc/"comm").read_text().strip() != "mpvpaper":
             continue
-        args = [
-            os.fsdecode(x)
-            for x in (proc / "cmdline").read_bytes().split(b"\0")
-            if x
-        ]
+        args=[os.fsdecode(x) for x in (proc/"cmdline").read_bytes().split(b"\0") if x]
         if args:
-            path = os.path.realpath(args[-1])
+            path=os.path.realpath(args[-1])
             if os.path.isfile(path):
                 paths.add(path)
     except (OSError, PermissionError):
         pass
 
-if len(paths) > 1:
+if len(paths)>1:
     raise SystemExit(2)
 if not paths:
     raise SystemExit(1)
-
-print(json.dumps({
-    "version": 1,
-    "provider": "mpvpaper",
-    "kind": "video",
-    "path": next(iter(paths)),
-}, sort_keys=True))
+print(json.dumps({"version":1,"provider":"mpvpaper","kind":"video","path":next(iter(paths))}, sort_keys=True))
 PY
 }
 
 awww_state() {
     command -v awww >/dev/null 2>&1 || return 1
-
     awww query -j 2>/dev/null | python -c '
-import json
-import os
-import sys
-
+import json,os,sys
 try:
-    data = json.load(sys.stdin)
+    data=json.load(sys.stdin)
 except Exception:
     raise SystemExit(1)
-
-paths = {
+paths={
     os.path.realpath(output["displaying"]["image"])
     for outputs in data.values()
     for output in outputs
-    if output.get("displaying", {}).get("image")
+    if output.get("displaying",{}).get("image")
     and os.path.isfile(output["displaying"]["image"])
 }
-
-if len(paths) > 1:
+if len(paths)>1:
     raise SystemExit(2)
 if not paths:
     raise SystemExit(1)
-
-print(json.dumps({
-    "version": 1,
-    "provider": "awww",
-    "kind": "image",
-    "path": next(iter(paths)),
-}, sort_keys=True))
+print(json.dumps({"version":1,"provider":"awww","kind":"image","path":next(iter(paths))}, sort_keys=True))
 '
 }
 
 validate_state() {
     python -c '
-import json
-import os
-import re
-import sys
-
-data = json.loads(sys.stdin.read())
+import json,os,re,sys
+data=json.loads(sys.stdin.read())
 if data.get("version") != 1:
     raise SystemExit(1)
-if data.get("kind") not in ("image", "video"):
+if data.get("kind") not in ("image","video"):
     raise SystemExit(1)
-if not isinstance(data.get("provider"), str) or not re.fullmatch(r"[a-z0-9._-]+", data["provider"]):
+if not isinstance(data.get("provider"),str) or not re.fullmatch(r"[a-z0-9._-]+",data["provider"]):
     raise SystemExit(1)
-path = data.get("path")
-if not isinstance(path, str) or not os.path.isfile(path):
+path=data.get("path")
+if not isinstance(path,str) or not os.path.isfile(path):
     raise SystemExit(1)
-print(json.dumps(data, sort_keys=True))
+data["path"]=os.path.realpath(path)
+print(json.dumps(data,sort_keys=True))
 '
 }
 
@@ -144,7 +124,6 @@ current() {
                 rc=$?
                 [ "$rc" -eq 2 ] && return 2
             fi
-
             if out="$(awww_state)"; then
                 printf '%s\n' "$out"
                 return 0
@@ -152,7 +131,6 @@ current() {
                 rc=$?
                 [ "$rc" -eq 2 ] && return 2
             fi
-
             return 1
             ;;
         mpvpaper)
@@ -175,7 +153,7 @@ current() {
 theme_command() {
     if command -v maho-theme >/dev/null 2>&1; then
         command -v maho-theme
-    elif [ -x "$ROOT/bin/maho-theme" ]; then
+    elif [ -r "$ROOT/bin/maho-theme" ]; then
         printf '%s\n' "$ROOT/bin/maho-theme"
     else
         return 1
@@ -187,198 +165,110 @@ theme_mode() {
         printf '%s\n' "$MAHO_THEME_MODE"
         return
     fi
-
     local value
     value="$(maho_intent_get appearance.theme.mode 2>/dev/null || printf '%s\n' '"dark"')"
-
     printf '%s\n' "$value" | python -c '
-import json, sys
-try:
-    value = json.load(sys.stdin)
-except Exception:
-    value = "dark"
-print(value if value in ("dark", "light") else "dark")
+import json,sys
+try: value=json.load(sys.stdin)
+except Exception: value="dark"
+print(value if value in ("dark","light") else "dark")
 '
 }
 
-theme_policy_enabled() {
-    local force="${1:-0}"
-    [ "$force" = "1" ] && return 0
-    maho_intent_bool appearance.wallpaper.dynamic_theme false 2>/dev/null
-}
-
 publish_wallpaper_state() {
-    local state="$1"
-    local provider
-
-    provider="$(
-        printf '%s' "$state" |
-        python -c 'import json,sys; print(json.load(sys.stdin)["provider"])'
-    )" || return 1
-
+    local state="$1" provider
+    provider="$(printf '%s' "$state" | python -c 'import json,sys; print(json.load(sys.stdin)["provider"])')" || return 1
     maho_state_publish wallpaper "$provider" "$state" >/dev/null 2>&1 || true
 }
 
-adapt() {
-    local kind="${1:-}"
-    local path="${2:-}"
-    local context="${3:-manual}"
-    local provider="${4:-manual}"
-    local source="$path"
-    local theme owner mode
-
+manual_adapt() {
+    local kind="${1:-}" path="${2:-}" source mode theme
     [ "$kind" = image ] || [ "$kind" = video ] || return 1
     [ -f "$path" ] || return 1
-
-    if [ "$context" = "automatic" ]; then
-        owner="$(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf '%s\n' user)"
-        if [ "$owner" != "maho" ]; then
-            log "INFO automatic theme adaptation skipped: appearance.hyprland.borders owner=$owner"
-            emit_event appearance theme.skipped skipped info \
-                "Automatic wallpaper theming skipped because Maho does not own the border resource" \
-                appearance.hyprland.borders "$provider" \
-                "$(python - "$owner" "$kind" "$path" <<'PY'
-import json, sys
-print(json.dumps({"reason":"ownership","owner":sys.argv[1],"kind":sys.argv[2],"path":sys.argv[3]}))
-PY
-)"
-            return 0
-        fi
-    fi
-
-    theme="$(theme_command)" || {
-        log "INFO theme engine unavailable; leaving appearance unchanged"
-        emit_event appearance theme.skipped skipped info \
-            "Wallpaper theming skipped because no theme engine is available" \
-            appearance.hyprland.borders "$provider" '{"reason":"theme_unavailable"}'
-        return 0
-    }
+    theme="$(theme_command)" || return 1
+    source="$path"
 
     if [ "$kind" = video ]; then
-        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-            log "INFO video palette extraction unavailable; leaving appearance unchanged"
-            emit_event appearance theme.skipped skipped info \
-                "Video theming skipped because frame extraction is unavailable" \
-                appearance.hyprland.borders "$provider" '{"reason":"video_frame_unavailable"}'
-            return 0
-        fi
-
+        command -v ffmpeg >/dev/null 2>&1 || return 1
+        command -v ffprobe >/dev/null 2>&1 || return 1
         local duration seek frame tmp
-        duration="$(
-            ffprobe -v error -show_entries format=duration \
-                -of default=noprint_wrappers=1:nokey=1 "$path" 2>/dev/null || true
-        )"
-        seek="$(
-            python - "$duration" <<'PY'
+        duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$path" 2>/dev/null || true)"
+        seek="$(python - "$duration" <<'PY'
 import sys
-try:
-    duration = float(sys.argv[1])
-except Exception:
-    duration = 2.0
-print(f"{duration * 0.25 if duration > 4 else 0.5:.3f}")
-PY
-        )"
-
-        frame="$CACHE/video-frame.jpg"
-        tmp="$CACHE/.video-frame.$$.jpg"
-
-        if ! ffmpeg -loglevel error -y -ss "$seek" -i "$path" -frames:v 1 -q:v 2 "$tmp"; then
-            rm -f "$tmp"
-            log "WARN failed to extract video frame"
-            emit_event appearance theme.frame failed low \
-                "Failed to extract a representative frame for video theming" \
-                appearance.hyprland.borders "$provider" \
-                "$(python - "$path" "$seek" <<'PY'
-import json, sys
-print(json.dumps({"path":sys.argv[1],"seek_seconds":sys.argv[2]}))
+try: d=float(sys.argv[1])
+except Exception: d=2.0
+print(f"{d*0.25 if d>4 else 0.5:.3f}")
 PY
 )"
-            return 0
-        fi
-
+        frame="$CACHE/video-frame.jpg"
+        tmp="$CACHE/.video-frame.$$.jpg"
+        ffmpeg -loglevel error -y -ss "$seek" -i "$path" -frames:v 1 -q:v 2 "$tmp" || { rm -f "$tmp"; return 1; }
         mv "$tmp" "$frame"
         source="$frame"
     fi
 
     mode="$(theme_mode)"
+    bash "$theme" apply "$source" "$mode"
+}
 
-    if "$theme" apply "$source" "$mode" >> "$LOG" 2>&1; then
-        log "PASS adaptation cycle: $kind wallpaper: $path"
-        emit_event appearance theme.applied verified low \
-            "Wallpaper theme adaptation applied and verified" \
-            appearance.hyprland.borders "$provider" \
-            "$(python - "$kind" "$path" "$source" "$mode" <<'PY'
-import json, sys
-print(json.dumps({"kind":sys.argv[1],"path":sys.argv[2],"theme_source":sys.argv[3],"mode":sys.argv[4]}))
-PY
-)"
+run_automatic_cycle() {
+    local state="$1" decision result
+
+    [ -r "$POLICY" ] || {
+        log "WARN policy layer unavailable; no automatic mutation performed"
+        return 0
+    }
+    [ -r "$EXECUTOR" ] || {
+        log "WARN adaptation executor unavailable; no automatic mutation performed"
+        return 0
+    }
+
+    decision="$(maho_policy_wallpaper_theme "$state")" || {
+        log "WARN wallpaper policy failed; no automatic mutation performed"
+        return 0
+    }
+
+    if result="$(bash "$EXECUTOR" execute "$decision" 2>>"$LOG")"; then
+        log "cycle $result"
     else
-        log "INFO theme adaptation unavailable/failed; previous state preserved"
-        emit_event appearance theme.applied failed low \
-            "Wallpaper theme adaptation failed; previous verified appearance was preserved" \
-            appearance.hyprland.borders "$provider" \
-            "$(python - "$kind" "$path" "$mode" <<'PY'
-import json, sys
-print(json.dumps({"kind":sys.argv[1],"path":sys.argv[2],"mode":sys.argv[3]}))
-PY
-)"
+        log "WARN adaptation executor failed; inspect wheel history"
     fi
-
-    return 0
 }
 
 watch() {
-    local force_theme=0
-    local last=""
+    local force_theme=0 last=""
     [ "${1:-}" = "--theme" ] && force_theme=1
-
-    log "watch started force_theme=$force_theme"
+    log "watch started generic_executor=1 force_theme=$force_theme"
 
     while :; do
         local state rc fingerprint
-
         if state="$(current)"; then
-            fingerprint="$(
-                printf '%s' "$state" |
-                python -c '
-import json, os, sys
-d = json.load(sys.stdin)
-s = os.stat(d["path"])
-print(d["provider"], d["kind"], d["path"], s.st_mtime_ns, s.st_size, sep="|")
-'
-            )"
-
+            fingerprint="$(printf '%s' "$state" | python -c '
+import json,os,sys
+d=json.load(sys.stdin); s=os.stat(d["path"])
+print(d["provider"],d["kind"],d["path"],s.st_mtime_ns,s.st_size,sep="|")
+')"
             if [ "$fingerprint" != "$last" ]; then
                 printf '%s\n' "$state" > "$STATE/.current.json.$$"
                 mv "$STATE/.current.json.$$" "$STATE/current.json"
                 publish_wallpaper_state "$state"
                 log "observed $fingerprint"
 
-                local fields
-                mapfile -t fields < <(
-                    printf '%s' "$state" |
-                    python -c '
-import json, sys
-d = json.load(sys.stdin)
-print(d["provider"])
-print(d["kind"])
-print(d["path"])
-'
-                )
-
+                local provider kind path
+                mapfile -t fields < <(printf '%s' "$state" | python -c '
+import json,sys
+d=json.load(sys.stdin); print(d["provider"]); print(d["kind"]); print(d["path"])
+')
+                provider="${fields[0]}"; kind="${fields[1]}"; path="${fields[2]}"
                 emit_event appearance wallpaper.changed observed info \
-                    "Wallpaper state changed" "" "${fields[0]}" "$state"
+                    "Wallpaper state changed" "" "$provider" "$state"
 
-                if theme_policy_enabled "$force_theme"; then
-                    adapt "${fields[1]}" "${fields[2]}" automatic "${fields[0]}"
+                if [ "$force_theme" = 1 ]; then
+                    # Explicit testing mode is a direct user action, not automatic policy.
+                    manual_adapt "$kind" "$path" >>"$LOG" 2>&1 || log "WARN forced manual theme adaptation failed"
                 else
-                    log "INFO dynamic wallpaper theming disabled by intent"
-                    emit_event appearance theme.skipped skipped info \
-                        "Automatic wallpaper theming is disabled by user intent" \
-                        appearance.hyprland.borders "${fields[0]}" \
-                        '{"reason":"intent_disabled"}'
+                    run_automatic_cycle "$state"
                 fi
-
                 last="$fingerprint"
             fi
         else
@@ -389,21 +279,23 @@ print(d["path"])
                     "Multiple wallpaper states were detected; Maho refused to guess" "" wallpaper '{}'
             fi
         fi
-
         sleep "${MAHO_WALLPAPER_POLL:-0.75}"
     done
 }
 
 doctor() {
     echo "Maho wallpaper"
-
     command -v python >/dev/null 2>&1 && echo "PASS  python" || echo "FAIL  python"
     command -v awww >/dev/null 2>&1 && echo "PASS  provider awww" || echo "INFO  provider awww unavailable"
     command -v mpvpaper >/dev/null 2>&1 && echo "PASS  provider mpvpaper" || echo "INFO  provider mpvpaper unavailable"
-    command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 &&
-        echo "PASS  video frame extraction" || echo "INFO  video coloring unavailable"
-    theme_command >/dev/null 2>&1 && echo "PASS  theme adapter" || echo "INFO  theme adapter unavailable"
-
+    command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 && echo "PASS  video frame extraction" || echo "INFO  video coloring unavailable"
+    theme_command >/dev/null 2>&1 && echo "PASS  theme engine" || echo "INFO  theme engine unavailable"
+    [ -r "$POLICY" ] && echo "PASS  wallpaper policy" || echo "FAIL  wallpaper policy unavailable"
+    if [ -r "$EXECUTOR" ] && bash "$EXECUTOR" validate-registry >/dev/null 2>&1; then
+        echo "PASS  generic adaptation executor"
+    else
+        echo "FAIL  generic adaptation executor unavailable"
+    fi
     local owner intent
     owner="$(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf '%s\n' user)"
     intent="$(maho_intent_get appearance.wallpaper.dynamic_theme 2>/dev/null || printf '%s\n' null)"
@@ -419,7 +311,7 @@ case "${1:-}" in
         doctor
         ;;
     adapt)
-        adapt "${2:-}" "${3:-}" manual manual
+        manual_adapt "${2:-}" "${3:-}"
         ;;
     watch)
         watch "${2:-}"
@@ -434,20 +326,12 @@ Usage:
   maho-wallpaper watch
   maho-wallpaper watch --theme
 
-MAHO_WALLPAPER_PROVIDER may be:
-  auto
-  awww
-  mpvpaper
-  /absolute/path/to/custom-provider
+Normal watch mode is now generic:
+  observe -> normalize -> policy -> decision -> executor -> authority recheck
+  -> transactional adapter -> verify/rollback -> history
 
-Normal watch mode follows user intent:
-  appearance.wallpaper.dynamic_theme
-
-Automatic mutation additionally requires:
-  appearance.hyprland.borders = maho
-
-"watch --theme" is an explicit force-enable for testing. Ownership still applies.
-Manual "adapt" remains a direct user action and is not blocked by automatic policy.
+Manual "adapt" remains a direct user action. "watch --theme" is retained only
+as an explicit testing override; the persistent service uses normal policy mode.
 HELP
         ;;
 esac
