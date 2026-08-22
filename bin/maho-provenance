@@ -118,8 +118,23 @@ def canonical_bytes(manifest):
     return (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
 
 
-def manifest_hash(manifest):
+def artifact_hash(manifest):
     return hashlib.sha256(canonical_bytes(manifest)).hexdigest()
+
+
+def state_identity(manifest):
+    # captured_at and db_root describe the capture artifact, not package state.
+    return {
+        "version": manifest["version"],
+        "kind": manifest["kind"],
+        "source": manifest["source"],
+        "packages": manifest["packages"],
+    }
+
+
+def state_hash(manifest):
+    raw = json.dumps(state_identity(manifest), sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest()
 
 
 def atomic_write(path, data):
@@ -220,7 +235,8 @@ if command == "snapshot":
     manifest = capture_manifest()
     validate_manifest(manifest)
     data = canonical_bytes(manifest)
-    digest = hashlib.sha256(data).hexdigest()
+    artifact = hashlib.sha256(data).hexdigest()
+    state = state_hash(manifest)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = snapshots / f"{stamp}-{uuid.uuid4().hex[:8]}.json"
     atomic_write(path, data)
@@ -228,7 +244,8 @@ if command == "snapshot":
     print(json.dumps({
         "result": "snapshot",
         "path": str(path),
-        "sha256": digest,
+        "artifact_sha256": artifact,
+        "state_sha256": state,
         "packages": len(manifest["packages"]),
     }, sort_keys=True))
 
@@ -243,7 +260,8 @@ elif command == "baseline-set":
         "result": "baseline-set",
         "path": str(baseline_path),
         "source": str(source),
-        "sha256": hashlib.sha256(data).hexdigest(),
+        "artifact_sha256": hashlib.sha256(data).hexdigest(),
+        "state_sha256": state_hash(manifest),
         "packages": len(manifest["packages"]),
     }, sort_keys=True))
 
@@ -267,8 +285,10 @@ elif command in {"check", "diff"}:
     print(json.dumps({
         "result": result,
         "baseline": str(base_path),
-        "baseline_sha256": manifest_hash(base),
-        "current_sha256": manifest_hash(current),
+        "baseline_artifact_sha256": artifact_hash(base),
+        "baseline_state_sha256": state_hash(base),
+        "current_artifact_sha256": artifact_hash(current),
+        "current_state_sha256": state_hash(current),
         "added": added,
         "removed": removed,
         "changed": changed,
@@ -282,7 +302,8 @@ elif command == "baseline-show":
         print(json.dumps({
             "result": "baseline",
             "path": str(baseline_path),
-            "sha256": manifest_hash(manifest),
+            "artifact_sha256": artifact_hash(manifest),
+            "state_sha256": state_hash(manifest),
             "captured_at": manifest.get("captured_at"),
             "packages": len(manifest["packages"]),
         }, sort_keys=True))
@@ -301,22 +322,25 @@ kind = r.get("result")
 
 if kind == "snapshot":
     print("Maho package provenance snapshot")
-    print("Packages:", r["packages"])
-    print("SHA256:  ", r["sha256"])
-    print("Saved:   ", r["path"])
+    print("Packages:      ", r["packages"])
+    print("State SHA256:  ", r["state_sha256"])
+    print("Artifact SHA256:", r["artifact_sha256"])
+    print("Saved:         ", r["path"])
 elif kind == "baseline-set":
     print("Trusted package baseline selected by user")
-    print("Packages:", r["packages"])
-    print("SHA256:  ", r["sha256"])
-    print("Baseline:", r["path"])
+    print("Packages:      ", r["packages"])
+    print("State SHA256:  ", r["state_sha256"])
+    print("Artifact SHA256:", r["artifact_sha256"])
+    print("Baseline:      ", r["path"])
 elif kind == "baseline-cleared":
     print("Trusted package baseline cleared.")
 elif kind == "baseline":
     print("Maho package provenance baseline")
-    print("Captured:", r.get("captured_at"))
-    print("Packages:", r["packages"])
-    print("SHA256:  ", r["sha256"])
-    print("Path:    ", r["path"])
+    print("Captured:      ", r.get("captured_at"))
+    print("Packages:      ", r["packages"])
+    print("State SHA256:  ", r["state_sha256"])
+    print("Artifact SHA256:", r["artifact_sha256"])
+    print("Path:          ", r["path"])
 elif kind == "no-baseline":
     print("No trusted package baseline is configured.")
     print("Expected:", r["path"])
@@ -326,6 +350,8 @@ elif kind in ("clean", "changed"):
     print("Added:   ", len(r["added"]))
     print("Removed: ", len(r["removed"]))
     print("Changed: ", len(r["changed"]))
+    print("Baseline state:", r["baseline_state_sha256"])
+    print("Current state: ", r["current_state_sha256"])
     if r["added"]:
         print("Added packages: " + ", ".join(r["added"]))
     if r["removed"]:
@@ -406,7 +432,9 @@ Usage:
 
 A baseline is never trusted automatically. Baseline selection accepts only
 snapshots captured into Maho's private provenance store (or the explicit
-'latest' alias). Package changes remain evidence, not proof of compromise.
+'latest' alias). State SHA256 identifies package state and deliberately excludes
+capture time/path; Artifact SHA256 identifies the exact snapshot artifact.
+Package changes remain evidence, not proof of compromise.
 HELP
         ;;
 esac
