@@ -274,7 +274,7 @@ import json, sys
 r=json.load(sys.stdin)
 for operation in sorted(r["operations"]):
     e=r["operations"][operation]
-    print(f"{operation:<28} domain={e[\"domain\"]:<12} resource={e[\"resource\"]} adapter={e[\"adapter\"]}")
+    print("{:<28} domain={:<12} resource={} adapter={}".format(operation,e["domain"],e["resource"],e["adapter"]))
 '
 }
 
