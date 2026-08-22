@@ -46,10 +46,14 @@ if not isinstance(s.get("provider"), str) or not s["provider"]:
 if not isinstance(s.get("path"), str) or not s["path"]:
     raise SystemExit("wallpaper path is required")
 
+path = os.path.realpath(s["path"])
+if not os.path.isfile(path):
+    raise SystemExit("wallpaper path is unavailable")
+
 print(json.dumps({
     "provider": s["provider"],
     "kind": s["kind"],
-    "path": os.path.realpath(s["path"]),
+    "path": path,
 }, sort_keys=True))
 PY
     )" || return 1
@@ -116,15 +120,18 @@ PY
     fi
 
     desired="$(
-        python - "$mode" <<'PY'
+        python - "$normalized" "$mode" <<'PY'
 import json
 import sys
+s=json.loads(sys.argv[1])
 print(json.dumps({
     "operation": "apply-wallpaper-theme",
-    "mode": sys.argv[1],
+    "kind": s["kind"],
+    "path": s["path"],
+    "mode": sys.argv[2],
 }, sort_keys=True))
 PY
-    )"
+    )" || return 1
 
     maho_decision_create \
         appearance \
