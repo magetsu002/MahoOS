@@ -51,7 +51,7 @@ PROV="$XDG_STATE_HOME/maho/security/provenance"
 BASELINE="$PROV/baseline.json"
 
 echo "=== snapshot is private and does not auto-trust ==="
-OUTPUT="$("$ROOT/bin/maho-provenance" snapshot)"
+"$ROOT/bin/maho-provenance" snapshot >/dev/null
 [ ! -e "$BASELINE" ] || fail "snapshot became trusted automatically"
 CHECK="$("$ROOT/bin/maho-provenance" check)"
 grep -q 'No trusted package baseline' <<< "$CHECK"
@@ -61,6 +61,21 @@ SNAPSHOT="$(find "$PROV/snapshots" -type f -name '*.json' | head -1)"
 [ "$(stat -c '%a' "$PROV/snapshots")" = 700 ]
 [ "$(stat -c '%a' "$SNAPSHOT")" = 600 ]
 [ "$(stat -c '%a' "$PROV/latest.json")" = 600 ]
+echo "PASS"
+
+echo "=== identical package state has stable identity across captures ==="
+FIRST_STATE="$(python - "$SNAPSHOT" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+d=json.loads(Path(sys.argv[1]).read_text())
+identity={"version":d["version"],"kind":d["kind"],"source":d["source"],"packages":d["packages"]}
+print(hashlib.sha256(json.dumps(identity,sort_keys=True,separators=(",",":")).encode()).hexdigest())
+PY
+)"
+sleep 0.02
+SECOND_OUTPUT="$("$ROOT/bin/maho-provenance" snapshot)"
+SECOND_STATE="$(printf '%s\n' "$SECOND_OUTPUT" | awk '/State SHA256:/ {print $3}')"
+[ "$FIRST_STATE" = "$SECOND_STATE" ] || fail "capture timestamp changed package-state identity"
 echo "PASS"
 
 echo "=== arbitrary external manifest cannot become trusted ==="
@@ -82,6 +97,7 @@ import json,sys
 e=json.load(sys.stdin)
 assert e["kind"] == "packages.check"
 assert e["status"] == "verified"
+assert e["details"]["baseline_state_sha256"] == e["details"]["current_state_sha256"]
 '
 echo "PASS"
 
@@ -112,6 +128,7 @@ assert len(d["changed"]) == 1
 assert d["changed"][0]["name"] == "beta"
 assert d["changed"][0]["before"] == "2.0-1"
 assert d["changed"][0]["after"] == "2.1-1"
+assert d["baseline_state_sha256"] != d["current_state_sha256"]
 '
 echo "PASS"
 
