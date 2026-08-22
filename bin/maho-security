@@ -196,6 +196,7 @@ case "${1:-}" in
         echo "INFO  response mode: $(response_mode)"
         echo "INFO  supported finding type: package-version (exact versions only)"
         echo "INFO  automatic containment: not implemented"
+        true
         ;;
     *)
         cat <<'HELP'
