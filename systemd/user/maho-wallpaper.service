@@ -1,9 +1,9 @@
 [Unit]
-Description=Maho wallpaper observation and theme adaptation
+Description=Maho wallpaper runtime restoration, observation and theme adaptation
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/maho-wallpaper watch
+ExecStart=%h/.local/bin/maho-wallpaper-session run
 Restart=on-failure
 RestartSec=2
 
