@@ -39,7 +39,10 @@ EOF_PKILL
 cat > "$TMP/bin/awww-daemon" <<'EOF_DAEMON'
 #!/usr/bin/env bash
 touch "$MAHO_TEST_AWWW_DAEMON"
-sleep 30
+while :; do
+    /usr/bin/sleep 1 &
+    wait $!
+done
 EOF_DAEMON
 
 cat > "$TMP/bin/awww" <<'EOF_AWWW'
@@ -78,7 +81,10 @@ EOF_AWWW
 cat > "$TMP/bin/mpvpaper" <<'EOF_MPV'
 #!/usr/bin/env bash
 printf 'mpvpaper %s\n' "${!#}" >> "$MAHO_TEST_COMMAND_LOG"
-sleep 30
+while :; do
+    /usr/bin/sleep 1 &
+    wait $!
+done
 EOF_MPV
 
 chmod +x "$TMP/bin/"*
@@ -113,7 +119,7 @@ source "$ROOT/lib/events.sh"
 
 echo "=== image restore ==="
 write_state awww image "$IMAGE"
-"$ROOT/bin/maho-wallpaper-session" restore
+bash "$ROOT/bin/maho-wallpaper-session" restore
 [ "$(cat "$MAHO_TEST_AWWW_STATE")" = "$IMAGE" ] || fail "image was not restored"
 grep -Fq "awww img $IMAGE" "$MAHO_TEST_COMMAND_LOG" || fail "awww image adapter did not run"
 maho_event_last appearance | python -c '
@@ -129,7 +135,7 @@ echo "=== user ownership blocks restore ==="
 maho_owner_set appearance.wallpaper.runtime user >/dev/null
 rm -f "$MAHO_TEST_AWWW_STATE"
 : > "$MAHO_TEST_COMMAND_LOG"
-"$ROOT/bin/maho-wallpaper-session" restore
+bash "$ROOT/bin/maho-wallpaper-session" restore
 [ ! -e "$MAHO_TEST_AWWW_STATE" ] || fail "user-owned wallpaper runtime was mutated"
 ! grep -q '^awww img ' "$MAHO_TEST_COMMAND_LOG" || fail "restore ran despite user ownership"
 maho_event_last appearance | python -c '
@@ -145,7 +151,7 @@ echo "=== restore intent blocks restore ==="
 maho_owner_set appearance.wallpaper.runtime maho >/dev/null
 maho_intent_set appearance.wallpaper.restore_on_login false >/dev/null
 : > "$MAHO_TEST_COMMAND_LOG"
-"$ROOT/bin/maho-wallpaper-session" restore
+bash "$ROOT/bin/maho-wallpaper-session" restore
 ! grep -q '^awww img ' "$MAHO_TEST_COMMAND_LOG" || fail "restore ran despite disabled intent"
 maho_event_last appearance | python -c '
 import json, sys
@@ -160,7 +166,7 @@ echo "=== video restore ==="
 maho_intent_unset appearance.wallpaper.restore_on_login
 write_state mpvpaper video "$VIDEO"
 : > "$MAHO_TEST_COMMAND_LOG"
-"$ROOT/bin/maho-wallpaper-session" restore
+bash "$ROOT/bin/maho-wallpaper-session" restore
 grep -Fq "mpvpaper $VIDEO" "$MAHO_TEST_COMMAND_LOG" || fail "mpvpaper restore adapter did not run"
 maho_event_last appearance | python -c '
 import json, sys
