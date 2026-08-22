@@ -22,6 +22,7 @@ COMMANDS=(
 UNITS=(
     maho-wallpaper.service
     maho-observe.service
+    maho-security.service
 )
 
 die() {
@@ -98,6 +99,13 @@ preflight() {
             failed=1
         fi
     done
+
+    if python -m py_compile "$ROOT/lib/security_probe.py" >/dev/null 2>&1; then
+        echo "PASS  python lib/security_probe.py"
+    else
+        echo "FAIL  python lib/security_probe.py"
+        failed=1
+    fi
 
     bash -n \
         "$ROOT/bin/mahoctl" \
@@ -296,7 +304,8 @@ Usage:
 
 Setup wires the current checkout into the user session. It installs no system
 packages and uses no root access. Existing unmanaged commands and units are
-preserved rather than overwritten.
+preserved rather than overwritten. The Maho security service is read-only: it
+watches evidence and produces proposals but does not auto-contain or recover.
 HELP
         ;;
 esac
