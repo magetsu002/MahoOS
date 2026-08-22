@@ -60,6 +60,22 @@ run_once() {
     bash "$ROOT/bin/maho-wallpaper" once >/dev/null
 }
 
+run_reconcile() {
+    bash "$ROOT/bin/maho-wallpaper" reconcile >/dev/null
+}
+
+expected_adapter_state() {
+    python - "$IMAGE" <<'PY'
+import json,os,sys
+print(json.dumps({
+    "operation":"apply-wallpaper-theme",
+    "kind":"image",
+    "path":os.path.realpath(sys.argv[1]),
+    "mode":"dark",
+},sort_keys=True))
+PY
+}
+
 echo "=== user ownership blocks automation ==="
 maho_owner_set appearance.hyprland.borders user >/dev/null
 BEFORE="$(cat "$MAHO_TEST_ADAPTER_STATE")"
@@ -82,14 +98,7 @@ echo "PASS"
 echo "=== maho ownership permits generic adaptation ==="
 maho_owner_set appearance.hyprland.borders maho >/dev/null
 run_once
-python - "$MAHO_TEST_ADAPTER_STATE" "$IMAGE" <<'PY'
-import json,os,sys
-from pathlib import Path
-d=json.loads(Path(sys.argv[1]).read_text())
-expected={"operation":"apply-wallpaper-theme","kind":"image","path":os.path.realpath(sys.argv[2]),"mode":"dark"}
-if d != expected:
-    raise SystemExit(f"adapter state mismatch: expected={expected!r} actual={d!r}")
-PY
+[ "$(cat "$MAHO_TEST_ADAPTER_STATE")" = "$(expected_adapter_state)" ] || fail "generic wallpaper adapter did not reach desired state"
 LAST="$(maho_event_last appearance)"
 printf '%s\n' "$LAST" | python -c '
 import json,sys
@@ -105,6 +114,54 @@ kinds=[r["kind"] for r in rows]
 expected=["wallpaper.changed","policy.decision","authorization.allowed","adapter.capture","adapter.apply","adapter.verify","adaptation.completed"]
 if kinds != expected:
     raise SystemExit("unexpected cycle kinds: "+repr(kinds))
+'
+echo "PASS"
+
+echo "=== healthy reconciliation is read-only ==="
+BEFORE_HASH="$(sha256sum "$MAHO_TEST_ADAPTER_STATE" | cut -d' ' -f1)"
+run_reconcile
+AFTER_HASH="$(sha256sum "$MAHO_TEST_ADAPTER_STATE" | cut -d' ' -f1)"
+[ "$BEFORE_HASH" = "$AFTER_HASH" ] || fail "healthy reconciliation rewrote desired state"
+LAST="$(maho_event_last appearance)"
+printf '%s\n' "$LAST" | python -c '
+import json,sys
+e=json.load(sys.stdin)
+assert e["kind"] == "adaptation.satisfied"
+assert e["status"] == "verified"
+'
+CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
+maho_event_cycle "$CYCLE" | python -c '
+import json,sys
+rows=[json.loads(line) for line in sys.stdin if line.strip()]
+assert [r["kind"] for r in rows] == [
+    "wallpaper.reconcile",
+    "policy.decision",
+    "authorization.allowed",
+    "adaptation.satisfied",
+]
+'
+echo "PASS"
+
+echo "=== reconciliation repairs drift ==="
+printf '%s\n' '{"operation":"drift","value":"wrong"}' > "$MAHO_TEST_ADAPTER_STATE"
+run_reconcile
+[ "$(cat "$MAHO_TEST_ADAPTER_STATE")" = "$(expected_adapter_state)" ] || fail "reconciliation did not repair drift"
+LAST="$(maho_event_last appearance)"
+printf '%s\n' "$LAST" | python -c '
+import json,sys
+e=json.load(sys.stdin)
+assert e["kind"] == "adaptation.completed"
+assert e["status"] == "verified"
+'
+CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
+maho_event_cycle "$CYCLE" | python -c '
+import json,sys
+rows=[json.loads(line) for line in sys.stdin if line.strip()]
+kinds=[r["kind"] for r in rows]
+assert kinds[0] == "wallpaper.reconcile"
+assert "adapter.apply" in kinds
+assert "adapter.verify" in kinds
+assert kinds[-1] == "adaptation.completed"
 '
 echo "PASS"
 
