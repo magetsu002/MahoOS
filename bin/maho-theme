@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme"
+TEMPLATE="$ROOT/theme/backends/matugen/palette.raw.json"
+
+die() {
+    echo "maho-theme: $*" >&2
+    return 1
+}
+
+doctor() {
+    local failed=0
+
+    echo "Maho OS theme doctor"
+    echo
+
+    for cmd in matugen python realpath sha256sum; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            printf 'PASS  %-10s %s\n' "$cmd" "$(command -v "$cmd")"
+        else
+            printf 'FAIL  %-10s missing\n' "$cmd"
+            failed=1
+        fi
+    done
+
+    if [ -f "$TEMPLATE" ]; then
+        echo "PASS  Matugen palette template"
+    else
+        echo "FAIL  Matugen palette template missing"
+        failed=1
+    fi
+
+    return "$failed"
+}
+
+generate() {
+    local wallpaper="${1:-}"
+    local mode="${2:-dark}"
+
+    [ -n "$wallpaper" ] || {
+        die "usage: maho-theme generate WALLPAPER [dark|light]"
+        return 1
+    }
+
+    case "$mode" in
+        dark|light)
+            ;;
+        *)
+            die "mode must be dark or light"
+            return 1
+            ;;
+    esac
+
+    [ -f "$wallpaper" ] || {
+        die "wallpaper does not exist: $wallpaper"
+        return 1
+    }
+
+    command -v matugen >/dev/null 2>&1 || {
+        die "matugen is not installed"
+        return 1
+    }
+
+    local wall
+    wall="$(realpath "$wallpaper")" || return 1
+
+    local txn_root txn config raw canonical
+    txn_root="$CACHE/transactions"
+    txn="$txn_root/$(date +%Y%m%d-%H%M%S)-$$"
+
+    mkdir -p "$txn"
+
+    config="$txn/matugen.toml"
+    raw="$txn/raw.json"
+    canonical="$txn/palette.json"
+
+    cat > "$config" <<CFG
+[config]
+
+[config.wallpaper]
+command = "true"
+arguments = []
+set = false
+
+[templates.maho]
+input_path = '$TEMPLATE'
+output_path = '$raw'
+CFG
+
+    echo "Generating candidate palette..."
+    echo "Source: $wall"
+    echo "Mode:   $mode"
+
+    if ! matugen --prefer=saturation -c "$config" image "$wall" -m "$mode" \
+        >"$txn/matugen.stdout" \
+        2>"$txn/matugen.stderr"
+    then
+        echo
+        echo "Matugen failed:"
+        cat "$txn/matugen.stderr"
+        return 1
+    fi
+
+    [ -s "$raw" ] || {
+        die "Matugen produced no palette"
+        return 1
+    }
+
+    python - "$raw" "$canonical" "$wall" "$mode" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+raw_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+wallpaper = sys.argv[3]
+mode = sys.argv[4]
+
+required = [
+    "background",
+    "surface",
+    "surface_container",
+    "surface_container_high",
+    "foreground",
+    "muted",
+    "primary",
+    "on_primary",
+    "secondary",
+    "on_secondary",
+    "tertiary",
+    "on_tertiary",
+    "error",
+    "on_error",
+    "outline",
+    "outline_variant",
+]
+
+try:
+    colors = json.loads(raw_path.read_text())
+except Exception as exc:
+    raise SystemExit(f"invalid Matugen JSON: {exc}")
+
+if set(colors) != set(required):
+    missing = sorted(set(required) - set(colors))
+    extra = sorted(set(colors) - set(required))
+
+    raise SystemExit(
+        f"palette contract mismatch; missing={missing}, extra={extra}"
+    )
+
+hex_color = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+for name in required:
+    value = colors[name]
+
+    if not isinstance(value, str) or not hex_color.fullmatch(value):
+        raise SystemExit(
+            f"invalid color {name}: {value!r}"
+        )
+
+canonical = {
+    "version": 1,
+    "mode": mode,
+    "source": {
+        "type": "wallpaper",
+        "path": wallpaper,
+    },
+    "colors": {
+        name: colors[name].lower()
+        for name in required
+    },
+}
+
+serialized = json.dumps(
+    canonical,
+    indent=2,
+    ensure_ascii=False,
+    sort_keys=True,
+) + "\n"
+
+out_path.write_text(serialized)
+PY
+
+    if [ $? -ne 0 ]; then
+        echo "Canonical palette validation failed."
+        return 1
+    fi
+
+    mkdir -p "$CACHE"
+
+    local candidate_tmp
+    candidate_tmp="$CACHE/.candidate.json.$$"
+
+    cp "$canonical" "$candidate_tmp"
+    mv "$candidate_tmp" "$CACHE/candidate.json"
+
+    echo
+    echo "PASS"
+    echo "Candidate:"
+    echo "$CACHE/candidate.json"
+    echo
+    sha256sum "$CACHE/candidate.json"
+}
+
+show_candidate() {
+    local candidate="$CACHE/candidate.json"
+
+    [ -f "$candidate" ] || {
+        die "no candidate palette exists"
+        return 1
+    }
+
+    python -m json.tool "$candidate"
+}
+
+candidate_hash() {
+    local candidate="$CACHE/candidate.json"
+
+    [ -f "$candidate" ] || {
+        die "no candidate palette exists"
+        return 1
+    }
+
+    sha256sum "$candidate"
+}
+
+case "${1:-}" in
+    doctor)
+        doctor
+        ;;
+
+    generate)
+        generate "${2:-}" "${3:-dark}"
+        ;;
+
+    show)
+        show_candidate
+        ;;
+
+    hash)
+        candidate_hash
+        ;;
+
+    *)
+        cat <<'HELP'
+Maho OS theme engine
+
+Usage:
+  maho-theme doctor
+  maho-theme generate WALLPAPER [dark|light]
+  maho-theme show
+  maho-theme hash
+
+M3.1 only creates a candidate palette.
+It does not activate themes or modify live application configuration.
+HELP
+        ;;
+esac

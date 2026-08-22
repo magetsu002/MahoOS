@@ -8,14 +8,19 @@
   "colors": {
     "background": "#111111",
     "surface": "#1a1a1a",
-    "surface_alt": "#242424",
+    "surface_container": "#242424",
+    "surface_container_high": "#303030",
     "foreground": "#f0f0f0",
-    "muted": "#aaaaaa",
+    "muted": "#cacaca",
     "primary": "#ffb3b5",
-    "secondary": "#c4a7e7",
-    "accent": "#ffb3b5",
-    "error": "#ff6b6b",
-    "success": "#9ec49f",
-    "warning": "#c4c19e"
+    "on_primary": "#561d20",
+    "secondary": "#e7bdbd",
+    "on_secondary": "#44292a",
+    "tertiary": "#e4c18d",
+    "on_tertiary": "#412d05",
+    "error": "#ffb4ab",
+    "on_error": "#690005",
+    "outline": "#9f8c8c",
+    "outline_variant": "#524343"
   }
 }
