@@ -30,7 +30,7 @@ chmod +x "$TMP/fake-bin/systemctl"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-setup)
+COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-contain maho-setup)
 UNITS=(maho-wallpaper.service maho-observe.service maho-security.service)
 
 echo "=== preflight ==="
