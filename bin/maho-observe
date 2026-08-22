@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+SYSFS="${MAHO_SYSFS_ROOT:-/sys}"
+STATE_LIB="$ROOT/lib/state.sh"
+EVENTS="$ROOT/lib/events.sh"
+OBSERVER_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/observer"
+
+if ! { [ -r "$STATE_LIB" ] && source "$STATE_LIB" 2>/dev/null; }; then
+    maho_state_publish() { return 1; }
+fi
+if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
+    maho_event_emit() { return 0; }
+fi
+
+mkdir -p "$OBSERVER_STATE"
+
+power_current() {
+    python - "$SYSFS/class/power_supply" <<'PY'
+import json
+import sys
+from pathlib import Path
+root=Path(sys.argv[1])
+if not root.is_dir(): raise SystemExit(1)
+supplies=[]
+for path in sorted(root.iterdir()):
+    if not path.is_dir(): continue
+    def read(name):
+        try: return (path/name).read_text().strip()
+        except OSError: return None
+    kind=read("type")
+    if not kind: continue
+    item={"name":path.name,"type":kind}
+    if kind == "Battery":
+        raw=read("capacity")
+        try: capacity=max(0,min(100,int(raw)))
+        except Exception: capacity=None
+        if capacity is not None:
+            item["capacity_percent"]=capacity
+            item["capacity_bucket_percent"]=(capacity//5)*5
+        status=read("status")
+        if status: item["status"]=status
+        present=read("present")
+        if present in {"0","1"}: item["present"]=present == "1"
+    else:
+        online=read("online")
+        if online in {"0","1"}: item["online"]=online == "1"
+    supplies.append(item)
+if not supplies: raise SystemExit(1)
+print(json.dumps({"version":1,"supplies":supplies},sort_keys=True))
+PY
+}
+
+thermal_current() {
+    python - "$SYSFS/class/thermal" "$SYSFS/class/hwmon" <<'PY'
+import json,re,sys
+from pathlib import Path
+thermal_root=Path(sys.argv[1]); hwmon_root=Path(sys.argv[2]); readings=[]
+def read_text(path):
+    try: return path.read_text().strip()
+    except OSError: return None
+def add(source,name,label,raw):
+    try: value=int(raw)
+    except Exception: return
+    if value < -100000 or value > 250000: return
+    bucket=int(round(value/5000.0)*5000)
+    readings.append({"source":source,"name":name,"label":label,"temp_millidegree_c":value,"temp_bucket_millidegree_c":bucket})
+if thermal_root.is_dir():
+    for zone in sorted(thermal_root.glob("thermal_zone*")):
+        raw=read_text(zone/"temp")
+        if raw is not None: add("thermal-zone",zone.name,read_text(zone/"type") or zone.name,raw)
+if hwmon_root.is_dir():
+    for hwmon in sorted(hwmon_root.glob("hwmon*")):
+        hwname=read_text(hwmon/"name") or hwmon.name
+        for temp in sorted(hwmon.glob("temp*_input")):
+            m=re.fullmatch(r"temp([0-9]+)_input",temp.name)
+            if not m: continue
+            i=m.group(1); add("hwmon",f"{hwname}:{i}",read_text(hwmon/f"temp{i}_label") or f"temp{i}",read_text(temp))
+if not readings: raise SystemExit(1)
+readings.sort(key=lambda r:(r["source"],r["name"],r["label"]))
+max_actual=max(r["temp_millidegree_c"] for r in readings)
+print(json.dumps({"version":1,"max_millidegree_c":max_actual,"max_bucket_millidegree_c":int(round(max_actual/5000.0)*5000),"readings":readings},sort_keys=True))
+PY
+}
+
+signature() {
+    local domain="$1" data="$2"
+    python - "$domain" "$data" <<'PY'
+import hashlib,json,sys
+domain=sys.argv[1]; data=json.loads(sys.argv[2])
+if domain == "power":
+    normalized=[{"name":x.get("name"),"type":x.get("type"),"online":x.get("online"),"present":x.get("present"),"status":x.get("status"),"capacity_bucket_percent":x.get("capacity_bucket_percent")} for x in data.get("supplies",[])]
+elif domain == "thermal":
+    normalized={"max_bucket_millidegree_c":data.get("max_bucket_millidegree_c"),"readings":[{"source":r.get("source"),"name":r.get("name"),"temp_bucket_millidegree_c":r.get("temp_bucket_millidegree_c")} for r in data.get("readings",[])]}
+else: raise SystemExit(1)
+raw=json.dumps(normalized,sort_keys=True,separators=(",",":")).encode()
+print(hashlib.sha256(raw).hexdigest())
+PY
+}
+
+observe_domain() {
+    local domain="$1" data sig sig_file previous=""
+    case "$domain" in
+        power) data="$(power_current)" || return 2 ;;
+        thermal) data="$(thermal_current)" || return 2 ;;
+        *) echo "maho-observe: unknown domain: $domain" >&2; return 1 ;;
+    esac
+    sig="$(signature "$domain" "$data")" || return 1
+    sig_file="$OBSERVER_STATE/$domain.signature"
+    [ ! -f "$sig_file" ] || previous="$(cat "$sig_file" 2>/dev/null || true)"
+    [ "$sig" != "$previous" ] || return 0
+    maho_state_publish "$domain" sysfs "$data" >/dev/null || return 1
+    printf '%s\n' "$sig" > "$sig_file"
+    chmod 0600 "$sig_file" 2>/dev/null || true
+    maho_event_emit "$domain" "$domain.changed" observed info "Normalized $domain state changed" "" sysfs "$data" >/dev/null 2>&1 || true
+}
+
+once() {
+    local domain="${1:-all}"
+    case "$domain" in
+        all)
+            observe_domain power || [ "$?" -eq 2 ] || return 1
+            observe_domain thermal || [ "$?" -eq 2 ] || return 1
+            ;;
+        power|thermal)
+            observe_domain "$domain" || [ "$?" -eq 2 ] || return 1
+            ;;
+        *) echo "maho-observe: usage: maho-observe once [all|power|thermal]" >&2; return 1 ;;
+    esac
+}
+
+watch() {
+    local poll="${MAHO_OBSERVE_POLL:-15}"
+    [[ "$poll" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll=15
+    while :; do once all || true; sleep "$poll"; done
+}
+
+current_command() {
+    case "${1:-}" in
+        power) power_current ;;
+        thermal) thermal_current ;;
+        *) echo "maho-observe: usage: maho-observe current power|thermal" >&2; return 1 ;;
+    esac
+}
+
+doctor() {
+    echo "Maho environment observers"
+    power_current >/dev/null 2>&1 && echo "PASS  power sysfs observer" || echo "INFO  power sysfs capability unavailable"
+    thermal_current >/dev/null 2>&1 && echo "PASS  thermal sysfs observer" || echo "INFO  thermal sysfs capability unavailable"
+    declare -F maho_state_publish >/dev/null 2>&1 && echo "PASS  normalized state publisher" || echo "FAIL  normalized state publisher unavailable"
+    true
+}
+
+case "${1:-}" in
+    current) current_command "${2:-}" ;;
+    once) once "${2:-all}" ;;
+    watch) watch ;;
+    doctor) doctor ;;
+    *)
+        cat <<'HELP'
+Maho read-only environment observers
+
+Usage:
+  maho-observe current power
+  maho-observe current thermal
+  maho-observe once [all|power|thermal]
+  maho-observe watch
+  maho-observe doctor
+
+The observer only reads kernel-exposed state and publishes normalized Maho
+state. Missing power or thermal providers disable that capability only.
+HELP
+        ;;
+esac
