@@ -16,6 +16,7 @@ if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
 fi
 
 mkdir -p "$OBSERVER_STATE"
+chmod 0700 "$OBSERVER_STATE" 2>/dev/null || true
 
 power_current() {
     python - "$SYSFS/class/power_supply" <<'PY'
@@ -61,12 +62,13 @@ thermal_root=Path(sys.argv[1]); hwmon_root=Path(sys.argv[2]); readings=[]
 def read_text(path):
     try: return path.read_text().strip()
     except OSError: return None
+def bucket(value):
+    return (value//5000)*5000
 def add(source,name,label,raw):
     try: value=int(raw)
     except Exception: return
     if value < -100000 or value > 250000: return
-    bucket=int(round(value/5000.0)*5000)
-    readings.append({"source":source,"name":name,"label":label,"temp_millidegree_c":value,"temp_bucket_millidegree_c":bucket})
+    readings.append({"source":source,"name":name,"label":label,"temp_millidegree_c":value,"temp_bucket_millidegree_c":bucket(value)})
 if thermal_root.is_dir():
     for zone in sorted(thermal_root.glob("thermal_zone*")):
         raw=read_text(zone/"temp")
@@ -81,7 +83,7 @@ if hwmon_root.is_dir():
 if not readings: raise SystemExit(1)
 readings.sort(key=lambda r:(r["source"],r["name"],r["label"]))
 max_actual=max(r["temp_millidegree_c"] for r in readings)
-print(json.dumps({"version":1,"max_millidegree_c":max_actual,"max_bucket_millidegree_c":int(round(max_actual/5000.0)*5000),"readings":readings},sort_keys=True))
+print(json.dumps({"version":1,"max_millidegree_c":max_actual,"max_bucket_millidegree_c":bucket(max_actual),"readings":readings},sort_keys=True))
 PY
 }
 
@@ -93,14 +95,17 @@ domain=sys.argv[1]; data=json.loads(sys.argv[2])
 if domain == "power":
     normalized=[{"name":x.get("name"),"type":x.get("type"),"online":x.get("online"),"present":x.get("present"),"status":x.get("status"),"capacity_bucket_percent":x.get("capacity_bucket_percent")} for x in data.get("supplies",[])]
 elif domain == "thermal":
-    normalized={"max_bucket_millidegree_c":data.get("max_bucket_millidegree_c"),"readings":[{"source":r.get("source"),"name":r.get("name"),"temp_bucket_millidegree_c":r.get("temp_bucket_millidegree_c")} for r in data.get("readings",[])]}
+    normalized={
+        "max_bucket_millidegree_c":data.get("max_bucket_millidegree_c"),
+        "sensors":[{"source":r.get("source"),"name":r.get("name"),"label":r.get("label")} for r in data.get("readings",[])],
+    }
 else: raise SystemExit(1)
 raw=json.dumps(normalized,sort_keys=True,separators=(",",":")).encode()
 print(hashlib.sha256(raw).hexdigest())
 PY
 }
 
-observe_domain() {
+observe_domain_locked() {
     local domain="$1" data sig sig_file previous=""
     case "$domain" in
         power) data="$(power_current)" || return 2 ;;
@@ -115,6 +120,18 @@ observe_domain() {
     printf '%s\n' "$sig" > "$sig_file"
     chmod 0600 "$sig_file" 2>/dev/null || true
     maho_event_emit "$domain" "$domain.changed" observed info "Normalized $domain state changed" "" sysfs "$data" >/dev/null 2>&1 || true
+}
+
+observe_domain() {
+    local domain="$1"
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -x 9
+            observe_domain_locked "$domain"
+        ) 9>"$OBSERVER_STATE/$domain.lock"
+    else
+        observe_domain_locked "$domain"
+    fi
 }
 
 once() {
@@ -150,6 +167,7 @@ doctor() {
     power_current >/dev/null 2>&1 && echo "PASS  power sysfs observer" || echo "INFO  power sysfs capability unavailable"
     thermal_current >/dev/null 2>&1 && echo "PASS  thermal sysfs observer" || echo "INFO  thermal sysfs capability unavailable"
     declare -F maho_state_publish >/dev/null 2>&1 && echo "PASS  normalized state publisher" || echo "FAIL  normalized state publisher unavailable"
+    command -v flock >/dev/null 2>&1 && echo "PASS  observer concurrency lock" || echo "INFO  flock unavailable; duplicate concurrent observations are not serialized"
     true
 }
 
@@ -171,6 +189,8 @@ Usage:
 
 The observer only reads kernel-exposed state and publishes normalized Maho
 state. Missing power or thermal providers disable that capability only.
+Thermal change events are keyed to the hottest 5 C band plus sensor topology,
+not every small per-sensor fluctuation.
 HELP
         ;;
 esac
