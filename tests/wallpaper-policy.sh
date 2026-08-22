@@ -14,8 +14,24 @@ export MAHO_ROOT="$ROOT"
 export MAHO_WALLPAPER_POLL=0.05
 export PATH="$TMP/bin:$PATH"
 export MAHO_TEST_THEME_CALLS="$TMP/theme-calls"
+export MAHO_TEST_ADAPTER_STATE="$TMP/adapter-state.json"
+export MAHO_ADAPTER_REGISTRY="$TMP/adapters.json"
 
 mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$TMP/bin"
+printf '%s\n' '{"operation":"initial","value":"old"}' > "$MAHO_TEST_ADAPTER_STATE"
+
+cat > "$MAHO_ADAPTER_REGISTRY" <<'JSON'
+{
+  "version": 1,
+  "operations": {
+    "apply-wallpaper-theme": {
+      "adapter": "tests/fixtures/fake-adapter.sh",
+      "domain": "appearance",
+      "resource": "appearance.hyprland.borders"
+    }
+  }
+}
+JSON
 
 # shellcheck source=../lib/authority.sh
 source "$ROOT/lib/authority.sh"
@@ -52,73 +68,96 @@ chmod +x "$TMP/bin/maho-theme"
 run_watch_once() {
     local rc
     set +e
-    timeout 1s "$ROOT/bin/maho-wallpaper" watch >/dev/null 2>&1
+    timeout 1s bash "$ROOT/bin/maho-wallpaper" watch >/dev/null 2>&1
     rc=$?
     set -e
-
     [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ] || fail "watch exited unexpectedly: $rc"
 }
 
-calls() {
-    if [ -f "$MAHO_TEST_THEME_CALLS" ]; then
-        wc -l < "$MAHO_TEST_THEME_CALLS" | tr -d ' '
-    else
-        printf '0\n'
-    fi
+adapter_value() {
+    python - "$MAHO_TEST_ADAPTER_STATE" <<'PY'
+import json,sys
+from pathlib import Path
+print(json.loads(Path(sys.argv[1]).read_text()).get("path", "unchanged"))
+PY
 }
 
 echo "=== user ownership blocks automation ==="
 maho_owner_set appearance.hyprland.borders user >/dev/null
+BEFORE="$(cat "$MAHO_TEST_ADAPTER_STATE")"
 run_watch_once
-[ "$(calls)" = "0" ] || fail "theme adapter ran while resource was user-owned"
+[ "$(cat "$MAHO_TEST_ADAPTER_STATE")" = "$BEFORE" ] || fail "adapter ran while resource was user-owned"
 maho_event_last appearance | python -c '
-import json, sys
-e = json.load(sys.stdin)
-assert e["kind"] == "theme.skipped"
+import json,sys
+e=json.load(sys.stdin)
+assert e["kind"] == "policy.decision"
 assert e["status"] == "skipped"
-assert e["details"]["reason"] == "ownership"
-assert e["details"]["owner"] == "user"
+assert "does not own" in e["summary"]
 '
 maho_state_get wallpaper | python -c '
-import json, sys
-s = json.load(sys.stdin)
+import json,sys
+s=json.load(sys.stdin)
 assert s["provider"] == "test-provider"
 assert s["data"]["kind"] == "image"
 '
 echo "PASS"
 
-echo "=== maho ownership permits automation ==="
+echo "=== maho ownership permits generic adaptation ==="
 maho_owner_set appearance.hyprland.borders maho >/dev/null
 run_watch_once
-[ "$(calls)" = "1" ] || fail "theme adapter did not run exactly once"
-maho_event_last appearance | python -c '
-import json, sys
-e = json.load(sys.stdin)
-assert e["kind"] == "theme.applied"
+python - "$MAHO_TEST_ADAPTER_STATE" "$IMAGE" <<'PY'
+import json,os,sys
+from pathlib import Path
+d=json.loads(Path(sys.argv[1]).read_text())
+assert d["operation"] == "apply-wallpaper-theme"
+assert d["kind"] == "image"
+assert d["path"] == os.path.realpath(sys.argv[2])
+assert d["mode"] == "dark"
+PY
+LAST="$(maho_event_last appearance)"
+CYCLE="$(printf '%s\n' "$LAST" | python -c 'import json,sys; print(json.load(sys.stdin)["cycle_id"])')"
+printf '%s\n' "$LAST" | python -c '
+import json,sys
+e=json.load(sys.stdin)
+assert e["kind"] == "adaptation.completed"
 assert e["status"] == "verified"
-assert e["details"]["kind"] == "image"
+'
+maho_event_cycle "$CYCLE" | python -c '
+import json,sys
+rows=[json.loads(line) for line in sys.stdin if line.strip()]
+kinds=[r["kind"] for r in rows]
+assert "authorization.allowed" in kinds
+assert "adapter.capture" in kinds
+assert "adapter.apply" in kinds
+assert "adapter.verify" in kinds
+assert kinds[-1] == "adaptation.completed"
 '
 echo "PASS"
 
 echo "=== user intent disables adaptation ==="
-BEFORE="$(calls)"
 maho_intent_set appearance.wallpaper.dynamic_theme false >/dev/null
+printf '%s\n' '{"operation":"sentinel","value":"stable"}' > "$MAHO_TEST_ADAPTER_STATE"
 run_watch_once
-AFTER="$(calls)"
-[ "$BEFORE" = "$AFTER" ] || fail "theme adapter ran while dynamic theme intent was false"
+python - "$MAHO_TEST_ADAPTER_STATE" <<'PY'
+import json,sys
+from pathlib import Path
+assert json.loads(Path(sys.argv[1]).read_text())["operation"] == "sentinel"
+PY
 maho_event_last appearance | python -c '
-import json, sys
-e = json.load(sys.stdin)
-assert e["kind"] == "theme.skipped"
-assert e["details"]["reason"] == "intent_disabled"
+import json,sys
+e=json.load(sys.stdin)
+assert e["kind"] == "policy.decision"
+assert e["status"] == "skipped"
+assert "disabled by user intent" in e["summary"]
 '
 echo "PASS"
 
 echo "=== manual action remains authoritative ==="
 maho_owner_set appearance.hyprland.borders user >/dev/null
-BEFORE="$(calls)"
-"$ROOT/bin/maho-wallpaper" adapt image "$IMAGE" >/dev/null 2>&1
-AFTER="$(calls)"
+BEFORE=0
+[ ! -f "$MAHO_TEST_THEME_CALLS" ] || BEFORE="$(wc -l < "$MAHO_TEST_THEME_CALLS" | tr -d ' ')"
+bash "$ROOT/bin/maho-wallpaper" adapt image "$IMAGE" >/dev/null 2>&1
+AFTER="$(wc -l < "$MAHO_TEST_THEME_CALLS" | tr -d ' ')"
 [ "$AFTER" -eq $((BEFORE + 1)) ] || fail "manual adaptation was incorrectly blocked by ownership"
 echo "PASS"
 
