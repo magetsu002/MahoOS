@@ -316,22 +316,22 @@ persist_observation() {
     publish_wallpaper_state "$state"
 }
 
-process_state() {
-    local state="$1"
-    local force_theme="${2:-0}"
-    local provider kind path cycle result
-
-    mapfile -t fields < <(
-        printf '%s' "$state" |
-        python -c '
+state_fields() {
+    printf '%s' "$1" | python -c '
 import json, sys
 d = json.load(sys.stdin)
 print(d["provider"])
 print(d["kind"])
 print(d["path"])
 '
-    ) || return 1
+}
 
+process_state() {
+    local state="$1"
+    local force_theme="${2:-0}"
+    local provider kind path cycle result
+
+    mapfile -t fields < <(state_fields "$state") || return 1
     provider="${fields[0]}"
     kind="${fields[1]}"
     path="${fields[2]}"
@@ -366,6 +366,28 @@ print(d["path"])
     printf '%s\n' "$result"
 }
 
+reconcile_state() {
+    local state="$1"
+    local provider cycle result
+
+    mapfile -t fields < <(state_fields "$state") || return 1
+    provider="${fields[0]}"
+
+    publish_wallpaper_state "$state"
+    cycle="$(maho_cycle_new appearance 2>/dev/null || true)"
+    [ -n "$cycle" ] || {
+        log "WARN cycle layer unavailable; reconciliation refused"
+        return 1
+    }
+
+    emit_cycle_event "$cycle" appearance wallpaper.reconcile observed info \
+        "Rechecking desired appearance against current wallpaper state" \
+        appearance.hyprland.borders "$provider" "$state"
+
+    result="$(run_automatic_cycle "$state" "$cycle")" || return 1
+    printf '%s\n' "$result"
+}
+
 once() {
     local force_theme=0
     local state rc
@@ -385,15 +407,35 @@ once() {
     return "$rc"
 }
 
+reconcile() {
+    local state rc
+
+    if state="$(current)"; then
+        reconcile_state "$state"
+        return $?
+    fi
+
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        emit_event appearance wallpaper.ambiguous skipped info \
+            "Multiple wallpaper states were detected; Maho refused to guess" "" wallpaper '{}'
+    fi
+    return "$rc"
+}
+
 watch() {
     local force_theme=0
     local last=""
-    [ "${1:-}" = "--theme" ] && force_theme=1
+    local reconcile_seconds="${MAHO_WALLPAPER_RECONCILE_SECONDS:-30}"
+    local next_reconcile=0
 
-    log "watch started generic_executor=1 force_theme=$force_theme"
+    [ "${1:-}" = "--theme" ] && force_theme=1
+    [[ "$reconcile_seconds" =~ ^[0-9]+$ ]] || reconcile_seconds=30
+
+    log "watch started generic_executor=1 force_theme=$force_theme reconcile_seconds=$reconcile_seconds"
 
     while :; do
-        local state rc fingerprint
+        local state rc fingerprint now
 
         if state="$(current)"; then
             fingerprint="$(
@@ -405,10 +447,15 @@ s = os.stat(d["path"])
 print(d["provider"], d["kind"], d["path"], s.st_mtime_ns, s.st_size, sep="|")
 '
             )"
+            now="$(date +%s)"
 
             if [ "$fingerprint" != "$last" ]; then
                 process_state "$state" "$force_theme" >/dev/null 2>&1 || true
                 last="$fingerprint"
+                next_reconcile=$((now + reconcile_seconds))
+            elif [ "$force_theme" = 0 ] && [ "$reconcile_seconds" -gt 0 ] && [ "$now" -ge "$next_reconcile" ]; then
+                reconcile_state "$state" >/dev/null 2>&1 || true
+                next_reconcile=$((now + reconcile_seconds))
             fi
         else
             rc=$?
@@ -446,6 +493,7 @@ doctor() {
     intent="$(maho_intent_get appearance.wallpaper.dynamic_theme 2>/dev/null || printf '%s\n' null)"
     echo "INFO  automatic border authority: $owner"
     echo "INFO  dynamic theme intent: $intent"
+    echo "INFO  reconcile interval: ${MAHO_WALLPAPER_RECONCILE_SECONDS:-30}s"
 }
 
 case "${1:-}" in
@@ -461,6 +509,9 @@ case "${1:-}" in
     once)
         once "${2:-}"
         ;;
+    reconcile)
+        reconcile
+        ;;
     watch)
         watch "${2:-}"
         ;;
@@ -472,12 +523,12 @@ Usage:
   maho-wallpaper adapt image PATH
   maho-wallpaper adapt video PATH
   maho-wallpaper once
-  maho-wallpaper once --theme
+  maho-wallpaper reconcile
   maho-wallpaper watch
-  maho-wallpaper watch --theme
 
-"once" completes exactly one observation/policy/execution cycle and exits.
-Normal watch mode repeats that same wheel only when observed wallpaper state changes.
+Normal watch mode observes changes and periodically reconciles unchanged state.
+The generic executor first verifies desired state, so healthy reconciliation is
+read-only; mutation happens only when drift is actually detected.
 HELP
         ;;
 esac
