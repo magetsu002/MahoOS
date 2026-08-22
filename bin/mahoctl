@@ -6,16 +6,19 @@ ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 SRC="$ROOT/config/hypr"
 LIVE="$HOME/.config/hypr"
 AUTHORITY="$ROOT/lib/authority.sh"
+INTENT="$ROOT/lib/intent.sh"
+STATE_LIB="$ROOT/lib/state.sh"
+EVENTS="$ROOT/lib/events.sh"
 
 STATE="$HOME/.local/share/maho"
 BACKUPS="$STATE/backups"
 
 mkdir -p "$STATE" "$BACKUPS"
 
-if [ -r "$AUTHORITY" ]; then
-    # shellcheck source=../lib/authority.sh
-    source "$AUTHORITY"
-fi
+[ -r "$AUTHORITY" ] && source "$AUTHORITY"
+[ -r "$INTENT" ] && source "$INTENT"
+[ -r "$STATE_LIB" ] && source "$STATE_LIB"
+[ -r "$EVENTS" ] && source "$EVENTS"
 
 die() {
     echo "mahoctl: $*" >&2
@@ -38,6 +41,27 @@ require_authority() {
 
     declare -F maho_owner_get >/dev/null 2>&1 || {
         die "authority layer failed to load"
+        return 1
+    }
+}
+
+require_intent() {
+    [ -r "$INTENT" ] && declare -F maho_intent_get >/dev/null 2>&1 || {
+        die "intent layer unavailable"
+        return 1
+    }
+}
+
+require_state() {
+    [ -r "$STATE_LIB" ] && declare -F maho_state_get >/dev/null 2>&1 || {
+        die "state layer unavailable"
+        return 1
+    }
+}
+
+require_events() {
+    [ -r "$EVENTS" ] && declare -F maho_event_last >/dev/null 2>&1 || {
+        die "event history unavailable"
         return 1
     }
 }
@@ -87,6 +111,30 @@ doctor() {
         echo "PASS  authority registry"
     else
         echo "FAIL  authority registry"
+        failed=1
+    fi
+
+    if require_intent >/dev/null 2>&1 &&
+       maho_intent_validate_file "$MAHO_INTENT_DEFAULTS" >/dev/null 2>&1 &&
+       maho_intent_validate_file "$MAHO_INTENT_OVERRIDES" >/dev/null 2>&1
+    then
+        echo "PASS  intent registry"
+    else
+        echo "FAIL  intent registry"
+        failed=1
+    fi
+
+    if require_state >/dev/null 2>&1; then
+        echo "PASS  normalized state layer"
+    else
+        echo "FAIL  normalized state layer"
+        failed=1
+    fi
+
+    if require_events >/dev/null 2>&1; then
+        echo "PASS  event history layer"
+    else
+        echo "FAIL  event history layer"
         failed=1
     fi
 
@@ -141,38 +189,29 @@ status() {
     if require_authority >/dev/null 2>&1; then
         echo "Theme borders owner: $(maho_owner_get appearance.hyprland.borders 2>/dev/null || printf 'unknown')"
     fi
+
+    if require_intent >/dev/null 2>&1; then
+        echo "Dynamic theme intent: $(maho_intent_get appearance.wallpaper.dynamic_theme 2>/dev/null || printf 'unknown')"
+    fi
 }
 
 show_diff() {
     echo "=== hyprland.lua ==="
-    diff -u \
-        "$LIVE/hyprland.lua" \
-        "$SRC/hyprland.lua" \
-        2>/dev/null || true
+    diff -u "$LIVE/hyprland.lua" "$SRC/hyprland.lua" 2>/dev/null || true
 
     echo
     echo "=== maho modules ==="
-    diff -ruN \
-        "$LIVE/maho" \
-        "$SRC/maho" \
-        2>/dev/null || true
+    diff -ruN "$LIVE/maho" "$SRC/maho" 2>/dev/null || true
 }
 
 make_backup() {
     local ts backup
-
     ts="$(date +%Y%m%d-%H%M%S)"
     backup="$BACKUPS/$ts"
-
     mkdir -p "$backup"
 
-    if [ -f "$LIVE/hyprland.lua" ]; then
-        cp -a "$LIVE/hyprland.lua" "$backup/"
-    fi
-
-    if [ -d "$LIVE/maho" ]; then
-        cp -a "$LIVE/maho" "$backup/"
-    fi
+    [ ! -f "$LIVE/hyprland.lua" ] || cp -a "$LIVE/hyprland.lua" "$backup/"
+    [ ! -d "$LIVE/maho" ] || cp -a "$LIVE/maho" "$backup/"
 
     printf '%s\n' "$backup"
 }
@@ -184,19 +223,14 @@ restore_backup() {
         die "backup does not exist: $backup"
         return 1
     }
-
     [ -f "$backup/hyprland.lua" ] || {
         die "backup missing hyprland.lua"
         return 1
     }
 
     cp -a "$backup/hyprland.lua" "$LIVE/hyprland.lua"
-
     rm -rf "$LIVE/maho"
-
-    if [ -d "$backup/maho" ]; then
-        cp -a "$backup/maho" "$LIVE/maho"
-    fi
+    [ ! -d "$backup/maho" ] || cp -a "$backup/maho" "$LIVE/maho"
 }
 
 apply_config() {
@@ -214,22 +248,18 @@ apply_config() {
 
     echo "Backup:"
     echo "$backup"
-
     echo
     echo "Applying managed configuration..."
 
     cp -a "$SRC/hyprland.lua" "$LIVE/hyprland.lua"
-
     rm -rf "$LIVE/maho"
     cp -a "$SRC/maho" "$LIVE/maho"
 
     if ! hyprctl reload >/dev/null 2>&1; then
         echo "Reload command failed."
         echo "Rolling back..."
-
         restore_backup "$backup"
         hyprctl reload >/dev/null 2>&1 || true
-
         echo "Rollback complete."
         return 1
     fi
@@ -238,23 +268,18 @@ apply_config() {
 
     local err
     err="$(config_errors)"
-
     if [ -n "$err" ]; then
         echo "Configuration failed verification:"
         echo "$err"
-
         echo
         echo "Rolling back..."
-
         restore_backup "$backup"
         hyprctl reload >/dev/null 2>&1 || true
-
         echo "Rollback complete."
         return 1
     fi
 
     revision > "$STATE/active-revision"
-
     echo
     echo "PASS"
     echo "Applied revision: $(revision)"
@@ -262,31 +287,23 @@ apply_config() {
 }
 
 latest_backup() {
-    find "$BACKUPS" \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        -printf '%T@ %p\n' 2>/dev/null \
-        | sort -nr \
-        | head -1 \
-        | cut -d' ' -f2-
+    find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
+        sort -nr |
+        head -1 |
+        cut -d' ' -f2-
 }
 
 rollback_config() {
     local backup="${1:-}"
+    [ -n "$backup" ] || backup="$(latest_backup)"
 
-    if [ -z "$backup" ]; then
-        backup="$(latest_backup)"
-    fi
-
-    if [ -z "$backup" ]; then
+    [ -n "$backup" ] || {
         die "no rollback backup exists"
         return 1
-    fi
+    }
 
     echo "Restoring:"
     echo "$backup"
-
     restore_backup "$backup" || return 1
 
     hyprctl reload >/dev/null 2>&1 || true
@@ -294,7 +311,6 @@ rollback_config() {
 
     local err
     err="$(config_errors)"
-
     if [ -n "$err" ]; then
         echo "WARNING: restored configuration reports errors:"
         echo "$err"
@@ -320,9 +336,7 @@ capabilities() {
     echo "Maho capabilities"
     echo
 
-    if command -v hyprctl >/dev/null 2>&1 &&
-       hyprctl instances -j >/dev/null 2>&1
-    then
+    if command -v hyprctl >/dev/null 2>&1 && hyprctl instances -j >/dev/null 2>&1; then
         capability_line 1 session.hyprland
     else
         capability_line 0 session.hyprland
@@ -340,25 +354,19 @@ capabilities() {
         capability_line 0 wallpaper.provider.mpvpaper
     fi
 
-    if command -v matugen >/dev/null 2>&1 &&
-       [ -x "$ROOT/theme/backends/matugen/generate" ]
-    then
+    if command -v matugen >/dev/null 2>&1 && [ -x "$ROOT/theme/backends/matugen/generate" ]; then
         capability_line 1 theme.backend.matugen "$(command -v matugen)"
     else
         capability_line 0 theme.backend.matugen
     fi
 
-    if command -v magick >/dev/null 2>&1 &&
-       [ -x "$ROOT/theme/backends/basic/generate" ]
-    then
+    if command -v magick >/dev/null 2>&1 && [ -x "$ROOT/theme/backends/basic/generate" ]; then
         capability_line 1 theme.backend.basic "$(command -v magick)"
     else
         capability_line 0 theme.backend.basic
     fi
 
-    if command -v ffmpeg >/dev/null 2>&1 &&
-       command -v ffprobe >/dev/null 2>&1
-    then
+    if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
         capability_line 1 theme.video-frame
     else
         capability_line 0 theme.video-frame
@@ -370,29 +378,32 @@ capabilities() {
         capability_line 0 recovery.snapper
     fi
 
-    if command -v findmnt >/dev/null 2>&1 &&
-       [ "$(findmnt -n -o FSTYPE / 2>/dev/null || true)" = "btrfs" ]
-    then
+    if command -v findmnt >/dev/null 2>&1 && [ "$(findmnt -n -o FSTYPE / 2>/dev/null || true)" = "btrfs" ]; then
         capability_line 1 filesystem.btrfs
     else
         capability_line 0 filesystem.btrfs
     fi
 
-    if command -v systemctl >/dev/null 2>&1 &&
-       systemctl --user show-environment >/dev/null 2>&1
-    then
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
         capability_line 1 lifecycle.systemd-user
     else
         capability_line 0 lifecycle.systemd-user
     fi
 
     echo
-
     if require_authority >/dev/null 2>&1; then
         echo "Authority"
         maho_owner_list
     else
         echo "Authority unavailable"
+    fi
+
+    echo
+    if require_intent >/dev/null 2>&1; then
+        echo "Intent"
+        maho_intent_list
+    else
+        echo "Intent unavailable"
     fi
 }
 
@@ -401,24 +412,15 @@ owner_command() {
 
     case "${1:-}" in
         get)
-            [ -n "${2:-}" ] || {
-                die "usage: mahoctl owner get RESOURCE"
-                return 1
-            }
+            [ -n "${2:-}" ] || { die "usage: mahoctl owner get RESOURCE"; return 1; }
             maho_owner_get "$2"
             ;;
         set)
-            [ -n "${2:-}" ] && [ -n "${3:-}" ] || {
-                die "usage: mahoctl owner set RESOURCE maho|integration|user"
-                return 1
-            }
+            [ -n "${2:-}" ] && [ -n "${3:-}" ] || { die "usage: mahoctl owner set RESOURCE maho|integration|user"; return 1; }
             maho_owner_set "$2" "$3"
             ;;
         unset)
-            [ -n "${2:-}" ] || {
-                die "usage: mahoctl owner unset RESOURCE"
-                return 1
-            }
+            [ -n "${2:-}" ] || { die "usage: mahoctl owner unset RESOURCE"; return 1; }
             maho_owner_unset "$2"
             printf '%s = %s\n' "$2" "$(maho_owner_get "$2")"
             ;;
@@ -430,6 +432,108 @@ owner_command() {
             return 1
             ;;
     esac
+}
+
+intent_command() {
+    require_intent || return 1
+
+    case "${1:-}" in
+        get)
+            [ -n "${2:-}" ] || { die "usage: mahoctl intent get KEY"; return 1; }
+            maho_intent_get "$2"
+            ;;
+        set)
+            [ -n "${2:-}" ] && [ -n "${3:-}" ] || { die "usage: mahoctl intent set KEY JSON-VALUE"; return 1; }
+            maho_intent_set "$2" "$3"
+            ;;
+        unset)
+            [ -n "${2:-}" ] || { die "usage: mahoctl intent unset KEY"; return 1; }
+            maho_intent_unset "$2"
+            printf '%s = %s\n' "$2" "$(maho_intent_get "$2")"
+            ;;
+        list)
+            maho_intent_list
+            ;;
+        *)
+            die "usage: mahoctl intent get|set|unset|list ..."
+            return 1
+            ;;
+    esac
+}
+
+state_command() {
+    require_state || return 1
+
+    case "${1:-}" in
+        get)
+            [ -n "${2:-}" ] || { die "usage: mahoctl state get DOMAIN"; return 1; }
+            maho_state_get "$2"
+            ;;
+        list)
+            maho_state_list
+            ;;
+        *)
+            die "usage: mahoctl state get|list ..."
+            return 1
+            ;;
+    esac
+}
+
+history_command() {
+    require_events || return 1
+    maho_event_tail "${1:-20}"
+}
+
+why_command() {
+    require_events || return 1
+
+    local selector="${1:-}"
+    local event
+
+    if [[ "$selector" == evt-* ]]; then
+        event="$(maho_event_show "$selector")" || {
+            die "event not found: $selector"
+            return 1
+        }
+    else
+        event="$(maho_event_last "$selector")" || {
+            if [ -n "$selector" ]; then
+                die "no event found for domain: $selector"
+            else
+                die "no adaptation history exists yet"
+            fi
+            return 1
+        }
+    fi
+
+    printf '%s\n' "$event" | python -c '
+import json, sys
+
+e = json.load(sys.stdin)
+print("Maho adaptation event")
+print()
+print(f"ID:       {e.get('id', 'unknown')}")
+print(f"When:     {e.get('at', 'unknown')}")
+print(f"Domain:   {e.get('domain', 'unknown')}")
+print(f"Kind:     {e.get('kind', 'unknown')}")
+print(f"Status:   {e.get('status', 'unknown')}")
+print(f"Risk:     {e.get('risk', 'unknown')}")
+print(f"Source:   {e.get('source') or 'unknown'}")
+print(f"Resource: {e.get('resource') or 'none'}")
+print()
+print("Why:")
+print(f"  {e.get('summary', 'No explanation recorded.')}")
+
+details = e.get("details") or {}
+if details:
+    print()
+    print("Evidence / details:")
+    for key in sorted(details):
+        value = details[key]
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, sort_keys=True)
+        print(f"  {key}: {value}")
+'
 }
 
 case "${1:-}" in
@@ -454,6 +558,18 @@ case "${1:-}" in
     owner)
         owner_command "${2:-}" "${3:-}" "${4:-}"
         ;;
+    intent)
+        intent_command "${2:-}" "${3:-}" "${4:-}"
+        ;;
+    state)
+        state_command "${2:-}" "${3:-}"
+        ;;
+    history)
+        history_command "${2:-20}"
+        ;;
+    why)
+        why_command "${2:-}"
+        ;;
     *)
         cat <<'HELP'
 Maho OS control utility
@@ -465,13 +581,28 @@ Usage:
   mahoctl apply
   mahoctl rollback [backup-directory]
   mahoctl capabilities
+
   mahoctl owner list
   mahoctl owner get RESOURCE
   mahoctl owner set RESOURCE maho|integration|user
   mahoctl owner unset RESOURCE
 
-Ownership precedence:
+  mahoctl intent list
+  mahoctl intent get KEY
+  mahoctl intent set KEY JSON-VALUE
+  mahoctl intent unset KEY
+
+  mahoctl state list
+  mahoctl state get DOMAIN
+
+  mahoctl history [COUNT]
+  mahoctl why [EVENT-ID|DOMAIN]
+
+Authority precedence:
   user override > Maho default > safety default (user)
+
+Intent precedence:
+  user override > Maho default > unknown (null)
 
 Only resources with effective owner "maho" may be mutated automatically.
 Manual user commands remain authoritative.
