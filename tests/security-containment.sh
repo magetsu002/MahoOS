@@ -52,9 +52,9 @@ RESULT="$(python "$ENGINE" freeze maho-test-sleeper \
     --fs-root "$FS" \
     --state-root "$STATE" \
     --uid "$(id -u)")"
-printf '%s\n' "$RESULT" | python - "$PID" <<'PY'
+python - "$PID" "$RESULT" <<'PY'
 import json,sys
-pid=int(sys.argv[1]); r=json.load(sys.stdin)
+pid=int(sys.argv[1]); r=json.loads(sys.argv[2])
 assert r["result"] == "contained", r
 assert [p["pid"] for p in r["contained"]] == [pid]
 assert r["session_id"].startswith("contain-")
@@ -70,9 +70,9 @@ echo "PASS"
 
 echo "=== release verifies pid identity and resumes process ==="
 RESULT="$(python "$ENGINE" release "$SESSION" --proc-root /proc --state-root "$STATE")"
-printf '%s\n' "$RESULT" | python - "$PID" <<'PY'
+python - "$PID" "$RESULT" <<'PY'
 import json,sys
-pid=int(sys.argv[1]); r=json.load(sys.stdin)
+pid=int(sys.argv[1]); r=json.loads(sys.argv[2])
 assert r["result"] == "released", r
 assert [p["pid"] for p in r["released"]] == [pid]
 PY
