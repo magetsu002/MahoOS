@@ -63,9 +63,9 @@ cat > "$PROC/net/tcp6" <<'EOF_TCP6'
   sl  local_address                         rem_address                          st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
 EOF_TCP6
 cat > "$PROC/321/status" <<EOF_STATUS
-Name:\talpha
-State:\tS (sleeping)
-Uid:\t$(id -u)\t$(id -u)\t$(id -u)\t$(id -u)
+Name: alpha
+State: S (sleeping)
+Uid: $(id -u) $(id -u) $(id -u) $(id -u)
 EOF_STATUS
 printf 'alpha\0--serve\0' > "$PROC/321/cmdline"
 ln -s "$FS/usr/bin/alpha" "$PROC/321/exe"
