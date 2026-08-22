@@ -15,11 +15,7 @@ export MAHO_PACMAN_DB_ROOT="$TMP/pacman-local"
 mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$MAHO_PACMAN_DB_ROOT"
 
 write_package() {
-    local dir="$1"
-    local name="$2"
-    local version="$3"
-    local reason="$4"
-
+    local dir="$1" name="$2" version="$3" reason="$4"
     mkdir -p "$MAHO_PACMAN_DB_ROOT/$dir"
     cat > "$MAHO_PACMAN_DB_ROOT/$dir/desc" <<EOF_DESC
 %NAME%
@@ -46,31 +42,55 @@ pgp
 EOF_DESC
 }
 
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
 write_package alpha-1.0-1 alpha 1.0-1 0
 write_package beta-2.0-1 beta 2.0-1 1
 
-echo "=== snapshot does not auto-trust ==="
-"$ROOT/bin/maho-provenance" snapshot >/dev/null
-BASELINE="$XDG_STATE_HOME/maho/security/provenance/baseline.json"
-[ ! -e "$BASELINE" ] || { echo "FAIL: snapshot became trusted automatically" >&2; exit 1; }
-"$ROOT/bin/maho-provenance" check | grep -q 'No trusted package baseline'
+PROV="$XDG_STATE_HOME/maho/security/provenance"
+BASELINE="$PROV/baseline.json"
+
+echo "=== snapshot is private and does not auto-trust ==="
+OUTPUT="$("$ROOT/bin/maho-provenance" snapshot)"
+[ ! -e "$BASELINE" ] || fail "snapshot became trusted automatically"
+CHECK="$("$ROOT/bin/maho-provenance" check)"
+grep -q 'No trusted package baseline' <<< "$CHECK"
+SNAPSHOT="$(find "$PROV/snapshots" -type f -name '*.json' | head -1)"
+[ -n "$SNAPSHOT" ] || fail "snapshot was not created"
+[ "$(stat -c '%a' "$PROV")" = 700 ]
+[ "$(stat -c '%a' "$PROV/snapshots")" = 700 ]
+[ "$(stat -c '%a' "$SNAPSHOT")" = 600 ]
+[ "$(stat -c '%a' "$PROV/latest.json")" = 600 ]
 echo "PASS"
 
-echo "=== explicit baseline ==="
-SNAPSHOT="$(find "$XDG_STATE_HOME/maho/security/provenance/snapshots" -type f -name '*.json' | head -1)"
-[ -n "$SNAPSHOT" ]
+echo "=== arbitrary external manifest cannot become trusted ==="
+cp "$SNAPSHOT" "$TMP/copied-manifest.json"
+if "$ROOT/bin/maho-provenance" baseline set "$TMP/copied-manifest.json" >/dev/null 2>&1; then
+    fail "external manifest was accepted as trusted baseline"
+fi
+[ ! -e "$BASELINE" ] || fail "rejected manifest changed trusted baseline"
+echo "PASS"
+
+echo "=== explicit captured baseline ==="
 "$ROOT/bin/maho-provenance" baseline set "$SNAPSHOT" >/dev/null
 [ -f "$BASELINE" ]
+[ "$(stat -c '%a' "$BASELINE")" = 600 ]
 "$ROOT/bin/maho-provenance" check >/dev/null
-
-# shellcheck source=../lib/events.sh
 source "$ROOT/lib/events.sh"
 maho_event_last security | python -c '
-import json, sys
-e = json.load(sys.stdin)
+import json,sys
+e=json.load(sys.stdin)
 assert e["kind"] == "packages.check"
 assert e["status"] == "verified"
 '
+echo "PASS"
+
+echo "=== latest alias is explicit but convenient ==="
+"$ROOT/bin/maho-provenance" baseline clear >/dev/null
+[ ! -e "$BASELINE" ]
+"$ROOT/bin/maho-provenance" baseline set latest >/dev/null
+[ -f "$BASELINE" ]
+"$ROOT/bin/maho-provenance" check >/dev/null
 echo "PASS"
 
 echo "=== package drift is evidence ==="
@@ -80,18 +100,31 @@ write_package gamma-3.0-1 gamma 3.0-1 0
 
 "$ROOT/bin/maho-provenance" check >/dev/null
 maho_event_last security | python -c '
-import json, sys
-e = json.load(sys.stdin)
+import json,sys
+e=json.load(sys.stdin)
 assert e["kind"] == "packages.changed"
 assert e["status"] == "observed"
 assert e["risk"] == "info"
-d = e["details"]
+d=e["details"]
 assert d["added"] == ["gamma"]
 assert d["removed"] == ["alpha"]
 assert len(d["changed"]) == 1
 assert d["changed"][0]["name"] == "beta"
 assert d["changed"][0]["before"] == "2.0-1"
 assert d["changed"][0]["after"] == "2.1-1"
+'
+echo "PASS"
+
+echo "=== user can clear trust without deleting evidence ==="
+SNAPSHOT_COUNT="$(find "$PROV/snapshots" -type f -name '*.json' | wc -l)"
+"$ROOT/bin/maho-provenance" baseline clear >/dev/null
+[ ! -e "$BASELINE" ] || fail "baseline survived explicit clear"
+[ "$(find "$PROV/snapshots" -type f -name '*.json' | wc -l)" = "$SNAPSHOT_COUNT" ] || fail "clearing trust deleted captured evidence"
+maho_event_last security | python -c '
+import json,sys
+e=json.load(sys.stdin)
+assert e["kind"] == "packages.baseline-cleared"
+assert e["source"] == "user"
 '
 echo "PASS"
 
