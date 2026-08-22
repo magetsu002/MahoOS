@@ -30,9 +30,12 @@ jobs:
             lib/state.sh \
             lib/events.sh \
             lib/intent.sh \
+            lib/decision.sh \
+            lib/policy.sh \
             theme/backends/basic/generate \
             theme/backends/matugen/generate \
             tests/core-contracts.sh \
+            tests/policy-contracts.sh \
             tests/wallpaper-policy.sh \
             tests/provenance-contracts.sh \
             tests/security-findings.sh
@@ -49,6 +52,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/core-contracts.sh
+
+      - name: Pure policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/policy-contracts.sh
 
       - name: Wallpaper policy tests
         shell: bash
