@@ -40,6 +40,33 @@ maho_transaction_emit() {
     fi
 }
 
+maho_transaction_rollback() {
+    local cycle="$1"
+    local adapter="$2"
+    local before="$3"
+    local domain="$4"
+    local resource="$5"
+    local adapter_name="$6"
+    local cause="$7"
+
+    if ! MAHO_CYCLE_ID="$cycle" "$adapter" rollback "$before"; then
+        maho_transaction_emit "$cycle" "$domain" adapter.rollback failed high \
+            "Rollback command failed after $cause" "$resource" "$adapter_name" '{}'
+        return 1
+    fi
+
+    if ! MAHO_CYCLE_ID="$cycle" "$adapter" verify-rollback "$before"; then
+        maho_transaction_emit "$cycle" "$domain" adapter.rollback failed high \
+            "Rollback command returned success but previous state could not be verified after $cause" \
+            "$resource" "$adapter_name" '{}'
+        return 1
+    fi
+
+    maho_transaction_emit "$cycle" "$domain" adapter.rollback rolled_back low \
+        "Previous state restored and verified after $cause" "$resource" "$adapter_name" '{}'
+    return 0
+}
+
 maho_transaction_execute() {
     local adapter="${1:-}"
     local desired_raw="${2:-}"
@@ -115,13 +142,9 @@ PY
         maho_transaction_emit "$cycle" "$domain" adapter.apply failed low \
             "Adapter apply step failed" "$resource" "$adapter_name" '{}'
 
-        if MAHO_CYCLE_ID="$cycle" "$adapter" rollback "$before"; then
-            maho_transaction_emit "$cycle" "$domain" adapter.rollback rolled_back low \
-                "Previous state restored after apply failure" "$resource" "$adapter_name" '{}'
-        else
-            maho_transaction_emit "$cycle" "$domain" adapter.rollback failed high \
-                "Rollback failed after adapter apply failure" "$resource" "$adapter_name" '{}'
-        fi
+        maho_transaction_rollback \
+            "$cycle" "$adapter" "$before" "$domain" "$resource" "$adapter_name" \
+            "apply failure" || true
         return 1
     fi
 
@@ -154,13 +177,9 @@ PY
     maho_transaction_emit "$cycle" "$domain" adapter.verify failed low \
         "Adapter mutation failed verification" "$resource" "$adapter_name" '{}'
 
-    if MAHO_CYCLE_ID="$cycle" "$adapter" rollback "$before"; then
-        maho_transaction_emit "$cycle" "$domain" adapter.rollback rolled_back low \
-            "Previous state restored after verification failure" "$resource" "$adapter_name" '{}'
-    else
-        maho_transaction_emit "$cycle" "$domain" adapter.rollback failed high \
-            "Rollback failed after verification failure" "$resource" "$adapter_name" '{}'
-    fi
+    maho_transaction_rollback \
+        "$cycle" "$adapter" "$before" "$domain" "$resource" "$adapter_name" \
+        "verification failure" || true
 
     return 1
 }

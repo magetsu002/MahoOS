@@ -34,6 +34,16 @@ set -euo pipefail
 cmd="$1"
 payload="$2"
 
+verify_payload() {
+    python - "$payload" "$MAHO_TEST_ADAPTER_STATE" <<'PY'
+import json, sys
+from pathlib import Path
+expected = json.loads(sys.argv[1])
+actual = json.loads(Path(sys.argv[2]).read_text())
+raise SystemExit(0 if actual == expected else 1)
+PY
+}
+
 case "$cmd" in
     capture)
         cat "$MAHO_TEST_ADAPTER_STATE"
@@ -48,21 +58,23 @@ PY
         ;;
     verify)
         [ "${MAHO_TEST_VERIFY_FAIL:-0}" != "1" ] || exit 1
-        python - "$payload" "$MAHO_TEST_ADAPTER_STATE" <<'PY'
-import json, sys
-from pathlib import Path
-expected = json.loads(sys.argv[1])
-actual = json.loads(Path(sys.argv[2]).read_text())
-raise SystemExit(0 if actual == expected else 1)
-PY
+        verify_payload
         ;;
     rollback)
+        [ "${MAHO_TEST_ROLLBACK_FAIL:-0}" != "1" ] || exit 1
+        if [ "${MAHO_TEST_ROLLBACK_NOOP:-0}" = "1" ]; then
+            exit 0
+        fi
         python - "$payload" "$MAHO_TEST_ADAPTER_STATE" <<'PY'
 import json, sys
 from pathlib import Path
 before = json.loads(sys.argv[1])
 Path(sys.argv[2]).write_text(json.dumps(before, sort_keys=True) + "\n")
 PY
+        ;;
+    verify-rollback)
+        [ "${MAHO_TEST_ROLLBACK_VERIFY_FAIL:-0}" != "1" ] || exit 1
+        verify_payload
         ;;
     *)
         exit 2
@@ -95,7 +107,7 @@ assert rows[-1]["status"] == "verified"
 '
 echo "PASS"
 
-echo "=== verification failure rolls back ==="
+echo "=== verification failure rolls back and verifies restoration ==="
 printf '%s\n' '{"value":"stable"}' > "$MAHO_TEST_ADAPTER_STATE"
 export MAHO_TEST_VERIFY_FAIL=1
 if maho_transaction_execute "$ADAPTER" '{"value":"bad"}' test test.resource >/dev/null 2>&1; then
@@ -116,6 +128,52 @@ assert rows[-2]["kind"] == "adapter.verify"
 assert rows[-2]["status"] == "failed"
 assert rows[-1]["kind"] == "adapter.rollback"
 assert rows[-1]["status"] == "rolled_back"
+assert "verified" in rows[-1]["summary"].lower()
+'
+echo "PASS"
+
+echo "=== lying rollback is never reported as restored ==="
+printf '%s\n' '{"value":"stable"}' > "$MAHO_TEST_ADAPTER_STATE"
+export MAHO_TEST_VERIFY_FAIL=1
+export MAHO_TEST_ROLLBACK_NOOP=1
+if maho_transaction_execute "$ADAPTER" '{"value":"bad"}' test test.resource >/dev/null 2>&1; then
+    fail "transaction unexpectedly succeeded with a lying rollback"
+fi
+unset MAHO_TEST_VERIFY_FAIL
+unset MAHO_TEST_ROLLBACK_NOOP
+python - "$MAHO_TEST_ADAPTER_STATE" <<'PY'
+import json, sys
+from pathlib import Path
+assert json.loads(Path(sys.argv[1]).read_text())["value"] == "bad"
+PY
+LAST="$(maho_event_last test)"
+printf '%s\n' "$LAST" | python -c '
+import json, sys
+e = json.load(sys.stdin)
+assert e["kind"] == "adapter.rollback"
+assert e["status"] == "failed"
+assert e["risk"] == "high"
+assert "could not be verified" in e["summary"]
+'
+echo "PASS"
+
+echo "=== rollback command failure is high-risk ==="
+printf '%s\n' '{"value":"stable"}' > "$MAHO_TEST_ADAPTER_STATE"
+export MAHO_TEST_VERIFY_FAIL=1
+export MAHO_TEST_ROLLBACK_FAIL=1
+if maho_transaction_execute "$ADAPTER" '{"value":"bad"}' test test.resource >/dev/null 2>&1; then
+    fail "transaction unexpectedly succeeded despite rollback command failure"
+fi
+unset MAHO_TEST_VERIFY_FAIL
+unset MAHO_TEST_ROLLBACK_FAIL
+LAST="$(maho_event_last test)"
+printf '%s\n' "$LAST" | python -c '
+import json, sys
+e = json.load(sys.stdin)
+assert e["kind"] == "adapter.rollback"
+assert e["status"] == "failed"
+assert e["risk"] == "high"
+assert "command failed" in e["summary"].lower()
 '
 echo "PASS"
 
