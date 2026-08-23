@@ -225,44 +225,183 @@ install_unit() {
 }
 
 install_shell() {
-    mkdir -p "$(dirname -- "$SHELL_TARGET")"
-    if { [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; } && ! is_managed_shell; then
-        die "refusing to replace unmanaged Quickshell config: $SHELL_TARGET"
-        return 1
+    mkdir -p "$(dirname "$SHELL_TARGET")"
+
+    if [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then
+        if is_managed_shell; then
+            rm -f "$SHELL_TARGET"
+        else
+            die "refusing to replace unmanaged Quickshell configuration: $SHELL_TARGET"
+            return 1
+        fi
     fi
-    rm -rf "$SHELL_TARGET"
+
     ln -s "$SHELL_SOURCE" "$SHELL_TARGET"
 }
 
-main() {
+systemd_available() {
+    command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
+}
+
+install() {
     echo "Maho OS V1 setup"
     echo
     preflight || return 1
 
+    echo
+    echo "Installing user commands..."
     local name
     for name in "${COMMANDS[@]}"; do
         write_launcher "$name" || return 1
+        printf 'PASS  %s\n' "$(launcher_path "$name")"
     done
-    install_shell || return 1
-    for name in "${UNITS[@]}"; do
-        install_unit "$name" || return 1
-    done
-
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
-
-    systemctl --user enable maho-wallpaper.service >/dev/null 2>&1 || true
-    systemctl --user enable maho-observe.service >/dev/null 2>&1 || true
-    systemctl --user enable maho-security.service >/dev/null 2>&1 || true
-
-    if command -v quickshell >/dev/null 2>&1; then
-        systemctl --user enable maho-shell.service >/dev/null 2>&1 || true
-    fi
 
     echo
-    echo "PASS  launchers installed under $BIN_DIR"
-    echo "PASS  Maho Shell linked at $SHELL_TARGET"
-    echo "PASS  user units linked under $UNIT_DIR"
-    echo "PASS  setup complete"
+    echo "Installing Maho Shell..."
+    install_shell || return 1
+    echo "PASS  $SHELL_TARGET -> $SHELL_SOURCE"
+
+    echo
+    echo "Installing user services..."
+    for name in "${UNITS[@]}"; do
+        install_unit "$name" || return 1
+        echo "PASS  $(unit_target "$name")"
+    done
+
+    if systemd_available; then
+        systemctl --user daemon-reload
+        for name in "${UNITS[@]}"; do
+            if [ "$name" = "maho-shell.service" ] && ! command -v quickshell >/dev/null 2>&1; then
+                echo "INFO  $name not started because quickshell is unavailable"
+                continue
+            fi
+
+            if systemctl --user enable --now "$name" >/dev/null 2>&1; then
+                echo "PASS  $name enabled and started"
+            else
+                echo "INFO  $name could not be started now; CLI installation remains valid"
+            fi
+        done
+    else
+        echo "INFO  systemd user manager unavailable; service start deferred"
+    fi
+    echo
+    echo "PASS: Maho OS V1 user setup complete"
 }
 
-main "$@"
+status() {
+    local failed=0 name
+    echo "Maho OS V1 setup status"
+    echo "Repository: $ROOT"
+    echo
+
+    for name in "${COMMANDS[@]}"; do
+        if is_managed_launcher "$name"; then
+            printf 'PASS  command %-24s\n' "$name"
+        else
+            printf 'INFO  command %-24s not managed by this checkout\n' "$name"
+            failed=1
+        fi
+    done
+
+    if is_managed_shell; then
+        echo "PASS  shell   $SHELL_TARGET"
+    else
+        echo "INFO  shell   $SHELL_TARGET not managed by this checkout"
+        failed=1
+    fi
+
+    for name in "${UNITS[@]}"; do
+        if is_managed_unit "$name"; then
+            printf 'PASS  unit    %s\n' "$name"
+        else
+            printf 'INFO  unit    %s not installed from this checkout\n' "$name"
+            failed=1
+        fi
+    done
+
+    if systemd_available; then
+        for name in "${UNITS[@]}"; do
+            if systemctl --user is-active --quiet "$name"; then
+                printf 'PASS  service %s active\n' "$name"
+            else
+                printf 'INFO  service %s inactive\n' "$name"
+            fi
+        done
+    else
+        echo "INFO  systemd user manager unavailable"
+    fi
+    return "$failed"
+}
+
+uninstall() {
+    echo "Maho OS V1 user uninstall"
+    local name target path
+    if systemd_available; then
+        for name in "${UNITS[@]}"; do
+            systemctl --user disable --now "$name" >/dev/null 2>&1 || true
+        done
+    fi
+
+    for name in "${UNITS[@]}"; do
+        target="$(unit_target "$name")"
+        if is_managed_unit "$name"; then
+            rm -f "$target"
+            echo "REMOVED  $target"
+        elif [ -e "$target" ] || [ -L "$target" ]; then
+            echo "KEPT     unmanaged user unit $target"
+        fi
+    done
+
+    if is_managed_shell; then
+        rm -f "$SHELL_TARGET"
+        echo "REMOVED  $SHELL_TARGET"
+    elif [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then
+        echo "KEPT     unmanaged Quickshell configuration $SHELL_TARGET"
+    fi
+
+    for name in "${COMMANDS[@]}"; do
+        path="$(launcher_path "$name")"
+        if is_managed_launcher "$name"; then
+            rm -f "$path"
+            echo "REMOVED  $path"
+        elif [ -e "$path" ] || [ -L "$path" ]; then
+            echo "KEPT     unmanaged command $path"
+        fi
+    done
+
+    systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true
+    echo "PASS: Maho-managed user wiring removed; user data and unmanaged configuration preserved"
+}
+
+case "${1:-}" in
+    install) install ;;
+    status) status ;;
+    uninstall) uninstall ;;
+    preflight) preflight ;;
+    *)
+        cat <<'HELP'
+Maho OS V1 user setup
+
+Usage:
+  bash bin/maho-setup preflight
+  bash bin/maho-setup install
+  maho-setup status
+  maho-setup uninstall
+
+Setup wires the current checkout into the user session. It installs no system
+packages and uses no root access. Existing unmanaged commands, units, and
+Quickshell configuration are preserved rather than overwritten.
+
+Maho Shell is installed as the Maho desktop surface when Quickshell is
+available. The shell reads Maho's active adaptive palette directly, provides
+contextual workspace/audio/brightness feedback, and restores Waybar if the
+shell exits unexpectedly.
+
+The Maho security service runs the stateful read-only monitor and
+incident-oriented shadow guard; the separate maho-contain command requires a
+confirmed finding and explicit user confirmation before reversible user-process
+containment.
+HELP
+        ;;
+esac
