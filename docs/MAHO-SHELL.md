@@ -15,8 +15,9 @@ feedback and a larger control center when interaction requires more room.
   occupying screen space.
 - **One interaction target.** Tiny status glyphs are indicators. The collapsed
   island itself is the reliable click target for the control center.
-- **Immediate feedback.** Workspace state is driven from Hyprland events and
-  audio is driven directly from PipeWire rather than periodic shell commands.
+- **Immediate feedback.** Workspace state is driven from Hyprland events, audio
+  is driven directly from PipeWire, and media is driven directly from MPRIS
+  rather than periodic shell commands.
 - **Wallpaper-native color.** Maho Shell reads Maho's active palette directly
   and transitions surfaces, foregrounds and accents when the wallpaper-derived
   theme changes.
@@ -49,12 +50,18 @@ The control center currently exposes:
 - live output-volume slider
 - live brightness slider
 - wallpaper picker entry point
-- media information and playback controls
+- native MPRIS media information and playback controls
 - lock, capture and launcher quick actions
 
 Slider values keep following the underlying service while the panel is open.
 Local drag preview exists only while the pointer is actively manipulating the
 slider.
+
+Media does not depend on `playerctl`. `Media.qml` selects an active MPRIS player
+from Quickshell's service model, follows its title/artist/playback properties
+reactively, and invokes previous/play-pause/next on that player directly. This
+removes the old ambient polling delay from playback controls and keeps paused
+players available in the control center.
 
 ## Dynamic color contract
 
@@ -71,12 +78,27 @@ roles such as `surfaceHigh`, `foreground`, `muted`, `primary`, `secondary`,
 This keeps the shell visually synchronized with Maho's adaptation layer while
 preserving stable contrast and hierarchy.
 
-## Runtime safety
+## Runtime safety and diagnostics
 
 Maho Shell is packaged with a managed launcher and user service. The launcher
 ensures that only one Maho Shell instance owns the edge surface. Waybar is
 hidden only after Quickshell survives startup, and is restored if Maho Shell
 exits unexpectedly.
+
+The runtime also exposes bounded diagnostics so shell failures do not require
+unstructured log dumps:
+
+```text
+maho-shell doctor
+maho-shell status --json
+maho-shell logs 120
+maho-shell reload
+```
+
+`doctor` checks the live configuration, palette JSON, singleton state, session
+environment, user service and optional capabilities. `logs` is intentionally
+bounded to at most 500 lines. `status --json` exposes machine-readable runtime
+state for tooling and future Maho support surfaces.
 
 ## Next geometry milestone
 
