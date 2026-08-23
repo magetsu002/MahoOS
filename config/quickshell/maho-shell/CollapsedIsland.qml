@@ -11,7 +11,7 @@ Item {
     property int activeWorkspace: 0
     property bool workspaceFlash: false
     property date now: new Date()
-    property bool hovered: hover.hovered
+    property bool hovered: hitArea.containsMouse
 
     readonly property string mode:
         brightness && brightness.overlayOpen ? "brightness"
@@ -45,11 +45,37 @@ Item {
         return ""
     }
 
-    HoverHandler { id: hover }
+    // The collapsed shell is one deliberate interaction target rather than a
+    // row of tiny clickable status icons. Left click opens the control center,
+    // the wheel changes volume, and middle click toggles mute. Both audio
+    // actions reuse Audio.qml so the same transient island OSD appears whether
+    // the change came from the shell, a media key, or another mixer.
+    MouseArea {
+        id: hitArea
+        anchors.fill: parent
+        enabled: collapsed.enabled
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
 
-    TapHandler {
-        gesturePolicy: TapHandler.ReleaseWithinBounds
-        onTapped: collapsed.openRequested()
+        onClicked: function(mouse) {
+            if (mouse.button === Qt.MiddleButton) {
+                if (collapsed.audio)
+                    collapsed.audio.toggleMute()
+                return
+            }
+
+            collapsed.openRequested()
+        }
+
+        onWheel: function(wheel) {
+            if (!collapsed.audio)
+                return
+
+            const direction = wheel.angleDelta.y > 0 ? 1 : -1
+            collapsed.audio.setVolume(collapsed.audio.volume + direction * 5)
+            wheel.accepted = true
+        }
     }
 
     Item {
