@@ -12,6 +12,44 @@ hl.bind(
     hl.dsp.exec_cmd([["$HOME/.local/bin/qs-wallpaper-picker"]])
 )
 
+-- Laptop media keys. On laptops the Fn layer normally reaches Hyprland as
+-- XF86 keysyms rather than as a literal Fn+F-key chord. These bindings mutate
+-- the real system services; Maho Shell observes those service changes and
+-- raises its transient volume/brightness OSD automatically.
+hl.bind(
+    "XF86AudioRaiseVolume",
+    hl.dsp.exec_cmd([[wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+]]),
+    { repeating = true }
+)
+
+hl.bind(
+    "XF86AudioLowerVolume",
+    hl.dsp.exec_cmd([[wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-]]),
+    { repeating = true }
+)
+
+hl.bind(
+    "XF86AudioMute",
+    hl.dsp.exec_cmd([[wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle]])
+)
+
+hl.bind(
+    "XF86AudioMicMute",
+    hl.dsp.exec_cmd([[wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle]])
+)
+
+hl.bind(
+    "XF86MonBrightnessUp",
+    hl.dsp.exec_cmd([[brightnessctl set 5%+]]),
+    { repeating = true }
+)
+
+hl.bind(
+    "XF86MonBrightnessDown",
+    hl.dsp.exec_cmd([[brightnessctl set 5%-]]),
+    { repeating = true }
+)
+
 -- Window basics.
 hl.bind(mainMod .. " + Q", hl.dsp.window.close())
 
