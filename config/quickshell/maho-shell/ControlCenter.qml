@@ -7,6 +7,7 @@ Item {
     property var audio
     property var brightness
     property var system
+    property var media
     property date now: new Date()
 
     signal closeRequested()
@@ -324,7 +325,7 @@ Item {
         MahoCard {
             width: parent.width
             height: 70
-            visible: center.system && center.system.mediaTitle !== ""
+            visible: center.media && center.media.available
             theme: center.theme
 
             Column {
@@ -336,7 +337,7 @@ Item {
                 spacing: 1
 
                 Text {
-                    text: center.system && center.system.mediaPlaying ? "NOW PLAYING" : "MEDIA"
+                    text: center.media && center.media.playing ? "NOW PLAYING" : "MEDIA"
                     color: center.theme ? center.theme.alpha(center.theme.primary, 0.82) : "white"
                     font.pixelSize: 8
                     font.weight: Font.DemiBold
@@ -344,7 +345,9 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: center.system ? center.system.mediaTitle : ""
+                    text: center.media
+                        ? (center.media.title !== "" ? center.media.title : center.media.identity)
+                        : ""
                     color: center.theme ? center.theme.foreground : "white"
                     font.pixelSize: 10
                     font.weight: Font.DemiBold
@@ -353,7 +356,7 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: center.system ? center.system.mediaArtist : ""
+                    text: center.media ? center.media.artist : ""
                     color: center.theme ? center.theme.alpha(center.theme.muted, 0.68) : "#bdb8c3"
                     font.pixelSize: 8
                     elide: Text.ElideRight
@@ -370,19 +373,23 @@ Item {
 
                 MahoCard {
                     width: 29; height: 29; radius: 14
-                    theme: center.theme; interactive: true
+                    theme: center.theme
+                    interactive: center.media ? center.media.canPrevious : false
                     onActivated: center.mediaPreviousRequested()
                     Text { anchors.centerIn: parent; text: "󰒮"; color: center.theme ? center.theme.muted : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
                 }
                 MahoCard {
                     width: 31; height: 31; radius: 15
-                    theme: center.theme; interactive: true; emphasized: true
+                    theme: center.theme
+                    interactive: center.media ? center.media.canToggle : false
+                    emphasized: true
                     onActivated: center.mediaToggleRequested()
-                    Text { anchors.centerIn: parent; text: center.system && center.system.mediaPlaying ? "󰏤" : "󰐊"; color: center.theme ? center.theme.foreground : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
+                    Text { anchors.centerIn: parent; text: center.media && center.media.playing ? "󰏤" : "󰐊"; color: center.theme ? center.theme.foreground : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
                 }
                 MahoCard {
                     width: 29; height: 29; radius: 14
-                    theme: center.theme; interactive: true
+                    theme: center.theme
+                    interactive: center.media ? center.media.canNext : false
                     onActivated: center.mediaNextRequested()
                     Text { anchors.centerIn: parent; text: "󰒭"; color: center.theme ? center.theme.muted : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
                 }
