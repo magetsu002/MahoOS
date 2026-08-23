@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+
+set -u
+
+CONFIG_DIR="${MAHO_NOTIFY_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify}"
+CONFIG="$CONFIG_DIR/shell.qml"
+PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOG="${MAHO_NOTIFY_LOG:-${XDG_CACHE_HOME:-$HOME/.cache}/maho-notify.log}"
+LOCK="$RUNTIME_DIR/maho-notify.lock"
+SERVICE="maho-notify.service"
+
+notify_pids() {
+    local pid argument
+
+    while read -r pid; do
+        [ -r "/proc/$pid/cmdline" ] || continue
+        while read -r argument; do
+            case "$argument" in
+                */maho-notify|*/maho-notify/shell.qml)
+                    printf '%s\n' "$pid"
+                    break
+                    ;;
+            esac
+        done < <(tr '\0' '\n' < "/proc/$pid/cmdline")
+    done < <(pgrep -x quickshell 2>/dev/null || true)
+}
+
+notify_count() {
+    notify_pids | awk 'NF { count++ } END { print count + 0 }'
+}
+
+notify_running() {
+    [ "$(notify_count)" -gt 0 ]
+}
+
+systemd_available() {
+    command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
+}
+
+service_installed() {
+    systemd_available && systemctl --user cat "$SERVICE" >/dev/null 2>&1
+}
+
+dbus_has_owner() {
+    command -v gdbus >/dev/null 2>&1 || return 1
+    gdbus call --session \
+        --dest org.freedesktop.DBus \
+        --object-path /org/freedesktop/DBus \
+        --method org.freedesktop.DBus.NameHasOwner \
+        org.freedesktop.Notifications 2>/dev/null | grep -Fq '(true,'
+}
+
+dbus_owner() {
+    command -v gdbus >/dev/null 2>&1 || return 1
+    gdbus call --session \
+        --dest org.freedesktop.DBus \
+        --object-path /org/freedesktop/DBus \
+        --method org.freedesktop.DBus.GetNameOwner \
+        org.freedesktop.Notifications 2>/dev/null | sed -n "s/^('\([^']*\)',)$/\1/p"
+}
+
+ensure_wayland_env() {
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$RUNTIME_DIR}"
+
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        local candidate
+        candidate="$(
+            find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' 2>/dev/null |
+            sort |
+            head -1
+        )"
+        [ -n "$candidate" ] && export WAYLAND_DISPLAY="$candidate"
+    fi
+}
+
+run_notify() {
+    command -v quickshell >/dev/null 2>&1 || {
+        echo "maho-notify: quickshell is unavailable" >&2
+        return 1
+    }
+
+    command -v flock >/dev/null 2>&1 || {
+        echo "maho-notify: flock is unavailable" >&2
+        return 1
+    }
+
+    [ -r "$CONFIG" ] || {
+        echo "maho-notify: configuration missing: $CONFIG" >&2
+        return 1
+    }
+
+    ensure_wayland_env
+    mkdir -p "$(dirname "$LOG")" "$RUNTIME_DIR"
+
+    exec 9>"$LOCK"
+    if ! flock -n 9; then
+        echo "maho-notify: already running"
+        return 0
+    fi
+
+    if notify_running; then
+        echo "maho-notify: existing Maho Notify instance detected; refusing duplicate"
+        return 0
+    fi
+
+    if dbus_has_owner; then
+        echo "maho-notify: org.freedesktop.Notifications is already owned by $(dbus_owner)" >&2
+        echo "maho-notify: refusing to displace the current notification server" >&2
+        return 1
+    fi
+
+    exec quickshell --no-duplicate -p "$CONFIG" >>"$LOG" 2>&1
+}
+
+doctor() {
+    local failed=0 count
+
+    echo "Maho Notify doctor"
+    echo
+
+    if command -v quickshell >/dev/null 2>&1; then
+        printf 'PASS  quickshell     %s\n' "$(quickshell --version 2>&1 | head -1)"
+    else
+        echo "FAIL  quickshell     unavailable"
+        failed=1
+    fi
+
+    if [ -r "$CONFIG" ]; then
+        printf 'PASS  config         %s\n' "$CONFIG"
+    else
+        printf 'FAIL  config         missing: %s\n' "$CONFIG"
+        failed=1
+    fi
+
+    if [ -r "$PALETTE" ]; then
+        if python -m json.tool "$PALETTE" >/dev/null 2>&1; then
+            echo "PASS  palette        valid Maho active.json"
+        else
+            echo "FAIL  palette        active.json is not valid JSON"
+            failed=1
+        fi
+    else
+        echo "INFO  palette        active.json missing; QML fallbacks will be used"
+    fi
+
+    ensure_wayland_env
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        printf 'PASS  wayland        %s\n' "$WAYLAND_DISPLAY"
+    else
+        echo "INFO  wayland        display not resolved in this shell"
+    fi
+
+    count="$(notify_count)"
+    if [ "$count" -gt 1 ]; then
+        printf 'FAIL  instances      %s Maho Notify processes detected\n' "$count"
+        failed=1
+    elif [ "$count" -eq 1 ]; then
+        echo "PASS  instances      exactly one Maho Notify process"
+    else
+        echo "INFO  instances      Maho Notify currently inactive"
+    fi
+
+    if dbus_has_owner; then
+        printf 'INFO  dbus owner     %s\n' "$(dbus_owner)"
+    else
+        echo "PASS  dbus owner     org.freedesktop.Notifications is available"
+    fi
+
+    if service_installed; then
+        if systemctl --user is-active --quiet "$SERVICE"; then
+            echo "PASS  service        $SERVICE active"
+        else
+            echo "INFO  service        installed but inactive"
+        fi
+    else
+        echo "INFO  service        user unit not installed"
+    fi
+
+    if [ -e "$LOG" ] && [ ! -r "$LOG" ]; then
+        echo "FAIL  log            exists but is unreadable"
+        failed=1
+    else
+        printf 'PASS  log            bounded access at %s\n' "$LOG"
+    fi
+
+    echo
+    if [ "$failed" -eq 0 ]; then
+        echo "PASS  doctor         no blocking notification problems detected"
+    else
+        echo "FAIL  doctor         blocking notification problems detected"
+    fi
+
+    return "$failed"
+}
+
+status_json() {
+    local running=false service_state="missing" owner=""
+    notify_running && running=true
+    dbus_has_owner && owner="$(dbus_owner)"
+
+    if service_installed; then
+        service_state="inactive"
+        systemctl --user is-active --quiet "$SERVICE" && service_state="active"
+    fi
+
+    RUNNING="$running" \
+    COUNT="$(notify_count)" \
+    SERVICE_STATE="$service_state" \
+    OWNER="$owner" \
+    CONFIG_PATH="$CONFIG" \
+    PALETTE_PATH="$PALETTE" \
+    LOG_PATH="$LOG" \
+    python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+print(json.dumps({
+    "active": os.environ["RUNNING"] == "true",
+    "instances": int(os.environ["COUNT"]),
+    "service": os.environ["SERVICE_STATE"],
+    "notification_owner": os.environ["OWNER"] or None,
+    "config": {
+        "path": os.environ["CONFIG_PATH"],
+        "readable": os.access(os.environ["CONFIG_PATH"], os.R_OK),
+    },
+    "palette": {
+        "path": os.environ["PALETTE_PATH"],
+        "present": Path(os.environ["PALETTE_PATH"]).is_file(),
+    },
+    "log": os.environ["LOG_PATH"],
+}, separators=(",", ":")))
+PY
+}
+
+show_logs() {
+    local lines="${1:-120}"
+
+    case "$lines" in
+        ''|*[!0-9]*)
+            echo "maho-notify: log line count must be an integer" >&2
+            return 2
+            ;;
+    esac
+
+    if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]; then
+        echo "maho-notify: log line count must be between 1 and 500" >&2
+        return 2
+    fi
+
+    if [ ! -r "$LOG" ]; then
+        echo "maho-notify: runtime log unavailable: $LOG" >&2
+        return 1
+    fi
+
+    tail -n "$lines" "$LOG"
+}
+
+start_notify() {
+    if service_installed; then
+        systemctl --user start "$SERVICE"
+    else
+        command -v quickshell >/dev/null 2>&1 || {
+            echo "maho-notify: quickshell is unavailable" >&2
+            return 1
+        }
+        [ -r "$CONFIG" ] || {
+            echo "maho-notify: configuration missing: $CONFIG" >&2
+            return 1
+        }
+        notify_running && return 0
+        if dbus_has_owner; then
+            echo "maho-notify: org.freedesktop.Notifications is already owned by $(dbus_owner)" >&2
+            echo "maho-notify: refusing to displace the current notification server" >&2
+            return 1
+        fi
+
+        ensure_wayland_env
+        mkdir -p "$(dirname "$LOG")"
+        quickshell --no-duplicate --daemonize -p "$CONFIG" >>"$LOG" 2>&1
+    fi
+}
+
+stop_notify() {
+    if service_installed; then
+        systemctl --user stop "$SERVICE" >/dev/null 2>&1 || true
+    fi
+
+    local pid
+    while read -r pid; do
+        [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    done < <(notify_pids)
+}
+
+case "${1:-run}" in
+    run)
+        run_notify
+        ;;
+    start)
+        start_notify
+        ;;
+    stop)
+        stop_notify
+        ;;
+    restart|reload)
+        stop_notify
+        start_notify
+        ;;
+    status)
+        if [ "${2:-}" = "--json" ]; then
+            status_json
+            exit 0
+        fi
+
+        if notify_running; then
+            echo "Maho Notify: active"
+            notify_pids
+            exit 0
+        fi
+        echo "Maho Notify: inactive"
+        exit 1
+        ;;
+    doctor)
+        doctor
+        ;;
+    logs)
+        show_logs "${2:-120}"
+        ;;
+    *)
+        cat <<'HELP'
+Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]]
+
+Maho Notify is the independent Quickshell notification surface shipped with
+Maho OS. It refuses to displace an existing org.freedesktop.Notifications owner.
+
+Commands:
+  doctor         Check notification ownership and required runtime state.
+  logs [LINES]   Print a bounded runtime-log tail (default 120, max 500).
+  status --json  Emit machine-readable service/config/ownership state.
+  reload         Restart Maho Notify through the managed runtime path.
+HELP
+        exit 2
+        ;;
+esac

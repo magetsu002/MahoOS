@@ -7,6 +7,8 @@ BIN_DIR="${HOME}/.local/bin"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SHELL_SOURCE="$ROOT/config/quickshell/maho-shell"
 SHELL_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
+NOTIFY_SOURCE="$ROOT/config/quickshell/maho-notify"
+NOTIFY_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify"
 MARKER="# managed-by: maho-setup v1"
 
 COMMANDS=(
@@ -22,6 +24,7 @@ COMMANDS=(
     maho-guard
     maho-contain
     maho-shell
+    maho-notify
     maho-setup
 )
 
@@ -30,6 +33,7 @@ UNITS=(
     maho-observe.service
     maho-security.service
     maho-shell.service
+    maho-notify.service
 )
 
 SHELL_FILES=(
@@ -49,6 +53,15 @@ SHELL_FILES=(
     SideEdgeBar.qml
     ControlCenter.qml
     state.py
+)
+
+NOTIFY_FILES=(
+    shell.qml
+    NotificationService.qml
+    NotificationModel.qml
+    NotificationStack.qml
+    NotificationCard.qml
+    NotifyTheme.qml
 )
 
 die() {
@@ -95,6 +108,11 @@ is_managed_shell() {
     [ "$(readlink -f -- "$SHELL_TARGET" 2>/dev/null || true)" = "$SHELL_SOURCE" ]
 }
 
+is_managed_notify() {
+    [ -L "$NOTIFY_TARGET" ] || return 1
+    [ "$(readlink -f -- "$NOTIFY_TARGET" 2>/dev/null || true)" = "$NOTIFY_SOURCE" ]
+}
+
 preflight() {
     local failed=0 name file
     [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
@@ -122,6 +140,15 @@ preflight() {
             printf 'PASS  shell  %s\n' "$name"
         else
             printf 'FAIL  shell  %s missing\n' "$name"
+            failed=1
+        fi
+    done
+
+    for name in "${NOTIFY_FILES[@]}"; do
+        if [ -r "$NOTIFY_SOURCE/$name" ]; then
+            printf 'PASS  notify %s\n' "$name"
+        else
+            printf 'FAIL  notify %s missing\n' "$name"
             failed=1
         fi
     done
@@ -162,6 +189,7 @@ preflight() {
         "$ROOT/bin/maho-guard" \
         "$ROOT/bin/maho-contain" \
         "$ROOT/bin/maho-shell" \
+        "$ROOT/bin/maho-notify" \
         "$ROOT/bin/maho-setup" \
         "$ROOT/lib/authority.sh" \
         "$ROOT/lib/intent.sh" \
@@ -241,6 +269,21 @@ install_shell() {
     ln -s "$SHELL_SOURCE" "$SHELL_TARGET"
 }
 
+install_notify() {
+    mkdir -p "$(dirname "$NOTIFY_TARGET")"
+
+    if [ -e "$NOTIFY_TARGET" ] || [ -L "$NOTIFY_TARGET" ]; then
+        if is_managed_notify; then
+            rm -f "$NOTIFY_TARGET"
+        else
+            die "refusing to replace unmanaged Quickshell configuration: $NOTIFY_TARGET"
+            return 1
+        fi
+    fi
+
+    ln -s "$NOTIFY_SOURCE" "$NOTIFY_TARGET"
+}
+
 systemd_available() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
@@ -264,6 +307,11 @@ install() {
     echo "PASS  $SHELL_TARGET -> $SHELL_SOURCE"
 
     echo
+    echo "Installing Maho Notify..."
+    install_notify || return 1
+    echo "PASS  $NOTIFY_TARGET -> $NOTIFY_SOURCE"
+
+    echo
     echo "Installing user services..."
     for name in "${UNITS[@]}"; do
         install_unit "$name" || return 1
@@ -273,6 +321,11 @@ install() {
     if systemd_available; then
         systemctl --user daemon-reload
         for name in "${UNITS[@]}"; do
+            if [ "$name" = "maho-notify.service" ]; then
+                echo "INFO  $name installed but left disabled and inactive for explicit activation"
+                continue
+            fi
+
             if [ "$name" = "maho-shell.service" ] && ! command -v quickshell >/dev/null 2>&1; then
                 echo "INFO  $name not started because quickshell is unavailable"
                 continue
@@ -310,6 +363,13 @@ status() {
         echo "PASS  shell   $SHELL_TARGET"
     else
         echo "INFO  shell   $SHELL_TARGET not managed by this checkout"
+        failed=1
+    fi
+
+    if is_managed_notify; then
+        echo "PASS  notify  $NOTIFY_TARGET"
+    else
+        echo "INFO  notify  $NOTIFY_TARGET not managed by this checkout"
         failed=1
     fi
 
@@ -362,6 +422,13 @@ uninstall() {
         echo "KEPT     unmanaged Quickshell configuration $SHELL_TARGET"
     fi
 
+    if is_managed_notify; then
+        rm -f "$NOTIFY_TARGET"
+        echo "REMOVED  $NOTIFY_TARGET"
+    elif [ -e "$NOTIFY_TARGET" ] || [ -L "$NOTIFY_TARGET" ]; then
+        echo "KEPT     unmanaged Quickshell configuration $NOTIFY_TARGET"
+    fi
+
     for name in "${COMMANDS[@]}"; do
         path="$(launcher_path "$name")"
         if is_managed_launcher "$name"; then
@@ -400,6 +467,10 @@ available. Maho Edge reads Maho's active adaptive palette directly, provides
 contextual workspace/audio/brightness feedback, reserves a small compositor
 breathing gap at its resting edge, and restores Waybar if the shell exits
 unexpectedly.
+
+Maho Notify is packaged as an independent compact notification surface. Its
+user unit is installed but deliberately left disabled and inactive until the
+user explicitly activates it after notification-owner validation.
 
 The Maho security service runs the stateful read-only monitor and
 incident-oriented shadow guard; the separate maho-contain command requires a

@@ -24,6 +24,7 @@ case "$*" in
     '--user is-active --quiet maho-observe.service') exit 0 ;;
     '--user is-active --quiet maho-security.service') exit 0 ;;
     '--user is-active --quiet maho-shell.service') exit 0 ;;
+    '--user is-active --quiet maho-notify.service') exit 1 ;;
     *) exit 0 ;;
 esac
 EOF_SYSTEMCTL
@@ -37,8 +38,8 @@ chmod +x "$TMP/fake-bin/quickshell"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-setup)
-UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service)
+COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-setup)
+UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service maho-notify.service)
 
 echo "=== preflight ==="
 bash "$ROOT/bin/maho-setup" preflight >/dev/null
@@ -57,14 +58,26 @@ SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
 [ "$(readlink -f "$SHELL_TARGET")" = "$ROOT/config/quickshell/maho-shell" ] || fail "Maho Shell targets wrong checkout"
 [ -r "$SHELL_TARGET/shell.qml" ] || fail "Maho Shell entrypoint missing after install"
 
+NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
+[ -L "$NOTIFY_TARGET" ] || fail "Maho Notify configuration is not a symlink"
+[ "$(readlink -f "$NOTIFY_TARGET")" = "$ROOT/config/quickshell/maho-notify" ] || fail "Maho Notify targets wrong checkout"
+[ -r "$NOTIFY_TARGET/shell.qml" ] || fail "Maho Notify entrypoint missing after install"
+
 for unit in "${UNITS[@]}"; do
     target="$XDG_CONFIG_HOME/systemd/user/$unit"
     [ -L "$target" ] || fail "user service is not a symlink: $unit"
     [ "$(readlink -f "$target")" = "$ROOT/systemd/user/$unit" ] || fail "user service targets wrong checkout: $unit"
-    grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not enabled: $unit"
+    if [ "$unit" = "maho-notify.service" ]; then
+        if grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG"; then
+            fail "Maho Notify was activated during initial packaging"
+        fi
+    else
+        grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not enabled: $unit"
+    fi
 done
 grep -q 'maho-security-monitor watch' "$ROOT/systemd/user/maho-security.service" || fail "security service does not use stateful monitor"
 grep -q 'maho-shell run' "$ROOT/systemd/user/maho-shell.service" || fail "shell service does not use managed runtime"
+grep -q 'maho-notify run' "$ROOT/systemd/user/maho-notify.service" || fail "notify service does not use managed runtime"
 "$HOME/.local/bin/maho-adapt" validate-registry | grep -q '^PASS$'
 "$HOME/.local/bin/maho-guard" doctor | grep -q 'automatic system mutation: none'
 echo "PASS"
@@ -109,6 +122,19 @@ bash "$ROOT/bin/maho-setup" install >/dev/null
 [ -L "$SHELL_TARGET" ] || fail "managed shell was not restored after unmanaged protection test"
 echo "PASS"
 
+echo "=== unmanaged notify protected ==="
+rm -f "$NOTIFY_TARGET"
+mkdir -p "$NOTIFY_TARGET"
+printf '%s\n' 'external-notify' > "$NOTIFY_TARGET/owner.txt"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "setup overwrote unmanaged Maho Notify configuration"
+fi
+grep -q '^external-notify$' "$NOTIFY_TARGET/owner.txt" || fail "unmanaged Maho Notify configuration was modified"
+rm -rf "$NOTIFY_TARGET"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+[ -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify was not restored after unmanaged protection test"
+echo "PASS"
+
 echo "=== uninstall ==="
 "$HOME/.local/bin/maho-setup" uninstall >/dev/null
 for name in "${COMMANDS[@]}"; do
@@ -119,6 +145,7 @@ for unit in "${UNITS[@]}"; do
     grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not disabled: $unit"
 done
 [ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail "managed shell configuration survived uninstall"
+[ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify configuration survived uninstall"
 echo "PASS"
 
 echo "ALL V1 SETUP CONTRACTS PASS"

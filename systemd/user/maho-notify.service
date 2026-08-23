@@ -1,0 +1,13 @@
+[Unit]
+Description=Maho compact Quickshell notification surface
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-notify run
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
