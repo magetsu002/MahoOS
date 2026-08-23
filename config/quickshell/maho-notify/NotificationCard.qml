@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import Quickshell.Services.Notifications
 
 Rectangle {
@@ -7,6 +6,7 @@ Rectangle {
 
     required property var theme
     required property var notification
+    required property var identityResolver
     property int groupCount: 1
     property bool hovered: hover.hovered
     readonly property int actionCount:
@@ -74,38 +74,13 @@ Rectangle {
             width: parent.width
             spacing: 8
 
-            Item {
-                width: 26
-                height: 26
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: 8
-                    color: theme.alpha(theme.primary, 0.13)
-                    visible: appImage.source.toString().length === 0
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: (notification.appName || "N").slice(0, 1).toUpperCase()
-                        color: theme.primary
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
-                        textFormat: Text.PlainText
-                    }
-                }
-
-                Image {
-                    id: appImage
-                    anchors.fill: parent
-                    sourceSize.width: 26
-                    sourceSize.height: 26
-                    fillMode: Image.PreserveAspectFit
-                    source: notification.image !== ""
-                        ? notification.image
-                        : (notification.appIcon !== ""
-                            ? Quickshell.iconPath(notification.appIcon, "dialog-information")
-                            : "")
-                }
+            // notification.image is notification content, not application identity.
+            AppIcon {
+                theme: card.theme
+                identityResolver: card.identityResolver
+                notification: card.notification
+                iconSize: 26
+                cornerRadius: 8
             }
 
             Column {

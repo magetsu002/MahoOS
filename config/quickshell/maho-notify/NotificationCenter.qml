@@ -5,6 +5,7 @@ Item {
 
     required property var theme
     required property var historyModel
+    required property var identityResolver
     required property real availableHeight
     property bool shown: false
     property date timeReference: new Date()
@@ -342,6 +343,7 @@ Item {
                         required property int index
                         width: historyList.width
                         theme: center.theme
+                        identityResolver: center.identityResolver
                         entry: modelData
                         relativeTimestamp: center.relativeTimestamp(modelData.timestamp)
                         selected: historyList.currentIndex === index && center.activeFocus

@@ -11,9 +11,11 @@ ShellRoot {
     property bool centerPresented: false
 
     NotifyTheme { id: theme }
+    AppIdentityResolver { id: appIdentityResolver }
     NotificationModel { id: notificationModel }
     HistoryModel {
         id: historyModel
+        identityResolver: appIdentityResolver
         onLoadedChanged: {
             if (loaded && root.centerOpen)
                 markAllRead()
@@ -141,6 +143,7 @@ ShellRoot {
             y: 18
             theme: theme
             notificationModel: notificationModel
+            identityResolver: appIdentityResolver
         }
     }
 
@@ -167,6 +170,7 @@ ShellRoot {
             y: 18
             theme: theme
             historyModel: historyModel
+            identityResolver: appIdentityResolver
             availableHeight: centerOverlay.height
             shown: root.centerOpen
             onCloseRequested: root.closeCenter()

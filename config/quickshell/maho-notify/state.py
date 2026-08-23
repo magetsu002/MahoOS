@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-VERSION = 2
+VERSION = 3
 STATUS_VERSION = 1
 MAX_ENTRIES = 500
 MAX_AGE_SECONDS = 7 * 24 * 60 * 60
@@ -35,6 +35,7 @@ ALLOWED_FIELDS = {
     "groupCount",
     "replacementCount",
     "closeReason",
+    "desktopEntry",
     "icon",
 }
 STRING_LIMITS = {
@@ -45,6 +46,7 @@ STRING_LIMITS = {
     "body": 4096,
     "groupKey": 192,
     "closeReason": 32,
+    "desktopEntry": 192,
     "icon": 512,
 }
 
@@ -298,7 +300,9 @@ def self_test() -> int:
                 "groupCount": 1,
                 "replacementCount": 0,
                 "closeReason": "expired",
+                "desktopEntry": "synthetic.app",
                 "icon": "",
+                "image": "data:image/png;base64,must-not-persist",
             }
             for index in range(MAX_ENTRIES + 5)
         ]
@@ -313,6 +317,8 @@ def self_test() -> int:
         saved = save_state({"version": VERSION, "dnd": True, "entries": entries})
         assert len(saved["entries"]) == MAX_ENTRIES
         assert all(entry["id"] != "synthetic-old" for entry in saved["entries"])
+        assert all(entry.get("desktopEntry") == "synthetic.app" for entry in saved["entries"])
+        assert all("image" not in entry for entry in saved["entries"])
         assert (state_dir().stat().st_mode & 0o777) == 0o700
         assert (state_path().stat().st_mode & 0o777) == 0o600
 
