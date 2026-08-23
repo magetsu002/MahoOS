@@ -37,6 +37,7 @@ SHELL_FILES=(
     MahoTheme.qml
     Audio.qml
     Brightness.qml
+    Battery.qml
     Media.qml
     SystemState.qml
     MahoCard.qml
