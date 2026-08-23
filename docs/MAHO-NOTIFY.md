@@ -80,16 +80,20 @@ app-action buttons. `maho-notify center` opens the surface.
 
 ## N2.2 Maho Edge bridge
 
-Maho Notify atomically publishes only `version`, `unread_count`, `dnd`, and
-`active` to `$XDG_RUNTIME_DIR/maho/notify-status.json`. Its directory is mode
-`0700` and the file is mode `0600`. No application name, title, summary, body,
+Maho Notify atomically publishes only `version`, `unread_count`, `dnd`, `active`,
+and its live Quickshell `pid` to
+`$XDG_RUNTIME_DIR/maho/notify-status.json`. Its directory is mode `0700` and the
+file is mode `0600`. No application name, title, summary, body,
 hint, history entry, or action crosses this bridge. The sidecar becomes inactive
 on a clean Notify shutdown and is recreated from live state on startup.
 
 Maho Edge watches this small runtime file reactively only for a compact
-Notifications entry inside its expanded control center. The collapsed Edge is
+Notifications entry inside its expanded control center. The live PID lets Edge
+address Notify's existing IPC instance even when it was launched directly from
+a development worktree. The collapsed Edge is
 unchanged and shows no notification glyph or badge. The expanded entry reports
-unread/DND state and invokes the existing managed `maho-notify center` path.
+unread/DND state and invokes live Notify IPC, with the managed
+`maho-notify center` path retained as the stopped-instance fallback.
 Edge never reads the persistent history file and remains functional when the
 metadata is missing, malformed, stale, or inactive. Maho Notify continues to
 operate independently when Maho Edge is absent.

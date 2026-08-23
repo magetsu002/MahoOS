@@ -207,11 +207,13 @@ def normalize_status(raw: Any, *, active: bool | None = None) -> dict[str, Any]:
         unread_count = int(raw.get("unread_count", 0))
     except (TypeError, ValueError):
         unread_count = 0
+    active_value = bool(raw.get("active", False) if active is None else active)
     return {
         "version": STATUS_VERSION,
         "unread_count": min(MAX_ENTRIES, max(0, unread_count)),
         "dnd": bool(raw.get("dnd", False)),
-        "active": bool(raw.get("active", False) if active is None else active),
+        "active": active_value,
+        "pid": os.getppid() if active_value else 0,
     }
 
 
@@ -323,14 +325,13 @@ def self_test() -> int:
             "body": "must not persist",
             "appName": "must not persist",
         })
-        assert safe_status == {
-            "version": STATUS_VERSION,
-            "unread_count": MAX_ENTRIES,
-            "dnd": True,
-            "active": True,
-        }
+        assert safe_status["version"] == STATUS_VERSION
+        assert safe_status["unread_count"] == MAX_ENTRIES
+        assert safe_status["dnd"] is True
+        assert safe_status["active"] is True
+        assert safe_status["pid"] > 0
         persisted_status = json.loads(status_path().read_text(encoding="utf-8"))
-        assert set(persisted_status) == {"version", "unread_count", "dnd", "active"}
+        assert set(persisted_status) == {"version", "unread_count", "dnd", "active", "pid"}
         assert (runtime_dir().stat().st_mode & 0o777) == 0o700
         assert (status_path().stat().st_mode & 0o777) == 0o600
 
