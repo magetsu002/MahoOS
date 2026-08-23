@@ -148,4 +148,8 @@ done
 [ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify configuration survived uninstall"
 echo "PASS"
 
+echo "=== Maho Notify packaging contracts ==="
+bash "$ROOT/tests/notify-contracts.sh" >/dev/null
+echo "PASS"
+
 echo "ALL V1 SETUP CONTRACTS PASS"

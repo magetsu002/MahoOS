@@ -33,7 +33,6 @@ jobs:
             bin/maho-guard \
             bin/maho-contain \
             bin/maho-shell \
-            bin/maho-notify \
             bin/maho-setup \
             lib/authority.sh \
             lib/state.sh \
@@ -64,8 +63,7 @@ jobs:
             tests/security-boundaries.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh \
-            tests/shell-contracts.sh \
-            tests/notify-contracts.sh
+            tests/shell-contracts.sh
 
       - name: Python syntax
         shell: bash
@@ -194,9 +192,3 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/shell-contracts.sh
-
-      - name: Maho Notify UI contracts
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash tests/notify-contracts.sh
