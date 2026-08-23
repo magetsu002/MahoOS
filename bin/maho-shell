@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+set -u
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
+CONFIG="$CONFIG_DIR/shell.qml"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-shell.log"
+
+ensure_wayland_env() {
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$RUNTIME_DIR}"
+
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        local candidate
+        candidate="$(
+            find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' 2>/dev/null |
+            sort |
+            head -1
+        )"
+        [ -n "$candidate" ] && export WAYLAND_DISPLAY="$candidate"
+    fi
+
+    if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
+        local signature
+        signature="$(
+            hyprctl instances -j 2>/dev/null |
+            python -c '
+import json,sys
+try:
+    rows=json.load(sys.stdin)
+except Exception:
+    rows=[]
+if rows:
+    print(rows[-1].get("instance", rows[-1].get("signature", "")))
+' 2>/dev/null || true
+        )"
+        [ -n "$signature" ] && export HYPRLAND_INSTANCE_SIGNATURE="$signature"
+    fi
+}
+
+restore_waybar() {
+    if command -v hyprctl >/dev/null 2>&1 && ! pgrep -x waybar >/dev/null 2>&1; then
+        hyprctl dispatch exec waybar >/dev/null 2>&1 || true
+    fi
+}
+
+run_shell() {
+    command -v quickshell >/dev/null 2>&1 || {
+        echo "maho-shell: quickshell is unavailable" >&2
+        return 1
+    }
+
+    [ -r "$CONFIG" ] || {
+        echo "maho-shell: configuration missing: $CONFIG" >&2
+        return 1
+    }
+
+    ensure_wayland_env
+    mkdir -p "$(dirname "$LOG")"
+
+    trap restore_waybar EXIT INT TERM
+
+    quickshell -p "$CONFIG" >>"$LOG" 2>&1 &
+    local pid=$!
+
+    sleep 1
+
+    if kill -0 "$pid" 2>/dev/null; then
+        pkill -x waybar 2>/dev/null || true
+    else
+        wait "$pid" || true
+        echo "maho-shell: shell exited during startup; Waybar fallback restored" >&2
+        return 1
+    fi
+
+    wait "$pid"
+}
+
+systemd_available() {
+    command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
+}
+
+case "${1:-run}" in
+    run)
+        run_shell
+        ;;
+    start)
+        if systemd_available; then
+            systemctl --user start maho-shell.service
+        else
+            nohup "$0" run >/dev/null 2>&1 &
+        fi
+        ;;
+    stop)
+        if systemd_available; then
+            systemctl --user stop maho-shell.service >/dev/null 2>&1 || true
+        fi
+        pkill -f 'quickshell -p.*/maho-shell/shell.qml' 2>/dev/null || true
+        restore_waybar
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    status)
+        if pgrep -af 'quickshell.*maho-shell/shell.qml' >/dev/null 2>&1; then
+            echo "Maho Shell: active"
+            pgrep -af 'quickshell.*maho-shell/shell.qml'
+            exit 0
+        fi
+        echo "Maho Shell: inactive"
+        exit 1
+        ;;
+    *)
+        cat <<'HELP'
+Usage: maho-shell [run|start|stop|restart|status]
+
+Maho Shell is the Quickshell desktop surface shipped with Maho OS. While it is
+running, Waybar is hidden. If the shell exits unexpectedly, the wrapper restores
+Waybar as a fallback rather than leaving the session without a bar.
+HELP
+        exit 2
+        ;;
+esac
