@@ -15,6 +15,7 @@ ShellRoot {
     SystemState { id: system }
     Media { id: media }
     DockState { id: dock }
+    NotifyStatus { id: notifyBridge }
 
     property bool expanded: false
     property bool closing: false
@@ -181,6 +182,13 @@ ShellRoot {
 
     function runShell(command) {
         Quickshell.execDetached(["bash", "-lc", command])
+    }
+
+    function openNotificationCenter() {
+        Quickshell.execDetached([
+            Quickshell.env("HOME") + "/.local/bin/maho-notify",
+            "center"
+        ])
     }
 
     function requestLock() {
@@ -542,6 +550,7 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     battery: battery
+                    notifyStatus: notifyBridge
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -550,6 +559,7 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
+                    onNotifyRequested: root.openNotificationCenter()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
@@ -563,6 +573,7 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     battery: battery
+                    notifyStatus: notifyBridge
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -571,6 +582,7 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
+                    onNotifyRequested: root.openNotificationCenter()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
