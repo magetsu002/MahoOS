@@ -23,15 +23,22 @@ case "$*" in
     '--user is-active --quiet maho-wallpaper.service') exit 0 ;;
     '--user is-active --quiet maho-observe.service') exit 0 ;;
     '--user is-active --quiet maho-security.service') exit 0 ;;
+    '--user is-active --quiet maho-shell.service') exit 0 ;;
     *) exit 0 ;;
 esac
 EOF_SYSTEMCTL
 chmod +x "$TMP/fake-bin/systemctl"
 
+cat > "$TMP/fake-bin/quickshell" <<'EOF_QUICKSHELL'
+#!/usr/bin/env bash
+exit 0
+EOF_QUICKSHELL
+chmod +x "$TMP/fake-bin/quickshell"
+
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-setup)
-UNITS=(maho-wallpaper.service maho-observe.service maho-security.service)
+COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-setup)
+UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service)
 
 echo "=== preflight ==="
 bash "$ROOT/bin/maho-setup" preflight >/dev/null
@@ -44,6 +51,12 @@ for name in "${COMMANDS[@]}"; do
     [ -x "$path" ] || fail "launcher not executable: $name"
     grep -Fq '# managed-by: maho-setup v1' "$path" || fail "launcher missing ownership marker: $name"
 done
+
+SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
+[ -L "$SHELL_TARGET" ] || fail "Maho Shell configuration is not a symlink"
+[ "$(readlink -f "$SHELL_TARGET")" = "$ROOT/config/quickshell/maho-shell" ] || fail "Maho Shell targets wrong checkout"
+[ -r "$SHELL_TARGET/shell.qml" ] || fail "Maho Shell entrypoint missing after install"
+
 for unit in "${UNITS[@]}"; do
     target="$XDG_CONFIG_HOME/systemd/user/$unit"
     [ -L "$target" ] || fail "user service is not a symlink: $unit"
@@ -51,6 +64,7 @@ for unit in "${UNITS[@]}"; do
     grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not enabled: $unit"
 done
 grep -q 'maho-security-monitor watch' "$ROOT/systemd/user/maho-security.service" || fail "security service does not use stateful monitor"
+grep -q 'maho-shell run' "$ROOT/systemd/user/maho-shell.service" || fail "shell service does not use managed runtime"
 "$HOME/.local/bin/maho-adapt" validate-registry | grep -q '^PASS$'
 "$HOME/.local/bin/maho-guard" doctor | grep -q 'automatic system mutation: none'
 echo "PASS"
@@ -82,6 +96,19 @@ rm -f "$TARGET"
 bash "$ROOT/bin/maho-setup" install >/dev/null
 echo "PASS"
 
+echo "=== unmanaged shell protected ==="
+rm -f "$SHELL_TARGET"
+mkdir -p "$SHELL_TARGET"
+printf '%s\n' 'external-shell' > "$SHELL_TARGET/owner.txt"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "setup overwrote unmanaged Quickshell configuration"
+fi
+grep -q '^external-shell$' "$SHELL_TARGET/owner.txt" || fail "unmanaged Quickshell configuration was modified"
+rm -rf "$SHELL_TARGET"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+[ -L "$SHELL_TARGET" ] || fail "managed shell was not restored after unmanaged protection test"
+echo "PASS"
+
 echo "=== uninstall ==="
 "$HOME/.local/bin/maho-setup" uninstall >/dev/null
 for name in "${COMMANDS[@]}"; do
@@ -91,6 +118,7 @@ for unit in "${UNITS[@]}"; do
     [ ! -e "$XDG_CONFIG_HOME/systemd/user/$unit" ] || fail "managed unit survived uninstall: $unit"
     grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not disabled: $unit"
 done
+[ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail "managed shell configuration survived uninstall"
 echo "PASS"
 
 echo "ALL V1 SETUP CONTRACTS PASS"
