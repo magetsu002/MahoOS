@@ -20,7 +20,6 @@ ShellRoot {
     property bool controlVisible: false
     property bool workspaceFlash: false
     property int lastWorkspace: 0
-    property int surfaceHeight: 40
     property date now: new Date()
 
     readonly property int activeWorkspace:
@@ -51,9 +50,7 @@ ShellRoot {
 
     function openPanel() {
         closeMorphTimer.stop()
-        closeSurfaceTimer.stop()
         closing = false
-        surfaceHeight = island.expandedHeight + 2
         expanded = true
         controlVisible = true
     }
@@ -62,10 +59,9 @@ ShellRoot {
         if (!expanded || closing)
             return
 
-        // First remove the dense control content while the full silhouette is
-        // still present. Only after that short fade do we morph the physical
-        // island back to its collapsed shape. This prevents the clipped little
-        // rectangle that used to flash during close.
+        // Fade dense content first, then morph the island itself. The layer
+        // surface stays a fixed size for the entire session, so closing cannot
+        // expose a second late-resizing rectangular Wayland surface underneath.
         closing = true
         controlVisible = false
         closeMorphTimer.restart()
@@ -73,6 +69,16 @@ ShellRoot {
 
     function runShell(command) {
         Quickshell.execDetached(["bash", "-lc", command])
+    }
+
+    function requestLock() {
+        closePanel()
+        lockDelay.restart()
+    }
+
+    function requestCapture() {
+        closePanel()
+        captureDelay.restart()
     }
 
     Component.onCompleted: lastWorkspace = activeWorkspace
@@ -106,17 +112,26 @@ ShellRoot {
 
             root.expanded = false
             root.closing = false
-            closeSurfaceTimer.restart()
         }
     }
 
     Timer {
-        id: closeSurfaceTimer
-        interval: 430
-        onTriggered: {
-            if (!root.expanded && !root.closing)
-                root.surfaceHeight = 40
-        }
+        id: lockDelay
+        interval: 520
+        onTriggered: root.runShell(
+            "if command -v hyprlock >/dev/null 2>&1; then exec hyprlock; "
+            + "else command -v notify-send >/dev/null 2>&1 && notify-send 'Maho Shell' 'hyprlock is not installed'; fi"
+        )
+    }
+
+    Timer {
+        id: captureDelay
+        interval: 560
+        onTriggered: root.runShell(
+            "if command -v hyprshot >/dev/null 2>&1; then exec hyprshot -m region --clipboard-only; "
+            + "elif command -v grimblast >/dev/null 2>&1; then exec grimblast copy area; "
+            + "elif command -v notify-send >/dev/null 2>&1; then notify-send 'Maho Shell' 'No screenshot backend is installed'; fi"
+        )
     }
 
     Timer {
@@ -136,7 +151,11 @@ ShellRoot {
             right: true
         }
 
-        implicitHeight: root.surfaceHeight
+        // Keep the layer-shell surface stable. Resizing the actual Wayland
+        // surface after the island had already collapsed was the source of the
+        // delayed flat rectangle visible under the bar. Only the island now
+        // animates; input remains constrained by mask below.
+        implicitHeight: 560
         color: "transparent"
         aboveWindows: true
         focusable: false
@@ -164,11 +183,6 @@ ShellRoot {
                     : (root.workspaceFlash ? 205 : (collapsedView.hovered ? 190 : 176)))
 
             height: root.expanded ? expandedHeight : 40
-
-            onExpandedHeightChanged: {
-                if (root.expanded)
-                    root.surfaceHeight = expandedHeight + 2
-            }
 
             Behavior on width {
                 NumberAnimation {
@@ -331,12 +345,8 @@ ShellRoot {
                         ])
                     }
 
-                    onLockRequested: Quickshell.execDetached(["hyprlock"])
-
-                    onScreenshotRequested: root.runShell(
-                        "if command -v grimblast >/dev/null; then grimblast copy area; "
-                        + "elif command -v hyprshot >/dev/null; then hyprshot -m region --clipboard-only; fi"
-                    )
+                    onLockRequested: root.requestLock()
+                    onScreenshotRequested: root.requestCapture()
 
                     onLauncherRequested: {
                         root.closePanel()
