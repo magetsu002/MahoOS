@@ -7,9 +7,6 @@ Scope {
 
     property string networkKind: "none"
     property string networkName: ""
-    property bool bluetoothAvailable: false
-    property bool bluetoothPowered: false
-    property bool bluetoothConnected: false
 
     Process {
         id: reader
@@ -19,9 +16,6 @@ Scope {
                     const data = JSON.parse(this.text)
                     state.networkKind = data.networkKind || "none"
                     state.networkName = data.networkName || ""
-                    state.bluetoothAvailable = data.bluetoothAvailable || false
-                    state.bluetoothPowered = data.bluetoothPowered || false
-                    state.bluetoothConnected = data.bluetoothConnected || false
                 } catch (error) {
                     console.log("maho-shell ambient state parse:", error)
                 }
