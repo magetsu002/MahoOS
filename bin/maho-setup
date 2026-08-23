@@ -37,6 +37,7 @@ SHELL_FILES=(
     MahoTheme.qml
     Audio.qml
     Brightness.qml
+    Media.qml
     SystemState.qml
     MahoCard.qml
     SliderCard.qml
