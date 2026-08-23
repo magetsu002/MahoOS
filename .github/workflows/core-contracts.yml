@@ -32,6 +32,7 @@ jobs:
             bin/maho-security-monitor \
             bin/maho-guard \
             bin/maho-contain \
+            bin/maho-shell \
             bin/maho-setup \
             lib/authority.sh \
             lib/state.sh \
@@ -72,7 +73,8 @@ jobs:
             lib/security_containment.py \
             lib/security_incident.py \
             lib/security_preflight.py \
-            lib/security_boundary.py
+            lib/security_boundary.py \
+            config/quickshell/maho-shell/state.py
 
       - name: JSON contracts
         shell: bash
