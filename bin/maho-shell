@@ -4,12 +4,21 @@ set -u
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
 CONFIG="$CONFIG_DIR/shell.qml"
+PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-shell.log"
 LOCK="$RUNTIME_DIR/maho-shell.lock"
 
 shell_running() {
     pgrep -af 'quickshell.*maho-shell/shell.qml' >/dev/null 2>&1
+}
+
+shell_pids() {
+    pgrep -f 'quickshell.*maho-shell/shell.qml' 2>/dev/null || true
+}
+
+shell_count() {
+    shell_pids | awk 'NF { count++ } END { print count + 0 }'
 }
 
 ensure_wayland_env() {
@@ -107,6 +116,185 @@ systemd_available() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
 
+print_capability() {
+    local command_name="$1" role="$2"
+    if command -v "$command_name" >/dev/null 2>&1; then
+        printf 'PASS  %-14s %s\n' "$command_name" "$role"
+    else
+        printf 'INFO  %-14s unavailable; %s disabled\n' "$command_name" "$role"
+    fi
+}
+
+doctor() {
+    local failed=0 count
+
+    echo "Maho Shell doctor"
+    echo
+
+    if command -v quickshell >/dev/null 2>&1; then
+        printf 'PASS  quickshell     %s\n' "$(command -v quickshell)"
+    else
+        echo "FAIL  quickshell     unavailable"
+        failed=1
+    fi
+
+    if command -v flock >/dev/null 2>&1; then
+        echo "PASS  singleton      flock available"
+    else
+        echo "FAIL  singleton      flock unavailable"
+        failed=1
+    fi
+
+    if [ -r "$CONFIG" ]; then
+        printf 'PASS  config         %s\n' "$CONFIG"
+    else
+        printf 'FAIL  config         missing: %s\n' "$CONFIG"
+        failed=1
+    fi
+
+    if [ -r "$PALETTE" ]; then
+        if python -m json.tool "$PALETTE" >/dev/null 2>&1; then
+            echo "PASS  palette        valid Maho active.json"
+        else
+            echo "FAIL  palette        active.json is not valid JSON"
+            failed=1
+        fi
+    else
+        echo "INFO  palette        active.json missing; QML fallbacks will be used"
+    fi
+
+    ensure_wayland_env
+
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        printf 'PASS  wayland        %s\n' "$WAYLAND_DISPLAY"
+    else
+        echo "INFO  wayland        display not resolved in this shell"
+    fi
+
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        echo "PASS  hyprland       instance signature resolved"
+    else
+        echo "INFO  hyprland       instance signature not resolved"
+    fi
+
+    count="$(shell_count)"
+    if [ "$count" -gt 1 ]; then
+        printf 'FAIL  instances      %s Maho Shell processes detected\n' "$count"
+        failed=1
+    elif [ "$count" -eq 1 ]; then
+        echo "PASS  instances      exactly one shell process"
+    else
+        echo "INFO  instances      shell currently inactive"
+    fi
+
+    if systemd_available; then
+        if systemctl --user is-active --quiet maho-shell.service 2>/dev/null; then
+            echo "PASS  service        maho-shell.service active"
+        elif systemctl --user cat maho-shell.service >/dev/null 2>&1; then
+            echo "INFO  service        installed but inactive"
+        else
+            echo "INFO  service        user unit not installed"
+        fi
+    else
+        echo "INFO  service        user systemd unavailable"
+    fi
+
+    if [ -e "$LOG" ]; then
+        if [ -r "$LOG" ]; then
+            printf 'PASS  log            %s\n' "$LOG"
+        else
+            echo "FAIL  log            exists but is unreadable"
+            failed=1
+        fi
+    else
+        printf 'INFO  log            not created yet: %s\n' "$LOG"
+    fi
+
+    echo
+    echo "Optional capabilities"
+    print_capability brightnessctl "brightness control"
+    print_capability nmcli "network details"
+    print_capability bluetoothctl "Bluetooth details"
+    print_capability playerctl "media controls"
+    print_capability grimblast "grimblast screenshots"
+    print_capability hyprshot "hyprshot screenshot fallback"
+
+    echo
+    if [ "$failed" -eq 0 ]; then
+        echo "PASS  doctor         no blocking shell problems detected"
+    else
+        echo "FAIL  doctor         blocking shell problems detected"
+    fi
+
+    return "$failed"
+}
+
+status_json() {
+    local running=false service="unavailable" count
+    count="$(shell_count)"
+    [ "$count" -gt 0 ] && running=true
+
+    if systemd_available; then
+        if systemctl --user is-active --quiet maho-shell.service 2>/dev/null; then
+            service="active"
+        elif systemctl --user cat maho-shell.service >/dev/null 2>&1; then
+            service="inactive"
+        else
+            service="missing"
+        fi
+    fi
+
+    RUNNING="$running" \
+    COUNT="$count" \
+    SERVICE="$service" \
+    CONFIG_PATH="$CONFIG" \
+    PALETTE_PATH="$PALETTE" \
+    LOG_PATH="$LOG" \
+    python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+print(json.dumps({
+    "active": os.environ["RUNNING"] == "true",
+    "instances": int(os.environ["COUNT"]),
+    "service": os.environ["SERVICE"],
+    "config": {
+        "path": os.environ["CONFIG_PATH"],
+        "readable": os.access(os.environ["CONFIG_PATH"], os.R_OK),
+    },
+    "palette": {
+        "path": os.environ["PALETTE_PATH"],
+        "present": Path(os.environ["PALETTE_PATH"]).is_file(),
+    },
+    "log": os.environ["LOG_PATH"],
+}, separators=(",", ":")))
+PY
+}
+
+show_logs() {
+    local lines="${1:-120}"
+
+    case "$lines" in
+        ''|*[!0-9]*)
+            echo "maho-shell: log line count must be an integer" >&2
+            return 2
+            ;;
+    esac
+
+    if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]; then
+        echo "maho-shell: log line count must be between 1 and 500" >&2
+        return 2
+    fi
+
+    if [ ! -r "$LOG" ]; then
+        echo "maho-shell: runtime log unavailable: $LOG" >&2
+        return 1
+    fi
+
+    tail -n "$lines" "$LOG"
+}
+
 case "${1:-run}" in
     run)
         run_shell
@@ -125,11 +313,16 @@ case "${1:-run}" in
         pkill -f 'quickshell -p.*/maho-shell/shell.qml' 2>/dev/null || true
         restore_waybar
         ;;
-    restart)
+    restart|reload)
         "$0" stop
         "$0" start
         ;;
     status)
+        if [ "${2:-}" = "--json" ]; then
+            status_json
+            exit 0
+        fi
+
         if shell_running; then
             echo "Maho Shell: active"
             pgrep -af 'quickshell.*maho-shell/shell.qml'
@@ -138,14 +331,26 @@ case "${1:-run}" in
         echo "Maho Shell: inactive"
         exit 1
         ;;
+    doctor)
+        doctor
+        ;;
+    logs)
+        show_logs "${2:-120}"
+        ;;
     *)
         cat <<'HELP'
-Usage: maho-shell [run|start|stop|restart|status]
+Usage: maho-shell [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]]
 
 Maho Shell is the Quickshell desktop surface shipped with Maho OS. While it is
 running, Waybar is hidden. If the shell exits unexpectedly, the wrapper restores
 Waybar as a fallback rather than leaving the session without a bar. Only one
 Maho Shell instance may own the desktop edge at a time.
+
+Commands:
+  doctor         Check required runtime state and optional capabilities.
+  logs [LINES]   Print a bounded tail of the runtime log (default 120, max 500).
+  status --json  Emit machine-readable shell/service/config state.
+  reload         Restart the shell through the same safe runtime path.
 HELP
         exit 2
         ;;
