@@ -14,6 +14,8 @@ ShellRoot {
     SystemState { id: system }
 
     property bool expanded: false
+    property bool closing: false
+    property bool controlVisible: false
     property bool workspaceFlash: false
     property int lastWorkspace: 0
     property int surfaceHeight: 40
@@ -46,14 +48,25 @@ ShellRoot {
     }
 
     function openPanel() {
+        closeMorphTimer.stop()
         closeSurfaceTimer.stop()
+        closing = false
         surfaceHeight = island.expandedHeight + 2
         expanded = true
+        controlVisible = true
     }
 
     function closePanel() {
-        expanded = false
-        closeSurfaceTimer.restart()
+        if (!expanded || closing)
+            return
+
+        // First remove the dense control content while the full silhouette is
+        // still present. Only after that short fade do we morph the physical
+        // island back to its collapsed shape. This prevents the clipped little
+        // rectangle that used to flash during close.
+        closing = true
+        controlVisible = false
+        closeMorphTimer.restart()
     }
 
     function runShell(command) {
@@ -83,10 +96,23 @@ ShellRoot {
     }
 
     Timer {
-        id: closeSurfaceTimer
-        interval: 440
+        id: closeMorphTimer
+        interval: 135
         onTriggered: {
-            if (!root.expanded)
+            if (!root.closing)
+                return
+
+            root.expanded = false
+            root.closing = false
+            closeSurfaceTimer.restart()
+        }
+    }
+
+    Timer {
+        id: closeSurfaceTimer
+        interval: 430
+        onTriggered: {
+            if (!root.expanded && !root.closing)
                 root.surfaceHeight = 40
         }
     }
@@ -263,8 +289,8 @@ ShellRoot {
                     activeWorkspace: root.activeWorkspace
                     workspaceFlash: root.workspaceFlash
                     now: root.now
-                    opacity: root.expanded ? 0 : 1
-                    visible: opacity > 0.01
+                    enabled: !root.expanded && !root.closing
+                    opacity: root.expanded || root.closing ? 0 : 1
                     onOpenRequested: root.openPanel()
 
                     Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -280,10 +306,10 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     now: root.now
-                    opacity: root.expanded ? 1 : 0
-                    visible: opacity > 0.01
+                    enabled: root.controlVisible
+                    opacity: root.controlVisible ? 1 : 0
 
-                    Behavior on opacity { NumberAnimation { duration: 210 } }
+                    Behavior on opacity { NumberAnimation { duration: 125; easing.type: Easing.OutCubic } }
 
                     onCloseRequested: root.closePanel()
                     onVolumeRequested: function(value) { audio.setVolume(value) }
