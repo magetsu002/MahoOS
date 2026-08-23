@@ -5,6 +5,8 @@ set -u
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+SHELL_SOURCE="$ROOT/config/quickshell/maho-shell"
+SHELL_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
 MARKER="# managed-by: maho-setup v1"
 
 COMMANDS=(
@@ -19,6 +21,7 @@ COMMANDS=(
     maho-security-monitor
     maho-guard
     maho-contain
+    maho-shell
     maho-setup
 )
 
@@ -26,6 +29,20 @@ UNITS=(
     maho-wallpaper.service
     maho-observe.service
     maho-security.service
+    maho-shell.service
+)
+
+SHELL_FILES=(
+    shell.qml
+    MahoTheme.qml
+    Audio.qml
+    Brightness.qml
+    SystemState.qml
+    MahoCard.qml
+    SliderCard.qml
+    CollapsedIsland.qml
+    ControlCenter.qml
+    state.py
 )
 
 die() {
@@ -67,6 +84,11 @@ is_managed_unit() {
     [ -f "$target" ] && cmp -s "$target" "$source"
 }
 
+is_managed_shell() {
+    [ -L "$SHELL_TARGET" ] || return 1
+    [ "$(readlink -f -- "$SHELL_TARGET" 2>/dev/null || true)" = "$SHELL_SOURCE" ]
+}
+
 preflight() {
     local failed=0 name file
     [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
@@ -89,6 +111,15 @@ preflight() {
         fi
     done
 
+    for name in "${SHELL_FILES[@]}"; do
+        if [ -r "$SHELL_SOURCE/$name" ]; then
+            printf 'PASS  shell  %s\n' "$name"
+        else
+            printf 'FAIL  shell  %s missing\n' "$name"
+            failed=1
+        fi
+    done
+
     for file in config/ownership.json config/intent.json config/adapters.json; do
         if python -m json.tool "$ROOT/$file" >/dev/null 2>&1; then
             printf 'PASS  json   %s\n' "$file"
@@ -104,10 +135,11 @@ preflight() {
         "$ROOT/lib/security_incident.py" \
         "$ROOT/lib/security_preflight.py" \
         "$ROOT/lib/security_boundary.py" \
+        "$SHELL_SOURCE/state.py" \
         >/dev/null 2>&1; then
-        echo "PASS  python security modules"
+        echo "PASS  python modules"
     else
-        echo "FAIL  python security modules"
+        echo "FAIL  python modules"
         failed=1
     fi
 
@@ -123,6 +155,7 @@ preflight() {
         "$ROOT/bin/maho-security-monitor" \
         "$ROOT/bin/maho-guard" \
         "$ROOT/bin/maho-contain" \
+        "$ROOT/bin/maho-shell" \
         "$ROOT/bin/maho-setup" \
         "$ROOT/lib/authority.sh" \
         "$ROOT/lib/intent.sh" \
@@ -139,6 +172,19 @@ preflight() {
         }
 
     [ "$failed" -eq 0 ] && echo "PASS  shell syntax"
+
+    if command -v quickshell >/dev/null 2>&1; then
+        echo "PASS  capability quickshell"
+    else
+        echo "INFO  capability quickshell unavailable; Maho Shell will remain installed but inactive"
+    fi
+
+    if command -v brightnessctl >/dev/null 2>&1; then
+        echo "PASS  capability brightnessctl"
+    else
+        echo "INFO  capability brightnessctl unavailable; brightness control will be disabled"
+    fi
+
     return "$failed"
 }
 
@@ -174,6 +220,21 @@ install_unit() {
     ln -s "$source" "$target"
 }
 
+install_shell() {
+    mkdir -p "$(dirname "$SHELL_TARGET")"
+
+    if [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then
+        if is_managed_shell; then
+            rm -f "$SHELL_TARGET"
+        else
+            die "refusing to replace unmanaged Quickshell configuration: $SHELL_TARGET"
+            return 1
+        fi
+    fi
+
+    ln -s "$SHELL_SOURCE" "$SHELL_TARGET"
+}
+
 systemd_available() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
@@ -192,6 +253,11 @@ install() {
     done
 
     echo
+    echo "Installing Maho Shell..."
+    install_shell || return 1
+    echo "PASS  $SHELL_TARGET -> $SHELL_SOURCE"
+
+    echo
     echo "Installing user services..."
     for name in "${UNITS[@]}"; do
         install_unit "$name" || return 1
@@ -201,6 +267,11 @@ install() {
     if systemd_available; then
         systemctl --user daemon-reload
         for name in "${UNITS[@]}"; do
+            if [ "$name" = "maho-shell.service" ] && ! command -v quickshell >/dev/null 2>&1; then
+                echo "INFO  $name not started because quickshell is unavailable"
+                continue
+            fi
+
             if systemctl --user enable --now "$name" >/dev/null 2>&1; then
                 echo "PASS  $name enabled and started"
             else
@@ -228,6 +299,13 @@ status() {
             failed=1
         fi
     done
+
+    if is_managed_shell; then
+        echo "PASS  shell   $SHELL_TARGET"
+    else
+        echo "INFO  shell   $SHELL_TARGET not managed by this checkout"
+        failed=1
+    fi
 
     for name in "${UNITS[@]}"; do
         if is_managed_unit "$name"; then
@@ -271,6 +349,13 @@ uninstall() {
         fi
     done
 
+    if is_managed_shell; then
+        rm -f "$SHELL_TARGET"
+        echo "REMOVED  $SHELL_TARGET"
+    elif [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then
+        echo "KEPT     unmanaged Quickshell configuration $SHELL_TARGET"
+    fi
+
     for name in "${COMMANDS[@]}"; do
         path="$(launcher_path "$name")"
         if is_managed_launcher "$name"; then
@@ -282,7 +367,7 @@ uninstall() {
     done
 
     systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true
-    echo "PASS: Maho-managed user wiring removed; user data and configuration preserved"
+    echo "PASS: Maho-managed user wiring removed; user data and unmanaged configuration preserved"
 }
 
 case "${1:-}" in
@@ -301,11 +386,18 @@ Usage:
   maho-setup uninstall
 
 Setup wires the current checkout into the user session. It installs no system
-packages and uses no root access. Existing unmanaged commands and units are
-preserved rather than overwritten. The Maho security service runs the stateful
-read-only monitor and incident-oriented shadow guard; the separate
-maho-contain command requires a confirmed finding and explicit user
-confirmation before reversible user-process containment.
+packages and uses no root access. Existing unmanaged commands, units, and
+Quickshell configuration are preserved rather than overwritten.
+
+Maho Shell is installed as the Maho desktop surface when Quickshell is
+available. The shell reads Maho's active adaptive palette directly, provides
+contextual workspace/audio/brightness feedback, and restores Waybar if the
+shell exits unexpectedly.
+
+The Maho security service runs the stateful read-only monitor and
+incident-oriented shadow guard; the separate maho-contain command requires a
+confirmed finding and explicit user confirmation before reversible user-process
+containment.
 HELP
         ;;
 esac
