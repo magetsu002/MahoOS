@@ -8,6 +8,7 @@ ShellRoot {
     id: root
 
     property bool centerOpen: false
+    property bool centerPresented: false
 
     NotifyTheme { id: theme }
     NotificationModel { id: notificationModel }
@@ -98,13 +99,23 @@ ShellRoot {
     }
 
     function openCenter() {
+        centerCloseDelay.stop()
+        centerPresented = true
         centerOpen = true
+        centerSurface.timeReference = new Date()
         historyModel.markAllRead()
         centerSurface.forceActiveFocus()
     }
 
     function closeCenter() {
         centerOpen = false
+        centerCloseDelay.restart()
+    }
+
+    Timer {
+        id: centerCloseDelay
+        interval: 170
+        onTriggered: root.centerPresented = false
     }
 
     PanelWindow {
@@ -145,9 +156,9 @@ ShellRoot {
 
         color: "transparent"
         aboveWindows: true
-        focusable: true
+        focusable: root.centerOpen
         exclusionMode: ExclusionMode.Ignore
-        visible: root.centerOpen
+        visible: root.centerPresented
         mask: Region { item: centerSurface }
 
         NotificationCenter {
@@ -157,6 +168,7 @@ ShellRoot {
             theme: theme
             historyModel: historyModel
             availableHeight: centerOverlay.height
+            shown: root.centerOpen
             onCloseRequested: root.closeCenter()
         }
     }
