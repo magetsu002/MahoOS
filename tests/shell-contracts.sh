@@ -39,6 +39,7 @@ for file in \
     DockReservation.qml \
     MahoCard.qml \
     SliderCard.qml \
+    WorkspaceRail.qml \
     EdgeBar.qml \
     SideEdgeBar.qml \
     ControlCenter.qml \
@@ -103,18 +104,25 @@ if grep -Fq 'playerctl' "$SHELL_DIR/state.py"; then
 fi
 echo "PASS"
 
-echo "=== workspace event-sequence contract ==="
+echo "=== workspace travel contract ==="
 require_text shell.qml 'import Quickshell.Hyprland' "shell does not import native Hyprland service"
 require_text shell.qml 'Hyprland.focusedWorkspace' "shell does not use native focused workspace state"
 require_text shell.qml 'function onRawEvent(event)' "shell does not consume raw Hyprland events"
 require_text shell.qml 'event.name !== "workspacev2"' "workspacev2 is not the workspace animation authority"
 require_text shell.qml 'event.parse(2)' "workspacev2 payload is not parsed as id/name"
 require_text shell.qml 'workspaceEventSerial += 1' "workspace changes do not receive a unique event serial"
-require_text shell.qml 'Hyprland.refreshWorkspaces()' "workspace model is not refreshed after raw event"
-require_text EdgeBar.qml 'onWorkspaceEventSerialChanged:' "horizontal Maho Edge does not react to every workspace event"
-require_text EdgeBar.qml 'workspacePulseAnimation.restart()' "horizontal workspace pulse is not restartable"
-require_text SideEdgeBar.qml 'onWorkspaceEventSerialChanged:' "side Maho Edge does not react to every workspace event"
-require_text SideEdgeBar.qml 'workspacePulseAnimation.restart()' "side workspace pulse is not restartable"
+require_text WorkspaceRail.qml 'readonly property int slotCount: 5' "workspace rail is not fixed to five slots"
+require_text WorkspaceRail.qml 'readonly property int activeSlot:' "workspace rail does not map workspace number to a stable slot"
+require_text WorkspaceRail.qml 'id: activeMarker' "workspace rail lacks one movable active marker"
+require_text WorkspaceRail.qml 'rail.activeSlot * rail.step' "active workspace marker is not spatially positioned by slot"
+require_text WorkspaceRail.qml 'Behavior on x' "horizontal workspace marker does not animate across slots"
+require_text WorkspaceRail.qml 'Behavior on y' "vertical workspace marker does not animate across slots"
+require_text EdgeBar.qml 'WorkspaceRail {' "horizontal Maho Edge does not use the shared workspace rail"
+require_text SideEdgeBar.qml 'WorkspaceRail {' "side Maho Edge does not use the shared workspace rail"
+require_text SideEdgeBar.qml 'vertical: true' "side workspace rail is not vertical"
+if grep -RnsF 'workspacePulseAnimation' "$SHELL_DIR/EdgeBar.qml" "$SHELL_DIR/SideEdgeBar.qml"; then
+    fail "legacy whole-workspace pulse animation returned"
+fi
 echo "PASS"
 
 echo "=== persistent edge docking contract ==="
