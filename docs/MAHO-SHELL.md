@@ -90,6 +90,14 @@ The runtime-proven `DragHandler` path is intentionally isolated from control
 center click semantics and from compositor reservation. Changes to workspace
 feedback, naming, or reserved space must not rewrite that drag contract.
 
+The Edge is one global layer-shell surface; workspace 1 has no special input
+authority and dock state is not stored per workspace. The visible surface uses
+the Wayland overlay layer explicitly. Hyprland's top layer can sit underneath a
+fullscreen workspace client, which made the Edge appear to work on an empty
+workspace 1 while another workspace's client covered both its pixels and input.
+The reservation remains a separate lower layer. This repairs global pointer
+ownership without changing drag arbitration, snap geometry, or reservation.
+
 Side docks use a dedicated vertical layout rather than rotating text. Time is
 stacked, workspace feedback becomes vertical, and volume/brightness tracks fill
 vertically. The expanded control center keeps normal readable orientation and

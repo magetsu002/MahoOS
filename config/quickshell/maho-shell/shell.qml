@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Wayland
 
 ShellRoot {
     id: root
@@ -310,6 +311,11 @@ ShellRoot {
         aboveWindows: true
         focusable: false
         exclusionMode: ExclusionMode.Ignore
+
+        // WlrLayer.Top sits below fullscreen workspace content in Hyprland.
+        // Maho Edge is global desktop chrome, so its visible/input surface must
+        // remain on the overlay layer on every normal workspace.
+        WlrLayershell.layer: WlrLayer.Overlay
 
         mask: Region { item: edgeSurface }
 

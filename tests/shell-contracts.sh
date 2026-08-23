@@ -106,6 +106,7 @@ echo "PASS"
 
 echo "=== workspace travel contract ==="
 require_text shell.qml 'import Quickshell.Hyprland' "shell does not import native Hyprland service"
+require_text shell.qml 'import Quickshell.Wayland' "shell cannot select an explicit global layer-shell level"
 require_text shell.qml 'Hyprland.focusedWorkspace' "shell does not use native focused workspace state"
 require_text shell.qml 'function onRawEvent(event)' "shell does not consume raw Hyprland events"
 require_text shell.qml 'event.name !== "workspacev2"' "workspacev2 is not the workspace animation authority"
@@ -136,6 +137,7 @@ require_text shell.qml 'function nearestEdge(centerX, centerY)' "nearest-edge sn
 require_text shell.qml 'function edgePosition(edge, centerX, centerY)' "along-edge snap position missing"
 require_text shell.qml 'dock.setDock(edge, position)' "drag release does not persist snapped dock state"
 require_text shell.qml 'exclusionMode: ExclusionMode.Ignore' "full-screen drag layer should not reserve the desktop"
+require_text shell.qml 'WlrLayershell.layer: WlrLayer.Overlay' "visible Maho Edge can fall below fullscreen workspace content"
 require_text shell.qml 'mask: Region { item: edgeSurface }' "full-screen drag layer is not input-masked to Maho Edge"
 require_text shell.qml 'dock.edge === "left" || dock.edge === "right"' "vertical dock orientation missing"
 require_text shell.qml 'dock.edge === "bottom" ? 180' "bottom silhouette orientation missing"
@@ -153,6 +155,16 @@ require_text shell.qml 'activeTranslation.x' "dock drag does not follow pointer 
 if grep -Fq 'id: dockInput' "$SHELL_DIR/shell.qml"; then
     fail "experimental full-surface MouseArea drag path returned"
 fi
+echo "PASS"
+
+echo "=== workspace-independent Edge authority ==="
+if grep -RnsE 'workspace(Visual|Id|ID|id)?[[:space:]]*={2,3}[[:space:]]*1|activeWorkspace[[:space:]]*={2,3}[[:space:]]*1' "$SHELL_DIR" --include='*.qml'; then
+    fail "workspace 1 has special Edge interaction authority"
+fi
+if grep -RnsF 'WlrLayershell.layer: WlrLayer.Top' "$SHELL_DIR/shell.qml"; then
+    fail "visible Maho Edge regressed to a workspace-obscurable layer"
+fi
+require_text DockState.qml 'Quickshell.statePath("dock.json")' "global dock state is not stored once per shell"
 echo "PASS"
 
 echo "=== compositor reservation contract ==="
