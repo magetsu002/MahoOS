@@ -215,7 +215,6 @@ doctor() {
     print_capability brightnessctl "brightness control"
     print_capability nmcli "network details"
     print_capability bluetoothctl "Bluetooth details"
-    print_capability playerctl "media controls"
     print_capability grimblast "grimblast screenshots"
     print_capability hyprshot "hyprshot screenshot fallback"
 
