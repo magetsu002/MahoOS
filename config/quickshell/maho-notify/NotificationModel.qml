@@ -122,12 +122,14 @@ QtObject {
         if (nextQueue.length >= maxQueued) {
             let dropIndex = -1
             if (critical) {
-                for (let index = nextQueue.length - 1; index >= 0; --index) {
+                for (let index = 0; index < nextQueue.length; ++index) {
                     if (!nextQueue[index].critical) {
                         dropIndex = index
                         break
                     }
                 }
+                if (dropIndex < 0)
+                    dropIndex = 0
             }
 
             if (dropIndex < 0) {

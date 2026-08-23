@@ -242,6 +242,14 @@ status_json() {
         live_count="$(ipc_value livePopupCount || echo 0)"
         dropped_count="$(ipc_value droppedPopupCount || echo 0)"
         suppressed_count="$(ipc_value suppressedPopupCount || echo 0)"
+        [ -n "$dnd_value" ] || dnd_value=false
+        [ -n "$history_count" ] || history_count=0
+        [ -n "$unread_count" ] || unread_count=0
+        [ -n "$visible_count" ] || visible_count=0
+        [ -n "$queued_count" ] || queued_count=0
+        [ -n "$live_count" ] || live_count=0
+        [ -n "$dropped_count" ] || dropped_count=0
+        [ -n "$suppressed_count" ] || suppressed_count=0
         meta_json="$(META_DND="$dnd_value" META_HISTORY="$history_count" META_UNREAD="$unread_count" python - <<'PY'
 import json
 import os

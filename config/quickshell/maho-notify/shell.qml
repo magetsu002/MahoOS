@@ -11,7 +11,13 @@ ShellRoot {
 
     NotifyTheme { id: theme }
     NotificationModel { id: notificationModel }
-    HistoryModel { id: historyModel }
+    HistoryModel {
+        id: historyModel
+        onLoadedChanged: {
+            if (loaded && root.centerOpen)
+                markAllRead()
+        }
+    }
 
     NotificationService {
         id: notificationService

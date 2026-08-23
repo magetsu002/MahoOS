@@ -15,6 +15,7 @@ Scope {
     property bool dirtyBeforeLoad: false
     property int serial: 0
     property var protocolEntries: ({})
+    property var replacementEpochs: ({})
     readonly property int retainedCount: entries.length
     readonly property int unreadCount: countUnread(entries)
     readonly property var groupedEntries: buildGroups(entries)
@@ -108,22 +109,29 @@ Scope {
     }
 
     function applyReplacement(notification) {
-        const entryId = protocolEntries[String(notification.id)]
+        const protocolKey = String(notification.id)
+        const entryId = protocolEntries[protocolKey]
         const index = entryIndexById(entryId)
         if (index < 0)
             return
 
         const previous = entries[index]
+        const now = Date.now()
+        const priorEpoch = Number(replacementEpochs[protocolKey] || 0)
+        const nextEpochs = Object.assign({}, replacementEpochs)
+        nextEpochs[protocolKey] = now
+        replacementEpochs = nextEpochs
+        const newGeneration = now - priorEpoch > 50
         const updated = Object.assign({}, previous, {
             "appKey": appKey(notification),
             "appName": boundedText(notification.appName || "Notification", 192),
             "summary": boundedText(notification.summary || notification.appName || "Notification", 512),
             "body": boundedText(notification.body || "", 4096),
             "urgency": Number(notification.urgency),
-            "timestamp": Date.now(),
+            "timestamp": now,
             "read": false,
             "groupKey": appKey(notification),
-            "replacementCount": Number(previous.replacementCount || 0) + 1,
+            "replacementCount": Number(previous.replacementCount || 0) + (newGeneration ? 1 : 0),
             "icon": safeIcon(notification),
             "transient": Boolean(notification.transient)
         })
@@ -141,6 +149,9 @@ Scope {
         const nextMap = Object.assign({}, protocolEntries)
         delete nextMap[protocolKey]
         protocolEntries = nextMap
+        const nextEpochs = Object.assign({}, replacementEpochs)
+        delete nextEpochs[protocolKey]
+        replacementEpochs = nextEpochs
 
         if (index < 0)
             return
@@ -262,6 +273,7 @@ Scope {
     function clearHistory() {
         entries = []
         protocolEntries = ({})
+        replacementEpochs = ({})
         scheduleSave()
         return true
     }

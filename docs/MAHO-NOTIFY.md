@@ -56,6 +56,11 @@ share one popup slot and show a count; the previous live protocol object is
 released after its history snapshot is taken. Critical notifications never use
 this grouping path. The popup surface remains capped at three visible groups
 plus 100 queued groups, for at most 103 retained popup protocol objects.
+When that queue is full, normal/low popup work is released while its history
+snapshot remains. A new critical notification replaces the oldest queued
+lower-urgency popup, or the oldest queued critical popup when every queued item
+is critical, so the newest critical state remains visible without breaking the
+hard live-object bound.
 
 DND is persisted with history. Low and normal notifications are archived but
 their popup work is immediately released while DND is on. Critical

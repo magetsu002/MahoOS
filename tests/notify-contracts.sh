@@ -121,6 +121,12 @@ echo "=== privacy contract ==="
 if grep -RnsE 'console\.(log|info|warn|error).*body|print\(.*body|echo.*notification.*body' "$NOTIFY_DIR" "$RUNTIME"; then
     fail "notification body logging found"
 fi
+if grep -RnsE 'console\.(log|info|warn|error)' "$NOTIFY_DIR" --include='*.qml'; then
+    fail "notification QML console logging can expose private content"
+fi
+if grep -RnsE 'console\.(log|info|warn|error).*summary|console\.(log|info|warn|error).*hints' "$NOTIFY_DIR" --include='*.qml'; then
+    fail "notification summary or hint logging found"
+fi
 if find "$ROOT/tests" -type f -iname '*notif*' ! -name 'notify-contracts.sh' -print | grep -q .; then
     fail "unexpected notification fixture found; use synthetic runtime messages only"
 fi
