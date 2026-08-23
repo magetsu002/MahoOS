@@ -10,8 +10,6 @@ Scope {
     property bool bluetoothAvailable: false
     property bool bluetoothPowered: false
     property bool bluetoothConnected: false
-    property int battery: 100
-    property bool charging: false
 
     Process {
         id: reader
@@ -24,8 +22,6 @@ Scope {
                     state.bluetoothAvailable = data.bluetoothAvailable || false
                     state.bluetoothPowered = data.bluetoothPowered || false
                     state.bluetoothConnected = data.bluetoothConnected || false
-                    state.battery = data.battery ?? 100
-                    state.charging = data.charging || false
                 } catch (error) {
                     console.log("maho-shell ambient state parse:", error)
                 }
