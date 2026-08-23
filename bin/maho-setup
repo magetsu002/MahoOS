@@ -41,10 +41,11 @@ SHELL_FILES=(
     Media.qml
     SystemState.qml
     DockState.qml
+    DockReservation.qml
     MahoCard.qml
     SliderCard.qml
-    CollapsedIsland.qml
-    SideCollapsedIsland.qml
+    EdgeBar.qml
+    SideEdgeBar.qml
     ControlCenter.qml
     state.py
 )
@@ -394,9 +395,10 @@ packages and uses no root access. Existing unmanaged commands, units, and
 Quickshell configuration are preserved rather than overwritten.
 
 Maho Shell is installed as the Maho desktop surface when Quickshell is
-available. The shell reads Maho's active adaptive palette directly, provides
-contextual workspace/audio/brightness feedback, and restores Waybar if the
-shell exits unexpectedly.
+available. Maho Edge reads Maho's active adaptive palette directly, provides
+contextual workspace/audio/brightness feedback, reserves a small compositor
+breathing gap at its resting edge, and restores Waybar if the shell exits
+unexpectedly.
 
 The Maho security service runs the stateful read-only monitor and
 incident-oriented shadow guard; the separate maho-contain command requires a
