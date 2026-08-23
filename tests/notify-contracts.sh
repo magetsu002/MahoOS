@@ -25,6 +25,8 @@ echo "=== packaged Maho Notify components ==="
 for file in \
     shell.qml \
     NotificationService.qml \
+    AppIdentityResolver.qml \
+    AppIcon.qml \
     NotificationModel.qml \
     NotificationStack.qml \
     NotificationCard.qml \
@@ -36,6 +38,36 @@ for file in \
 do
     require_file "$file"
 done
+echo "PASS"
+
+echo "=== application identity and icon resolution contract ==="
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'DesktopEntries.applications.values' "resolver does not use the native desktop-entry model"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'function rebuildIndex()' "desktop entries are not centrally indexed"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'function entryForDesktopId' "desktop-entry identity matching missing"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'function entryForAppName' "exact app-name identity matching missing"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'return matches.length === 1 ? matches[0] : null' "ambiguous identities do not fail safely"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'Quickshell.hasThemeIcon(icon)' "explicit theme icons are not validated"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" '"explicit-icon"' "explicit icon priority missing"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" '"desktop-entry"' "desktop-entry icon priority missing"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" '"app-name"' "app-name icon priority missing"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'isNetworkSource(icon)' "network icon sources are not rejected"
+require_text "$NOTIFY_DIR/AppIcon.qml" 'status === Image.Error' "invalid local icons do not fall through safely"
+require_text "$NOTIFY_DIR/AppIcon.qml" 'fillMode: Image.PreserveAspectFit' "application icons may be stretched"
+require_text "$NOTIFY_DIR/NotificationCard.qml" 'iconSize: 26' "accepted popup app-icon target changed"
+require_text "$NOTIFY_DIR/NotificationCard.qml" 'identityResolver: card.identityResolver' "popup bypasses the central resolver"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'identityResolver: row.identityResolver' "history bypasses the central resolver"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'identityResolver.stableDesktopEntry(notification)' "history does not persist stable desktop identity"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'identityResolver.stableIconName(notification.appIcon)' "history icon persistence is not bounded to theme identities"
+require_text "$NOTIFY_DIR/state.py" '"desktopEntry": 192' "persisted desktop identity is not bounded"
+if grep -nE 'source:.*notification\.image|\?.*notification\.image' "$NOTIFY_DIR/NotificationCard.qml"; then
+    fail "notification content image is still used as application identity"
+fi
+if grep -RnsE 'https?://|ftp://' "$NOTIFY_DIR/AppIcon.qml"; then
+    fail "app icon renderer contains a network source"
+fi
+if grep -RnsE 'Process|execDetached|find |grep |\.desktop files' "$NOTIFY_DIR/AppIdentityResolver.qml"; then
+    fail "identity resolver performs per-notification process or filesystem scanning"
+fi
 echo "PASS"
 
 echo "=== notification center contract ==="

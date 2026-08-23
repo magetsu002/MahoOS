@@ -5,6 +5,7 @@ Item {
 
     required property var theme
     required property var notificationModel
+    required property var identityResolver
 
     width: 324
     height: stack.implicitHeight
@@ -23,6 +24,7 @@ Item {
 
                 width: stack.width
                 theme: root.theme
+                identityResolver: root.identityResolver
                 notification: modelData.notification
                 groupCount: modelData.groupCount
                 onDismissRequested: root.notificationModel.dismissGroup(modelData)

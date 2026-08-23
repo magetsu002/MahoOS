@@ -6,6 +6,8 @@ import Quickshell.Services.Notifications
 Scope {
     id: model
 
+    required property var identityResolver
+
     readonly property int maxEntries: 500
     readonly property int maxAgeMs: 7 * 24 * 60 * 60 * 1000
     readonly property int groupWindowMs: 2 * 60 * 1000
@@ -28,13 +30,6 @@ Scope {
         if (value === undefined || value === null)
             return ""
         return String(value).slice(0, maximum)
-    }
-
-    function safeIcon(notification) {
-        const icon = boundedText(notification.appIcon, 512)
-        if (icon.startsWith("data:") || icon.startsWith("image://"))
-            return ""
-        return icon
     }
 
     function appKey(notification) {
@@ -71,7 +66,8 @@ Scope {
             "groupCount": 1,
             "replacementCount": 0,
             "closeReason": "live",
-            "icon": safeIcon(notification),
+            "desktopEntry": identityResolver.stableDesktopEntry(notification),
+            "icon": identityResolver.stableIconName(notification.appIcon),
             "transient": Boolean(notification.transient)
         }
     }
@@ -98,6 +94,7 @@ Scope {
 
         notification.appNameChanged.connect(function() { model.applyReplacement(notification) })
         notification.appIconChanged.connect(function() { model.applyReplacement(notification) })
+        notification.desktopEntryChanged.connect(function() { model.applyReplacement(notification) })
         notification.summaryChanged.connect(function() { model.applyReplacement(notification) })
         notification.bodyChanged.connect(function() { model.applyReplacement(notification) })
         notification.urgencyChanged.connect(function() { model.applyReplacement(notification) })
@@ -136,7 +133,8 @@ Scope {
             "read": false,
             "groupKey": appKey(notification),
             "replacementCount": Number(previous.replacementCount || 0) + (newGeneration ? 1 : 0),
-            "icon": safeIcon(notification),
+            "desktopEntry": identityResolver.stableDesktopEntry(notification),
+            "icon": identityResolver.stableIconName(notification.appIcon),
             "transient": Boolean(notification.transient)
         })
         const next = entries.slice()

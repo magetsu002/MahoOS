@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import Quickshell.Services.Notifications
 
 Rectangle {
@@ -7,15 +6,12 @@ Rectangle {
 
     required property var theme
     required property var entry
+    required property var identityResolver
     property string relativeTimestamp: ""
     property bool selected: false
     property bool expanded: false
     readonly property bool unread: Number(entry.groupUnread || 0) > 0
     readonly property bool critical: Number(entry.urgency) === Number(NotificationUrgency.Critical)
-    readonly property string iconSource: {
-        const icon = entry.icon || ""
-        return icon !== "" ? Quickshell.iconPath(icon, "dialog-information") : ""
-    }
 
     signal activated()
 
@@ -62,34 +58,14 @@ Rectangle {
         width: parent.width - 24
         spacing: 10
 
-        Item {
-            width: 30
-            height: 30
-
-            Rectangle {
-                anchors.fill: parent
-                radius: 9
-                color: theme.alpha(critical ? theme.error : theme.primary, 0.13)
-                visible: historyIcon.source.toString().length === 0
-
-                Text {
-                    anchors.centerIn: parent
-                    text: String(entry.appName || "N").slice(0, 1).toUpperCase()
-                    color: critical ? theme.error : theme.primary
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                    textFormat: Text.PlainText
-                }
-            }
-
-            Image {
-                id: historyIcon
-                anchors.fill: parent
-                source: row.iconSource
-                sourceSize.width: 30
-                sourceSize.height: 30
-                fillMode: Image.PreserveAspectFit
-            }
+        AppIcon {
+            theme: row.theme
+            identityResolver: row.identityResolver
+            entry: row.entry
+            iconSize: 30
+            cornerRadius: 9
+            backgroundColor: theme.alpha(critical ? theme.error : theme.primary, 0.13)
+            foregroundColor: critical ? theme.error : theme.primary
         }
 
         Column {
