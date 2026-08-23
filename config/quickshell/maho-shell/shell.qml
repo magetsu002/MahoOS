@@ -206,6 +206,7 @@ ShellRoot {
     }
 
     function openNotificationCenter() {
+        closePanel()
         Quickshell.execDetached([
             Quickshell.env("HOME") + "/.local/bin/maho-notify",
             "center"
@@ -581,7 +582,6 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     battery: battery
-                    notifyStatus: notifyBridge
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -590,7 +590,6 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
-                    onNotifyRequested: root.openNotificationCenter()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
@@ -604,7 +603,6 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     battery: battery
-                    notifyStatus: notifyBridge
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -613,7 +611,6 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
-                    onNotifyRequested: root.openNotificationCenter()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
@@ -629,6 +626,7 @@ ShellRoot {
                     system: system
                     battery: battery
                     media: media
+                    notifyStatus: notifyBridge
                     now: root.now
                     enabled: root.controlVisible
                     opacity: root.controlVisible ? 1 : 0
@@ -663,6 +661,7 @@ ShellRoot {
                     onMediaPreviousRequested: media.previous()
                     onMediaToggleRequested: media.toggle()
                     onMediaNextRequested: media.next()
+                    onNotificationsRequested: root.openNotificationCenter()
                 }
             }
 

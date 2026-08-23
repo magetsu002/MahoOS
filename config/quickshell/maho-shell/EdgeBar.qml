@@ -8,7 +8,6 @@ Item {
     property var brightness
     property var system
     property var battery
-    property var notifyStatus
     property var workspaceIds: []
     property int activeWorkspace: 0
     property bool workspaceFlash: false
@@ -23,15 +22,6 @@ Item {
         : "idle"
 
     signal openRequested()
-    signal notifyRequested()
-
-    function notificationHit(point) {
-        return notifyIndicator.visible
-            && point.x >= notifyIndicator.x - 4
-            && point.x <= notifyIndicator.x + notifyIndicator.width + 4
-            && point.y >= notifyIndicator.y - 4
-            && point.y <= notifyIndicator.y + notifyIndicator.height + 4
-    }
 
     function networkGlyph() {
         if (system && system.networkKind === "wifi") return "󰖩"
@@ -83,15 +73,9 @@ Item {
     }
 
     TapHandler {
-        id: edgeTap
         enabled: edge.enabled
         acceptedButtons: Qt.LeftButton
-        onTapped: {
-            if (edge.notificationHit(point.position))
-                edge.notifyRequested()
-            else
-                edge.openRequested()
-        }
+        onTapped: edge.openRequested()
     }
 
     Item {
@@ -127,7 +111,6 @@ Item {
         }
 
         Text {
-            id: batteryView
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             visible: edge.battery ? edge.battery.available : false
@@ -141,16 +124,6 @@ Item {
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 13
             Behavior on color { ColorAnimation { duration: 360 } }
-        }
-
-        NotifyIndicator {
-            id: notifyIndicator
-            anchors.right: batteryView.left
-            anchors.rightMargin: 7
-            anchors.verticalCenter: parent.verticalCenter
-            theme: edge.theme
-            notifyStatus: edge.notifyStatus
-            vertical: false
         }
     }
 

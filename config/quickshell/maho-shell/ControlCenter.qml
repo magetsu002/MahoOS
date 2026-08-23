@@ -9,6 +9,7 @@ Item {
     property var system
     property var battery
     property var media
+    property var notifyStatus
     property date now: new Date()
 
     signal closeRequested()
@@ -21,6 +22,7 @@ Item {
     signal mediaPreviousRequested()
     signal mediaToggleRequested()
     signal mediaNextRequested()
+    signal notificationsRequested()
     signal volumeRequested(real value)
     signal brightnessRequested(real value)
 
@@ -250,6 +252,86 @@ Item {
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
                 Behavior on color { ColorAnimation { duration: 360 } }
+            }
+        }
+
+        MahoCard {
+            width: parent.width
+            height: 48
+            theme: center.theme
+            interactive: true
+            emphasized: center.notifyStatus && center.notifyStatus.unreadCount > 0
+            onActivated: center.notificationsRequested()
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                width: 27
+                height: 27
+                radius: 9
+                color: center.theme
+                    ? center.theme.alpha(center.theme.primary,
+                        center.notifyStatus && center.notifyStatus.unreadCount > 0 ? 0.17 : 0.08)
+                    : "transparent"
+
+                Text {
+                    anchors.centerIn: parent
+                    text: center.notifyStatus && center.notifyStatus.dndEnabled ? "󰂛" : "󰂚"
+                    color: center.theme
+                        ? (center.notifyStatus && center.notifyStatus.unreadCount > 0
+                            ? center.theme.primary : center.theme.muted)
+                        : "white"
+                    font.family: "JetBrainsMono Nerd Font"
+                    font.pixelSize: 14
+                    textFormat: Text.PlainText
+                    Behavior on color { ColorAnimation { duration: 220 } }
+                }
+            }
+
+            Column {
+                anchors.left: parent.left
+                anchors.leftMargin: 50
+                anchors.right: openArrow.left
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 0
+
+                Text {
+                    text: "Notifications"
+                    color: center.theme ? center.theme.foreground : "white"
+                    font.pixelSize: 10
+                    font.weight: Font.DemiBold
+                    textFormat: Text.PlainText
+                    Behavior on color { ColorAnimation { duration: 300 } }
+                }
+
+                Text {
+                    width: parent.width
+                    text: !center.notifyStatus || !center.notifyStatus.active
+                        ? "Open notification center"
+                        : (center.notifyStatus.dndEnabled
+                            ? "DND on · " + String(center.notifyStatus.unreadCount) + " unread"
+                            : (center.notifyStatus.unreadCount > 0
+                                ? String(center.notifyStatus.unreadCount) + " unread"
+                                : "All clear · DND off"))
+                    color: center.theme ? center.theme.alpha(center.theme.muted, 0.70) : "#bdb8c3"
+                    font.pixelSize: 8
+                    elide: Text.ElideRight
+                    textFormat: Text.PlainText
+                    Behavior on color { ColorAnimation { duration: 300 } }
+                }
+            }
+
+            Text {
+                id: openArrow
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                text: "›"
+                color: center.theme ? center.theme.muted : "white"
+                font.pixelSize: 17
+                textFormat: Text.PlainText
             }
         }
 

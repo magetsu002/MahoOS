@@ -51,6 +51,7 @@ SHELL_FILES=(
     WorkspaceRail.qml
     EdgeBar.qml
     SideEdgeBar.qml
+    NotifyStatus.qml
     ControlCenter.qml
     state.py
 )

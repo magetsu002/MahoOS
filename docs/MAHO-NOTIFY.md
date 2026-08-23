@@ -68,9 +68,28 @@ notifications explicitly bypass DND. `maho-notify dnd on|off|toggle|status` and
 `maho-notify history clear` manage this state without printing notification
 content; `status --json` exposes counts, DND, and bounded popup metadata only.
 
-The N2 Notification Center is an independent 420 px right-side overlay with a
-height capped at 680 px and the current monitor's safe area. It uses a
-virtualized, reusable `ListView`, dense grouped history rows, two-line collapsed
-bodies, eight-line expanded bodies, DND/read/clear controls, and Escape to
-close. Opening the center marks displayed history read. Historical snapshots do
-not expose live app-action buttons. `maho-notify center` opens the surface.
+The N2.1 Notification Center is an independent 432 px right-side overlay with a
+height capped at 704 px and the current monitor's safe area. Its adaptive Maho
+material, compact header, unread badge, DND pill, subtle time sections, relative
+timestamps, focus rail, and restrained slide/fade motion all derive from the
+active semantic palette. It uses a virtualized, reusable `ListView`, dense
+grouped history rows, two-line collapsed bodies, eight-line expanded bodies,
+DND/read/clear controls, keyboard navigation, and Escape to close. Opening the
+center marks displayed history read. Historical snapshots do not expose live
+app-action buttons. `maho-notify center` opens the surface.
+
+## N2.2 Maho Edge bridge
+
+Maho Notify atomically publishes only `version`, `unread_count`, `dnd`, and
+`active` to `$XDG_RUNTIME_DIR/maho/notify-status.json`. Its directory is mode
+`0700` and the file is mode `0600`. No application name, title, summary, body,
+hint, history entry, or action crosses this bridge. The sidecar becomes inactive
+on a clean Notify shutdown and is recreated from live state on startup.
+
+Maho Edge watches this small runtime file reactively only for a compact
+Notifications entry inside its expanded control center. The collapsed Edge is
+unchanged and shows no notification glyph or badge. The expanded entry reports
+unread/DND state and invokes the existing managed `maho-notify center` path.
+Edge never reads the persistent history file and remains functional when the
+metadata is missing, malformed, stale, or inactive. Maho Notify continues to
+operate independently when Maho Edge is absent.
