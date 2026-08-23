@@ -16,8 +16,9 @@ feedback and a larger control center when interaction requires more room.
 - **One interaction target.** Tiny status glyphs are indicators. The collapsed
   island itself is the reliable click target for the control center.
 - **Immediate feedback.** Workspace state is driven from Hyprland events, audio
-  is driven directly from PipeWire, and media is driven directly from MPRIS
-  rather than periodic shell commands.
+  is driven directly from PipeWire, media is driven directly from MPRIS, and
+  battery state is driven directly from UPower rather than periodic shell
+  commands.
 - **Wallpaper-native color.** Maho Shell reads Maho's active palette directly
   and transitions surfaces, foregrounds and accents when the wallpaper-derived
   theme changes.
@@ -46,7 +47,7 @@ The control center currently exposes:
 
 - Wi-Fi status and network entry point
 - Bluetooth status and command entry point
-- battery state
+- native UPower battery state
 - live output-volume slider
 - live brightness slider
 - wallpaper picker entry point
@@ -62,6 +63,16 @@ from Quickshell's service model, follows its title/artist/playback properties
 reactively, and invokes previous/play-pause/next on that player directly. This
 removes the old ambient polling delay from playback controls and keeps paused
 players available in the control center.
+
+Battery does not scrape `/sys/class/power_supply`. `Battery.qml` follows
+Quickshell's UPower display device directly, so percentage and charging state
+are reactive properties shared by the collapsed island and control center.
+Battery UI disappears cleanly on systems without a usable display battery.
+
+The remaining Python ambient probe is intentionally narrow: it currently covers
+network and Bluetooth summary state only. Those paths stay isolated so they can
+be replaced independently after their Quickshell service contracts are
+runtime-validated on the target Arch session.
 
 ## Dynamic color contract
 
