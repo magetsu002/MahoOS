@@ -10,9 +10,8 @@ MahoCard {
     property color accent: theme ? theme.primary : "#d0bcff"
     property bool sliderEnabled: true
 
-    // Keep a local preview only while the pointer is actively dragging. Outside
-    // that window the rendered value always comes from the live service again,
-    // so keyboard/media-key changes remain visible while the panel is open.
+    // The service remains authoritative. previewValue exists only while a
+    // pointer gesture is active so external keys/mixers keep the UI live.
     property real previewValue: value
     readonly property real displayedValue: dragArea.dragging ? previewValue : value
 
@@ -86,18 +85,24 @@ MahoCard {
             color: slider.accent
 
             Behavior on width {
-                NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: 75; easing.type: Easing.OutCubic }
             }
 
             Behavior on color { ColorAnimation { duration: 360 } }
         }
 
+        // The old target was literally the five-pixel visual track. Keep the
+        // track visually thin but give it a premium 28px interaction lane.
         MouseArea {
             id: dragArea
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            height: 28
             enabled: slider.sliderEnabled
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
+            preventStealing: true
 
             property bool dragging: false
 
