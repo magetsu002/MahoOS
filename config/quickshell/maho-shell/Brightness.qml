@@ -9,6 +9,7 @@ Scope {
     property bool available: false
     property bool initialized: false
     property bool overlayOpen: false
+    property bool commandAvailable: false
 
     function parse(text) {
         const match = String(text || "").match(/(\d+)%/)
@@ -20,6 +21,7 @@ Scope {
         const next = Math.max(0, Math.min(100, Number(match[1])))
         const changed = initialized && next !== value
 
+        commandAvailable = true
         available = true
         value = next
         initialized = true
@@ -34,7 +36,7 @@ Scope {
     }
 
     function setValue(percent) {
-        if (!available)
+        if (!available || !commandAvailable)
             return
 
         const bounded = Math.max(1, Math.min(100, Math.round(percent)))
@@ -50,6 +52,19 @@ Scope {
     }
 
     Process {
+        id: probe
+        command: [
+            "bash",
+            "-lc",
+            "command -v brightnessctl >/dev/null 2>&1 && brightnessctl -m"
+        ]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: brightness.parse(this.text)
+        }
+    }
+
+    Process {
         id: reader
         stdout: StdioCollector {
             onStreamFinished: brightness.parse(this.text)
@@ -59,8 +74,7 @@ Scope {
     Timer {
         interval: 250
         repeat: true
-        running: true
-        triggeredOnStart: true
+        running: brightness.commandAvailable
         onTriggered: {
             if (!reader.running)
                 reader.exec(["brightnessctl", "-m"])
