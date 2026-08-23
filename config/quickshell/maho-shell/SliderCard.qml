@@ -10,10 +10,21 @@ MahoCard {
     property color accent: theme ? theme.primary : "#d0bcff"
     property bool sliderEnabled: true
 
+    // Keep a local preview only while the pointer is actively dragging. Outside
+    // that window the rendered value always comes from the live service again,
+    // so keyboard/media-key changes remain visible while the panel is open.
+    property real previewValue: value
+    readonly property real displayedValue: dragArea.dragging ? previewValue : value
+
     signal valueRequested(real value)
 
     height: 56
     interactive: false
+
+    onValueChanged: {
+        if (!dragArea.dragging)
+            previewValue = value
+    }
 
     Text {
         anchors.left: parent.left
@@ -45,7 +56,7 @@ MahoCard {
         anchors.rightMargin: 14
         anchors.top: parent.top
         anchors.topMargin: 9
-        text: slider.sliderEnabled ? slider.value + "%" : "N/A"
+        text: slider.sliderEnabled ? Math.round(slider.displayedValue) + "%" : "N/A"
         color: slider.theme ? slider.theme.muted : "#bdb8c3"
         font.pixelSize: 9
 
@@ -68,7 +79,7 @@ MahoCard {
 
         Rectangle {
             width: slider.sliderEnabled
-                ? parent.width * Math.min(slider.maximum, Math.max(0, slider.value)) / slider.maximum
+                ? parent.width * Math.min(slider.maximum, Math.max(0, slider.displayedValue)) / slider.maximum
                 : 0
             height: parent.height
             radius: parent.radius
@@ -82,21 +93,46 @@ MahoCard {
         }
 
         MouseArea {
+            id: dragArea
             anchors.fill: parent
             enabled: slider.sliderEnabled
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
 
-            function applyAt(x) {
-                slider.valueRequested(
-                    Math.max(0, Math.min(slider.maximum, x / width * slider.maximum))
+            property bool dragging: false
+
+            function valueAt(x) {
+                return Math.max(
+                    0,
+                    Math.min(slider.maximum, x / width * slider.maximum)
                 )
             }
 
-            onPressed: function(mouse) { applyAt(mouse.x) }
+            function applyAt(x) {
+                const next = valueAt(x)
+                slider.previewValue = next
+                slider.valueRequested(next)
+            }
+
+            onPressed: function(mouse) {
+                dragging = true
+                applyAt(mouse.x)
+            }
+
             onPositionChanged: function(mouse) {
                 if (pressed)
                     applyAt(mouse.x)
+            }
+
+            onReleased: function(mouse) {
+                applyAt(mouse.x)
+                dragging = false
+                slider.previewValue = slider.value
+            }
+
+            onCanceled: {
+                dragging = false
+                slider.previewValue = slider.value
             }
         }
     }
