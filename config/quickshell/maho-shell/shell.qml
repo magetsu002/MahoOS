@@ -12,6 +12,7 @@ ShellRoot {
     Audio { id: audio }
     Brightness { id: brightness }
     SystemState { id: system }
+    Media { id: media }
 
     property bool expanded: false
     property bool closing: false
@@ -305,6 +306,7 @@ ShellRoot {
                     audio: audio
                     brightness: brightness
                     system: system
+                    media: media
                     now: root.now
                     enabled: root.controlVisible
                     opacity: root.controlVisible ? 1 : 0
@@ -340,9 +342,9 @@ ShellRoot {
                         ])
                     }
 
-                    onMediaPreviousRequested: Quickshell.execDetached(["playerctl", "previous"])
-                    onMediaToggleRequested: Quickshell.execDetached(["playerctl", "play-pause"])
-                    onMediaNextRequested: Quickshell.execDetached(["playerctl", "next"])
+                    onMediaPreviousRequested: media.previous()
+                    onMediaToggleRequested: media.toggle()
+                    onMediaNextRequested: media.next()
                 }
             }
         }
