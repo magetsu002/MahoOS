@@ -32,6 +32,7 @@ for file in \
     MahoTheme.qml \
     Audio.qml \
     Brightness.qml \
+    Media.qml \
     SystemState.qml \
     MahoCard.qml \
     SliderCard.qml \
@@ -58,6 +59,19 @@ require_text CollapsedIsland.qml 'onWheel: function(wheel)' "collapsed island wh
 require_text CollapsedIsland.qml 'collapsed.audio.setVolume' "collapsed island wheel does not drive audio service"
 require_text CollapsedIsland.qml 'collapsed.audio.toggleMute()' "collapsed island middle-click mute missing"
 require_text CollapsedIsland.qml 'collapsed.openRequested()' "collapsed island does not open control center"
+echo "PASS"
+
+echo "=== native media contract ==="
+require_text Media.qml 'import Quickshell.Services.Mpris' "media is not MPRIS-native"
+require_text Media.qml 'Mpris.players.values' "media does not use Quickshell MPRIS player model"
+require_text Media.qml 'function previous()' "native media previous action missing"
+require_text Media.qml 'function toggle()' "native media play/pause action missing"
+require_text Media.qml 'function next()' "native media next action missing"
+require_text shell.qml 'Media { id: media }' "shell does not instantiate native media service"
+require_text shell.qml 'onMediaToggleRequested: media.toggle()' "control center does not route play/pause to native media"
+if grep -Fq 'playerctl' "$SHELL_DIR/state.py"; then
+    fail "ambient state probe still polls media through playerctl"
+fi
 echo "PASS"
 
 echo "=== workspace responsiveness contract ==="
@@ -94,7 +108,6 @@ require_runtime_text 'shell_count()' "singleton diagnostics missing"
 require_runtime_text 'python -m json.tool "$PALETTE"' "palette diagnostics missing"
 require_runtime_text 'print_capability brightnessctl' "brightness capability diagnostics missing"
 require_runtime_text 'print_capability nmcli' "network capability diagnostics missing"
-require_runtime_text 'print_capability playerctl' "media capability diagnostics missing"
 echo "PASS"
 
 echo "=== known QML footgun contract ==="
