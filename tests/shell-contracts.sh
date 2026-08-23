@@ -36,15 +36,18 @@ for file in \
     Media.qml \
     SystemState.qml \
     DockState.qml \
+    DockReservation.qml \
     MahoCard.qml \
     SliderCard.qml \
-    CollapsedIsland.qml \
-    SideCollapsedIsland.qml \
+    EdgeBar.qml \
+    SideEdgeBar.qml \
     ControlCenter.qml \
     state.py
  do
     require_file "$file"
  done
+[ ! -e "$SHELL_DIR/CollapsedIsland.qml" ] || fail "legacy CollapsedIsland.qml returned"
+[ ! -e "$SHELL_DIR/SideCollapsedIsland.qml" ] || fail "legacy SideCollapsedIsland.qml returned"
 echo "PASS"
 
 echo "=== dynamic palette contract ==="
@@ -59,19 +62,20 @@ require_text Battery.qml 'import Quickshell' "Battery.qml uses Scope without imp
 require_text Media.qml 'import Quickshell' "Media.qml uses Scope without importing Quickshell"
 require_text DockState.qml 'import Quickshell' "DockState.qml uses Scope without importing Quickshell"
 require_text DockState.qml 'import Quickshell.Io' "DockState.qml does not import Quickshell.Io"
+require_text DockReservation.qml 'import Quickshell' "DockReservation.qml does not import Quickshell"
 echo "PASS"
 
 echo "=== native live interaction contract ==="
 require_text Audio.qml 'import Quickshell.Services.Pipewire' "audio is not PipeWire-native"
 require_text Audio.qml 'function setVolume(percent)' "audio volume mutation missing"
 require_text Audio.qml 'function toggleMute()' "audio mute mutation missing"
-require_text CollapsedIsland.qml 'onWheel: function(wheel)' "collapsed island wheel interaction missing"
-require_text CollapsedIsland.qml 'collapsed.audio.setVolume' "collapsed island wheel does not drive audio service"
-require_text CollapsedIsland.qml 'collapsed.audio.toggleMute()' "collapsed island middle-click mute missing"
-require_text CollapsedIsland.qml 'collapsed.openRequested()' "collapsed island does not open control center"
-require_text SideCollapsedIsland.qml 'onWheel: function(wheel)' "side island wheel interaction missing"
-require_text SideCollapsedIsland.qml 'collapsed.audio.toggleMute()' "side island middle-click mute missing"
-require_text SideCollapsedIsland.qml 'collapsed.openRequested()' "side island does not open control center"
+require_text EdgeBar.qml 'onWheel: function(wheel)' "Maho Edge wheel interaction missing"
+require_text EdgeBar.qml 'edge.audio.setVolume' "Maho Edge wheel does not drive audio service"
+require_text EdgeBar.qml 'edge.audio.toggleMute()' "Maho Edge middle-click mute missing"
+require_text EdgeBar.qml 'edge.openRequested()' "Maho Edge does not open control center"
+require_text SideEdgeBar.qml 'onWheel: function(wheel)' "side Maho Edge wheel interaction missing"
+require_text SideEdgeBar.qml 'edge.audio.toggleMute()' "side Maho Edge middle-click mute missing"
+require_text SideEdgeBar.qml 'edge.openRequested()' "side Maho Edge does not open control center"
 echo "PASS"
 
 echo "=== native battery contract ==="
@@ -99,10 +103,18 @@ if grep -Fq 'playerctl' "$SHELL_DIR/state.py"; then
 fi
 echo "PASS"
 
-echo "=== workspace responsiveness contract ==="
+echo "=== workspace event-sequence contract ==="
 require_text shell.qml 'import Quickshell.Hyprland' "shell does not import native Hyprland service"
 require_text shell.qml 'Hyprland.focusedWorkspace' "shell does not use native focused workspace state"
-require_text shell.qml 'onFocusedWorkspaceChanged()' "shell does not react to workspace events"
+require_text shell.qml 'function onRawEvent(event)' "shell does not consume raw Hyprland events"
+require_text shell.qml 'event.name !== "workspacev2"' "workspacev2 is not the workspace animation authority"
+require_text shell.qml 'event.parse(2)' "workspacev2 payload is not parsed as id/name"
+require_text shell.qml 'workspaceEventSerial += 1' "workspace changes do not receive a unique event serial"
+require_text shell.qml 'Hyprland.refreshWorkspaces()' "workspace model is not refreshed after raw event"
+require_text EdgeBar.qml 'onWorkspaceEventSerialChanged:' "horizontal Maho Edge does not react to every workspace event"
+require_text EdgeBar.qml 'workspacePulseAnimation.restart()' "horizontal workspace pulse is not restartable"
+require_text SideEdgeBar.qml 'onWorkspaceEventSerialChanged:' "side Maho Edge does not react to every workspace event"
+require_text SideEdgeBar.qml 'workspacePulseAnimation.restart()' "side workspace pulse is not restartable"
 echo "PASS"
 
 echo "=== persistent edge docking contract ==="
@@ -114,16 +126,37 @@ require_text DockState.qml 'function setDock(nextEdge, nextPosition)' "dock stat
 require_text shell.qml 'DockState { id: dock }' "shell does not instantiate persistent dock state"
 require_text shell.qml 'function nearestEdge(centerX, centerY)' "nearest-edge snap policy missing"
 require_text shell.qml 'function edgePosition(edge, centerX, centerY)' "along-edge snap position missing"
-require_text shell.qml 'DragHandler {' "collapsed island is not draggable"
-require_text shell.qml 'target: null' "dock drag must not bypass bounded snap geometry"
-require_text shell.qml 'activeTranslation.x' "dock drag does not follow pointer translation"
 require_text shell.qml 'dock.setDock(edge, position)' "drag release does not persist snapped dock state"
 require_text shell.qml 'exclusionMode: ExclusionMode.Ignore' "full-screen drag layer should not reserve the desktop"
-require_text shell.qml 'mask: Region { item: island }' "full-screen drag layer is not input-masked to the island"
+require_text shell.qml 'mask: Region { item: edgeSurface }' "full-screen drag layer is not input-masked to Maho Edge"
 require_text shell.qml 'dock.edge === "left" || dock.edge === "right"' "vertical dock orientation missing"
 require_text shell.qml 'dock.edge === "bottom" ? 180' "bottom silhouette orientation missing"
 require_text shell.qml 'dock.edge === "left" ? -90' "left silhouette orientation missing"
 require_text shell.qml 'dock.edge === "right" ? 90' "right silhouette orientation missing"
+echo "PASS"
+
+echo "=== runtime-proven drag freeze contract ==="
+require_text shell.qml 'DragHandler {' "Maho Edge drag handler missing"
+require_text shell.qml 'id: dockDrag' "runtime-proven drag handler id changed"
+require_text shell.qml 'target: null' "dock drag must not bypass bounded snap geometry"
+require_text shell.qml 'acceptedButtons: Qt.LeftButton' "dock drag left-button contract changed"
+require_text shell.qml 'dragThreshold: 8' "runtime-proven drag threshold changed"
+require_text shell.qml 'activeTranslation.x' "dock drag does not follow pointer translation"
+if grep -Fq 'id: dockInput' "$SHELL_DIR/shell.qml"; then
+    fail "experimental full-surface MouseArea drag path returned"
+fi
+echo "PASS"
+
+echo "=== compositor reservation contract ==="
+require_text shell.qml 'DockReservation {' "Maho Edge does not instantiate compositor reservation"
+require_text shell.qml 'screen: panel.screen' "reservation is not tied to the visible Edge screen"
+require_text shell.qml 'breathingRoom: 8' "Maho Edge breathing room changed unexpectedly"
+require_text DockReservation.qml 'exclusiveZone: reservedThickness' "reservation does not own an exclusive zone"
+require_text DockReservation.qml 'horizontalBarThickness: 40' "horizontal reservation lost collapsed Edge thickness"
+require_text DockReservation.qml 'verticalBarThickness: 46' "vertical reservation lost collapsed Edge thickness"
+require_text DockReservation.qml 'mask: Region {}' "reservation can intercept desktop input"
+require_text DockReservation.qml 'aboveWindows: false' "reservation should not render as a top overlay"
+require_text DockReservation.qml 'dock.edge === "top" || vertical' "reservation does not follow dock orientation"
 echo "PASS"
 
 echo "=== staged close contract ==="
