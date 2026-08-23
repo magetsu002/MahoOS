@@ -35,9 +35,11 @@ for file in \
     Battery.qml \
     Media.qml \
     SystemState.qml \
+    DockState.qml \
     MahoCard.qml \
     SliderCard.qml \
     CollapsedIsland.qml \
+    SideCollapsedIsland.qml \
     ControlCenter.qml \
     state.py
  do
@@ -55,6 +57,8 @@ echo "PASS"
 echo "=== QML scope import contract ==="
 require_text Battery.qml 'import Quickshell' "Battery.qml uses Scope without importing Quickshell"
 require_text Media.qml 'import Quickshell' "Media.qml uses Scope without importing Quickshell"
+require_text DockState.qml 'import Quickshell' "DockState.qml uses Scope without importing Quickshell"
+require_text DockState.qml 'import Quickshell.Io' "DockState.qml does not import Quickshell.Io"
 echo "PASS"
 
 echo "=== native live interaction contract ==="
@@ -65,6 +69,9 @@ require_text CollapsedIsland.qml 'onWheel: function(wheel)' "collapsed island wh
 require_text CollapsedIsland.qml 'collapsed.audio.setVolume' "collapsed island wheel does not drive audio service"
 require_text CollapsedIsland.qml 'collapsed.audio.toggleMute()' "collapsed island middle-click mute missing"
 require_text CollapsedIsland.qml 'collapsed.openRequested()' "collapsed island does not open control center"
+require_text SideCollapsedIsland.qml 'onWheel: function(wheel)' "side island wheel interaction missing"
+require_text SideCollapsedIsland.qml 'collapsed.audio.toggleMute()' "side island middle-click mute missing"
+require_text SideCollapsedIsland.qml 'collapsed.openRequested()' "side island does not open control center"
 echo "PASS"
 
 echo "=== native battery contract ==="
@@ -98,16 +105,35 @@ require_text shell.qml 'Hyprland.focusedWorkspace' "shell does not use native fo
 require_text shell.qml 'onFocusedWorkspaceChanged()' "shell does not react to workspace events"
 echo "PASS"
 
+echo "=== persistent edge docking contract ==="
+require_text DockState.qml 'Quickshell.statePath("dock.json")' "dock state is not stored in Quickshell state storage"
+require_text DockState.qml 'JsonAdapter {' "dock state is not JSON-backed"
+require_text DockState.qml 'property string edge: "top"' "dock state lacks a safe top default"
+require_text DockState.qml 'property real position: 0.5' "dock state lacks along-edge position"
+require_text DockState.qml 'function setDock(nextEdge, nextPosition)' "dock state mutation API missing"
+require_text shell.qml 'DockState { id: dock }' "shell does not instantiate persistent dock state"
+require_text shell.qml 'function nearestEdge(centerX, centerY)' "nearest-edge snap policy missing"
+require_text shell.qml 'function edgePosition(edge, centerX, centerY)' "along-edge snap position missing"
+require_text shell.qml 'DragHandler {' "collapsed island is not draggable"
+require_text shell.qml 'target: null' "dock drag must not bypass bounded snap geometry"
+require_text shell.qml 'activeTranslation.x' "dock drag does not follow pointer translation"
+require_text shell.qml 'dock.setDock(edge, position)' "drag release does not persist snapped dock state"
+require_text shell.qml 'exclusionMode: ExclusionMode.Ignore' "full-screen drag layer should not reserve the desktop"
+require_text shell.qml 'mask: Region { item: island }' "full-screen drag layer is not input-masked to the island"
+require_text shell.qml 'dock.edge === "left" || dock.edge === "right"' "vertical dock orientation missing"
+require_text shell.qml 'dock.edge === "bottom" ? 180' "bottom silhouette orientation missing"
+require_text shell.qml 'dock.edge === "left" ? -90' "left silhouette orientation missing"
+require_text shell.qml 'dock.edge === "right" ? 90' "right silhouette orientation missing"
+echo "PASS"
+
 echo "=== staged close contract ==="
 require_text shell.qml 'property bool closing: false' "shell close state missing"
 require_text shell.qml 'property bool controlVisible: false' "control visibility state missing"
 require_text shell.qml 'closeMorphTimer.restart()' "close does not stage content fade before shape morph"
-require_text shell.qml 'id: closeWidthTimer' "close does not stage vertical fold before width shrink"
-require_text shell.qml 'readonly property bool wideBody: root.expanded || root.closing' "closing no longer keeps the island wide during vertical fold"
-require_text shell.qml 'width: wideBody' "island width does not honor two-stage close state"
-require_text shell.qml 'duration: root.closing ? 170 : 340' "vertical close animation lost its short non-overshooting fold"
+require_text shell.qml 'id: closeSecondaryTimer' "close does not stage primary and secondary geometry folds"
+require_text shell.qml 'readonly property bool wideBody: root.expanded || root.closing' "closing no longer preserves expanded geometry during primary fold"
+require_text shell.qml 'interval: root.verticalDock ? 255 : 185' "close choreography is not orientation-aware"
 require_text shell.qml 'opacity: root.controlVisible ? 1 : 0' "control center fade contract missing"
-require_text shell.qml 'implicitHeight: 560' "layer surface is not held stable during island close"
 if grep -Fq 'closeSurfaceTimer' "$SHELL_DIR/shell.qml"; then
     fail "delayed layer-surface shrink artifact path returned"
 fi
