@@ -46,27 +46,21 @@ Item {
         return ""
     }
 
-    // The collapsed shell is one deliberate interaction target rather than a
-    // row of tiny clickable status icons. Left click opens the control center,
-    // the wheel changes volume, and middle click toggles mute. Both audio
-    // actions reuse Audio.qml so the same transient island OSD appears whether
-    // the change came from the shell, a media key, or another mixer.
+    // Keep hover/wheel/middle-click on a MouseArea, but deliberately do not
+    // accept the left button here. Left-button ownership stays with the
+    // cooperative TapHandler + parent DragHandler pair, so a click can become
+    // a drag reliably instead of racing a MouseArea grab.
     MouseArea {
         id: hitArea
         anchors.fill: parent
         enabled: collapsed.enabled
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        acceptedButtons: Qt.MiddleButton
 
         onClicked: function(mouse) {
-            if (mouse.button === Qt.MiddleButton) {
-                if (collapsed.audio)
-                    collapsed.audio.toggleMute()
-                return
-            }
-
-            collapsed.openRequested()
+            if (mouse.button === Qt.MiddleButton && collapsed.audio)
+                collapsed.audio.toggleMute()
         }
 
         onWheel: function(wheel) {
@@ -77,6 +71,12 @@ Item {
             collapsed.audio.setVolume(collapsed.audio.volume + direction * 5)
             wheel.accepted = true
         }
+    }
+
+    TapHandler {
+        enabled: collapsed.enabled
+        acceptedButtons: Qt.LeftButton
+        onTapped: collapsed.openRequested()
     }
 
     Item {
