@@ -11,6 +11,7 @@ ShellRoot {
     MahoTheme { id: theme }
     Audio { id: audio }
     Brightness { id: brightness }
+    Battery { id: battery }
     SystemState { id: system }
     Media { id: media }
 
@@ -286,6 +287,7 @@ ShellRoot {
                     audio: audio
                     brightness: brightness
                     system: system
+                    battery: battery
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.activeWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -306,6 +308,7 @@ ShellRoot {
                     audio: audio
                     brightness: brightness
                     system: system
+                    battery: battery
                     media: media
                     now: root.now
                     enabled: root.controlVisible
