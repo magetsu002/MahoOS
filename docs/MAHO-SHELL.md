@@ -33,6 +33,7 @@ feedback and a larger control center when interaction requires more room.
 ### Collapsed island
 
 - left click: open the control center
+- left drag: move the island and snap it to the nearest screen edge
 - mouse wheel: change output volume in 5% steps
 - middle click: toggle output mute
 - workspace switch: temporarily replace the clock with workspace indicators
@@ -40,6 +41,33 @@ feedback and a larger control center when interaction requires more room.
 - brightness change: temporarily morph into a brightness OSD
 
 The small Wi-Fi and battery glyphs are status, not precision click targets.
+
+### Edge docking
+
+Docking is deliberately bounded instead of arbitrary free-floating placement.
+Dragging the collapsed island lets it follow the pointer across the display;
+releasing it commits the nearest edge and preserves the along-edge position.
+The shell supports four persistent dock modes:
+
+- **top:** horizontal island; control center expands downward
+- **bottom:** horizontal island; control center expands upward
+- **left:** vertical island; control center expands rightward
+- **right:** vertical island; control center expands leftward
+
+The selected edge and normalized along-edge position are stored in Quickshell's
+per-shell state directory as `dock.json`. The default is top-center. Position is
+clamped away from extreme corners so the island and expanded control center can
+remain on-screen.
+
+The shell uses a transparent full-screen layer only as geometry space for the
+drag. Input remains masked to the visible island, so the rest of the desktop is
+not turned into a click-blocking overlay. During a drag, a small accent marker
+previews which edge will receive the island.
+
+Side docks use a dedicated vertical collapsed layout rather than rotating text.
+Time is stacked, workspace feedback becomes vertical, and volume/brightness OSD
+tracks fill vertically. The expanded control center keeps normal readable
+orientation and reuses the same controls on every edge.
 
 ### Expanded control center
 
@@ -111,16 +139,20 @@ environment, user service and optional capabilities. `logs` is intentionally
 bounded to at most 500 lines. `status --json` exposes machine-readable runtime
 state for tooling and future Maho support surfaces.
 
-## Next geometry milestone
+## Docking validation milestone
 
-Docking should remain adaptive rather than arbitrary free-floating placement.
-The intended model is snap-to-edge:
+The first docking implementation intentionally keeps the state model small:
+edge plus normalized along-edge position. Before adding more motion or monitor
+selection behavior, all four orientations must be runtime-tested for:
 
-- **top:** horizontal edge island, control center expands downward
-- **bottom:** horizontal edge island, control center expands upward
-- **left:** vertical edge island, control center expands rightward
-- **right:** vertical edge island, control center expands leftward
+- drag/tap arbitration: a click opens, a drag never opens by accident
+- pointer tracking and nearest-edge preview
+- snap position persistence across shell restart
+- top and bottom expansion/close direction
+- left and right expansion/close direction
+- side collapsed readability and OSD behavior
+- input mask correctness around the full-screen transparent layer
+- no return of the post-close rectangle artifact
 
-The same semantic modules and interaction state should survive every dock mode;
-only geometry and motion direction should change. Dock preference should become
-persistent user state once all four modes are runtime-tested.
+Only after those are clean should docking gain multi-monitor selection or more
+advanced edge magnetism.
