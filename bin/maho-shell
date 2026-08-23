@@ -6,6 +6,11 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
 CONFIG="$CONFIG_DIR/shell.qml"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-shell.log"
+LOCK="$RUNTIME_DIR/maho-shell.lock"
+
+shell_running() {
+    pgrep -af 'quickshell.*maho-shell/shell.qml' >/dev/null 2>&1
+}
 
 ensure_wayland_env() {
     export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$RUNTIME_DIR}"
@@ -39,6 +44,9 @@ if rows:
 }
 
 restore_waybar() {
+    # Never reveal Waybar underneath another live Maho Shell instance.
+    shell_running && return 0
+
     if command -v hyprctl >/dev/null 2>&1 && ! pgrep -x waybar >/dev/null 2>&1; then
         hyprctl dispatch exec waybar >/dev/null 2>&1 || true
     fi
@@ -50,13 +58,32 @@ run_shell() {
         return 1
     }
 
+    command -v flock >/dev/null 2>&1 || {
+        echo "maho-shell: flock is unavailable" >&2
+        return 1
+    }
+
     [ -r "$CONFIG" ] || {
         echo "maho-shell: configuration missing: $CONFIG" >&2
         return 1
     }
 
     ensure_wayland_env
-    mkdir -p "$(dirname "$LOG")"
+    mkdir -p "$(dirname "$LOG")" "$RUNTIME_DIR"
+
+    # One shell surface owns the edge at a time. This also prevents a manually
+    # launched developer instance from rendering a second collapsed island
+    # behind the systemd-managed one.
+    exec 9>"$LOCK"
+    if ! flock -n 9; then
+        echo "maho-shell: already running"
+        return 0
+    fi
+
+    if shell_running; then
+        echo "maho-shell: existing Quickshell instance detected; refusing duplicate"
+        return 0
+    fi
 
     trap restore_waybar EXIT INT TERM
 
@@ -103,7 +130,7 @@ case "${1:-run}" in
         "$0" start
         ;;
     status)
-        if pgrep -af 'quickshell.*maho-shell/shell.qml' >/dev/null 2>&1; then
+        if shell_running; then
             echo "Maho Shell: active"
             pgrep -af 'quickshell.*maho-shell/shell.qml'
             exit 0
@@ -117,7 +144,8 @@ Usage: maho-shell [run|start|stop|restart|status]
 
 Maho Shell is the Quickshell desktop surface shipped with Maho OS. While it is
 running, Waybar is hidden. If the shell exits unexpectedly, the wrapper restores
-Waybar as a fallback rather than leaving the session without a bar.
+Waybar as a fallback rather than leaving the session without a bar. Only one
+Maho Shell instance may own the desktop edge at a time.
 HELP
         exit 2
         ;;
