@@ -72,8 +72,9 @@ require_text "$NOTIFY_DIR/HistoryModel.qml" '"unread_count": unreadCount' "metad
 require_text "$NOTIFY_DIR/HistoryModel.qml" '"dnd": dndEnabled' "metadata does not update from DND state"
 require_text "$NOTIFY_DIR/state.py" 'return runtime_dir() / "notify-status.json"' "metadata is not stored in user runtime space"
 require_text "$NOTIFY_DIR/state.py" '"version": STATUS_VERSION' "metadata schema version missing"
-require_text "$NOTIFY_DIR/state.py" '"active": bool(' "metadata active state missing"
-require_text "$NOTIFY_DIR/state.py" 'set(persisted_status) == {"version", "unread_count", "dnd", "active"}' "metadata schema allowlist self-test missing"
+require_text "$NOTIFY_DIR/state.py" '"active": active_value' "metadata active state missing"
+require_text "$NOTIFY_DIR/state.py" 'set(persisted_status) == {"version", "unread_count", "dnd", "active", "pid"}' "metadata schema allowlist self-test missing"
+require_text "$NOTIFY_DIR/state.py" '"pid": os.getppid() if active_value else 0' "metadata does not identify its live Quickshell owner"
 require_text "$NOTIFY_DIR/state.py" 'publish_status(last_status, active=False)' "metadata does not become inactive on clean shutdown"
 if grep -nE 'normalize_status|publish_status' "$NOTIFY_DIR/state.py" | grep -E 'body|summary|appName|title'; then
     fail "notification content field found in metadata implementation"

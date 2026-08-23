@@ -186,10 +186,17 @@ ShellRoot {
 
     function openNotificationCenter() {
         closePanel()
-        Quickshell.execDetached([
-            Quickshell.env("HOME") + "/.local/bin/maho-notify",
-            "center"
-        ])
+        if (notifyBridge.active && notifyBridge.processId > 0) {
+            Quickshell.execDetached([
+                "quickshell", "ipc", "--pid", String(notifyBridge.processId),
+                "call", "notify", "openCenter"
+            ])
+        } else {
+            Quickshell.execDetached([
+                Quickshell.env("HOME") + "/.local/bin/maho-notify",
+                "center"
+            ])
+        }
     }
 
     function requestLock() {

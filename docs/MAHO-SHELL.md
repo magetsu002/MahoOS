@@ -49,7 +49,9 @@ The Wi-Fi and battery glyphs are status, not precision click targets.
 The collapsed Edge intentionally contains no notification glyph or badge.
 Notifications appear only as a compact entry inside the expanded control
 center. That entry watches `$XDG_RUNTIME_DIR/maho/notify-status.json`, whose
-allowlisted fields are `version`, `unread_count`, `dnd`, and `active`. It never
+allowlisted fields are `version`, `unread_count`, `dnd`, `active`, and the live
+Quickshell `pid`. The PID is used only to address Notify's existing IPC handler,
+so a worktree-launched instance opens without an installed launcher. It never
 reads notification history or content. Missing or malformed metadata falls
 back to a plain “Open notification center” action without affecting Edge input,
 dragging, compositor reservation, or the rest of the control center. Because
