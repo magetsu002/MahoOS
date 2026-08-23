@@ -2,74 +2,124 @@
 
 Maho Shell is the human-facing surface of Maho OS.
 
-It is intentionally not a conventional status bar. The collapsed edge island
-shows only ambient information; the same physical surface morphs into transient
-feedback and a larger control center when interaction requires more room.
+The resting desktop surface is called **Maho Edge**. It is intentionally not a
+conventional status bar: Maho Edge stays small at the selected screen edge,
+shows only ambient information, morphs into transient feedback when context
+matters, and expands inward into the larger control center when requested.
 
 ## Design goals
 
 - **Quiet at rest.** Time and compact system state should not compete with the
-  application underneath.
+  active application.
 - **Context earns space.** Workspace changes, volume, brightness and later
-  notifications can temporarily replace the idle view instead of permanently
+  notifications temporarily replace the idle view instead of permanently
   occupying screen space.
-- **One interaction target.** Tiny status glyphs are indicators. The collapsed
-  island itself is the reliable click target for the control center.
-- **Immediate feedback.** Workspace state is driven from Hyprland events, audio
-  is driven directly from PipeWire, media is driven directly from MPRIS, and
-  battery state is driven directly from UPower rather than periodic shell
-  commands.
+- **One interaction target.** Tiny status glyphs are indicators. Maho Edge is
+  the reliable click target for the control center.
+- **Immediate feedback.** Workspace state is driven from Hyprland socket2
+  events, audio directly from PipeWire, media directly from MPRIS, and battery
+  directly from UPower rather than periodic shell commands.
 - **Wallpaper-native color.** Maho Shell reads Maho's active palette directly
   and transitions surfaces, foregrounds and accents when the wallpaper-derived
   theme changes.
 - **One physical object.** Opening, closing and transient feedback should feel
-  like the same edge-attached object changing shape, not separate popups being
-  stacked on top of one another.
+  like the same edge-attached surface changing shape rather than separate
+  popups stacked over one another.
+- **Compositor-aware placement.** The resting Edge reserves only its collapsed
+  thickness plus a small breathing gap, so tiled windows never look pasted
+  underneath it.
 - **User authority first.** Shell controls expose explicit user actions; they do
   not bypass Maho's ownership and policy model.
 
-## Current interaction model
+## Maho Edge interaction model
 
-### Collapsed island
+At rest:
 
 - left click: open the control center
-- left drag: move the island and snap it to the nearest screen edge
+- left drag: move Maho Edge and snap it to the nearest screen edge
 - mouse wheel: change output volume in 5% steps
 - middle click: toggle output mute
 - workspace switch: temporarily replace the clock with workspace indicators
 - volume change: temporarily morph into a volume OSD
 - brightness change: temporarily morph into a brightness OSD
 
-The small Wi-Fi and battery glyphs are status, not precision click targets.
+The Wi-Fi and battery glyphs are status, not precision click targets.
 
-### Edge docking
+## Workspace feedback
+
+Workspace feedback is event-sequenced rather than boolean-triggered.
+
+Hyprland's `workspacev2` socket2 event is the animation authority. Every valid
+workspace event:
+
+1. updates the immediate visual workspace id,
+2. increments `workspaceEventSerial`,
+3. restarts the transient workspace timeout, and
+4. restarts the workspace pulse animation even if the previous workspace
+   feedback is still visible.
+
+This means a rapid sequence such as `1 -> 2 -> 3 -> 4` produces four distinct
+visual updates instead of one initial transition followed by a stuck `true`
+state. `focusedWorkspaceChanged` remains only as a reconnect/startup fallback.
+
+## Edge docking
 
 Docking is deliberately bounded instead of arbitrary free-floating placement.
-Dragging the collapsed island lets it follow the pointer across the display;
-releasing it commits the nearest edge and preserves the along-edge position.
+Dragging Maho Edge lets the visible surface follow the pointer across the
+display; releasing it commits the nearest edge and preserves the along-edge
+position.
+
 The shell supports four persistent dock modes:
 
-- **top:** horizontal island; control center expands downward
-- **bottom:** horizontal island; control center expands upward
-- **left:** vertical island; control center expands rightward
-- **right:** vertical island; control center expands leftward
+- **top:** horizontal Edge; control center expands downward
+- **bottom:** horizontal Edge; control center expands upward
+- **left:** vertical Edge; control center expands rightward
+- **right:** vertical Edge; control center expands leftward
 
 The selected edge and normalized along-edge position are stored in Quickshell's
 per-shell state directory as `dock.json`. The default is top-center. Position is
-clamped away from extreme corners so the island and expanded control center can
-remain on-screen.
+clamped away from extreme corners so the resting surface and expanded control
+center can remain on-screen.
 
-The shell uses a transparent full-screen layer only as geometry space for the
-drag. Input remains masked to the visible island, so the rest of the desktop is
-not turned into a click-blocking overlay. During a drag, a small accent marker
-previews which edge will receive the island.
+The visible shell uses a transparent full-screen geometry layer during normal
+operation so Maho Edge can follow the pointer across the display. Input remains
+masked to the visible Edge surface; the rest of the desktop stays click-through.
+A small accent marker previews the candidate snap edge during movement.
 
-Side docks use a dedicated vertical collapsed layout rather than rotating text.
-Time is stacked, workspace feedback becomes vertical, and volume/brightness OSD
-tracks fill vertically. The expanded control center keeps normal readable
-orientation and reuses the same controls on every edge.
+The runtime-proven `DragHandler` path is intentionally isolated from control
+center click semantics and from compositor reservation. Changes to workspace
+feedback, naming, or reserved space must not rewrite that drag contract.
 
-### Expanded control center
+Side docks use a dedicated vertical layout rather than rotating text. Time is
+stacked, workspace feedback becomes vertical, and volume/brightness tracks fill
+vertically. The expanded control center keeps normal readable orientation and
+reuses the same controls on every edge.
+
+## Compositor reservation
+
+Maho Edge should look integrated with the desktop rather than pasted over tiled
+windows. A separate transparent `DockReservation` layer-shell surface owns that
+layout responsibility.
+
+The reservation follows only the persisted `dock.edge` and reserves:
+
+- horizontal Edge thickness: 40 px
+- vertical Edge thickness: 46 px
+- breathing room: 8 px
+
+The visible Maho Edge surface itself remains on the overlay layer. This keeps
+visual geometry and compositor layout ownership separate.
+
+Important invariants:
+
+- the reservation has an empty input mask and never intercepts desktop input,
+- the expanded control center does not increase the exclusive zone,
+- tiled windows therefore do not jump when the control center opens/closes,
+- while dragging, the old persisted edge keeps its reservation,
+- the reservation switches only when `dock.setDock(...)` commits the snap on
+  release, causing at most one compositor reflow per move.
+
+## Expanded control center
 
 The control center currently exposes:
 
@@ -88,14 +138,12 @@ slider.
 
 Media does not depend on `playerctl`. `Media.qml` selects an active MPRIS player
 from Quickshell's service model, follows its title/artist/playback properties
-reactively, and invokes previous/play-pause/next on that player directly. This
-removes the old ambient polling delay from playback controls and keeps paused
-players available in the control center.
+reactively, and invokes previous/play-pause/next on that player directly.
 
 Battery does not scrape `/sys/class/power_supply`. `Battery.qml` follows
 Quickshell's UPower display device directly, so percentage and charging state
-are reactive properties shared by the collapsed island and control center.
-Battery UI disappears cleanly on systems without a usable display battery.
+are reactive properties shared by Maho Edge and the control center. Battery UI
+disappears cleanly on systems without a usable display battery.
 
 The remaining Python ambient probe is intentionally narrow: it currently covers
 network and Bluetooth summary state only. Those paths stay isolated so they can
@@ -114,18 +162,14 @@ The source of truth is:
 roles such as `surfaceHigh`, `foreground`, `muted`, `primary`, `secondary`,
 `tertiary`, `outline` and `error` rather than hard-coded wallpaper colors.
 
-This keeps the shell visually synchronized with Maho's adaptation layer while
-preserving stable contrast and hierarchy.
-
 ## Runtime safety and diagnostics
 
 Maho Shell is packaged with a managed launcher and user service. The launcher
-ensures that only one Maho Shell instance owns the edge surface. Waybar is
-hidden only after Quickshell survives startup, and is restored if Maho Shell
-exits unexpectedly.
+ensures that only one Maho Shell instance owns Maho Edge. Waybar is hidden only
+after Quickshell survives startup, and is restored if Maho Shell exits
+unexpectedly.
 
-The runtime also exposes bounded diagnostics so shell failures do not require
-unstructured log dumps:
+The runtime exposes bounded diagnostics:
 
 ```text
 maho-shell doctor
@@ -139,19 +183,21 @@ environment, user service and optional capabilities. `logs` is intentionally
 bounded to at most 500 lines. `status --json` exposes machine-readable runtime
 state for tooling and future Maho support surfaces.
 
-## Docking validation milestone
+## Validation gate
 
-The first docking implementation intentionally keeps the state model small:
-edge plus normalized along-edge position. Before adding more motion or monitor
-selection behavior, all four orientations must be runtime-tested for:
+Before adding multi-monitor selection, edge magnetism, or more motion behavior,
+the current Maho Edge architecture must be runtime-tested for:
 
-- drag/tap arbitration: a click opens, a drag never opens by accident
+- rapid workspace sequences such as `1 -> 2 -> 3 -> 4 -> 5`
+- drag/tap arbitration
 - pointer tracking and nearest-edge preview
 - snap position persistence across shell restart
-- top and bottom expansion/close direction
-- left and right expansion/close direction
-- side collapsed readability and OSD behavior
-- input mask correctness around the full-screen transparent layer
+- one compositor reflow after a completed dock move
+- stable 8 px breathing room between Edge and tiled windows
+- no window reflow while the control center expands/collapses
+- top/bottom and left/right expansion direction
+- side readability and transient OSD behavior
+- input-mask correctness around both transparent shell surfaces
 - no return of the post-close rectangle artifact
 
 Only after those are clean should docking gain multi-monitor selection or more
