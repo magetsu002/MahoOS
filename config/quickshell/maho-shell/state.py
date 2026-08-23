@@ -41,7 +41,23 @@ if shutil.which("nmcli"):
             network_name = name
 
 
+bluetooth_available = False
+bluetooth_powered = False
+bluetooth_connected = False
+
+if shutil.which("bluetoothctl"):
+    raw = run(["bluetoothctl", "show"])
+    if raw:
+        bluetooth_available = True
+        bluetooth_powered = "Powered: yes" in raw
+        connected = run(["bluetoothctl", "devices", "Connected"])
+        bluetooth_connected = bool(connected.strip())
+
+
 print(json.dumps({
     "networkKind": network_kind,
     "networkName": network_name,
+    "bluetoothAvailable": bluetooth_available,
+    "bluetoothPowered": bluetooth_powered,
+    "bluetoothConnected": bluetooth_connected,
 }, separators=(",", ":")))
