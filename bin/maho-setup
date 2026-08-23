@@ -9,6 +9,8 @@ SHELL_SOURCE="$ROOT/config/quickshell/maho-shell"
 SHELL_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
 NOTIFY_SOURCE="$ROOT/config/quickshell/maho-notify"
 NOTIFY_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify"
+LAUNCHER_SOURCE="$ROOT/config/quickshell/maho-launcher"
+LAUNCHER_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-launcher"
 MARKER="# managed-by: maho-setup v1"
 
 COMMANDS=(
@@ -25,6 +27,7 @@ COMMANDS=(
     maho-contain
     maho-shell
     maho-notify
+    maho-launcher
     maho-setup
 )
 
@@ -62,6 +65,21 @@ NOTIFY_FILES=(
     NotificationStack.qml
     NotificationCard.qml
     NotifyTheme.qml
+)
+
+LAUNCHER_FILES=(
+    shell.qml
+    MahoLauncherWindow.qml
+    LauncherTheme.qml
+    TintedIcon.qml
+    KeyHint.qml
+    assets/maho-logo.png
+    assets/maho-mascot.png
+    assets/icons/search.png
+    assets/icons/apps.png
+    assets/icons/files.png
+    assets/icons/commands.png
+    assets/icons/app-fallback.png
 )
 
 die() {
@@ -113,6 +131,11 @@ is_managed_notify() {
     [ "$(readlink -f -- "$NOTIFY_TARGET" 2>/dev/null || true)" = "$NOTIFY_SOURCE" ]
 }
 
+is_managed_launcher_config() {
+    [ -L "$LAUNCHER_TARGET" ] || return 1
+    [ "$(readlink -f -- "$LAUNCHER_TARGET" 2>/dev/null || true)" = "$LAUNCHER_SOURCE" ]
+}
+
 preflight() {
     local failed=0 name file
     [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
@@ -149,6 +172,15 @@ preflight() {
             printf 'PASS  notify %s\n' "$name"
         else
             printf 'FAIL  notify %s missing\n' "$name"
+            failed=1
+        fi
+    done
+
+    for name in "${LAUNCHER_FILES[@]}"; do
+        if [ -r "$LAUNCHER_SOURCE/$name" ]; then
+            printf 'PASS  launcher %s\n' "$name"
+        else
+            printf 'FAIL  launcher %s missing\n' "$name"
             failed=1
         fi
     done
@@ -190,6 +222,7 @@ preflight() {
         "$ROOT/bin/maho-contain" \
         "$ROOT/bin/maho-shell" \
         "$ROOT/bin/maho-notify" \
+        "$ROOT/bin/maho-launcher" \
         "$ROOT/bin/maho-setup" \
         "$ROOT/lib/authority.sh" \
         "$ROOT/lib/intent.sh" \
@@ -284,6 +317,21 @@ install_notify() {
     ln -s "$NOTIFY_SOURCE" "$NOTIFY_TARGET"
 }
 
+install_launcher_config() {
+    mkdir -p "$(dirname "$LAUNCHER_TARGET")"
+
+    if [ -e "$LAUNCHER_TARGET" ] || [ -L "$LAUNCHER_TARGET" ]; then
+        if is_managed_launcher_config; then
+            rm -f "$LAUNCHER_TARGET"
+        else
+            die "refusing to replace unmanaged Quickshell configuration: $LAUNCHER_TARGET"
+            return 1
+        fi
+    fi
+
+    ln -s "$LAUNCHER_SOURCE" "$LAUNCHER_TARGET"
+}
+
 systemd_available() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
@@ -310,6 +358,11 @@ install() {
     echo "Installing Maho Notify..."
     install_notify || return 1
     echo "PASS  $NOTIFY_TARGET -> $NOTIFY_SOURCE"
+
+    echo
+    echo "Installing Maho Launcher..."
+    install_launcher_config || return 1
+    echo "PASS  $LAUNCHER_TARGET -> $LAUNCHER_SOURCE"
 
     echo
     echo "Installing user services..."
@@ -373,6 +426,13 @@ status() {
         failed=1
     fi
 
+    if is_managed_launcher_config; then
+        echo "PASS  launcher $LAUNCHER_TARGET"
+    else
+        echo "INFO  launcher $LAUNCHER_TARGET not managed by this checkout"
+        failed=1
+    fi
+
     for name in "${UNITS[@]}"; do
         if is_managed_unit "$name"; then
             printf 'PASS  unit    %s\n' "$name"
@@ -427,6 +487,13 @@ uninstall() {
         echo "REMOVED  $NOTIFY_TARGET"
     elif [ -e "$NOTIFY_TARGET" ] || [ -L "$NOTIFY_TARGET" ]; then
         echo "KEPT     unmanaged Quickshell configuration $NOTIFY_TARGET"
+    fi
+
+    if is_managed_launcher_config; then
+        rm -f "$LAUNCHER_TARGET"
+        echo "REMOVED  $LAUNCHER_TARGET"
+    elif [ -e "$LAUNCHER_TARGET" ] || [ -L "$LAUNCHER_TARGET" ]; then
+        echo "KEPT     unmanaged Quickshell configuration $LAUNCHER_TARGET"
     fi
 
     for name in "${COMMANDS[@]}"; do

@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+
+set -u
+
+CONFIG_DIR="${MAHO_LAUNCHER_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-launcher}"
+CONFIG="$CONFIG_DIR/shell.qml"
+PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOG="${MAHO_LAUNCHER_LOG:-${XDG_CACHE_HOME:-$HOME/.cache}/maho-launcher.log}"
+LOCK="$RUNTIME_DIR/maho-launcher.lock"
+
+launcher_pids() {
+    local pid argument
+
+    while read -r pid; do
+        [ -r "/proc/$pid/cmdline" ] || continue
+        while read -r argument; do
+            case "$argument" in
+                */maho-launcher|*/maho-launcher/shell.qml)
+                    printf '%s\n' "$pid"
+                    break
+                    ;;
+            esac
+        done < <(tr '\0' '\n' < "/proc/$pid/cmdline")
+    done < <({ pgrep -x quickshell 2>/dev/null; pgrep -x qs 2>/dev/null; } | sort -u)
+}
+
+launcher_count() {
+    launcher_pids | awk 'NF { count++ } END { print count + 0 }'
+}
+
+launcher_running() {
+    [ "$(launcher_count)" -gt 0 ]
+}
+
+ensure_wayland_env() {
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$RUNTIME_DIR}"
+
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        local candidate
+        candidate="$(
+            find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' 2>/dev/null |
+            sort |
+            head -1
+        )"
+        [ -n "$candidate" ] && export WAYLAND_DISPLAY="$candidate"
+    fi
+}
+
+run_launcher() {
+    command -v quickshell >/dev/null 2>&1 || {
+        echo "maho-launcher: quickshell is unavailable" >&2
+        return 1
+    }
+    command -v flock >/dev/null 2>&1 || {
+        echo "maho-launcher: flock is unavailable" >&2
+        return 1
+    }
+    [ -r "$CONFIG" ] || {
+        echo "maho-launcher: configuration missing: $CONFIG" >&2
+        return 1
+    }
+
+    ensure_wayland_env
+    mkdir -p "$(dirname "$LOG")" "$RUNTIME_DIR"
+
+    exec 9>"$LOCK"
+    if ! flock -n 9; then
+        echo "maho-launcher: already running"
+        return 0
+    fi
+    if launcher_running; then
+        echo "maho-launcher: existing Quickshell instance detected; refusing duplicate"
+        return 0
+    fi
+
+    # Quickshell framework diagnostics only. Search text and desktop-entry
+    # launch arguments are never written by Maho Launcher.
+    quickshell -p "$CONFIG" >>"$LOG" 2>&1
+}
+
+open_launcher() {
+    if launcher_running; then
+        echo "maho-launcher: already running"
+        return 0
+    fi
+    nohup "$0" run >/dev/null 2>&1 &
+}
+
+close_launcher() {
+    local found=0 pid
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        found=1
+        kill -TERM "$pid" 2>/dev/null || true
+    done < <(launcher_pids)
+    [ "$found" -eq 1 ]
+}
+
+toggle_launcher() {
+    if launcher_running; then
+        close_launcher || true
+    else
+        open_launcher
+    fi
+}
+
+doctor() {
+    local failed=0 count
+    echo "Maho Launcher doctor"
+    echo
+
+    if command -v quickshell >/dev/null 2>&1; then
+        printf 'PASS  quickshell     %s\n' "$(command -v quickshell)"
+    else
+        echo "FAIL  quickshell     unavailable"
+        failed=1
+    fi
+    if command -v flock >/dev/null 2>&1; then
+        echo "PASS  singleton      flock available"
+    else
+        echo "FAIL  singleton      flock unavailable"
+        failed=1
+    fi
+    if [ -r "$CONFIG" ]; then
+        printf 'PASS  config         %s\n' "$CONFIG"
+    else
+        printf 'FAIL  config         missing: %s\n' "$CONFIG"
+        failed=1
+    fi
+    if [ -r "$PALETTE" ]; then
+        if python -m json.tool "$PALETTE" >/dev/null 2>&1; then
+            echo "PASS  palette        valid Maho active.json"
+        else
+            echo "FAIL  palette        invalid active.json; safe QML fallbacks will apply"
+            failed=1
+        fi
+    else
+        echo "INFO  palette        active.json missing; safe QML fallbacks will apply"
+    fi
+
+    ensure_wayland_env
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        printf 'PASS  wayland        %s\n' "$WAYLAND_DISPLAY"
+    else
+        echo "INFO  wayland        display not resolved in this shell"
+    fi
+
+    count="$(launcher_count)"
+    if [ "$count" -gt 1 ]; then
+        printf 'FAIL  instances      %s launcher processes detected\n' "$count"
+        failed=1
+    elif [ "$count" -eq 1 ]; then
+        echo "PASS  instances      exactly one launcher process"
+    else
+        echo "INFO  instances      launcher currently closed"
+    fi
+
+    echo
+    if [ "$failed" -eq 0 ]; then
+        echo "PASS  doctor         no blocking launcher problems detected"
+    else
+        echo "FAIL  doctor         blocking launcher problems detected"
+    fi
+    return "$failed"
+}
+
+status_json() {
+    local running=false count
+    count="$(launcher_count)"
+    [ "$count" -gt 0 ] && running=true
+
+    RUNNING="$running" COUNT="$count" CONFIG_PATH="$CONFIG" PALETTE_PATH="$PALETTE" LOG_PATH="$LOG" \
+    python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+print(json.dumps({
+    "active": os.environ["RUNNING"] == "true",
+    "instances": int(os.environ["COUNT"]),
+    "config": {
+        "path": os.environ["CONFIG_PATH"],
+        "readable": os.access(os.environ["CONFIG_PATH"], os.R_OK),
+    },
+    "palette": {
+        "path": os.environ["PALETTE_PATH"],
+        "present": Path(os.environ["PALETTE_PATH"]).is_file(),
+    },
+    "log": os.environ["LOG_PATH"],
+}, separators=(",", ":")))
+PY
+}
+
+show_logs() {
+    local lines="${1:-120}"
+    case "$lines" in
+        ''|*[!0-9]*)
+            echo "maho-launcher: log line count must be an integer" >&2
+            return 2
+            ;;
+    esac
+    if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]; then
+        echo "maho-launcher: log line count must be between 1 and 500" >&2
+        return 2
+    fi
+    [ -r "$LOG" ] || {
+        echo "maho-launcher: runtime log unavailable: $LOG" >&2
+        return 1
+    }
+    tail -n "$lines" "$LOG"
+}
+
+case "${1:-run}" in
+    run) run_launcher ;;
+    open|start) open_launcher ;;
+    close|stop) close_launcher || true ;;
+    toggle) toggle_launcher ;;
+    status)
+        if [ "${2:-}" = "--json" ]; then
+            status_json
+        elif launcher_running; then
+            echo "Maho Launcher: open"
+        else
+            echo "Maho Launcher: closed"
+        fi
+        ;;
+    doctor) doctor ;;
+    logs) show_logs "${2:-120}" ;;
+    *)
+        cat >&2 <<'EOF_USAGE'
+usage: maho-launcher {run|open|close|toggle|status [--json]|doctor|logs [LINES]}
+EOF_USAGE
+        exit 2
+        ;;
+esac
