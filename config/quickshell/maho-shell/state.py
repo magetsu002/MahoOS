@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
-import glob
 import json
-import pathlib
 import shutil
 import subprocess
 
@@ -56,30 +54,10 @@ if shutil.which("bluetoothctl"):
         bluetooth_connected = bool(connected.strip())
 
 
-battery = 100
-charging = False
-batteries = sorted(glob.glob("/sys/class/power_supply/BAT*"))
-
-if batteries:
-    base = pathlib.Path(batteries[0])
-    try:
-        battery = int((base / "capacity").read_text().strip())
-    except Exception:
-        pass
-
-    try:
-        status = (base / "status").read_text().strip().lower()
-        charging = status in {"charging", "full"}
-    except Exception:
-        pass
-
-
 print(json.dumps({
     "networkKind": network_kind,
     "networkName": network_name,
     "bluetoothAvailable": bluetooth_available,
     "bluetoothPowered": bluetooth_powered,
     "bluetoothConnected": bluetooth_connected,
-    "battery": battery,
-    "charging": charging,
 }, separators=(",", ":")))
