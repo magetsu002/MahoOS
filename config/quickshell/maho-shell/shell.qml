@@ -50,6 +50,7 @@ ShellRoot {
 
     function openPanel() {
         closeMorphTimer.stop()
+        closeWidthTimer.stop()
         closing = false
         expanded = true
         controlVisible = true
@@ -59,9 +60,10 @@ ShellRoot {
         if (!expanded || closing)
             return
 
-        // Fade dense content first, then morph the island itself. The layer
-        // surface stays a fixed size for the entire session, so closing cannot
-        // expose a second late-resizing rectangular Wayland surface underneath.
+        // The old close path collapsed width and height together. Near the end
+        // of that animation the island became a narrow, tall slab hanging under
+        // the final bar. Close vertically first while the surface is still wide,
+        // then shrink horizontally into the idle island. No detached rectangle.
         closing = true
         controlVisible = false
         closeMorphTimer.restart()
@@ -105,12 +107,27 @@ ShellRoot {
 
     Timer {
         id: closeMorphTimer
-        interval: 135
+        interval: 110
         onTriggered: {
             if (!root.closing)
                 return
 
+            // Start only the vertical fold. Width remains at control-center
+            // width because root.closing is still true.
             root.expanded = false
+            closeWidthTimer.restart()
+        }
+    }
+
+    Timer {
+        id: closeWidthTimer
+        interval: 185
+        onTriggered: {
+            if (!root.closing)
+                return
+
+            // Vertical fold is effectively complete; now reveal the idle view
+            // and shrink width into the compact island.
             root.closing = false
         }
     }
@@ -151,10 +168,7 @@ ShellRoot {
             right: true
         }
 
-        // Keep the layer-shell surface stable. Resizing the actual Wayland
-        // surface after the island had already collapsed was the source of the
-        // delayed flat rectangle visible under the bar. Only the island now
-        // animates; input remains constrained by mask below.
+        // Keep the layer surface stable; only the visible island morphs.
         implicitHeight: 560
         color: "transparent"
         aboveWindows: true
@@ -166,17 +180,18 @@ ShellRoot {
         Item {
             id: island
 
+            readonly property bool wideBody: root.expanded || root.closing
             readonly property real wing: 14
-            readonly property real bodyRadius: root.expanded ? 24 : 18
+            readonly property real bodyRadius: wideBody ? 24 : 18
             readonly property int expandedHeight: Math.ceil(controlCenter.implicitHeight + 34)
 
-            property color shellFill: theme.alpha(theme.surfaceHigh, root.expanded ? 0.978 : 0.958)
-            property color shellStroke: theme.alpha(theme.outline, root.expanded ? 0.28 : 0.18)
+            property color shellFill: theme.alpha(theme.surfaceHigh, wideBody ? 0.978 : 0.958)
+            property color shellStroke: theme.alpha(theme.outline, wideBody ? 0.28 : 0.18)
 
             anchors.top: parent.top
             anchors.horizontalCenter: parent.horizontalCenter
 
-            width: root.expanded
+            width: wideBody
                 ? 430
                 : ((audio.overlayOpen || brightness.overlayOpen)
                     ? 250
@@ -186,22 +201,21 @@ ShellRoot {
 
             Behavior on width {
                 NumberAnimation {
-                    duration: 340
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 0.38
+                    duration: 240
+                    easing.type: Easing.OutCubic
                 }
             }
 
             Behavior on height {
                 NumberAnimation {
-                    duration: 380
-                    easing.type: Easing.OutBack
-                    easing.overshoot: 0.24
+                    duration: root.closing ? 170 : 340
+                    easing.type: root.closing ? Easing.OutCubic : Easing.OutBack
+                    easing.overshoot: root.closing ? 0 : 0.18
                 }
             }
 
-            Behavior on shellFill { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
-            Behavior on shellStroke { ColorAnimation { duration: 360 } }
+            Behavior on shellFill { ColorAnimation { duration: 360; easing.type: Easing.OutCubic } }
+            Behavior on shellStroke { ColorAnimation { duration: 300 } }
 
             Shape {
                 id: silhouette
@@ -263,35 +277,35 @@ ShellRoot {
             Rectangle {
                 anchors.top: parent.top
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: root.expanded ? 310 : 94
+                width: island.wideBody ? 310 : 94
                 height: 1
                 color: theme.foreground
                 opacity: 0.05
 
-                Behavior on width { NumberAnimation { duration: 320 } }
-                Behavior on color { ColorAnimation { duration: 400 } }
+                Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                Behavior on color { ColorAnimation { duration: 360 } }
             }
 
             Rectangle {
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: root.expanded ? 7 : 3
+                anchors.bottomMargin: island.wideBody ? 7 : 3
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: root.expanded ? 36 : (root.workspaceFlash ? 40 : 20)
+                width: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
                 height: 2
                 radius: 1
                 color: theme.primary
-                opacity: root.expanded ? 0.46 : 0.82
+                opacity: island.wideBody ? 0.46 : 0.82
 
-                Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-                Behavior on color { ColorAnimation { duration: 400 } }
-                Behavior on opacity { NumberAnimation { duration: 180 } }
+                Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                Behavior on color { ColorAnimation { duration: 360 } }
+                Behavior on opacity { NumberAnimation { duration: 160 } }
             }
 
             Item {
                 id: content
                 anchors.fill: parent
-                anchors.leftMargin: island.wing + (root.expanded ? 18 : 9)
-                anchors.rightMargin: island.wing + (root.expanded ? 18 : 9)
+                anchors.leftMargin: island.wing + (island.wideBody ? 18 : 9)
+                anchors.rightMargin: island.wing + (island.wideBody ? 18 : 9)
                 clip: true
 
                 CollapsedIsland {
@@ -310,7 +324,7 @@ ShellRoot {
                     opacity: root.expanded || root.closing ? 0 : 1
                     onOpenRequested: root.openPanel()
 
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                    Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
 
                 ControlCenter {
@@ -328,7 +342,7 @@ ShellRoot {
                     enabled: root.controlVisible
                     opacity: root.controlVisible ? 1 : 0
 
-                    Behavior on opacity { NumberAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
 
                     onCloseRequested: root.closePanel()
                     onVolumeRequested: function(value) { audio.setVolume(value) }
