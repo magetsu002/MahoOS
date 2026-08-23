@@ -307,7 +307,9 @@ Scope {
 
             const group = Object.assign({}, entry, {
                 "groupCount": 1,
-                "groupUnread": entry.read ? 0 : 1
+                "groupUnread": entry.read ? 0 : 1,
+                "section": Date.now() - Number(entry.timestamp) < 24 * 60 * 60 * 1000
+                    ? "Today" : "Earlier"
             })
             groups.push(group)
             if (normal)
