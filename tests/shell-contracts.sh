@@ -70,7 +70,7 @@ echo "PASS"
 echo "=== native battery contract ==="
 require_text Battery.qml 'import Quickshell.Services.UPower' "battery is not UPower-native"
 require_text Battery.qml 'UPower.displayDevice' "battery does not use the UPower display device"
-require_text Battery.qml 'property int percentage:' "battery percentage binding missing"
+require_text Battery.qml 'device.percentage * 100' "UPower normalized percentage is not scaled to 0..100"
 require_text Battery.qml 'UPowerDeviceState.Charging' "battery charging state binding missing"
 require_text shell.qml 'Battery { id: battery }' "shell does not instantiate native battery service"
 require_text shell.qml 'battery: battery' "shell does not pass native battery state to views"
@@ -103,9 +103,13 @@ require_text shell.qml 'property bool closing: false' "shell close state missing
 require_text shell.qml 'property bool controlVisible: false' "control visibility state missing"
 require_text shell.qml 'closeMorphTimer.restart()' "close does not stage content fade before shape morph"
 require_text shell.qml 'opacity: root.controlVisible ? 1 : 0' "control center fade contract missing"
+require_text shell.qml 'implicitHeight: 560' "layer surface is not held stable during island close"
+if grep -Fq 'closeSurfaceTimer' "$SHELL_DIR/shell.qml"; then
+    fail "delayed layer-surface shrink artifact path returned"
+fi
 echo "PASS"
 
-echo "=== slider uniqueness contract ==="
+echo "=== slider uniqueness and hitbox contract ==="
 VOLUME_COUNT="$(grep -Fc 'titleText: "Volume"' "$SHELL_DIR/ControlCenter.qml")"
 BRIGHTNESS_COUNT="$(grep -Fc 'titleText: "Brightness"' "$SHELL_DIR/ControlCenter.qml")"
 [ "$VOLUME_COUNT" -eq 1 ] || fail "expected one Volume slider, found $VOLUME_COUNT"
@@ -115,6 +119,14 @@ require_text SliderCard.qml 'property real previewValue: value' "slider local dr
 require_text SliderCard.qml 'readonly property real displayedValue:' "slider rendered-value arbitration missing"
 require_text SliderCard.qml 'onValueChanged:' "slider does not follow service-side changes"
 require_text SliderCard.qml 'dragArea.dragging ? previewValue : value' "slider does not return to live service value outside drag"
+require_text SliderCard.qml 'height: 28' "slider interaction lane regressed to tiny visual track"
+echo "PASS"
+
+echo "=== explicit action feedback contract ==="
+require_text shell.qml 'function requestLock()' "lock action staging missing"
+require_text shell.qml "hyprlock is not installed" "lock action can fail silently"
+require_text shell.qml 'function requestCapture()' "capture action staging missing"
+require_text shell.qml "No screenshot backend is installed" "capture action can fail silently"
 echo "PASS"
 
 echo "=== runtime diagnostics contract ==="
