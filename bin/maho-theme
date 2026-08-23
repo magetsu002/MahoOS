@@ -30,6 +30,7 @@ doctor() {
     echo
 
     if command -v matugen >/dev/null 2>&1 &&
+       command -v magick >/dev/null 2>&1 &&
        [ -x "$BACKENDS/matugen/generate" ]
     then
         echo "PASS  backend      matugen"
@@ -61,17 +62,18 @@ resolve_backend() {
 
     case "$requested" in
         auto)
-            if command -v matugen >/dev/null 2>&1 &&
-               [ -x "$BACKENDS/matugen/generate" ]
-            then
-                printf '%s\n' "$BACKENDS/matugen/generate"
-                return 0
-            fi
-
             if command -v magick >/dev/null 2>&1 &&
                [ -x "$BACKENDS/basic/generate" ]
             then
                 printf '%s\n' "$BACKENDS/basic/generate"
+                return 0
+            fi
+
+            if command -v matugen >/dev/null 2>&1 &&
+               command -v magick >/dev/null 2>&1 &&
+               [ -x "$BACKENDS/matugen/generate" ]
+            then
+                printf '%s\n' "$BACKENDS/matugen/generate"
                 return 0
             fi
 
@@ -91,6 +93,10 @@ resolve_backend() {
                 matugen)
                     command -v matugen >/dev/null 2>&1 || {
                         die "matugen backend selected but matugen is missing"
+                        return 1
+                    }
+                    command -v magick >/dev/null 2>&1 || {
+                        die "matugen backend requires ImageMagick for Palette V2 analysis"
                         return 1
                     }
                     ;;
@@ -177,81 +183,8 @@ generate() {
         return 1
     }
 
-    python - "$raw" "$canonical" "$wall" "$mode" <<'PY'
-import json
-import re
-import sys
-from pathlib import Path
-
-raw_path = Path(sys.argv[1])
-out_path = Path(sys.argv[2])
-wallpaper = sys.argv[3]
-mode = sys.argv[4]
-
-required = [
-    "background",
-    "surface",
-    "surface_container",
-    "surface_container_high",
-    "foreground",
-    "muted",
-    "primary",
-    "on_primary",
-    "secondary",
-    "on_secondary",
-    "tertiary",
-    "on_tertiary",
-    "error",
-    "on_error",
-    "outline",
-    "outline_variant",
-]
-
-try:
-    colors = json.loads(raw_path.read_text())
-except Exception as exc:
-    raise SystemExit(f"invalid Matugen JSON: {exc}")
-
-if set(colors) != set(required):
-    missing = sorted(set(required) - set(colors))
-    extra = sorted(set(colors) - set(required))
-
-    raise SystemExit(
-        f"palette contract mismatch; missing={missing}, extra={extra}"
-    )
-
-hex_color = re.compile(r"^#[0-9a-fA-F]{6}$")
-
-for name in required:
-    value = colors[name]
-
-    if not isinstance(value, str) or not hex_color.fullmatch(value):
-        raise SystemExit(
-            f"invalid color {name}: {value!r}"
-        )
-
-canonical = {
-    "version": 1,
-    "mode": mode,
-    "source": {
-        "type": "wallpaper",
-        "path": wallpaper,
-    },
-    "colors": {
-        name: colors[name].lower()
-        for name in required
-    },
-}
-
-serialized = json.dumps(
-    canonical,
-    indent=2,
-    ensure_ascii=False,
-    sort_keys=True,
-) + "\n"
-
-out_path.write_text(serialized)
-PY
+    python "$ROOT/theme/palette_v2.py" canonicalize \
+        "$raw" "$canonical" "$wall" "$mode"
 
     if [ $? -ne 0 ]; then
         echo "Canonical palette validation failed."
