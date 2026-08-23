@@ -46,22 +46,20 @@ Item {
         return ""
     }
 
+    // Match the horizontal island's pointer ownership: hover/wheel/middle
+    // remain on MouseArea, while left click is a TapHandler so the parent
+    // DragHandler can take over deterministically once movement begins.
     MouseArea {
         id: hitArea
         anchors.fill: parent
         enabled: collapsed.enabled
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        acceptedButtons: Qt.MiddleButton
 
         onClicked: function(mouse) {
-            if (mouse.button === Qt.MiddleButton) {
-                if (collapsed.audio)
-                    collapsed.audio.toggleMute()
-                return
-            }
-
-            collapsed.openRequested()
+            if (mouse.button === Qt.MiddleButton && collapsed.audio)
+                collapsed.audio.toggleMute()
         }
 
         onWheel: function(wheel) {
@@ -72,6 +70,12 @@ Item {
             collapsed.audio.setVolume(collapsed.audio.volume + direction * 5)
             wheel.accepted = true
         }
+    }
+
+    TapHandler {
+        enabled: collapsed.enabled
+        acceptedButtons: Qt.LeftButton
+        onTapped: collapsed.openRequested()
     }
 
     Item {
