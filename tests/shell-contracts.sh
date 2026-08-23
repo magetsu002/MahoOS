@@ -152,6 +152,33 @@ require_text shell.qml 'target: null' "dock drag must not bypass bounded snap ge
 require_text shell.qml 'acceptedButtons: Qt.LeftButton' "dock drag left-button contract changed"
 require_text shell.qml 'dragThreshold: 8' "runtime-proven drag threshold changed"
 require_text shell.qml 'activeTranslation.x' "dock drag does not follow pointer translation"
+python - "$SHELL_DIR/shell.qml" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text()
+start = source.index("function beginDockDrag()")
+end = source.index("function updateDockDrag", start)
+body = source[start:end]
+
+required = [
+    "const originX = edgeSurface.x",
+    "const originY = edgeSurface.y",
+    "dragOriginX = originX",
+    "dragOriginY = originY",
+    "dragX = originX",
+    "dragY = originY",
+    "dragActive = true",
+]
+positions = [body.find(statement) for statement in required]
+if -1 in positions:
+    missing = required[positions.index(-1)]
+    raise SystemExit(f"FAIL: drag startup is missing: {missing}")
+if positions != sorted(positions):
+    raise SystemExit(
+        "FAIL: drag startup must capture and seed resting geometry before enabling drag bindings"
+    )
+PY
 if grep -Fq 'id: dockInput' "$SHELL_DIR/shell.qml"; then
     fail "experimental full-surface MouseArea drag path returned"
 fi
@@ -165,6 +192,17 @@ if grep -RnsF 'WlrLayershell.layer: WlrLayer.Top' "$SHELL_DIR/shell.qml"; then
     fail "visible Maho Edge regressed to a workspace-obscurable layer"
 fi
 require_text DockState.qml 'Quickshell.statePath("dock.json")' "global dock state is not stored once per shell"
+python - "$SHELL_DIR/shell.qml" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text()
+start = source.index("DragHandler {")
+end = source.index("// Maho Edge owns a small piece", start)
+drag_handler = source[start:end]
+if "workspace" in drag_handler.lower():
+    raise SystemExit("FAIL: workspace state can gate the global Edge drag handler")
+PY
 echo "PASS"
 
 echo "=== compositor reservation contract ==="

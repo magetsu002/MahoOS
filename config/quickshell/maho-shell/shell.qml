@@ -120,13 +120,18 @@ ShellRoot {
         if (expanded || closing)
             return
 
-        dragActive = true
-        dragOriginX = edgeSurface.x
-        dragOriginY = edgeSurface.y
-        dragX = edgeSurface.x
-        dragY = edgeSurface.y
+        // Capture the resting geometry before switching x/y to the drag
+        // bindings. Setting dragActive first makes edgeSurface read the default
+        // dragX/dragY values and jump to 0,0 before its origin is recorded.
+        const originX = edgeSurface.x
+        const originY = edgeSurface.y
+        dragOriginX = originX
+        dragOriginY = originY
+        dragX = originX
+        dragY = originY
         dragCandidateEdge = dock.edge
         dragCandidatePosition = dock.position
+        dragActive = true
     }
 
     function updateDockDrag(deltaX, deltaY) {

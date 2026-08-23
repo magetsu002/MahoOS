@@ -93,10 +93,16 @@ feedback, naming, or reserved space must not rewrite that drag contract.
 The Edge is one global layer-shell surface; workspace 1 has no special input
 authority and dock state is not stored per workspace. The visible surface uses
 the Wayland overlay layer explicitly. Hyprland's top layer can sit underneath a
-fullscreen workspace client, which made the Edge appear to work on an empty
-workspace 1 while another workspace's client covered both its pixels and input.
-The reservation remains a separate lower layer. This repairs global pointer
-ownership without changing drag arbitration, snap geometry, or reservation.
+fullscreen workspace client, so the overlay is required for consistent pixels
+and input over every client state.
+
+Drag startup also captures the resting surface coordinates before enabling the
+drag-position bindings. Enabling them first would make the surface read the
+default drag coordinates `(0, 0)`, then incorrectly save that jump as its
+origin. Together, overlay ownership and origin-first initialization make the
+same input path work on arbitrary workspace numbers and every dock edge. The
+reservation remains a separate lower layer; drag arbitration, snap geometry,
+and reservation behavior are unchanged.
 
 Side docks use a dedicated vertical layout rather than rotating text. Time is
 stacked, workspace feedback becomes vertical, and volume/brightness tracks fill
