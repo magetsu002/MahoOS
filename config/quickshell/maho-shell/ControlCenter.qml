@@ -7,6 +7,7 @@ Item {
     property var audio
     property var brightness
     property var system
+    property var battery
     property var media
     property date now: new Date()
 
@@ -32,8 +33,8 @@ Item {
     }
 
     function batteryGlyph() {
-        if (system && system.charging) return "󰂄"
-        const value = system ? system.battery : 100
+        if (battery && battery.charging) return "󰂄"
+        const value = battery ? battery.percentage : 100
         if (value >= 90) return "󰁹"
         if (value >= 70) return "󰂀"
         if (value >= 50) return "󰁾"
@@ -210,6 +211,7 @@ Item {
         MahoCard {
             width: parent.width
             height: 44
+            visible: center.battery ? center.battery.available : false
             theme: center.theme
 
             Text {
@@ -218,8 +220,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 text: center.batteryGlyph()
                 color: center.theme
-                    ? (center.system && center.system.battery <= 15 ? center.theme.error
-                        : (center.system && center.system.charging ? center.theme.primary : center.theme.secondary))
+                    ? (center.battery && center.battery.percentage <= 15 ? center.theme.error
+                        : (center.battery && center.battery.charging ? center.theme.primary : center.theme.secondary))
                     : "white"
                 font.family: "JetBrainsMono Nerd Font"
                 font.pixelSize: 16
@@ -230,7 +232,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: 48
                 anchors.verticalCenter: parent.verticalCenter
-                text: center.system && center.system.charging ? "Charging" : "Battery"
+                text: center.battery && center.battery.charging ? "Charging" : "Battery"
                 color: center.theme ? center.theme.foreground : "white"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
@@ -241,9 +243,9 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
-                text: (center.system ? center.system.battery : 100) + "%"
+                text: (center.battery ? center.battery.percentage : 100) + "%"
                 color: center.theme
-                    ? (center.system && center.system.battery <= 15 ? center.theme.error : center.theme.muted)
+                    ? (center.battery && center.battery.percentage <= 15 ? center.theme.error : center.theme.muted)
                     : "white"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
