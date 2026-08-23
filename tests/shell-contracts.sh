@@ -42,6 +42,7 @@ for file in \
     WorkspaceRail.qml \
     EdgeBar.qml \
     SideEdgeBar.qml \
+    NotifyStatus.qml \
     ControlCenter.qml \
     state.py
  do
@@ -49,6 +50,37 @@ for file in \
  done
 [ ! -e "$SHELL_DIR/CollapsedIsland.qml" ] || fail "legacy CollapsedIsland.qml returned"
 [ ! -e "$SHELL_DIR/SideCollapsedIsland.qml" ] || fail "legacy SideCollapsedIsland.qml returned"
+echo "PASS"
+
+echo "=== narrow Notify bridge contract ==="
+require_text NotifyStatus.qml 'Quickshell.env("XDG_RUNTIME_DIR")' "Notify status is not user-runtime scoped"
+require_text NotifyStatus.qml '/maho/notify-status.json' "Notify metadata sidecar path missing"
+require_text NotifyStatus.qml 'watchChanges: true' "Notify metadata is not observed reactively"
+require_text NotifyStatus.qml 'statusFile.loaded' "missing Notify metadata does not fall back safely"
+require_text NotifyStatus.qml 'data.version === 1' "malformed/unknown Notify metadata is not rejected"
+require_text ControlCenter.qml 'property var notifyStatus' "expanded control center lacks Notify status"
+require_text ControlCenter.qml 'text: "Notifications"' "expanded control center Notify entry missing"
+require_text ControlCenter.qml 'notifyStatus.unreadCount' "expanded Notify entry unread state missing"
+require_text ControlCenter.qml 'notifyStatus.dndEnabled' "expanded Notify entry DND state missing"
+require_text ControlCenter.qml 'center.notificationsRequested()' "expanded Notify entry cannot request center open"
+require_text shell.qml 'function openNotificationCenter()' "Maho Edge center-open bridge missing"
+require_text shell.qml '/.local/bin/maho-notify' "Maho Edge does not use the managed Notify runtime"
+require_text shell.qml 'onNotificationsRequested: root.openNotificationCenter()' "Notify open request is not routed"
+if grep -Fq 'NotifyIndicator' "$SHELL_DIR/EdgeBar.qml" "$SHELL_DIR/SideEdgeBar.qml" \
+    || grep -Fq 'notifyStatus' "$SHELL_DIR/EdgeBar.qml" "$SHELL_DIR/SideEdgeBar.qml"; then
+    fail "notification state leaked into the collapsed Maho Edge"
+fi
+if grep -RnsE 'state\.json|HistoryModel|HistoryRow|NotificationCenter|NotificationModel|NotificationCard' \
+    "$SHELL_DIR/NotifyStatus.qml" "$SHELL_DIR/ControlCenter.qml"; then
+    fail "Maho Edge bridge owns or imports notification history/UI"
+fi
+if grep -RnsEi '\b(body|summary|appName|title)\b' \
+    "$SHELL_DIR/NotifyStatus.qml"; then
+    fail "notification content field exposed to Maho Edge"
+fi
+if grep -Fq 'Timer {' "$SHELL_DIR/NotifyStatus.qml" || grep -Fq 'Process {' "$SHELL_DIR/NotifyStatus.qml"; then
+    fail "Notify status bridge uses polling or subprocess refresh"
+fi
 echo "PASS"
 
 echo "=== dynamic palette contract ==="
@@ -165,6 +197,12 @@ require_text DockReservation.qml 'verticalBarThickness: 46' "vertical reservatio
 require_text DockReservation.qml 'mask: Region {}' "reservation can intercept desktop input"
 require_text DockReservation.qml 'aboveWindows: false' "reservation should not render as a top overlay"
 require_text DockReservation.qml 'dock.edge === "top" || vertical' "reservation does not follow dock orientation"
+[ "$(sha256sum "$SHELL_DIR/DockReservation.qml" | awk '{print $1}')" = \
+    "2819e566fc3d40c634ca05007c6b49bae4aab30d4b504316f4b27d47e2e98475" ] || \
+    fail "DockReservation changed from the accepted frozen implementation"
+require_text shell.qml '? 250' "accepted Edge transient dimensions changed"
+require_text shell.qml ': (root.workspaceFlash ? 205 : (edgeView.hovered ? 190 : 176))' "horizontal Edge geometry changed"
+require_text shell.qml ': (root.workspaceFlash ? 205 : (sideEdgeView.hovered ? 202 : 190))' "vertical Edge geometry changed"
 echo "PASS"
 
 echo "=== staged close contract ==="
