@@ -14,7 +14,6 @@ Item {
     property int workspaceEventSerial: 0
     property date now: new Date()
     property bool hovered: hitArea.containsMouse
-    property real workspacePulse: 1.0
 
     readonly property string mode:
         brightness && brightness.overlayOpen ? "brightness"
@@ -46,32 +45,6 @@ Item {
         if (value < 30) return ""
         if (value < 70) return ""
         return ""
-    }
-
-    onWorkspaceEventSerialChanged: {
-        if (workspaceEventSerial > 0)
-            workspacePulseAnimation.restart()
-    }
-
-    SequentialAnimation {
-        id: workspacePulseAnimation
-
-        NumberAnimation {
-            target: edge
-            property: "workspacePulse"
-            from: 0.82
-            to: 1.12
-            duration: 90
-            easing.type: Easing.OutCubic
-        }
-
-        NumberAnimation {
-            target: edge
-            property: "workspacePulse"
-            to: 1.0
-            duration: 130
-            easing.type: Easing.OutCubic
-        }
     }
 
     // Hover, wheel and middle click live here. Left-click ownership remains
@@ -154,35 +127,16 @@ Item {
         }
     }
 
-    Row {
+    WorkspaceRail {
         id: workspaceView
         anchors.centerIn: parent
-        spacing: 4
-        scale: edge.workspacePulse
+        theme: edge.theme
+        activeWorkspace: edge.activeWorkspace
+        vertical: false
         opacity: edge.mode === "workspace" ? 1 : 0
         visible: opacity > 0.01
 
         Behavior on opacity { NumberAnimation { duration: 110 } }
-
-        Repeater {
-            model: edge.workspaceIds
-            delegate: Rectangle {
-                required property var modelData
-                width: modelData === edge.activeWorkspace ? 18 : 5
-                height: 5
-                radius: 3
-                color: edge.theme
-                    ? (modelData === edge.activeWorkspace
-                        ? edge.theme.primary
-                        : edge.theme.alpha(edge.theme.muted, 0.32))
-                    : "white"
-
-                Behavior on width {
-                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-                }
-                Behavior on color { ColorAnimation { duration: 180 } }
-            }
-        }
     }
 
     Row {
