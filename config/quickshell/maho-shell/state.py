@@ -74,22 +74,6 @@ if batteries:
         pass
 
 
-media_playing = False
-media_title = ""
-media_artist = ""
-
-if shutil.which("playerctl"):
-    status = run(["playerctl", "status"])
-    media_playing = status == "Playing"
-    media_title = run(["playerctl", "metadata", "--format", "{{title}}"])
-    media_artist = run(["playerctl", "metadata", "--format", "{{artist}}"])
-
-    if len(media_title) > 42:
-        media_title = media_title[:39] + "…"
-    if len(media_artist) > 34:
-        media_artist = media_artist[:31] + "…"
-
-
 print(json.dumps({
     "networkKind": network_kind,
     "networkName": network_name,
@@ -98,7 +82,4 @@ print(json.dumps({
     "bluetoothConnected": bluetooth_connected,
     "battery": battery,
     "charging": charging,
-    "mediaPlaying": media_playing,
-    "mediaTitle": media_title,
-    "mediaArtist": media_artist,
 }, separators=(",", ":")))
