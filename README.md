@@ -36,6 +36,9 @@ configuration is never overwritten.
 The interaction and future docking model is documented in
 [`docs/MAHO-SHELL.md`](docs/MAHO-SHELL.md). Gesture and geometry details remain
 experimental until they are runtime-tested on the target Hyprland session.
+Shell-specific CI contracts protect the palette watcher, native PipeWire and
+Hyprland event paths, staged close behavior, slider semantics and known QML
+property footguns before a change reaches that live validation gate.
 
 ## Core principles
 
