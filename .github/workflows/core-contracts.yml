@@ -62,7 +62,8 @@ jobs:
             tests/security-preflight.sh \
             tests/security-boundaries.sh \
             tests/setup-contracts.sh \
-            tests/environment-observers.sh
+            tests/environment-observers.sh \
+            tests/shell-contracts.sh
 
       - name: Python syntax
         shell: bash
@@ -185,3 +186,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/environment-observers.sh
+
+      - name: Maho Shell UI contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/shell-contracts.sh
