@@ -34,7 +34,8 @@ by `maho-setup` when Quickshell is available. Existing unmanaged Quickshell
 configuration is never overwritten.
 
 The interaction and future docking model is documented in
-[`docs/MAHO-SHELL.md`](docs/MAHO-SHELL.md).
+[`docs/MAHO-SHELL.md`](docs/MAHO-SHELL.md). Gesture and geometry details remain
+experimental until they are runtime-tested on the target Hyprland session.
 
 ## Core principles
 
