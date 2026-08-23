@@ -20,7 +20,8 @@ ShellRoot {
     property bool closing: false
     property bool controlVisible: false
     property bool workspaceFlash: false
-    property int lastWorkspace: 0
+    property int workspaceVisual: 0
+    property int workspaceEventSerial: 0
     property date now: new Date()
 
     property bool dragActive: false
@@ -36,6 +37,9 @@ ShellRoot {
 
     readonly property int activeWorkspace:
         Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 0
+
+    readonly property int displayedWorkspace:
+        workspaceVisual > 0 ? workspaceVisual : activeWorkspace
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value))
@@ -55,7 +59,7 @@ ShellRoot {
         if (result.length <= 5)
             return result
 
-        let index = result.indexOf(activeWorkspace)
+        let index = result.indexOf(displayedWorkspace)
         if (index < 0)
             index = 0
 
@@ -116,10 +120,10 @@ ShellRoot {
             return
 
         dragActive = true
-        dragOriginX = island.x
-        dragOriginY = island.y
-        dragX = island.x
-        dragY = island.y
+        dragOriginX = edgeSurface.x
+        dragOriginY = edgeSurface.y
+        dragX = edgeSurface.x
+        dragY = edgeSurface.y
         dragCandidateEdge = dock.edge
         dragCandidatePosition = dock.position
     }
@@ -131,16 +135,16 @@ ShellRoot {
         dragX = clamp(
             dragOriginX + deltaX,
             0,
-            Math.max(0, panel.width - island.width)
+            Math.max(0, panel.width - edgeSurface.width)
         )
         dragY = clamp(
             dragOriginY + deltaY,
             0,
-            Math.max(0, panel.height - island.height)
+            Math.max(0, panel.height - edgeSurface.height)
         )
 
-        const centerX = dragX + island.width / 2
-        const centerY = dragY + island.height / 2
+        const centerX = dragX + edgeSurface.width / 2
+        const centerY = dragY + edgeSurface.height / 2
         dragCandidateEdge = nearestEdge(centerX, centerY)
         dragCandidatePosition = edgePosition(dragCandidateEdge, centerX, centerY)
     }
@@ -189,19 +193,46 @@ ShellRoot {
         captureDelay.restart()
     }
 
-    Component.onCompleted: lastWorkspace = activeWorkspace
+    function triggerWorkspaceChange(nextWorkspace) {
+        if (nextWorkspace <= 0)
+            return
+
+        workspaceVisual = nextWorkspace
+        workspaceEventSerial += 1
+        workspaceFlash = true
+        workspaceTimer.restart()
+    }
+
+    Component.onCompleted: workspaceVisual = activeWorkspace
 
     Connections {
         target: Hyprland
+
+        // Hyprland socket2 is the animation authority. workspacev2 is emitted
+        // for every user-requested workspace change, so every event receives a
+        // new serial even while the previous workspace feedback is still live.
+        function onRawEvent(event) {
+            if (event.name !== "workspacev2")
+                return
+
+            const fields = event.parse(2)
+            const current = parseInt(fields[0])
+
+            if (!isNaN(current) && current > 0)
+                root.triggerWorkspaceChange(current)
+
+            Hyprland.refreshWorkspaces()
+        }
+
+        // Keep a fallback for startup/reconnect paths where the raw event was
+        // not observed. The visual workspace check prevents duplicate pulses.
         function onFocusedWorkspaceChanged() {
-            const current = Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 0
+            const current = Hyprland.focusedWorkspace
+                ? Hyprland.focusedWorkspace.id
+                : 0
 
-            if (root.lastWorkspace > 0 && current > 0 && current !== root.lastWorkspace) {
-                root.workspaceFlash = true
-                workspaceTimer.restart()
-            }
-
-            root.lastWorkspace = current
+            if (current > 0 && current !== root.workspaceVisual)
+                root.triggerWorkspaceChange(current)
         }
     }
 
@@ -220,7 +251,7 @@ ShellRoot {
 
             // Horizontal docks fold height first while staying wide. Side docks
             // fold width first while staying tall. Only after that primary fold
-            // finishes do we collapse the second axis into the idle island.
+            // finishes do we collapse the second axis into the resting Maho Edge.
             root.expanded = false
             closeSecondaryTimer.restart()
         }
@@ -266,9 +297,8 @@ ShellRoot {
     PanelWindow {
         id: panel
 
-        // A full-screen transparent layer gives the island room to follow the
-        // pointer while dragging. The input mask still contains only the island,
-        // so the rest of the desktop remains fully interactive.
+        // Full-screen geometry lets Maho Edge follow the pointer while the
+        // input mask keeps every pixel outside the visible surface click-through.
         anchors {
             top: true
             bottom: true
@@ -281,7 +311,7 @@ ShellRoot {
         focusable: false
         exclusionMode: ExclusionMode.Ignore
 
-        mask: Region { item: island }
+        mask: Region { item: edgeSurface }
 
         Rectangle {
             visible: root.dragActive && root.dragCandidateEdge === "top"
@@ -328,7 +358,7 @@ ShellRoot {
         }
 
         Item {
-            id: island
+            id: edgeSurface
 
             readonly property bool wideBody: root.expanded || root.closing
             readonly property real wing: 14
@@ -337,11 +367,11 @@ ShellRoot {
             readonly property int horizontalIdleWidth:
                 (audio.overlayOpen || brightness.overlayOpen)
                     ? 250
-                    : (root.workspaceFlash ? 205 : (collapsedView.hovered ? 190 : 176))
+                    : (root.workspaceFlash ? 205 : (edgeView.hovered ? 190 : 176))
             readonly property int verticalIdleHeight:
                 (audio.overlayOpen || brightness.overlayOpen)
                     ? 250
-                    : (root.workspaceFlash ? 205 : (sideCollapsedView.hovered ? 202 : 190))
+                    : (root.workspaceFlash ? 205 : (sideEdgeView.hovered ? 202 : 190))
 
             property color shellFill: theme.alpha(theme.surfaceHigh, wideBody ? 0.978 : 0.958)
             property color shellStroke: theme.alpha(theme.outline, wideBody ? 0.28 : 0.18)
@@ -350,7 +380,7 @@ ShellRoot {
             y: root.dragActive ? root.dragY : root.edgeY(height)
 
             width: root.verticalDock
-                ? (root.expanded ? 430 : (root.closing ? 46 : 46))
+                ? (root.expanded ? 430 : 46)
                 : (wideBody ? 430 : horizontalIdleWidth)
 
             height: root.verticalDock
@@ -399,14 +429,14 @@ ShellRoot {
 
                 ShapePath {
                     id: contour
-                    fillColor: island.shellFill
-                    strokeColor: island.shellStroke
+                    fillColor: edgeSurface.shellFill
+                    strokeColor: edgeSurface.shellStroke
                     strokeWidth: 1
 
                     readonly property real w: silhouette.width
                     readonly property real h: silhouette.height
-                    readonly property real g: island.wing
-                    readonly property real r: island.bodyRadius
+                    readonly property real g: edgeSurface.wing
+                    readonly property real r: edgeSurface.bodyRadius
 
                     startX: 0
                     startY: 0
@@ -449,62 +479,62 @@ ShellRoot {
             Rectangle {
                 visible: dock.edge === "top"
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: island.wideBody ? 7 : 3
+                anchors.bottomMargin: edgeSurface.wideBody ? 7 : 3
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                width: edgeSurface.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
                 height: 2
                 radius: 1
                 color: theme.primary
-                opacity: island.wideBody ? 0.46 : 0.82
+                opacity: edgeSurface.wideBody ? 0.46 : 0.82
             }
 
             Rectangle {
                 visible: dock.edge === "bottom"
                 anchors.top: parent.top
-                anchors.topMargin: island.wideBody ? 7 : 3
+                anchors.topMargin: edgeSurface.wideBody ? 7 : 3
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                width: edgeSurface.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
                 height: 2
                 radius: 1
                 color: theme.primary
-                opacity: island.wideBody ? 0.46 : 0.82
+                opacity: edgeSurface.wideBody ? 0.46 : 0.82
             }
 
             Rectangle {
                 visible: dock.edge === "left"
                 anchors.right: parent.right
-                anchors.rightMargin: island.wideBody ? 7 : 3
+                anchors.rightMargin: edgeSurface.wideBody ? 7 : 3
                 anchors.verticalCenter: parent.verticalCenter
                 width: 2
-                height: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                height: edgeSurface.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
                 radius: 1
                 color: theme.primary
-                opacity: island.wideBody ? 0.46 : 0.82
+                opacity: edgeSurface.wideBody ? 0.46 : 0.82
             }
 
             Rectangle {
                 visible: dock.edge === "right"
                 anchors.left: parent.left
-                anchors.leftMargin: island.wideBody ? 7 : 3
+                anchors.leftMargin: edgeSurface.wideBody ? 7 : 3
                 anchors.verticalCenter: parent.verticalCenter
                 width: 2
-                height: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                height: edgeSurface.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
                 radius: 1
                 color: theme.primary
-                opacity: island.wideBody ? 0.46 : 0.82
+                opacity: edgeSurface.wideBody ? 0.46 : 0.82
             }
 
             Item {
                 id: content
                 anchors.fill: parent
-                anchors.leftMargin: island.wideBody ? island.wing + 18 : (root.verticalDock ? 5 : island.wing + 9)
-                anchors.rightMargin: island.wideBody ? island.wing + 18 : (root.verticalDock ? 5 : island.wing + 9)
-                anchors.topMargin: !island.wideBody && root.verticalDock ? island.wing + 6 : 0
-                anchors.bottomMargin: !island.wideBody && root.verticalDock ? island.wing + 6 : 0
+                anchors.leftMargin: edgeSurface.wideBody ? edgeSurface.wing + 18 : (root.verticalDock ? 5 : edgeSurface.wing + 9)
+                anchors.rightMargin: edgeSurface.wideBody ? edgeSurface.wing + 18 : (root.verticalDock ? 5 : edgeSurface.wing + 9)
+                anchors.topMargin: !edgeSurface.wideBody && root.verticalDock ? edgeSurface.wing + 6 : 0
+                anchors.bottomMargin: !edgeSurface.wideBody && root.verticalDock ? edgeSurface.wing + 6 : 0
                 clip: true
 
-                CollapsedIsland {
-                    id: collapsedView
+                EdgeBar {
+                    id: edgeView
                     anchors.fill: parent
                     visible: !root.verticalDock
                     theme: theme
@@ -513,8 +543,9 @@ ShellRoot {
                     system: system
                     battery: battery
                     workspaceIds: root.workspaceIds()
-                    activeWorkspace: root.activeWorkspace
+                    activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
+                    workspaceEventSerial: root.workspaceEventSerial
                     now: root.now
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
@@ -523,8 +554,8 @@ ShellRoot {
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
 
-                SideCollapsedIsland {
-                    id: sideCollapsedView
+                SideEdgeBar {
+                    id: sideEdgeView
                     anchors.fill: parent
                     visible: root.verticalDock
                     theme: theme
@@ -533,8 +564,9 @@ ShellRoot {
                     system: system
                     battery: battery
                     workspaceIds: root.workspaceIds()
-                    activeWorkspace: root.activeWorkspace
+                    activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
+                    workspaceEventSerial: root.workspaceEventSerial
                     now: root.now
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
@@ -591,6 +623,8 @@ ShellRoot {
                 }
             }
 
+            // Runtime-proven drag contract. Do not fold click semantics or
+            // compositor reservation into this handler.
             DragHandler {
                 id: dockDrag
                 enabled: !root.expanded && !root.closing
@@ -612,5 +646,14 @@ ShellRoot {
                 }
             }
         }
+    }
+
+    // Maho Edge owns a small piece of compositor layout at its resting edge.
+    // During drag dock.edge is intentionally unchanged, so windows reflow only
+    // once when the snapped edge is committed on release.
+    DockReservation {
+        dock: dock
+        screen: panel.screen
+        breathingRoom: 8
     }
 }
