@@ -7,6 +7,7 @@ Item {
     property var audio
     property var brightness
     property var system
+    property var battery
     property var workspaceIds: []
     property int activeWorkspace: 0
     property bool workspaceFlash: false
@@ -28,8 +29,8 @@ Item {
     }
 
     function batteryGlyph() {
-        if (system && system.charging) return "󰂄"
-        const value = system ? system.battery : 100
+        if (battery && battery.charging) return "󰂄"
+        const value = battery ? battery.percentage : 100
         if (value >= 90) return "󰁹"
         if (value >= 70) return "󰂀"
         if (value >= 50) return "󰁾"
@@ -113,11 +114,12 @@ Item {
         Text {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
+            visible: collapsed.battery ? collapsed.battery.available : false
             text: collapsed.batteryGlyph()
             color: collapsed.theme
-                ? (collapsed.system && collapsed.system.battery <= 15
+                ? (collapsed.battery && collapsed.battery.percentage <= 15
                     ? collapsed.theme.error
-                    : (collapsed.system && collapsed.system.charging
+                    : (collapsed.battery && collapsed.battery.charging
                         ? collapsed.theme.primary : collapsed.theme.muted))
                 : "white"
             font.family: "JetBrainsMono Nerd Font"
