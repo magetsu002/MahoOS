@@ -142,6 +142,17 @@ def main() -> None:
 
         valid_raw = documents["violet"]["colors"]
         palette.validate_raw(valid_raw)
+        packaged_raw = json.loads((ROOT / "theme" / "backends" / "basic" / "palette.raw.json").read_text())
+        palette.validate_raw(packaged_raw)
+
+        schema_example = json.loads((ROOT / "theme" / "schema" / "palette.example.json").read_text())
+        if schema_example.get("version") != 1 or schema_example.get("palette_version") != 2:
+            fail("packaged schema does not preserve the version-1 compatibility envelope")
+        if set(schema_example.get("colors", {})) != set(palette.LEGACY_KEYS):
+            fail("packaged schema does not preserve all legacy color keys")
+        if not isinstance(schema_example.get("semantic"), dict):
+            fail("packaged schema omits semantic palette roles")
+
         try:
             palette.validate_raw({"primary": "#ffffff"})
         except ValueError:
