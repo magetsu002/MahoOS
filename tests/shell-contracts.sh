@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SHELL_DIR="$ROOT/config/quickshell/maho-shell"
+RUNTIME="$ROOT/bin/maho-shell"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -18,6 +19,11 @@ require_file() {
 require_text() {
     local file="$1" needle="$2" message="$3"
     grep -Fq -- "$needle" "$SHELL_DIR/$file" || fail "$message"
+}
+
+require_runtime_text() {
+    local needle="$1" message="$2"
+    grep -Fq -- "$needle" "$RUNTIME" || fail "$message"
 }
 
 echo "=== packaged components ==="
@@ -77,6 +83,18 @@ require_text SliderCard.qml 'property real previewValue: value' "slider local dr
 require_text SliderCard.qml 'readonly property real displayedValue:' "slider rendered-value arbitration missing"
 require_text SliderCard.qml 'onValueChanged:' "slider does not follow service-side changes"
 require_text SliderCard.qml 'dragArea.dragging ? previewValue : value' "slider does not return to live service value outside drag"
+echo "PASS"
+
+echo "=== runtime diagnostics contract ==="
+require_runtime_text 'doctor)' "maho-shell doctor command missing"
+require_runtime_text 'status --json' "machine-readable shell status missing"
+require_runtime_text 'logs [LINES]' "bounded runtime log command missing"
+require_runtime_text 'if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]' "runtime log bound missing"
+require_runtime_text 'shell_count()' "singleton diagnostics missing"
+require_runtime_text 'python -m json.tool "$PALETTE"' "palette diagnostics missing"
+require_runtime_text 'print_capability brightnessctl' "brightness capability diagnostics missing"
+require_runtime_text 'print_capability nmcli' "network capability diagnostics missing"
+require_runtime_text 'print_capability playerctl' "media capability diagnostics missing"
 echo "PASS"
 
 echo "=== known QML footgun contract ==="
