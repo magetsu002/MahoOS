@@ -201,6 +201,17 @@ ShellRoot {
         workspaceEventSerial += 1
         workspaceFlash = true
         workspaceTimer.restart()
+        refreshEdgeInputMask()
+    }
+
+    // Region follows most Item geometry changes automatically, but Quickshell
+    // documents that an item-backed Region can occasionally need an explicit
+    // changed signal. Hyprland workspace transitions expose that stale-region
+    // case: the global layer surface remains visible while its previous input
+    // region can remain attached to the old scene. Republish the same global
+    // input region after workspace and surface geometry changes.
+    function refreshEdgeInputMask() {
+        inputMaskRefresh.restart()
     }
 
     Component.onCompleted: workspaceVisual = activeWorkspace
@@ -240,6 +251,12 @@ ShellRoot {
         id: workspaceTimer
         interval: 1150
         onTriggered: root.workspaceFlash = false
+    }
+
+    Timer {
+        id: inputMaskRefresh
+        interval: 0
+        onTriggered: panelMask.changed()
     }
 
     Timer {
@@ -311,7 +328,10 @@ ShellRoot {
         focusable: false
         exclusionMode: ExclusionMode.Ignore
 
-        mask: Region { item: edgeSurface }
+        mask: Region {
+            id: panelMask
+            item: edgeSurface
+        }
 
         Rectangle {
             visible: root.dragActive && root.dragCandidateEdge === "top"
@@ -359,6 +379,11 @@ ShellRoot {
 
         Item {
             id: edgeSurface
+
+            onXChanged: root.refreshEdgeInputMask()
+            onYChanged: root.refreshEdgeInputMask()
+            onWidthChanged: root.refreshEdgeInputMask()
+            onHeightChanged: root.refreshEdgeInputMask()
 
             readonly property bool wideBody: root.expanded || root.closing
             readonly property real wing: 14
