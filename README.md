@@ -22,6 +22,7 @@ morphs when context matters:
 - PipeWire volume changes produce an immediate in-shell OSD
 - brightness changes produce the same transient feedback language
 - clicking the shell opens large, usable controls instead of tiny status targets
+- scrolling the collapsed shell changes volume and middle-click toggles mute
 - Wi-Fi, Bluetooth, battery, volume, brightness, wallpaper and media state live
   in one control center without duplicating controls
 - every surface reads `~/.cache/maho/theme/active.json` directly, so wallpaper
@@ -31,6 +32,9 @@ morphs when context matters:
 The shell source is packaged under `config/quickshell/maho-shell/` and is wired
 by `maho-setup` when Quickshell is available. Existing unmanaged Quickshell
 configuration is never overwritten.
+
+The interaction and future docking model is documented in
+[`docs/MAHO-SHELL.md`](docs/MAHO-SHELL.md).
 
 ## Core principles
 
