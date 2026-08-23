@@ -70,6 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile \
+            theme/palette_v2.py \
+            tests/palette-v2.py \
             lib/security_probe.py \
             lib/security_containment.py \
             lib/security_incident.py \
@@ -84,6 +86,14 @@ jobs:
           python -m json.tool config/ownership.json >/dev/null
           python -m json.tool config/intent.json >/dev/null
           python -m json.tool config/adapters.json >/dev/null
+          python -m json.tool theme/backends/basic/palette.raw.json >/dev/null
+          python -m json.tool theme/schema/palette.example.json >/dev/null
+
+      - name: Palette V2 behavioral tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/palette-v2.py
 
       - name: Core contract tests
         shell: bash
