@@ -1,0 +1,12 @@
+[Unit]
+Description=Maho adaptive Quickshell desktop surface
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-shell run
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
