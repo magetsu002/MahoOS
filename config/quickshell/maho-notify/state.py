@@ -18,6 +18,7 @@ from typing import Any
 
 
 VERSION = 2
+STATUS_VERSION = 1
 MAX_ENTRIES = 500
 MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 ALLOWED_FIELDS = {
@@ -58,6 +59,18 @@ def state_dir() -> Path:
 
 def state_path() -> Path:
     return state_dir() / "state.json"
+
+
+def runtime_dir() -> Path:
+    override = os.environ.get("MAHO_NOTIFY_RUNTIME_DIR")
+    if override:
+        return Path(override).expanduser()
+    base = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    return base / "maho"
+
+
+def status_path() -> Path:
+    return runtime_dir() / "notify-status.json"
 
 
 def default_state() -> dict[str, Any]:
@@ -133,6 +146,30 @@ def _ensure_private_directory(directory: Path) -> None:
     os.chmod(directory, 0o700)
 
 
+def _atomic_json(path: Path, payload: dict[str, Any], prefix: str) -> None:
+    directory = path.parent
+    _ensure_private_directory(directory)
+    fd, temporary_name = tempfile.mkstemp(prefix=prefix, suffix=".json", dir=directory)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def load_state() -> dict[str, Any]:
     path = state_path()
     _ensure_private_directory(path.parent)
@@ -157,31 +194,31 @@ def load_state() -> dict[str, Any]:
 
 def save_state(raw: Any) -> dict[str, Any]:
     state = normalize_state(raw)
-    directory = state_dir()
     path = state_path()
-    _ensure_private_directory(directory)
-
-    fd, temporary_name = tempfile.mkstemp(prefix=".state.", suffix=".json", dir=directory)
-    temporary = Path(temporary_name)
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        os.chmod(path, 0o600)
-        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    _atomic_json(path, state, ".state.")
 
     return state
+
+
+def normalize_status(raw: Any, *, active: bool | None = None) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
+    try:
+        unread_count = int(raw.get("unread_count", 0))
+    except (TypeError, ValueError):
+        unread_count = 0
+    return {
+        "version": STATUS_VERSION,
+        "unread_count": min(MAX_ENTRIES, max(0, unread_count)),
+        "dnd": bool(raw.get("dnd", False)),
+        "active": bool(raw.get("active", False) if active is None else active),
+    }
+
+
+def publish_status(raw: Any, *, active: bool | None = None) -> dict[str, Any]:
+    status = normalize_status(raw, active=active)
+    _atomic_json(status_path(), status, ".notify-status.")
+    return status
 
 
 def metadata(state: dict[str, Any]) -> dict[str, Any]:
@@ -202,34 +239,45 @@ def respond(payload: dict[str, Any]) -> None:
 
 
 def serve() -> int:
-    for line in sys.stdin:
+    last_status = normalize_status({}, active=False)
+    try:
+        for line in sys.stdin:
+            try:
+                request = json.loads(line)
+                operation = request.get("op")
+                if operation == "load":
+                    respond({"ok": True, "op": "state", "state": load_state()})
+                elif operation == "save":
+                    saved = save_state(request.get("state", {}))
+                    respond({"ok": True, "op": "saved", "meta": metadata(saved)})
+                elif operation == "publish_status":
+                    last_status = publish_status(request.get("status", {}), active=True)
+                    respond({"ok": True, "op": "status_published"})
+                elif operation == "set_dnd":
+                    state = load_state()
+                    state["dnd"] = bool(request.get("enabled", False))
+                    saved = save_state(state)
+                    respond({"ok": True, "op": "dnd", "enabled": saved["dnd"]})
+                elif operation == "clear":
+                    state = load_state()
+                    state["entries"] = []
+                    saved = save_state(state)
+                    respond({"ok": True, "op": "cleared", "meta": metadata(saved)})
+                else:
+                    respond({"ok": False, "error": "unsupported operation"})
+            except Exception:
+                respond({"ok": False, "error": "state operation failed"})
+    finally:
         try:
-            request = json.loads(line)
-            operation = request.get("op")
-            if operation == "load":
-                respond({"ok": True, "op": "state", "state": load_state()})
-            elif operation == "save":
-                saved = save_state(request.get("state", {}))
-                respond({"ok": True, "op": "saved", "meta": metadata(saved)})
-            elif operation == "set_dnd":
-                state = load_state()
-                state["dnd"] = bool(request.get("enabled", False))
-                saved = save_state(state)
-                respond({"ok": True, "op": "dnd", "enabled": saved["dnd"]})
-            elif operation == "clear":
-                state = load_state()
-                state["entries"] = []
-                saved = save_state(state)
-                respond({"ok": True, "op": "cleared", "meta": metadata(saved)})
-            else:
-                respond({"ok": False, "error": "unsupported operation"})
-        except Exception:
-            respond({"ok": False, "error": "state operation failed"})
+            publish_status(last_status, active=False)
+        except OSError:
+            pass
     return 0
 
 
 def self_test() -> int:
     original_override = os.environ.get("MAHO_NOTIFY_STATE_DIR")
+    original_runtime_override = os.environ.get("MAHO_NOTIFY_RUNTIME_DIR")
     with tempfile.TemporaryDirectory(prefix="maho-notify-state-test-") as temporary:
         os.environ["MAHO_NOTIFY_STATE_DIR"] = temporary
         now_ms = int(time.time() * 1000)
@@ -266,6 +314,26 @@ def self_test() -> int:
         assert (state_dir().stat().st_mode & 0o777) == 0o700
         assert (state_path().stat().st_mode & 0o777) == 0o600
 
+        os.environ["MAHO_NOTIFY_RUNTIME_DIR"] = str(Path(temporary) / "runtime")
+        safe_status = publish_status({
+            "unread_count": MAX_ENTRIES + 10,
+            "dnd": True,
+            "active": True,
+            "summary": "must not persist",
+            "body": "must not persist",
+            "appName": "must not persist",
+        })
+        assert safe_status == {
+            "version": STATUS_VERSION,
+            "unread_count": MAX_ENTRIES,
+            "dnd": True,
+            "active": True,
+        }
+        persisted_status = json.loads(status_path().read_text(encoding="utf-8"))
+        assert set(persisted_status) == {"version", "unread_count", "dnd", "active"}
+        assert (runtime_dir().stat().st_mode & 0o777) == 0o700
+        assert (status_path().stat().st_mode & 0o777) == 0o600
+
         state_path().write_text("{malformed", encoding="utf-8")
         os.chmod(state_path(), 0o600)
         recovered = load_state()
@@ -278,6 +346,10 @@ def self_test() -> int:
         os.environ.pop("MAHO_NOTIFY_STATE_DIR", None)
     else:
         os.environ["MAHO_NOTIFY_STATE_DIR"] = original_override
+    if original_runtime_override is None:
+        os.environ.pop("MAHO_NOTIFY_RUNTIME_DIR", None)
+    else:
+        os.environ["MAHO_NOTIFY_RUNTIME_DIR"] = original_runtime_override
     print("PASS state self-test")
     return 0
 

@@ -20,6 +20,10 @@ Scope {
     readonly property int unreadCount: countUnread(entries)
     readonly property var groupedEntries: buildGroups(entries)
 
+    onUnreadCountChanged: scheduleStatusPublish()
+    onDndEnabledChanged: scheduleStatusPublish()
+    onLoadedChanged: scheduleStatusPublish()
+
     function boundedText(value, maximum) {
         if (value === undefined || value === null)
             return ""
@@ -201,6 +205,26 @@ Scope {
         }) + "\n")
     }
 
+    function scheduleStatusPublish() {
+        if (!loaded || !persistence.running)
+            return
+        statusDelay.restart()
+    }
+
+    function publishStatus() {
+        if (!loaded || !persistence.running)
+            return
+        persistence.write(JSON.stringify({
+            "op": "publish_status",
+            "status": {
+                "version": 1,
+                "unread_count": unreadCount,
+                "dnd": dndEnabled,
+                "active": true
+            }
+        }) + "\n")
+    }
+
     function mergeLoaded(loadedEntries) {
         const combined = entries.slice()
         const known = ({})
@@ -323,6 +347,13 @@ Scope {
         interval: 350
         repeat: false
         onTriggered: model.saveNow()
+    }
+
+    Timer {
+        id: statusDelay
+        interval: 60
+        repeat: false
+        onTriggered: model.publishStatus()
     }
 
     Process {
