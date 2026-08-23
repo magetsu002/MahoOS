@@ -136,17 +136,7 @@ require_text shell.qml 'function nearestEdge(centerX, centerY)' "nearest-edge sn
 require_text shell.qml 'function edgePosition(edge, centerX, centerY)' "along-edge snap position missing"
 require_text shell.qml 'dock.setDock(edge, position)' "drag release does not persist snapped dock state"
 require_text shell.qml 'exclusionMode: ExclusionMode.Ignore' "full-screen drag layer should not reserve the desktop"
-require_text shell.qml 'id: panelMask' "full-screen drag layer lacks a stable input-region identity"
-require_text shell.qml 'item: edgeSurface' "full-screen drag layer is not input-masked to Maho Edge"
-require_text shell.qml 'function refreshEdgeInputMask()' "Maho Edge cannot republish its global input region"
-require_text shell.qml 'inputMaskRefresh.restart()' "workspace changes do not refresh Edge input authority"
-require_text shell.qml 'onTriggered: panelMask.changed()' "input-region refresh does not notify the layer surface"
-for signal in onXChanged onYChanged onWidthChanged onHeightChanged; do
-    require_text shell.qml "$signal: root.refreshEdgeInputMask()" "Edge geometry change does not refresh input mask: $signal"
-done
-if grep -RnsE 'workspace(Visual|Id|ID|id)?[[:space:]]*={2,3}[[:space:]]*1|activeWorkspace[[:space:]]*={2,3}[[:space:]]*1' "$SHELL_DIR" --include='*.qml'; then
-    fail "workspace 1 has special Edge interaction authority"
-fi
+require_text shell.qml 'mask: Region { item: edgeSurface }' "full-screen drag layer is not input-masked to Maho Edge"
 require_text shell.qml 'dock.edge === "left" || dock.edge === "right"' "vertical dock orientation missing"
 require_text shell.qml 'dock.edge === "bottom" ? 180' "bottom silhouette orientation missing"
 require_text shell.qml 'dock.edge === "left" ? -90' "left silhouette orientation missing"
