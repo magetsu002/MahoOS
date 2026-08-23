@@ -38,7 +38,7 @@ chmod +x "$TMP/fake-bin/quickshell"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-setup)
+COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-launcher maho-setup)
 UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service maho-notify.service)
 
 echo "=== preflight ==="
@@ -62,6 +62,11 @@ NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
 [ -L "$NOTIFY_TARGET" ] || fail "Maho Notify configuration is not a symlink"
 [ "$(readlink -f "$NOTIFY_TARGET")" = "$ROOT/config/quickshell/maho-notify" ] || fail "Maho Notify targets wrong checkout"
 [ -r "$NOTIFY_TARGET/shell.qml" ] || fail "Maho Notify entrypoint missing after install"
+
+LAUNCHER_TARGET="$XDG_CONFIG_HOME/quickshell/maho-launcher"
+[ -L "$LAUNCHER_TARGET" ] || fail "Maho Launcher configuration is not a symlink"
+[ "$(readlink -f "$LAUNCHER_TARGET")" = "$ROOT/config/quickshell/maho-launcher" ] || fail "Maho Launcher targets wrong checkout"
+[ -r "$LAUNCHER_TARGET/shell.qml" ] || fail "Maho Launcher entrypoint missing after install"
 
 for unit in "${UNITS[@]}"; do
     target="$XDG_CONFIG_HOME/systemd/user/$unit"
@@ -135,6 +140,19 @@ bash "$ROOT/bin/maho-setup" install >/dev/null
 [ -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify was not restored after unmanaged protection test"
 echo "PASS"
 
+echo "=== unmanaged launcher protected ==="
+rm -f "$LAUNCHER_TARGET"
+mkdir -p "$LAUNCHER_TARGET"
+printf '%s\n' 'external-launcher' > "$LAUNCHER_TARGET/owner.txt"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "setup overwrote unmanaged Maho Launcher configuration"
+fi
+grep -q '^external-launcher$' "$LAUNCHER_TARGET/owner.txt" || fail "unmanaged launcher was modified"
+rm -rf "$LAUNCHER_TARGET"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+[ -L "$LAUNCHER_TARGET" ] || fail "managed launcher was not restored after unmanaged protection test"
+echo "PASS"
+
 echo "=== uninstall ==="
 "$HOME/.local/bin/maho-setup" uninstall >/dev/null
 for name in "${COMMANDS[@]}"; do
@@ -146,6 +164,7 @@ for unit in "${UNITS[@]}"; do
 done
 [ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail "managed shell configuration survived uninstall"
 [ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify configuration survived uninstall"
+[ ! -e "$LAUNCHER_TARGET" ] && [ ! -L "$LAUNCHER_TARGET" ] || fail "managed Maho Launcher configuration survived uninstall"
 echo "PASS"
 
 echo "=== Maho Notify packaging contracts ==="
