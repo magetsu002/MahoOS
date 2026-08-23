@@ -130,7 +130,7 @@ preflight() {
         if python -m json.tool "$ROOT/$file" >/dev/null 2>&1; then
             printf 'PASS  json   %s\n' "$file"
         else
-            printf 'FAIL  json   %s missing\n' "$file"
+            printf 'FAIL  json   %s\n' "$file"
             failed=1
         fi
     done
