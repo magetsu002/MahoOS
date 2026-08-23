@@ -9,10 +9,14 @@ ShellRoot {
 
     NotifyTheme { id: theme }
     NotificationModel { id: notificationModel }
+    HistoryModel { id: historyModel }
 
     NotificationService {
         id: notificationService
-        onNotificationReceived: notification => notificationModel.enqueue(notification)
+        onNotificationReceived: notification => {
+            historyModel.record(notification)
+            notificationModel.enqueue(notification)
+        }
     }
 
     IpcHandler {
@@ -24,6 +28,18 @@ ShellRoot {
 
         function queuedCount(): int {
             return notificationModel.queuedCount
+        }
+
+        function historyCount(): int {
+            return historyModel.retainedCount
+        }
+
+        function unreadCount(): int {
+            return historyModel.unreadCount
+        }
+
+        function clearHistory(): bool {
+            return historyModel.clearHistory()
         }
 
         function dismissFirst(): bool {

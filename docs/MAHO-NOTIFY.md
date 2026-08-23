@@ -35,3 +35,18 @@ process.
 unit, but intentionally leaves `maho-notify.service` disabled and inactive for
 the N1 handoff. Activation remains an explicit user choice after controlled
 runtime validation.
+
+## N2 history foundation
+
+History uses stable plain-data snapshots rather than retaining notification
+protocol objects. State is stored as atomically replaced JSON below
+`$XDG_STATE_HOME/maho/notify/state.json` (falling back to
+`~/.local/state/maho/notify/state.json`). The directory is mode `0700` and the
+file is mode `0600`. Persistence retains at most 500 non-transient entries and
+prunes entries older than seven days. Malformed state is isolated as one private
+`.corrupt` file and startup continues with an empty history.
+
+Writes are coalesced, notification content is transferred to the persistence
+helper over stdin, and status output exposes counts only. Summaries, bodies,
+arbitrary hints, and notification content never enter command arguments or
+runtime logs.

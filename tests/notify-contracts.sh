@@ -28,7 +28,9 @@ for file in \
     NotificationModel.qml \
     NotificationStack.qml \
     NotificationCard.qml \
-    NotifyTheme.qml
+    NotifyTheme.qml \
+    HistoryModel.qml \
+    state.py
 do
     require_file "$file"
 done
@@ -43,7 +45,22 @@ require_text "$NOTIFY_DIR/NotificationService.qml" 'actionsSupported: true' "act
 require_text "$NOTIFY_DIR/NotificationService.qml" 'bodyMarkupSupported: false' "unsupported markup capability advertised"
 require_text "$NOTIFY_DIR/NotificationService.qml" 'bodyHyperlinksSupported: false' "unsupported hyperlink capability advertised"
 require_text "$NOTIFY_DIR/NotificationService.qml" 'inlineReplySupported: false' "unsupported inline reply capability advertised"
-require_text "$NOTIFY_DIR/NotificationService.qml" 'persistenceSupported: false' "persistence advertised before history exists"
+require_text "$NOTIFY_DIR/NotificationService.qml" 'persistenceSupported: true' "implemented persistence capability is not advertised"
+echo "PASS"
+
+echo "=== private bounded history contract ==="
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'readonly property int maxEntries: 500' "history entry bound missing"
+require_text "$NOTIFY_DIR/HistoryModel.qml" '7 * 24 * 60 * 60 * 1000' "seven-day history retention missing"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'notification.transient' "transient notification handling missing"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'delete copy.transient' "transient snapshots are not excluded from persistence"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'replacementCount' "protocol replacement history handling missing"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'notification.summaryChanged.connect' "replacement updates are not observed"
+require_text "$NOTIFY_DIR/state.py" 'XDG_STATE_HOME' "history does not use user state storage"
+require_text "$NOTIFY_DIR/state.py" 'MAX_ENTRIES = 500' "persistence entry bound missing"
+require_text "$NOTIFY_DIR/state.py" 'MAX_AGE_SECONDS = 7 * 24 * 60 * 60' "persistence age bound missing"
+require_text "$NOTIFY_DIR/state.py" 'os.fchmod(fd, 0o600)' "private state file mode missing"
+require_text "$NOTIFY_DIR/state.py" 'os.chmod(directory, 0o700)' "private state directory mode missing"
+require_text "$NOTIFY_DIR/state.py" 'os.replace(temporary, path)' "atomic persistence replacement missing"
 echo "PASS"
 
 echo "=== bounded popup contract ==="

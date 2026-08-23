@@ -62,6 +62,8 @@ NOTIFY_FILES=(
     NotificationStack.qml
     NotificationCard.qml
     NotifyTheme.qml
+    HistoryModel.qml
+    state.py
 )
 
 die() {
@@ -169,6 +171,7 @@ preflight() {
         "$ROOT/lib/security_preflight.py" \
         "$ROOT/lib/security_boundary.py" \
         "$SHELL_SOURCE/state.py" \
+        "$NOTIFY_SOURCE/state.py" \
         >/dev/null 2>&1; then
         echo "PASS  python modules"
     else

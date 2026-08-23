@@ -10,7 +10,7 @@ Scope {
         id: server
 
         keepOnReload: false
-        persistenceSupported: false
+        persistenceSupported: true
         bodySupported: true
         bodyMarkupSupported: false
         bodyHyperlinksSupported: false
