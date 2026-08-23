@@ -30,10 +30,28 @@ for file in \
     NotificationCard.qml \
     NotifyTheme.qml \
     HistoryModel.qml \
+    NotificationCenter.qml \
+    HistoryRow.qml \
     state.py
 do
     require_file "$file"
 done
+echo "PASS"
+
+echo "=== notification center contract ==="
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'width: 420' "notification center width is not bounded"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'Math.min(680' "notification center height is not bounded"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'ListView {' "history center is not virtualized"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'model: historyModel.groupedEntries' "center does not consume grouped history"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.dndEnabled' "center DND control missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.markAllRead()' "center read path missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.clearHistory()' "center clear-history path missing"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'maximumLineCount: row.expanded ? 8 : 2' "expanded history body is not bounded"
+if grep -Fq '.invoke()' "$NOTIFY_DIR/HistoryRow.qml"; then
+    fail "historical rows expose stale live actions"
+fi
+require_text "$NOTIFY_DIR/shell.qml" 'exclusionMode: ExclusionMode.Ignore' "center may reserve compositor space"
+require_text "$RUNTIME" 'open_center' "center runtime command missing"
 echo "PASS"
 
 echo "=== native notification server contract ==="
@@ -61,11 +79,20 @@ require_text "$NOTIFY_DIR/state.py" 'MAX_AGE_SECONDS = 7 * 24 * 60 * 60' "persis
 require_text "$NOTIFY_DIR/state.py" 'os.fchmod(fd, 0o600)' "private state file mode missing"
 require_text "$NOTIFY_DIR/state.py" 'os.chmod(directory, 0o700)' "private state directory mode missing"
 require_text "$NOTIFY_DIR/state.py" 'os.replace(temporary, path)' "atomic persistence replacement missing"
+python "$NOTIFY_DIR/state.py" self-test | grep -Fq 'PASS state self-test' || fail "history retention/recovery self-test failed"
 echo "PASS"
 
 echo "=== bounded popup contract ==="
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'readonly property int maxVisible: 3' "visible popup maximum is not three"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'readonly property int maxQueued: 100' "popup queue bound missing"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'queuedNotifications' "overflow queue missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'groupingWindowMs: 6000' "same-app popup grouping missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'groupCount' "popup group count missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'NotificationUrgency.Critical' "critical popup policy missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'dndEnabled && !critical' "DND suppression path missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'notification.expire()' "suppressed popup does not release live notification"
+require_text "$NOTIFY_DIR/shell.qml" 'historyModel.record(notification)' "history path does not precede popup policy"
+require_text "$NOTIFY_DIR/shell.qml" 'notificationModel.enqueue(notification, historyModel.dndEnabled)' "DND does not control popup path"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'maximumLineCount: 3' "long notification bodies are not clamped"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'textFormat: Text.PlainText' "notification text can render unadvertised markup"
 require_text "$NOTIFY_DIR/NotificationStack.qml" 'width: 324' "compact popup width contract missing"
@@ -76,8 +103,8 @@ echo "PASS"
 
 echo "=== lifecycle and interaction contract ==="
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'Math.round(notification.expireTimeout)' "application expiration hint is not consumed"
-require_text "$NOTIFY_DIR/NotificationCard.qml" 'notification.expire()' "timeout expiry path missing"
-require_text "$NOTIFY_DIR/NotificationModel.qml" 'notification.dismiss()' "user dismissal path missing"
+require_text "$NOTIFY_DIR/NotificationCard.qml" 'card.expireRequested()' "timeout expiry path missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'group.notification.dismiss()' "user dismissal path missing"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'notification.actions[index].invoke()' "app action invocation path missing"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'Math.min(2, notification.actions.length)' "action row is not bounded"
 echo "PASS"
@@ -104,6 +131,11 @@ echo "=== managed runtime contract ==="
 [ -r "$UNIT" ] || fail "maho-notify user service missing"
 require_text "$RUNTIME" 'doctor)' "doctor command missing"
 require_text "$RUNTIME" 'status --json' "machine-readable status missing"
+require_text "$RUNTIME" 'manage_dnd' "DND runtime commands missing"
+require_text "$RUNTIME" 'clear_history' "history clear runtime command missing"
+require_text "$RUNTIME" '"history_count"' "status does not expose retained history count"
+require_text "$RUNTIME" '"unread_count"' "status does not expose unread count"
+require_text "$RUNTIME" '"dnd"' "status does not expose DND state"
 require_text "$RUNTIME" 'logs [LINES]' "bounded logs command missing"
 require_text "$RUNTIME" 'if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]' "runtime log bound missing"
 require_text "$RUNTIME" 'refusing to displace the current notification server' "existing notification owner is not protected"

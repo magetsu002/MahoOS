@@ -7,6 +7,8 @@ import Quickshell.Io
 ShellRoot {
     id: root
 
+    property bool centerOpen: false
+
     NotifyTheme { id: theme }
     NotificationModel { id: notificationModel }
     HistoryModel { id: historyModel }
@@ -15,7 +17,7 @@ ShellRoot {
         id: notificationService
         onNotificationReceived: notification => {
             historyModel.record(notification)
-            notificationModel.enqueue(notification)
+            notificationModel.enqueue(notification, historyModel.dndEnabled)
         }
     }
 
@@ -30,6 +32,18 @@ ShellRoot {
             return notificationModel.queuedCount
         }
 
+        function livePopupCount(): int {
+            return notificationModel.livePopupCount
+        }
+
+        function droppedPopupCount(): int {
+            return notificationModel.droppedPopupCount
+        }
+
+        function suppressedPopupCount(): int {
+            return notificationModel.suppressedPopupCount
+        }
+
         function historyCount(): int {
             return historyModel.retainedCount
         }
@@ -42,6 +56,32 @@ ShellRoot {
             return historyModel.clearHistory()
         }
 
+        function dndStatus(): bool {
+            return historyModel.dndEnabled
+        }
+
+        function setDnd(enabled: bool): bool {
+            return historyModel.setDnd(enabled)
+        }
+
+        function toggleDnd(): bool {
+            return historyModel.toggleDnd()
+        }
+
+        function openCenter(): bool {
+            root.openCenter()
+            return true
+        }
+
+        function closeCenter(): bool {
+            root.closeCenter()
+            return true
+        }
+
+        function centerStatus(): bool {
+            return root.centerOpen
+        }
+
         function dismissFirst(): bool {
             return notificationModel.dismissFirst()
         }
@@ -49,6 +89,16 @@ ShellRoot {
         function invokeFirstAction(): bool {
             return notificationModel.invokeFirstAction()
         }
+    }
+
+    function openCenter() {
+        centerOpen = true
+        historyModel.markAllRead()
+        centerSurface.forceActiveFocus()
+    }
+
+    function closeCenter() {
+        centerOpen = false
     }
 
     PanelWindow {
@@ -74,6 +124,34 @@ ShellRoot {
             y: 18
             theme: theme
             notificationModel: notificationModel
+        }
+    }
+
+    PanelWindow {
+        id: centerOverlay
+
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        color: "transparent"
+        aboveWindows: true
+        focusable: true
+        exclusionMode: ExclusionMode.Ignore
+        visible: root.centerOpen
+        mask: Region { item: centerSurface }
+
+        NotificationCenter {
+            id: centerSurface
+            x: Math.max(12, centerOverlay.width - width - 18)
+            y: 18
+            theme: theme
+            historyModel: historyModel
+            availableHeight: centerOverlay.height
+            onCloseRequested: root.closeCenter()
         }
     }
 }

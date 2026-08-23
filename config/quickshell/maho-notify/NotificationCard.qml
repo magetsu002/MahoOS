@@ -7,6 +7,7 @@ Rectangle {
 
     required property var theme
     required property var notification
+    property int groupCount: 1
     property bool hovered: hover.hovered
     readonly property int actionCount:
         notification && notification.actions ? Math.min(2, notification.actions.length) : 0
@@ -29,6 +30,7 @@ Rectangle {
     }
 
     signal dismissRequested()
+    signal expireRequested()
 
     implicitHeight: content.implicitHeight + 22
     radius: 14
@@ -51,7 +53,7 @@ Rectangle {
         running: !card.hovered
         onTriggered: {
             if (card.notification && card.notification.tracked)
-                card.notification.expire()
+                card.expireRequested()
         }
     }
 
@@ -112,7 +114,8 @@ Rectangle {
 
                 Text {
                     width: parent.width
-                    text: notification.appName || "Notification"
+                    text: (notification.appName || "Notification")
+                        + (card.groupCount > 1 ? " · " + String(card.groupCount) : "")
                     color: theme.muted
                     font.pixelSize: 11
                     font.weight: Font.Medium

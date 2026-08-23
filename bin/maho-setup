@@ -63,6 +63,8 @@ NOTIFY_FILES=(
     NotificationCard.qml
     NotifyTheme.qml
     HistoryModel.qml
+    NotificationCenter.qml
+    HistoryRow.qml
     state.py
 )
 

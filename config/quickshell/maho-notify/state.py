@@ -228,10 +228,66 @@ def serve() -> int:
     return 0
 
 
+def self_test() -> int:
+    original_override = os.environ.get("MAHO_NOTIFY_STATE_DIR")
+    with tempfile.TemporaryDirectory(prefix="maho-notify-state-test-") as temporary:
+        os.environ["MAHO_NOTIFY_STATE_DIR"] = temporary
+        now_ms = int(time.time() * 1000)
+        entries = [
+            {
+                "id": f"synthetic-{index}",
+                "protocolId": index,
+                "appKey": "synthetic.app",
+                "appName": "Synthetic App",
+                "summary": f"Synthetic {index}",
+                "body": "Synthetic bounded body",
+                "urgency": 1,
+                "timestamp": now_ms - index,
+                "read": False,
+                "groupKey": "synthetic.app",
+                "groupCount": 1,
+                "replacementCount": 0,
+                "closeReason": "expired",
+                "icon": "",
+            }
+            for index in range(MAX_ENTRIES + 5)
+        ]
+        entries.append(
+            {
+                "id": "synthetic-old",
+                "timestamp": now_ms - (MAX_AGE_SECONDS + 60) * 1000,
+                "urgency": 1,
+                "read": False,
+            }
+        )
+        saved = save_state({"version": VERSION, "dnd": True, "entries": entries})
+        assert len(saved["entries"]) == MAX_ENTRIES
+        assert all(entry["id"] != "synthetic-old" for entry in saved["entries"])
+        assert (state_dir().stat().st_mode & 0o777) == 0o700
+        assert (state_path().stat().st_mode & 0o777) == 0o600
+
+        state_path().write_text("{malformed", encoding="utf-8")
+        os.chmod(state_path(), 0o600)
+        recovered = load_state()
+        assert recovered == default_state()
+        corrupt = state_path().with_suffix(".json.corrupt")
+        assert corrupt.is_file()
+        assert (corrupt.stat().st_mode & 0o777) == 0o600
+
+    if original_override is None:
+        os.environ.pop("MAHO_NOTIFY_STATE_DIR", None)
+    else:
+        os.environ["MAHO_NOTIFY_STATE_DIR"] = original_override
+    print("PASS state self-test")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "serve":
         return serve()
+    if command == "self-test":
+        return self_test()
     if command == "status":
         respond(metadata(load_state()))
         return 0
@@ -255,7 +311,7 @@ def main(argv: list[str]) -> int:
         state["entries"] = []
         save_state(state)
         return 0
-    print("usage: state.py [serve|status|get-dnd|set-dnd on|set-dnd off|toggle-dnd|clear]", file=sys.stderr)
+    print("usage: state.py [serve|status|self-test|get-dnd|set-dnd on|set-dnd off|toggle-dnd|clear]", file=sys.stderr)
     return 2
 
 

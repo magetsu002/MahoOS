@@ -50,3 +50,22 @@ Writes are coalesced, notification content is transferred to the persistence
 helper over stdin, and status output exposes counts only. Summaries, bodies,
 arbitrary hints, and notification content never enter command arguments or
 runtime logs.
+
+Normal notifications from the same application received within six seconds
+share one popup slot and show a count; the previous live protocol object is
+released after its history snapshot is taken. Critical notifications never use
+this grouping path. The popup surface remains capped at three visible groups
+plus 100 queued groups, for at most 103 retained popup protocol objects.
+
+DND is persisted with history. Low and normal notifications are archived but
+their popup work is immediately released while DND is on. Critical
+notifications explicitly bypass DND. `maho-notify dnd on|off|toggle|status` and
+`maho-notify history clear` manage this state without printing notification
+content; `status --json` exposes counts, DND, and bounded popup metadata only.
+
+The N2 Notification Center is an independent 420 px right-side overlay with a
+height capped at 680 px and the current monitor's safe area. It uses a
+virtualized, reusable `ListView`, dense grouped history rows, two-line collapsed
+bodies, eight-line expanded bodies, DND/read/clear controls, and Escape to
+close. Opening the center marks displayed history read. Historical snapshots do
+not expose live app-action buttons. `maho-notify center` opens the surface.

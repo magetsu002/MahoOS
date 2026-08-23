@@ -4,6 +4,7 @@ set -u
 
 CONFIG_DIR="${MAHO_NOTIFY_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify}"
 CONFIG="$CONFIG_DIR/shell.qml"
+STATE_HELPER="${MAHO_NOTIFY_STATE_HELPER:-$CONFIG_DIR/state.py}"
 PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOG="${MAHO_NOTIFY_LOG:-${XDG_CACHE_HOME:-$HOME/.cache}/maho-notify.log}"
@@ -74,6 +75,30 @@ ensure_wayland_env() {
     fi
 }
 
+ipc_call() {
+    quickshell ipc -p "$CONFIG" call notify "$@"
+}
+
+ipc_value() {
+    ipc_call "$@" 2>/dev/null | tail -1
+}
+
+bool_word() {
+    if [ "$1" = "true" ]; then
+        echo "on"
+    else
+        echo "off"
+    fi
+}
+
+state_metadata() {
+    if [ -r "$STATE_HELPER" ]; then
+        python "$STATE_HELPER" status 2>/dev/null || echo '{}'
+    else
+        echo '{}'
+    fi
+}
+
 run_notify() {
     command -v quickshell >/dev/null 2>&1 || {
         echo "maho-notify: quickshell is unavailable" >&2
@@ -130,6 +155,13 @@ doctor() {
         printf 'PASS  config         %s\n' "$CONFIG"
     else
         printf 'FAIL  config         missing: %s\n' "$CONFIG"
+        failed=1
+    fi
+
+    if [ -r "$STATE_HELPER" ]; then
+        printf 'PASS  state helper   %s\n' "$STATE_HELPER"
+    else
+        printf 'FAIL  state helper   missing: %s\n' "$STATE_HELPER"
         failed=1
     fi
 
@@ -195,9 +227,34 @@ doctor() {
 }
 
 status_json() {
-    local running=false service_state="missing" owner=""
+    local running=false service_state="missing" owner="" meta_json
+    local dnd_value=false history_count=0 unread_count=0
+    local visible_count=0 queued_count=0 live_count=0 dropped_count=0 suppressed_count=0
     notify_running && running=true
     dbus_has_owner && owner="$(dbus_owner)"
+
+    if [ "$running" = "true" ]; then
+        dnd_value="$(ipc_value dndStatus || echo false)"
+        history_count="$(ipc_value historyCount || echo 0)"
+        unread_count="$(ipc_value unreadCount || echo 0)"
+        visible_count="$(ipc_value visibleCount || echo 0)"
+        queued_count="$(ipc_value queuedCount || echo 0)"
+        live_count="$(ipc_value livePopupCount || echo 0)"
+        dropped_count="$(ipc_value droppedPopupCount || echo 0)"
+        suppressed_count="$(ipc_value suppressedPopupCount || echo 0)"
+        meta_json="$(META_DND="$dnd_value" META_HISTORY="$history_count" META_UNREAD="$unread_count" python - <<'PY'
+import json
+import os
+print(json.dumps({
+    "dnd": os.environ["META_DND"] == "true",
+    "history_count": int(os.environ["META_HISTORY"]),
+    "unread_count": int(os.environ["META_UNREAD"]),
+}, separators=(",", ":")))
+PY
+)"
+    else
+        meta_json="$(state_metadata)"
+    fi
 
     if service_installed; then
         service_state="inactive"
@@ -211,16 +268,37 @@ status_json() {
     CONFIG_PATH="$CONFIG" \
     PALETTE_PATH="$PALETTE" \
     LOG_PATH="$LOG" \
+    META_JSON="$meta_json" \
+    VISIBLE_COUNT="$visible_count" \
+    QUEUED_COUNT="$queued_count" \
+    LIVE_COUNT="$live_count" \
+    DROPPED_COUNT="$dropped_count" \
+    SUPPRESSED_COUNT="$suppressed_count" \
     python - <<'PY'
 import json
 import os
 from pathlib import Path
+
+try:
+    meta = json.loads(os.environ["META_JSON"])
+except (TypeError, ValueError):
+    meta = {}
 
 print(json.dumps({
     "active": os.environ["RUNNING"] == "true",
     "instances": int(os.environ["COUNT"]),
     "service": os.environ["SERVICE_STATE"],
     "notification_owner": os.environ["OWNER"] or None,
+    "dnd": bool(meta.get("dnd", False)),
+    "history_count": int(meta.get("history_count", 0)),
+    "unread_count": int(meta.get("unread_count", 0)),
+    "popup": {
+        "visible": int(os.environ["VISIBLE_COUNT"]),
+        "queued": int(os.environ["QUEUED_COUNT"]),
+        "live": int(os.environ["LIVE_COUNT"]),
+        "dropped": int(os.environ["DROPPED_COUNT"]),
+        "suppressed": int(os.environ["SUPPRESSED_COUNT"]),
+    },
     "config": {
         "path": os.environ["CONFIG_PATH"],
         "readable": os.access(os.environ["CONFIG_PATH"], os.R_OK),
@@ -232,6 +310,68 @@ print(json.dumps({
     "log": os.environ["LOG_PATH"],
 }, separators=(",", ":")))
 PY
+}
+
+manage_dnd() {
+    local action="${1:-status}" result
+    case "$action" in
+        on|off|toggle|status) ;;
+        *)
+            echo "maho-notify: dnd expects on, off, toggle, or status" >&2
+            return 2
+            ;;
+    esac
+
+    if notify_running; then
+        case "$action" in
+            on) result="$(ipc_value setDnd true)" ;;
+            off) result="$(ipc_value setDnd false)" ;;
+            toggle) result="$(ipc_value toggleDnd)" ;;
+            status) result="$(ipc_value dndStatus)" ;;
+        esac
+        bool_word "$result"
+        return 0
+    fi
+
+    [ -r "$STATE_HELPER" ] || {
+        echo "maho-notify: state helper missing: $STATE_HELPER" >&2
+        return 1
+    }
+    case "$action" in
+        on|off) python "$STATE_HELPER" set-dnd "$action" ;;
+        toggle) python "$STATE_HELPER" toggle-dnd ;;
+        status) python "$STATE_HELPER" get-dnd ;;
+    esac
+}
+
+clear_history() {
+    if notify_running; then
+        ipc_value clearHistory >/dev/null
+        echo "Maho Notify history cleared"
+        return 0
+    fi
+    [ -r "$STATE_HELPER" ] || {
+        echo "maho-notify: state helper missing: $STATE_HELPER" >&2
+        return 1
+    }
+    python "$STATE_HELPER" clear
+    echo "Maho Notify history cleared"
+}
+
+open_center() {
+    if ! notify_running; then
+        start_notify || return 1
+        local attempt
+        for attempt in $(seq 1 30); do
+            notify_running && [ "$(ipc_value centerStatus || true)" = "false" ] && break
+            sleep 0.1
+        done
+    fi
+
+    [ "$(ipc_value openCenter || true)" = "true" ] || {
+        echo "maho-notify: notification center IPC unavailable" >&2
+        return 1
+    }
 }
 
 show_logs() {
@@ -327,9 +467,21 @@ case "${1:-run}" in
     logs)
         show_logs "${2:-120}"
         ;;
+    dnd)
+        manage_dnd "${2:-status}"
+        ;;
+    history)
+        case "${2:-}" in
+            clear) clear_history ;;
+            *) echo "maho-notify: history expects clear" >&2; exit 2 ;;
+        esac
+        ;;
+    center)
+        open_center
+        ;;
     *)
         cat <<'HELP'
-Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]]
+Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]|center|dnd on|off|toggle|status|history clear]
 
 Maho Notify is the independent Quickshell notification surface shipped with
 Maho OS. It refuses to displace an existing org.freedesktop.Notifications owner.
@@ -339,6 +491,9 @@ Commands:
   logs [LINES]   Print a bounded runtime-log tail (default 120, max 500).
   status --json  Emit machine-readable service/config/ownership state.
   reload         Restart Maho Notify through the managed runtime path.
+  dnd ...        Read or change persistent Do Not Disturb state.
+  history clear  Clear retained history without printing its content.
+  center         Open the bounded Maho Notification Center.
 HELP
         exit 2
         ;;

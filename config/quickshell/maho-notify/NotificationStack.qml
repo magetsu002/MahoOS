@@ -23,8 +23,10 @@ Item {
 
                 width: stack.width
                 theme: root.theme
-                notification: modelData
-                onDismissRequested: root.notificationModel.dismiss(notification)
+                notification: modelData.notification
+                groupCount: modelData.groupCount
+                onDismissRequested: root.notificationModel.dismissGroup(modelData)
+                onExpireRequested: root.notificationModel.expireGroup(modelData)
             }
         }
 
