@@ -33,10 +33,6 @@ Rectangle {
         ColorAnimation { duration: 150 }
     }
 
-    Behavior on border.color {
-        ColorAnimation { duration: 150 }
-    }
-
     HoverHandler {
         id: hover
         enabled: card.interactive
