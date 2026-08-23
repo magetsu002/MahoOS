@@ -52,6 +52,11 @@ require_text MahoTheme.qml 'property color primary:' "theme does not expose prim
 require_text MahoTheme.qml 'property color surfaceHigh:' "theme does not expose surface hierarchy"
 echo "PASS"
 
+echo "=== QML scope import contract ==="
+require_text Battery.qml 'import Quickshell' "Battery.qml uses Scope without importing Quickshell"
+require_text Media.qml 'import Quickshell' "Media.qml uses Scope without importing Quickshell"
+echo "PASS"
+
 echo "=== native live interaction contract ==="
 require_text Audio.qml 'import Quickshell.Services.Pipewire' "audio is not PipeWire-native"
 require_text Audio.qml 'function setVolume(percent)' "audio volume mutation missing"
