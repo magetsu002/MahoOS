@@ -32,6 +32,7 @@ for file in \
     MahoTheme.qml \
     Audio.qml \
     Brightness.qml \
+    Battery.qml \
     Media.qml \
     SystemState.qml \
     MahoCard.qml \
@@ -59,6 +60,18 @@ require_text CollapsedIsland.qml 'onWheel: function(wheel)' "collapsed island wh
 require_text CollapsedIsland.qml 'collapsed.audio.setVolume' "collapsed island wheel does not drive audio service"
 require_text CollapsedIsland.qml 'collapsed.audio.toggleMute()' "collapsed island middle-click mute missing"
 require_text CollapsedIsland.qml 'collapsed.openRequested()' "collapsed island does not open control center"
+echo "PASS"
+
+echo "=== native battery contract ==="
+require_text Battery.qml 'import Quickshell.Services.UPower' "battery is not UPower-native"
+require_text Battery.qml 'UPower.displayDevice' "battery does not use the UPower display device"
+require_text Battery.qml 'property int percentage:' "battery percentage binding missing"
+require_text Battery.qml 'UPowerDeviceState.Charging' "battery charging state binding missing"
+require_text shell.qml 'Battery { id: battery }' "shell does not instantiate native battery service"
+require_text shell.qml 'battery: battery' "shell does not pass native battery state to views"
+if grep -Fq '/sys/class/power_supply' "$SHELL_DIR/state.py"; then
+    fail "ambient state probe still polls battery sysfs"
+fi
 echo "PASS"
 
 echo "=== native media contract ==="
