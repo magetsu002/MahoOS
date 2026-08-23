@@ -14,6 +14,7 @@ ShellRoot {
     Battery { id: battery }
     SystemState { id: system }
     Media { id: media }
+    DockState { id: dock }
 
     property bool expanded: false
     property bool closing: false
@@ -22,8 +23,23 @@ ShellRoot {
     property int lastWorkspace: 0
     property date now: new Date()
 
+    property bool dragActive: false
+    property real dragOriginX: 0
+    property real dragOriginY: 0
+    property real dragX: 0
+    property real dragY: 0
+    property string dragCandidateEdge: dock.edge
+    property real dragCandidatePosition: dock.position
+
+    readonly property bool verticalDock: dock.edge === "left" || dock.edge === "right"
+    readonly property bool horizontalDock: !verticalDock
+
     readonly property int activeWorkspace:
         Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 0
+
+    function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value))
+    }
 
     function workspaceIds() {
         const source = Hyprland.workspaces.values
@@ -48,9 +64,103 @@ ShellRoot {
         return result.slice(start, start + 5)
     }
 
+    function edgeX(itemWidth) {
+        if (dock.edge === "left")
+            return 0
+        if (dock.edge === "right")
+            return Math.max(0, panel.width - itemWidth)
+
+        const center = panel.width * dock.position
+        return clamp(center - itemWidth / 2, 0, Math.max(0, panel.width - itemWidth))
+    }
+
+    function edgeY(itemHeight) {
+        if (dock.edge === "top")
+            return 0
+        if (dock.edge === "bottom")
+            return Math.max(0, panel.height - itemHeight)
+
+        const center = panel.height * dock.position
+        return clamp(center - itemHeight / 2, 0, Math.max(0, panel.height - itemHeight))
+    }
+
+    function nearestEdge(centerX, centerY) {
+        const distances = {
+            "top": centerY,
+            "bottom": panel.height - centerY,
+            "left": centerX,
+            "right": panel.width - centerX
+        }
+
+        let best = "top"
+        let bestDistance = distances.top
+
+        for (const candidate of ["bottom", "left", "right"]) {
+            if (distances[candidate] < bestDistance) {
+                best = candidate
+                bestDistance = distances[candidate]
+            }
+        }
+
+        return best
+    }
+
+    function edgePosition(edge, centerX, centerY) {
+        if (edge === "top" || edge === "bottom")
+            return dock.clampPosition(centerX / Math.max(1, panel.width))
+        return dock.clampPosition(centerY / Math.max(1, panel.height))
+    }
+
+    function beginDockDrag() {
+        if (expanded || closing)
+            return
+
+        dragActive = true
+        dragOriginX = island.x
+        dragOriginY = island.y
+        dragX = island.x
+        dragY = island.y
+        dragCandidateEdge = dock.edge
+        dragCandidatePosition = dock.position
+    }
+
+    function updateDockDrag(deltaX, deltaY) {
+        if (!dragActive)
+            return
+
+        dragX = clamp(
+            dragOriginX + deltaX,
+            0,
+            Math.max(0, panel.width - island.width)
+        )
+        dragY = clamp(
+            dragOriginY + deltaY,
+            0,
+            Math.max(0, panel.height - island.height)
+        )
+
+        const centerX = dragX + island.width / 2
+        const centerY = dragY + island.height / 2
+        dragCandidateEdge = nearestEdge(centerX, centerY)
+        dragCandidatePosition = edgePosition(dragCandidateEdge, centerX, centerY)
+    }
+
+    function finishDockDrag() {
+        if (!dragActive)
+            return
+
+        const edge = dragCandidateEdge
+        const position = dragCandidatePosition
+        dragActive = false
+        dock.setDock(edge, position)
+    }
+
     function openPanel() {
+        if (dragActive)
+            return
+
         closeMorphTimer.stop()
-        closeWidthTimer.stop()
+        closeSecondaryTimer.stop()
         closing = false
         expanded = true
         controlVisible = true
@@ -60,10 +170,6 @@ ShellRoot {
         if (!expanded || closing)
             return
 
-        // The old close path collapsed width and height together. Near the end
-        // of that animation the island became a narrow, tall slab hanging under
-        // the final bar. Close vertically first while the surface is still wide,
-        // then shrink horizontally into the idle island. No detached rectangle.
         closing = true
         controlVisible = false
         closeMorphTimer.restart()
@@ -112,22 +218,20 @@ ShellRoot {
             if (!root.closing)
                 return
 
-            // Start only the vertical fold. Width remains at control-center
-            // width because root.closing is still true.
+            // Horizontal docks fold height first while staying wide. Side docks
+            // fold width first while staying tall. Only after that primary fold
+            // finishes do we collapse the second axis into the idle island.
             root.expanded = false
-            closeWidthTimer.restart()
+            closeSecondaryTimer.restart()
         }
     }
 
     Timer {
-        id: closeWidthTimer
-        interval: 185
+        id: closeSecondaryTimer
+        interval: root.verticalDock ? 255 : 185
         onTriggered: {
             if (!root.closing)
                 return
-
-            // Vertical fold is effectively complete; now reveal the idle view
-            // and shrink width into the compact island.
             root.closing = false
         }
     }
@@ -162,20 +266,66 @@ ShellRoot {
     PanelWindow {
         id: panel
 
+        // A full-screen transparent layer gives the island room to follow the
+        // pointer while dragging. The input mask still contains only the island,
+        // so the rest of the desktop remains fully interactive.
         anchors {
             top: true
+            bottom: true
             left: true
             right: true
         }
 
-        // Keep the layer surface stable; only the visible island morphs.
-        implicitHeight: 560
         color: "transparent"
         aboveWindows: true
         focusable: false
-        exclusiveZone: 40
+        exclusionMode: ExclusionMode.Ignore
 
         mask: Region { item: island }
+
+        Rectangle {
+            visible: root.dragActive && root.dragCandidateEdge === "top"
+            x: root.clamp(panel.width * root.dragCandidatePosition - width / 2, 8, panel.width - width - 8)
+            y: 2
+            width: 74
+            height: 3
+            radius: 2
+            color: theme.primary
+            opacity: 0.72
+        }
+
+        Rectangle {
+            visible: root.dragActive && root.dragCandidateEdge === "bottom"
+            x: root.clamp(panel.width * root.dragCandidatePosition - width / 2, 8, panel.width - width - 8)
+            y: panel.height - height - 2
+            width: 74
+            height: 3
+            radius: 2
+            color: theme.primary
+            opacity: 0.72
+        }
+
+        Rectangle {
+            visible: root.dragActive && root.dragCandidateEdge === "left"
+            x: 2
+            y: root.clamp(panel.height * root.dragCandidatePosition - height / 2, 8, panel.height - height - 8)
+            width: 3
+            height: 74
+            radius: 2
+            color: theme.primary
+            opacity: 0.72
+        }
+
+        Rectangle {
+            visible: root.dragActive && root.dragCandidateEdge === "right"
+            x: panel.width - width - 2
+            y: root.clamp(panel.height * root.dragCandidatePosition - height / 2, 8, panel.height - height - 8)
+            width: 3
+            height: 74
+            radius: 2
+            color: theme.primary
+            opacity: 0.72
+        }
 
         Item {
             id: island
@@ -184,33 +334,50 @@ ShellRoot {
             readonly property real wing: 14
             readonly property real bodyRadius: wideBody ? 24 : 18
             readonly property int expandedHeight: Math.ceil(controlCenter.implicitHeight + 34)
+            readonly property int horizontalIdleWidth:
+                (audio.overlayOpen || brightness.overlayOpen)
+                    ? 250
+                    : (root.workspaceFlash ? 205 : (collapsedView.hovered ? 190 : 176))
+            readonly property int verticalIdleHeight:
+                (audio.overlayOpen || brightness.overlayOpen)
+                    ? 250
+                    : (root.workspaceFlash ? 205 : (sideCollapsedView.hovered ? 202 : 190))
 
             property color shellFill: theme.alpha(theme.surfaceHigh, wideBody ? 0.978 : 0.958)
             property color shellStroke: theme.alpha(theme.outline, wideBody ? 0.28 : 0.18)
 
-            anchors.top: parent.top
-            anchors.horizontalCenter: parent.horizontalCenter
+            x: root.dragActive ? root.dragX : root.edgeX(width)
+            y: root.dragActive ? root.dragY : root.edgeY(height)
 
-            width: wideBody
-                ? 430
-                : ((audio.overlayOpen || brightness.overlayOpen)
-                    ? 250
-                    : (root.workspaceFlash ? 205 : (collapsedView.hovered ? 190 : 176)))
+            width: root.verticalDock
+                ? (root.expanded ? 430 : (root.closing ? 46 : 46))
+                : (wideBody ? 430 : horizontalIdleWidth)
 
-            height: root.expanded ? expandedHeight : 40
+            height: root.verticalDock
+                ? ((root.expanded || root.closing) ? expandedHeight : verticalIdleHeight)
+                : (root.expanded ? expandedHeight : 40)
+
+            Behavior on x {
+                enabled: !root.dragActive
+                NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+            }
+
+            Behavior on y {
+                enabled: !root.dragActive
+                NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+            }
 
             Behavior on width {
                 NumberAnimation {
-                    duration: 240
+                    duration: root.closing && root.verticalDock ? 170 : 240
                     easing.type: Easing.OutCubic
                 }
             }
 
             Behavior on height {
                 NumberAnimation {
-                    duration: root.closing ? 170 : 340
-                    easing.type: root.closing ? Easing.OutCubic : Easing.OutBack
-                    easing.overshoot: root.closing ? 0 : 0.18
+                    duration: root.closing && root.horizontalDock ? 170 : 240
+                    easing.type: Easing.OutCubic
                 }
             }
 
@@ -219,7 +386,12 @@ ShellRoot {
 
             Shape {
                 id: silhouette
-                anchors.fill: parent
+                anchors.centerIn: parent
+                width: root.verticalDock ? parent.height : parent.width
+                height: root.verticalDock ? parent.width : parent.height
+                rotation: dock.edge === "bottom" ? 180
+                    : (dock.edge === "left" ? -90
+                        : (dock.edge === "right" ? 90 : 0))
                 antialiasing: true
                 layer.enabled: true
                 layer.samples: 8
@@ -231,8 +403,8 @@ ShellRoot {
                     strokeColor: island.shellStroke
                     strokeWidth: 1
 
-                    readonly property real w: island.width
-                    readonly property real h: island.height
+                    readonly property real w: silhouette.width
+                    readonly property real h: silhouette.height
                     readonly property real g: island.wing
                     readonly property real r: island.bodyRadius
 
@@ -275,18 +447,7 @@ ShellRoot {
             }
 
             Rectangle {
-                anchors.top: parent.top
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: island.wideBody ? 310 : 94
-                height: 1
-                color: theme.foreground
-                opacity: 0.05
-
-                Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                Behavior on color { ColorAnimation { duration: 360 } }
-            }
-
-            Rectangle {
+                visible: dock.edge === "top"
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: island.wideBody ? 7 : 3
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -295,22 +456,57 @@ ShellRoot {
                 radius: 1
                 color: theme.primary
                 opacity: island.wideBody ? 0.46 : 0.82
+            }
 
-                Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                Behavior on color { ColorAnimation { duration: 360 } }
-                Behavior on opacity { NumberAnimation { duration: 160 } }
+            Rectangle {
+                visible: dock.edge === "bottom"
+                anchors.top: parent.top
+                anchors.topMargin: island.wideBody ? 7 : 3
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                height: 2
+                radius: 1
+                color: theme.primary
+                opacity: island.wideBody ? 0.46 : 0.82
+            }
+
+            Rectangle {
+                visible: dock.edge === "left"
+                anchors.right: parent.right
+                anchors.rightMargin: island.wideBody ? 7 : 3
+                anchors.verticalCenter: parent.verticalCenter
+                width: 2
+                height: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                radius: 1
+                color: theme.primary
+                opacity: island.wideBody ? 0.46 : 0.82
+            }
+
+            Rectangle {
+                visible: dock.edge === "right"
+                anchors.left: parent.left
+                anchors.leftMargin: island.wideBody ? 7 : 3
+                anchors.verticalCenter: parent.verticalCenter
+                width: 2
+                height: island.wideBody ? 36 : (root.workspaceFlash ? 40 : 20)
+                radius: 1
+                color: theme.primary
+                opacity: island.wideBody ? 0.46 : 0.82
             }
 
             Item {
                 id: content
                 anchors.fill: parent
-                anchors.leftMargin: island.wing + (island.wideBody ? 18 : 9)
-                anchors.rightMargin: island.wing + (island.wideBody ? 18 : 9)
+                anchors.leftMargin: island.wideBody ? island.wing + 18 : (root.verticalDock ? 5 : island.wing + 9)
+                anchors.rightMargin: island.wideBody ? island.wing + 18 : (root.verticalDock ? 5 : island.wing + 9)
+                anchors.topMargin: !island.wideBody && root.verticalDock ? island.wing + 6 : 0
+                anchors.bottomMargin: !island.wideBody && root.verticalDock ? island.wing + 6 : 0
                 clip: true
 
                 CollapsedIsland {
                     id: collapsedView
                     anchors.fill: parent
+                    visible: !root.verticalDock
                     theme: theme
                     audio: audio
                     brightness: brightness
@@ -320,8 +516,28 @@ ShellRoot {
                     activeWorkspace: root.activeWorkspace
                     workspaceFlash: root.workspaceFlash
                     now: root.now
-                    enabled: !root.expanded && !root.closing
-                    opacity: root.expanded || root.closing ? 0 : 1
+                    enabled: visible && !root.expanded && !root.closing && !root.dragActive
+                    opacity: visible && !root.expanded && !root.closing ? 1 : 0
+                    onOpenRequested: root.openPanel()
+
+                    Behavior on opacity { NumberAnimation { duration: 130 } }
+                }
+
+                SideCollapsedIsland {
+                    id: sideCollapsedView
+                    anchors.fill: parent
+                    visible: root.verticalDock
+                    theme: theme
+                    audio: audio
+                    brightness: brightness
+                    system: system
+                    battery: battery
+                    workspaceIds: root.workspaceIds()
+                    activeWorkspace: root.activeWorkspace
+                    workspaceFlash: root.workspaceFlash
+                    now: root.now
+                    enabled: visible && !root.expanded && !root.closing && !root.dragActive
+                    opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
@@ -372,6 +588,27 @@ ShellRoot {
                     onMediaPreviousRequested: media.previous()
                     onMediaToggleRequested: media.toggle()
                     onMediaNextRequested: media.next()
+                }
+            }
+
+            DragHandler {
+                id: dockDrag
+                enabled: !root.expanded && !root.closing
+                target: null
+                acceptedButtons: Qt.LeftButton
+                dragThreshold: 8
+                cursorShape: active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+
+                onActiveChanged: {
+                    if (active)
+                        root.beginDockDrag()
+                    else
+                        root.finishDockDrag()
+                }
+
+                onActiveTranslationChanged: {
+                    if (active)
+                        root.updateDockDrag(activeTranslation.x, activeTranslation.y)
                 }
             }
         }
