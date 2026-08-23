@@ -178,10 +178,10 @@ Item {
     Column {
         id: osdView
         anchors.top: parent.top
+        anchors.topMargin: 15
         anchors.bottom: parent.bottom
+        anchors.bottomMargin: 15
         anchors.horizontalCenter: parent.horizontalCenter
-        topPadding: 15
-        bottomPadding: 15
         spacing: 7
         opacity: (collapsed.mode === "volume" || collapsed.mode === "brightness") ? 1 : 0
         visible: opacity > 0.01
