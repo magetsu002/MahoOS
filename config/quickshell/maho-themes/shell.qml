@@ -10,6 +10,8 @@ import "."
 ShellRoot {
     id: root
 
+    property var filterBarItem: null
+
     property string onlineSearchScript: {
         let path = Qt.resolvedUrl("scripts/online_search.sh").toString()
         return path.startsWith("file://")
@@ -23,6 +25,56 @@ ShellRoot {
             root.onlineSearchScript,
             "--invalidate"
         ])
+    }
+
+    function hideLegacyBranding() {
+        for (let i = 0; i < picker.children.length; i++) {
+            const child = picker.children[i]
+            if (Number(child.z) === 30 && Math.abs(Number(child.height) - picker.s(38)) < 2) {
+                child.visible = false
+            }
+        }
+    }
+
+    function discoverFilterBar() {
+        for (let i = 0; i < picker.children.length; i++) {
+            const child = picker.children[i]
+            if (Number(child.z) === 20 && Math.abs(Number(child.height) - picker.s(56)) < 2) {
+                root.filterBarItem = child
+                break
+            }
+        }
+        root.updateFilterBarPosition()
+    }
+
+    function updateFilterBarPosition() {
+        if (!root.filterBarItem)
+            return
+        root.filterBarItem.anchors.bottomMargin = picker.isReady
+            ? picker.s(-10)
+            : picker.s(-100)
+    }
+
+    function disableLegacyEscapeShortcut() {
+        const objects = picker.data || []
+        for (let i = 0; i < objects.length; i++) {
+            const object = objects[i]
+            try {
+                if (object && object.sequence !== undefined
+                        && String(object.sequence) === "Escape") {
+                    object.enabled = false
+                }
+            } catch (error) {
+                // Non-Shortcut objects simply do not expose these properties.
+            }
+        }
+    }
+
+    function polishPickerRuntime() {
+        root.hideLegacyBranding()
+        root.discoverFilterBar()
+        root.disableLegacyEscapeShortcut()
+        picker.forceActiveFocus()
     }
 
     PanelWindow {
@@ -46,7 +98,7 @@ ShellRoot {
         Shortcut {
             sequence: "Escape"
             context: Qt.ApplicationShortcut
-            enabled: !picker.isApplying && picker.currentFilter !== "Search"
+            enabled: !picker.isApplying
             onActivated: Qt.quit()
         }
 
@@ -76,6 +128,15 @@ ShellRoot {
                 focus: true
 
                 onSearchQueryChanged: root.invalidateOnlineSearch()
+
+                Component.onCompleted: Qt.callLater(root.polishPickerRuntime)
+            }
+
+            Connections {
+                target: picker
+                function onIsReadyChanged() {
+                    Qt.callLater(root.updateFilterBarPosition)
+                }
             }
 
             Rectangle {
