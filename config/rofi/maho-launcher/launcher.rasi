@@ -6,7 +6,7 @@ configuration {
 }
 
 * {
-    background-color: @maho-glass;
+    background-color: transparent;
     text-color: @maho-foreground;
     font: "Noto Sans 11";
 }
@@ -20,7 +20,8 @@ window {
     border: 1px;
     border-radius: 24px;
     border-color: @maho-rim;
-    background-color: @maho-glass;
+    background-color: transparent;
+    background-image: @maho-panel-material;
 }
 
 mainbox {
@@ -71,7 +72,8 @@ inputbar {
     border: 1px;
     border-radius: 14px;
     border-color: @maho-border-soft;
-    background-color: @maho-inset;
+    background-color: transparent;
+    background-image: @maho-inset-material;
 }
 
 icon-search {
@@ -97,7 +99,8 @@ mode-switcher {
     border: 1px;
     border-radius: 13px;
     border-color: @maho-border-soft;
-    background-color: @maho-inset;
+    background-color: transparent;
+    background-image: @maho-segment-material;
 }
 
 button {
@@ -112,7 +115,8 @@ button {
 button selected {
     border-color: @maho-accent-rim;
     text-color: @maho-foreground;
-    background-color: @maho-accent-soft;
+    background-color: transparent;
+    background-image: @maho-active-mode-material;
 }
 
 result-shell {
@@ -148,13 +152,19 @@ element {
 }
 
 element normal.normal, element alternate.normal {
+    border: 0px 0px 1px 0px;
+    border-radius: 0px;
+    border-color: @maho-divider;
     background-color: transparent;
 }
 
 element selected.normal, element selected.active, element selected.urgent {
+    border: 1px;
+    border-radius: 13px;
     border-color: @maho-accent-rim;
     text-color: @maho-foreground;
-    background-color: @maho-selection;
+    background-color: transparent;
+    background-image: @maho-selection-material;
 }
 
 element-icon {

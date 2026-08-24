@@ -52,17 +52,43 @@ The header and footer affordances use supported Rofi actions:
 `~/.cache/maho/launcher/` using a same-directory temporary file, `fsync`, and
 atomic replacement.
 
-The wallpaper-derived primary color is restrained and used only for selected
-tabs, the selected result, and focus edges. Glass remains a fixed neutral cool
-material across monochrome, cool, warm, and saturated palettes. Foreground and
-muted semantics are desaturated and contrast-bounded so a colorful wallpaper
-cannot recolor the entire interface.
+The material starts from neutral graphite, then mixes in a very small amount of
+the wallpaper environment. Primary color remains strongest at the selected tab,
+selected result, and focus rim. Low-chroma palettes automatically collapse back
+to neutral gray. Foreground and muted semantics are desaturated and
+contrast-bounded so a colorful wallpaper cannot flood the whole launcher.
+
+The generator emits separate top/base material stops for the panel, search,
+segmented modes, active tab, and selected row. Rofi composites each gradient
+once over the blurred backdrop; transparent base fills prevent accidental
+double opacity. The outer panel runs at 76/80/82% from top through bottom,
+while inset and selected surfaces remain more transparent so the hierarchy
+comes from restrained depth rather than stacked opaque cards.
+
+Five Palette V2 material fixtures are contract-tested and Rasi-parsed:
+
+| Palette family | Panel RGBA | Selected row RGBA | Focus rim RGBA | Outcome |
+| --- | --- | --- | --- | --- |
+| Monochrome | 24/25/28/80 | 55/55/56/54 | 190/190/190/42 | neutral gray, no hue cast |
+| Cool blue | 28/32/37/80 | 66/75/87/54 | 146/192/254/42 | cool reflected tint, blue focus |
+| Warm orange | 31/29/31/80 | 75/63/59/54 | 254/180/146/42 | neutral panel, warm selected state |
+| Pink/purple | 30/27/33/80 | 71/58/71/54 | 234/145/218/42 | restrained magenta reflection |
+| Muted green | 27/29/29/80 | 62/66/55/54 | 175/190/119/42 | muted olive focus without green flood |
 
 ## Hyprland material
 
 While Maho Launcher is open, its wrapper installs a named runtime-only
-Hyprland layer rule with blur and `ignore_alpha`. The rule is disabled on exit;
-no persistent global blur setting or Maho Edge rule is modified.
+Hyprland layer rule with blur, `ignore_alpha = 0.06`, and `xray`. `xray` lets
+the frosted surface sample the full backdrop instead of collapsing to a flat
+fill over application windows. The rule is disabled on exit; no persistent
+global blur setting or Maho Edge rule is modified.
+
+Hyprland exposes blur kernel size, pass count, noise, contrast, and vibrancy as
+global decoration settings rather than per-layer rule properties. Maho
+Launcher therefore inherits the user's compositor blur kernel and limits its
+own changes to the scoped `rofi` layer rule. This preserves system ownership
+while producing the strongest launcher-local material the installed compositor
+API supports.
 
 Rofi 2.0 exposes the fixed Wayland layer namespace `rofi` and does not provide a
 per-invocation namespace flag. Consequently the temporary material rule can
@@ -120,16 +146,20 @@ ChatGPT), OBS Studio, and unusual entries/icons were discovered from the 38
 installed desktop entries. Flatpak is not installed, so no Flatpak application
 was available for coverage.
 
-Measured from wrapper start until the owned Rofi PID became live, the first
-process-visible open was 117 ms. Five subsequent opens measured 115–139 ms
-(127.4 ms mean). Rofi RSS was 20,176 KiB. Fifty automated open/close cycles
-completed with zero failures, no remaining PID, and no zombie Rofi process. A
-concurrent second invocation returned `maho-launcher: already running`.
+Measured from wrapper start until the owned Rofi PID became live after the
+material update, the first process-visible open was 123 ms. Five subsequent
+opens measured 115–147 ms (124.8 ms mean). Rofi RSS was 20,112 KiB. The prior
+baseline was 117 ms cold, 127.4 ms warm mean, and 20,176 KiB RSS, so the visual
+material introduced no meaningful launch-time or memory regression. Fifty
+automated open/close cycles completed with zero failures, no remaining PID,
+and no zombie Rofi process. A concurrent second invocation returned
+`maho-launcher: already running`.
 
-Four generated Palette V2 fixtures (monochrome, cool, warm, saturated) passed
-atomic generation and live Rasi parsing. Live visual captures confirmed that
-the neutral material remains constant while only selected/focus accents change.
-The final Reference A comparison is recorded in `design-qa.md`.
+Five generated Palette V2 fixtures (monochrome, cool blue, warm orange,
+pink/purple, and muted green) passed atomic generation, material invariants,
+and live Rasi parsing. The cool fixture was rendered over a detailed wallpaper
+with the production layer rule for the final normalized Reference A comparison
+recorded in `design-qa.md`.
 
 The installed acceptance bridge was validated as a live fixed command and the
 Edge surface remained responsive after launcher cycles. This environment has

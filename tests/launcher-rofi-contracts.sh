@@ -50,6 +50,9 @@ require_text "$THEME" 'action: "kb-mode-previous"' "settings control no longer o
 require_text "$THEME" 'action: "kb-page-next"' "Show more control is not functional"
 require_text "$THEME" 'element selected.normal' "selected result slab styling is missing"
 require_text "$THEME" 'icon-chevron' "result activation affordance is missing"
+require_text "$THEME" 'background-image: @maho-panel-material' "panel material depth gradient is missing"
+require_text "$THEME" 'background-image: @maho-selection-material' "selected result is no longer layered glass"
+reject_text "$THEME" 'background-color: @maho-glass' "panel gradient is being double-filled instead of composited once"
 reject_text "$THEME" 'Enter to launch' "footer keyboard tutorial returned"
 reject_text "$THEME" 'ESC to close' "footer keyboard tutorial returned"
 reject_text "$THEME" '⌘' "macOS shortcut badges returned"
@@ -61,31 +64,75 @@ require_text "$LAUNCHER" '/maho/theme/active.json' "active.json is not the palet
 require_text "$GENERATOR" 'NamedTemporaryFile' "theme generation is not staged"
 require_text "$GENERATOR" 'os.fsync' "theme generation is not flushed before commit"
 require_text "$GENERATOR" 'os.replace' "theme generation is not atomically committed"
-require_text "$GENERATOR" 'maho-glass: rgba(14, 22, 33, 91%)' "neutral glass is no longer palette-independent"
+require_text "$GENERATOR" 'neutral_glass = (22, 23, 27)' "neutral graphite material foundation is missing"
+require_text "$GENERATOR" 'low_chroma = saturation(primary) < 0.12' "monochrome palettes are not detected"
+require_text "$GENERATOR" 'maho-panel-top:' "layered panel material token is missing"
+require_text "$GENERATOR" 'maho-selection-top:' "layered selection material token is missing"
 require_text "$GENERATOR" 'maho-foreground:' "semantic foreground generation is missing"
+reject_text "$GENERATOR" 'maho-glass: rgba(14, 22, 33, 91%)' "fixed opaque navy panel returned"
 
-for sample in monochrome cool warm saturated; do
+for sample in monochrome cool warm pink green; do
     case "$sample" in
-        monochrome) primary='#b9b9b9' ;;
-        cool) primary='#80b7ff' ;;
-        warm) primary='#ffb28d' ;;
-        saturated) primary='#ff00d4' ;;
+        monochrome) background='#111111'; surface='#242424'; surface_high='#323232'; primary='#b9b9b9'; foreground='#f2f2f2'; muted='#c4c4c4' ;;
+        cool) background='#0b1524'; surface='#17283b'; surface_high='#263b53'; primary='#80b7ff'; foreground='#f1f5fb'; muted='#b4bfce' ;;
+        warm) background='#1d120c'; surface='#2b1e18'; surface_high='#392a22'; primary='#ff9b6c'; foreground='#f6eee9'; muted='#cbb9af' ;;
+        pink) background='#180f18'; surface='#281c28'; surface_high='#372737'; primary='#e989d8'; foreground='#f6eff5'; muted='#c9b8c6' ;;
+        green) background='#11150c'; surface='#202719'; surface_high='#2d3723'; primary='#a9b96d'; foreground='#f0f3e9'; muted='#b9c0ad' ;;
     esac
     mkdir -p "$TMP/$sample"
-    printf '{"version":2,"mode":"dark","colors":{"primary":"%s","foreground":"#f2eeee","muted":"#c9bebe"}}\n' "$primary" > "$TMP/$sample/active.json"
+    printf '{"version":2,"mode":"dark","colors":{"background":"%s","surface_container":"%s","surface_container_high":"%s","primary":"%s","foreground":"%s","muted":"%s"}}\n' \
+        "$background" "$surface" "$surface_high" "$primary" "$foreground" "$muted" > "$TMP/$sample/active.json"
     python3 "$GENERATOR" \
         --palette "$TMP/$sample/active.json" \
         --static-theme "$THEME" \
         --output-dir "$TMP/$sample/out"
-    require_text "$TMP/$sample/out/generated-colors.rasi" 'maho-glass: rgba(14, 22, 33, 91%);' "$sample palette repainted the neutral glass"
+    require_text "$TMP/$sample/out/generated-colors.rasi" 'maho-accent-soft:' "$sample palette lacks a distinct soft-accent material"
 done
 
-cmp -s "$TMP/cool/out/generated-colors.rasi" "$TMP/warm/out/generated-colors.rasi" && fail "accent does not respond to palette changes"
+python3 - "$TMP" <<'PY'
+from pathlib import Path
+import colorsys
+import math
+import re
+import sys
+
+root = Path(sys.argv[1])
+
+def token(sample, name):
+    text = (root / sample / "out" / "generated-colors.rasi").read_text()
+    match = re.search(rf"{name}: rgba\((\d+), (\d+), (\d+), (\d+)%\);", text)
+    if not match:
+        raise SystemExit(f"missing {name} for {sample}")
+    return tuple(map(int, match.groups()))
+
+samples = ("monochrome", "cool", "warm", "pink", "green")
+panels = {sample: token(sample, "maho-glass") for sample in samples}
+selections = {sample: token(sample, "maho-selection") for sample in samples}
+
+if not all(72 <= value[3] <= 84 for value in panels.values()):
+    raise SystemExit("panel material escaped the frosted readability range")
+if max(panels["monochrome"][:3]) - min(panels["monochrome"][:3]) > 6:
+    raise SystemExit("monochrome palette produced a chromatic panel")
+if len({value[:3] for value in panels.values()}) < 4:
+    raise SystemExit("environmental panel tint does not respond to palette changes")
+for sample, value in panels.items():
+    saturation = colorsys.rgb_to_hsv(*(channel / 255 for channel in value[:3]))[1]
+    if saturation > 0.28:
+        raise SystemExit(f"{sample} palette flooded the neutral panel with color")
+
+panel_distance = math.dist(panels["cool"][:3], panels["warm"][:3])
+selection_distance = math.dist(selections["cool"][:3], selections["warm"][:3])
+if selection_distance <= panel_distance:
+    raise SystemExit("selection no longer carries more environmental accent than the panel")
+PY
 echo "PASS"
 
 echo "=== singleton, rollback, and Edge seam ==="
 require_text "$LAUNCHER" 'flock -n 9' "single-instance lock is missing"
 require_text "$LAUNCHER" '-pid "$ROFI_PID_FILE"' "Rofi instance pid isolation is missing"
+require_text "$LAUNCHER" 'ignore_alpha = 0.06' "launcher blur coverage is no longer tuned for translucent material"
+require_text "$LAUNCHER" 'xray = true' "launcher blur can no longer sample the full backdrop"
+reject_text "$LAUNCHER" 'hl.config({' "launcher performs a persistent/global Hyprland mutation"
 require_text "$EDGE" '/.local/bin/maho-launcher' "Maho Edge does not call the production launcher"
 require_text "$EDGE" '"open"' "Maho Edge does not use the bounded open command"
 reject_text "$ROOT/bin/maho-setup" 'maho-rice-launcher' "setup now owns or removes the rollback launcher"
@@ -97,8 +144,14 @@ bash -n "$LAUNCHER" "$COMMANDS"
 python3 -m py_compile "$GENERATOR"
 if command -v rofi >/dev/null 2>&1; then
     XDG_CACHE_HOME="$TMP/cache" MAHO_ACTIVE_PALETTE="$TMP/cool/active.json" MAHO_ROOT="$ROOT" bash "$LAUNCHER" reload >/dev/null
-    rofi -no-config -theme "$TMP/cache/maho/launcher/runtime-theme.rasi" -dump-theme >/dev/null
-    echo "PASS  live Rasi parser"
+    parser_err="$TMP/rofi-parser.err"
+    if rofi -no-config -theme "$TMP/cache/maho/launcher/runtime-theme.rasi" -dump-theme >/dev/null 2>"$parser_err" \
+        && ! grep -Fq 'Failed to parse theme' "$parser_err"; then
+        echo "PASS  live Rasi parser"
+    else
+        cat "$parser_err" >&2
+        fail "generated runtime theme does not parse"
+    fi
 else
     echo "INFO  Rofi unavailable; static and generator contracts passed"
 fi

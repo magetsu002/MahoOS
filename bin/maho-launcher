@@ -80,8 +80,8 @@ set_hyprland_material_rule() {
                     name = "maho-launcher-rofi-material",
                     match = { namespace = "rofi" },
                     blur = true,
-                    ignore_alpha = 0.12,
-                    xray = false,
+                    ignore_alpha = 0.06,
+                    xray = true,
                     order = 8,
                 })
             else
@@ -133,7 +133,7 @@ run_main_rofi() {
         -kb-mode-previous 'F10,Shift+Left,Control+ISO_Left_Tab' \
         -kb-clear-line 'F11,Control+w' \
         -kb-page-next 'F12,Page_Down' \
-        -drun-display-format $'<span size=\'large\'>{name}</span>\n<span size=\'small\' alpha=\'70%\'>{generic}</span>' \
+        -drun-display-format $'<span size=\'large\'>{name}</span>\n<span size=\'small\' alpha=\'76%\'>{generic}</span>' \
         -pid "$ROFI_PID_FILE" \
         -theme "$runtime_theme" \
         2>> "$LOG_FILE"
