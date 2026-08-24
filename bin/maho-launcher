@@ -68,6 +68,50 @@ generate_theme() {
         --output-dir "$CACHE_ROOT"
 }
 
+icon_theme_exists() {
+    local theme="$1" root
+    [ -n "$theme" ] || return 1
+    for root in \
+        "$HOME/.icons" \
+        "${XDG_DATA_HOME:-$HOME/.local/share}/icons" \
+        /usr/local/share/icons \
+        /usr/share/icons
+    do
+        [ -d "$root/$theme" ] && return 0
+    done
+    return 1
+}
+
+detect_icon_theme() {
+    local requested="${MAHO_LAUNCHER_ICON_THEME:-}" desktop_theme="" candidate
+
+    if [ -n "$requested" ] && icon_theme_exists "$requested"; then
+        printf '%s\n' "$requested"
+        return 0
+    fi
+
+    # Respect the user's desktop icon theme first. This lets Rofi resolve
+    # vector/high-resolution replacements (Papirus, Tela, Adwaita, etc.) for
+    # legacy desktop entries without Maho bundling or falsifying app branding.
+    if command -v gsettings >/dev/null 2>&1; then
+        desktop_theme="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null \
+            | sed -e "s/^'//" -e "s/'$//" || true)"
+        if [ -n "$desktop_theme" ] && icon_theme_exists "$desktop_theme"; then
+            printf '%s\n' "$desktop_theme"
+            return 0
+        fi
+    fi
+
+    for candidate in Papirus-Dark Papirus Tela-circle-dark Tela-circle Tela Adwaita hicolor; do
+        if icon_theme_exists "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 set_hyprland_material_rule() {
     local state="$1"
     command -v hyprctl >/dev/null 2>&1 || return 0
@@ -115,10 +159,17 @@ cleanup() {
 }
 
 run_main_rofi() {
-    local runtime_theme="$CACHE_ROOT/runtime-theme.rasi"
+    local runtime_theme="$CACHE_ROOT/runtime-theme.rasi" icon_theme
+    local -a icon_theme_args=()
+
+    icon_theme="$(detect_icon_theme 2>/dev/null || true)"
+    if [ -n "$icon_theme" ]; then
+        icon_theme_args=( -icon-theme "$icon_theme" )
+    fi
 
     MAHO_LAUNCHER_COMMAND="$ROOT/bin/maho-launcher" \
     rofi \
+        "${icon_theme_args[@]}" \
         -no-config \
         -show drun \
         -modes "drun,filebrowser,Commands:$COMMANDS_MODE" \
@@ -133,7 +184,7 @@ run_main_rofi() {
         -kb-mode-previous 'F10,Shift+Left,Control+ISO_Left_Tab' \
         -kb-clear-line 'F11,Control+w' \
         -kb-page-next 'F12,Page_Down' \
-        -drun-display-format $'<span size=\'large\'>{name}</span>\n<span size=\'small\' alpha=\'76%\'>{generic}</span>' \
+        -drun-display-format $'<span size=\'large\' weight=\'600\'>{name}</span>\n<span size=\'small\' alpha=\'76%\'>{generic}</span>' \
         -pid "$ROFI_PID_FILE" \
         -theme "$runtime_theme" \
         2>> "$LOG_FILE"
@@ -187,7 +238,7 @@ close_launcher() {
 }
 
 doctor() {
-    local failed=0 runtime_theme="$CACHE_ROOT/runtime-theme.rasi"
+    local failed=0 runtime_theme="$CACHE_ROOT/runtime-theme.rasi" icon_theme
 
     if command -v rofi >/dev/null 2>&1; then
         printf 'PASS  engine         %s\n' "$(rofi -version 2>&1)"
@@ -208,6 +259,13 @@ doctor() {
     else
         echo "FAIL  theme          Rasi validation failed"
         failed=1
+    fi
+
+    icon_theme="$(detect_icon_theme 2>/dev/null || true)"
+    if [ -n "$icon_theme" ]; then
+        printf 'PASS  icons          desktop theme %s\n' "$icon_theme"
+    else
+        echo "INFO  icons          Rofi default icon lookup will be used"
     fi
 
     if [ -x "$COMMANDS_MODE" ]; then
