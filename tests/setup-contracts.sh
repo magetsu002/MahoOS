@@ -63,6 +63,15 @@ NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
 [ "$(readlink -f "$NOTIFY_TARGET")" = "$ROOT/config/quickshell/maho-notify" ] || fail "Maho Notify targets wrong checkout"
 [ -r "$NOTIFY_TARGET/shell.qml" ] || fail "Maho Notify entrypoint missing after install"
 
+THEMES_TARGET="$XDG_CONFIG_HOME/quickshell/maho-themes"
+[ -L "$THEMES_TARGET" ] || fail "Maho Themes configuration is not a symlink"
+[ "$(readlink -f "$THEMES_TARGET")" = "$ROOT/config/quickshell/maho-themes" ] || fail "Maho Themes targets wrong checkout"
+[ -r "$THEMES_TARGET/shell.qml" ] || fail "Maho Themes entrypoint missing after install"
+
+DESKTOP_TARGET="$HOME/.local/share/applications/maho-themes.desktop"
+[ -L "$DESKTOP_TARGET" ] || fail "Maho Themes desktop entry is not a symlink"
+[ "$(readlink -f "$DESKTOP_TARGET")" = "$ROOT/share/applications/maho-themes.desktop" ] || fail "Maho Themes desktop entry targets wrong checkout"
+
 for unit in "${UNITS[@]}"; do
     target="$XDG_CONFIG_HOME/systemd/user/$unit"
     [ -L "$target" ] || fail "user service is not a symlink: $unit"
@@ -135,6 +144,19 @@ bash "$ROOT/bin/maho-setup" install >/dev/null
 [ -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify was not restored after unmanaged protection test"
 echo "PASS"
 
+echo "=== unmanaged Maho Themes protected ==="
+rm -f "$THEMES_TARGET"
+mkdir -p "$THEMES_TARGET"
+printf '%s\n' 'external-themes' > "$THEMES_TARGET/owner.txt"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "setup overwrote unmanaged Maho Themes configuration"
+fi
+grep -q '^external-themes$' "$THEMES_TARGET/owner.txt" || fail "unmanaged Maho Themes configuration was modified"
+rm -rf "$THEMES_TARGET"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+[ -L "$THEMES_TARGET" ] || fail "managed Maho Themes was not restored"
+echo "PASS"
+
 echo "=== uninstall ==="
 "$HOME/.local/bin/maho-setup" uninstall >/dev/null
 for name in "${COMMANDS[@]}"; do
@@ -146,6 +168,8 @@ for unit in "${UNITS[@]}"; do
 done
 [ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail "managed shell configuration survived uninstall"
 [ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify configuration survived uninstall"
+[ ! -e "$THEMES_TARGET" ] && [ ! -L "$THEMES_TARGET" ] || fail "managed Maho Themes configuration survived uninstall"
+[ ! -e "$DESKTOP_TARGET" ] && [ ! -L "$DESKTOP_TARGET" ] || fail "managed Maho Themes desktop entry survived uninstall"
 echo "PASS"
 
 echo "=== Maho Notify packaging contracts ==="

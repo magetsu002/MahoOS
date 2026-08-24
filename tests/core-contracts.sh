@@ -148,4 +148,7 @@ echo "PASS"
 echo "=== Palette V2 behavior and compatibility ==="
 python "$ROOT/tests/palette-v2.py"
 
+echo "=== Maho Themes integration ==="
+bash "$ROOT/tests/themes-contracts.sh"
+
 echo "ALL CORE CONTRACTS PASS"
