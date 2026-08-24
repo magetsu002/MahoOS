@@ -39,7 +39,7 @@ header {
 
 icon-app-grid, icon-settings {
     expand: false;
-    size: 25px;
+    size: 22px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -79,7 +79,7 @@ inputbar {
 icon-search {
     filename: @maho-icon-search;
     expand: false;
-    size: 23px;
+    size: 21px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -110,6 +110,7 @@ button {
     border-color: transparent;
     text-color: @maho-muted;
     background-color: transparent;
+    font: "Noto Sans Medium 11";
 }
 
 button selected {
@@ -125,7 +126,8 @@ result-shell {
     border: 1px;
     border-radius: 14px;
     border-color: @maho-border-soft;
-    background-color: @maho-result-surface;
+    background-color: transparent;
+    background-image: @maho-result-material;
 }
 
 listview {
@@ -168,7 +170,7 @@ element selected.normal, element selected.active, element selected.urgent {
 }
 
 element-icon {
-    size: 40px;
+    size: 38px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -185,7 +187,7 @@ icon-chevron {
     filename: @maho-icon-chevron-right;
     action: "kb-accept-entry";
     expand: false;
-    size: 17px;
+    size: 14px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -194,7 +196,7 @@ show-more {
     expand: false;
     orientation: horizontal;
     children: [ button-show-more, icon-expand ];
-    spacing: 9px;
+    spacing: 7px;
     background-color: transparent;
 }
 
@@ -206,12 +208,13 @@ button-show-more {
     vertical-align: 0.5;
     text-color: @maho-muted;
     background-color: transparent;
+    font: "Noto Sans 10";
 }
 
 icon-expand {
     filename: @maho-icon-chevron-down;
     expand: true;
-    size: 16px;
+    size: 14px;
     horizontal-align: 0.0;
     vertical-align: 0.5;
     background-color: transparent;
