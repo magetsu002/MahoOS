@@ -11,10 +11,17 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 echo "=== Maho Themes product and entrypoint ==="
 [ -r "$THEMES/shell.qml" ] || fail "shell.qml entrypoint missing"
-grep -Fq 'title: "Maho Themes"' "$THEMES/shell.qml" || fail "window title is not Maho Themes"
+grep -Fq '//@ pragma ShellId maho-themes' "$THEMES/shell.qml" || fail "Maho Themes shell identity missing"
+grep -Fq 'PanelWindow {' "$THEMES/shell.qml" || fail "Maho Themes is not a layer-shell panel"
+grep -Fq 'WlrLayershell.layer: WlrLayer.Overlay' "$THEMES/shell.qml" || fail "Maho Themes is not on the overlay layer"
+grep -Fq 'exclusionMode: ExclusionMode.Ignore' "$THEMES/shell.qml" || fail "Maho Themes must not reserve compositor space"
+grep -Fq 'mask: Region { item: pickerSurface }' "$THEMES/shell.qml" || fail "Maho Themes overlay input is not bounded to the picker"
+if grep -Fq 'FloatingWindow {' "$THEMES/shell.qml"; then
+    fail "Maho Themes regressed to a normal application window"
+fi
 grep -Fq 'text: "Maho Themes"' "$THEMES/WallpaperPicker.qml" || fail "visible product name missing"
 grep -Fq 'Exec=maho-theme open' "$ROOT/share/applications/maho-themes.desktop" || fail "desktop entry does not use maho-theme open"
-grep -Fq 'title = "^(Maho Themes)$"' "$ROOT/config/hypr/maho/core/windowing.lua" || fail "Maho Themes floating rule missing"
+grep -Fq 'title = "^(Maho Themes)$"' "$ROOT/config/hypr/maho/core/windowing.lua" || fail "legacy Maho Themes window rule missing"
 echo "PASS"
 
 echo "=== preserved discovery and interaction ==="
