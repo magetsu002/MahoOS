@@ -154,6 +154,7 @@ def rasi_colors(colors: dict[str, object], icons_dir: Path) -> str:
     segment = blend(panel, neutralize(surface, 0.15), 0.32)
     segment_top = blend(segment, foreground, 0.045)
     results = blend(panel, neutralize(surface, 0.12), 0.18)
+    results_top = blend(results, foreground, 0.025)
 
     selected_mode = blend(raised, accent_light, 0.06 if low_chroma else 0.13)
     selected_mode_top = blend(selected_mode, foreground, 0.045)
@@ -166,6 +167,12 @@ def rasi_colors(colors: dict[str, object], icons_dir: Path) -> str:
     focus = blend(accent_light, foreground, 0.08)
     divider = blend(panel, foreground, 0.22)
 
+    # Chrome icons deliberately use icon-theme symbolic names instead of the
+    # old baked raster copies. Rofi resolves these through GdkPixbuf/icon-theme,
+    # so scalable Adwaita/Papirus/etc. assets stay crisp at fractional Wayland
+    # scale while application icons remain untouched and native.
+    _ = icons_dir
+
     return f"""/* Generated atomically from Maho Palette V2 active.json. */
 * {{
     maho-glass: {rgba(panel, 80)};
@@ -175,28 +182,29 @@ def rasi_colors(colors: dict[str, object], icons_dir: Path) -> str:
     maho-inset-top: {rgba(raised_top, 54)};
     maho-segment: {rgba(segment, 38)};
     maho-segment-top: {rgba(segment_top, 44)};
-    maho-result-surface: {rgba(results, 26)};
-    maho-selection: {rgba(selected_result, 54)};
-    maho-selection-top: {rgba(selected_result_top, 60)};
+    maho-result-surface: {rgba(results, 24)};
+    maho-selection: {rgba(selected_result, 56)};
+    maho-selection-top: {rgba(selected_result_top, 62)};
     maho-rim: {rgba(rim, 18)};
     maho-border-soft: {rgba(border_soft, 8)};
-    maho-divider: {rgba(divider, 5)};
-    maho-accent-rim: {rgba(focus, 42)};
+    maho-divider: {rgba(divider, 4)};
+    maho-accent-rim: {rgba(focus, 36)};
     maho-accent-soft: {rgba(selected_mode, 48)};
     maho-accent-soft-top: {rgba(selected_mode_top, 54)};
     maho-panel-material: linear-gradient(to bottom, {rgba(panel_top, 76)}, {rgba(panel, 80)}, {rgba(panel_bottom, 82)});
     maho-inset-material: linear-gradient(to bottom, {rgba(raised_top, 54)}, {rgba(raised, 48)});
     maho-segment-material: linear-gradient(to bottom, {rgba(segment_top, 44)}, {rgba(segment, 38)});
+    maho-result-material: linear-gradient(to bottom, {rgba(results_top, 28)}, {rgba(results, 24)});
     maho-active-mode-material: linear-gradient(to bottom, {rgba(selected_mode_top, 54)}, {rgba(selected_mode, 48)});
-    maho-selection-material: linear-gradient(to bottom, {rgba(selected_result_top, 60)}, {rgba(selected_result, 54)});
+    maho-selection-material: linear-gradient(to bottom, {rgba(selected_result_top, 62)}, {rgba(selected_result, 56)});
     maho-foreground: {rgb_hex(foreground)};
     maho-muted: {rgb_hex(muted)};
-    maho-icon-app-grid: "{icons_dir / 'app-grid.png'}";
-    maho-icon-settings: "{icons_dir / 'settings.png'}";
-    maho-icon-search: "{icons_dir / 'search.png'}";
-    maho-icon-chevron-right: "{icons_dir / 'chevron-right.png'}";
-    maho-icon-chevron-down: "{icons_dir / 'chevron-down.png'}";
-    maho-icon-chevron-up: "{icons_dir / 'chevron-up.png'}";
+    maho-icon-app-grid: "view-app-grid-symbolic";
+    maho-icon-settings: "preferences-system-symbolic";
+    maho-icon-search: "system-search-symbolic";
+    maho-icon-chevron-right: "go-next-symbolic";
+    maho-icon-chevron-down: "go-down-symbolic";
+    maho-icon-chevron-up: "go-up-symbolic";
 }}
 """
 
