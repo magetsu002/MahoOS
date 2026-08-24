@@ -60,10 +60,11 @@ ShellRoot {
         for (let i = 0; i < objects.length; i++) {
             const object = objects[i]
             try {
-                if (object && object.sequence !== undefined
-                        && String(object.sequence) === "Escape") {
+                if (!object || object.sequence === undefined)
+                    continue
+                const sequence = String(object.sequence).toLowerCase()
+                if (sequence === "escape" || sequence === "esc")
                     object.enabled = false
-                }
             } catch (error) {
                 // Non-Shortcut objects simply do not expose these properties.
             }
