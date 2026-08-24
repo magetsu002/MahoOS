@@ -36,7 +36,6 @@ ShellRoot {
         }
 
         visible: true
-        title: "Maho Themes"
         color: "transparent"
         aboveWindows: true
         focusable: true
