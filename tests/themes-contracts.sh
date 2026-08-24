@@ -14,6 +14,7 @@ echo "=== Maho Themes product and entrypoint ==="
 grep -Fq 'title: "Maho Themes"' "$THEMES/shell.qml" || fail "window title is not Maho Themes"
 grep -Fq 'text: "Maho Themes"' "$THEMES/WallpaperPicker.qml" || fail "visible product name missing"
 grep -Fq 'Exec=maho-theme open' "$ROOT/share/applications/maho-themes.desktop" || fail "desktop entry does not use maho-theme open"
+grep -Fq 'title = "^(Maho Themes)$"' "$ROOT/config/hypr/maho/core/windowing.lua" || fail "Maho Themes floating rule missing"
 echo "PASS"
 
 echo "=== preserved discovery and interaction ==="
@@ -22,6 +23,7 @@ grep -Fq 'nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.mp4", 
 grep -Fq 'sequence: "Left"' "$THEMES/WallpaperPicker.qml" || fail "keyboard navigation missing"
 grep -Fq 'onClicked:' "$THEMES/WallpaperPicker.qml" || fail "mouse selection missing"
 grep -Fq 'triggerOnlineSearch' "$THEMES/WallpaperPicker.qml" || fail "existing search missing"
+grep -Fq 'export QS_WALLPAPER_DIR="$current_path"' "$ROOT/bin/maho-theme" || fail "current wallpaper directory discovery missing"
 echo "PASS"
 
 echo "=== safe process boundaries ==="
@@ -94,6 +96,7 @@ if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$base"; then
     git -C "$ROOT" diff --quiet "$base" -- config/quickshell/maho-notify || fail "Notify source changed"
     git -C "$ROOT" diff --quiet "$base" -- '*launcher*' || fail "Launcher source changed"
 fi
+grep -Fq 'title = "^(wallpaper-picker)$"' "$ROOT/config/hypr/maho/core/windowing.lua" || fail "old picker window rule was removed"
 grep -Fq 'without moving or modifying the old picker' "$THEMES/scripts/cache_paths.sh" || fail "old-picker rollback policy missing"
 if grep -n -E 'rm .*legacy_dir|mv .*legacy_dir' "$THEMES/scripts/cache_paths.sh"; then
     fail "old picker cache can be deleted or moved"

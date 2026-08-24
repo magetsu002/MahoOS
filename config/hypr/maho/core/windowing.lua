@@ -40,3 +40,24 @@ hl.window_rule({
     no_blur = true,
 })
 
+-- Maho Themes preserves the approved wallpaper carousel geometry while the
+-- original picker remains available as the rollback surface.
+hl.window_rule({
+    name = "maho-themes",
+    match = {
+        title = "^(Maho Themes)$",
+    },
+
+    float = true,
+    center = true,
+    size = {
+        "monitor_w * 0.82",
+        "monitor_h * 0.45",
+    },
+
+    border_size = 0,
+    rounding = 0,
+    decorate = false,
+    no_shadow = true,
+    no_blur = true,
+})

@@ -472,6 +472,25 @@ open_themes() {
         return 1
     }
 
+    if [ -z "${QS_WALLPAPER_DIR:-}" ]; then
+        local current current_path
+        current="$(bash "$ROOT/bin/maho-wallpaper" current 2>/dev/null || true)"
+        current_path="$(printf '%s' "$current" | python -c '
+import json, os, sys
+try:
+    value = json.load(sys.stdin).get("path", "")
+except Exception:
+    value = ""
+print(os.path.dirname(value) if value else "")
+' 2>/dev/null || true)"
+
+        if [ -d "$current_path" ]; then
+            export QS_WALLPAPER_DIR="$current_path"
+        elif [ -d "$HOME/Pictures/Wallpapers" ]; then
+            export QS_WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+        fi
+    fi
+
     MAHO_THEME_COMMAND="$SELF" bash "$launcher"
 }
 

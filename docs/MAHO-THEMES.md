@@ -60,6 +60,9 @@ Maho Themes stores thumbnails and UI cache below
 `$XDG_STATE_HOME/maho/themes`, and the canonical palette below
 `$XDG_CACHE_HOME/maho/theme`. The first launch may seed reusable thumbnail data
 from the old picker cache, but never moves or deletes that cache.
+When `QS_WALLPAPER_DIR` is unset, `maho-theme open` discovers the collection
+from the current wallpaper and then falls back to `$HOME/Pictures/Wallpapers`
+before using the upstream `$HOME/Wallpapers` default.
 
 Run manually from a checkout with:
 
