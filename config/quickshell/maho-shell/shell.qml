@@ -39,8 +39,23 @@ ShellRoot {
     readonly property int activeWorkspace:
         Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 0
 
+    readonly property bool fullscreenActive:
+        Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.hasFullscreen : false
+
     readonly property int displayedWorkspace:
         workspaceVisual > 0 ? workspaceVisual : activeWorkspace
+
+    onFullscreenActiveChanged: {
+        if (!fullscreenActive)
+            return
+
+        closeMorphTimer.stop()
+        closeSecondaryTimer.stop()
+        expanded = false
+        closing = false
+        controlVisible = false
+        dragActive = false
+    }
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value))
@@ -302,6 +317,11 @@ ShellRoot {
 
     PanelWindow {
         id: panel
+
+        // Fullscreen applications own the entire focused workspace. Removing
+        // the overlay window also removes its input region until fullscreen
+        // ends; normal workspaces recreate the same global Edge surface.
+        visible: !root.fullscreenActive
 
         // Full-screen geometry lets Maho Edge follow the pointer while the
         // input mask keeps every pixel outside the visible surface click-through.

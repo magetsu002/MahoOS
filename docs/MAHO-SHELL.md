@@ -94,7 +94,10 @@ The Edge is one global layer-shell surface; workspace 1 has no special input
 authority and dock state is not stored per workspace. The visible surface uses
 the Wayland overlay layer explicitly. Hyprland's top layer can sit underneath a
 fullscreen workspace client, so the overlay is required for consistent pixels
-and input over every client state.
+and input over normal workspace clients. When the focused workspace contains a
+fullscreen client, the overlay window is hidden completely and its input region
+is removed; it returns with the same global dock state when fullscreen ends or
+another normal workspace is focused.
 
 Drag startup also captures the resting surface coordinates before enabling the
 drag-position bindings. Enabling them first would make the surface read the

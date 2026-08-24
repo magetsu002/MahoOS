@@ -139,6 +139,8 @@ require_text shell.qml 'dock.setDock(edge, position)' "drag release does not per
 require_text shell.qml 'exclusionMode: ExclusionMode.Ignore' "full-screen drag layer should not reserve the desktop"
 require_text shell.qml 'WlrLayershell.layer: WlrLayer.Overlay' "visible Maho Edge can fall below fullscreen workspace content"
 require_text shell.qml 'mask: Region { item: edgeSurface }' "full-screen drag layer is not input-masked to Maho Edge"
+require_text shell.qml 'Hyprland.focusedWorkspace.hasFullscreen' "Maho Edge does not follow focused-workspace fullscreen state"
+require_text shell.qml 'visible: !root.fullscreenActive' "Maho Edge remains visible over fullscreen applications"
 require_text shell.qml 'dock.edge === "left" || dock.edge === "right"' "vertical dock orientation missing"
 require_text shell.qml 'dock.edge === "bottom" ? 180' "bottom silhouette orientation missing"
 require_text shell.qml 'dock.edge === "left" ? -90' "left silhouette orientation missing"
@@ -202,6 +204,18 @@ end = source.index("// Maho Edge owns a small piece", start)
 drag_handler = source[start:end]
 if "workspace" in drag_handler.lower():
     raise SystemExit("FAIL: workspace state can gate the global Edge drag handler")
+PY
+python - "$SHELL_DIR/shell.qml" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text()
+panel_start = source.index("PanelWindow {")
+panel_body = source[panel_start:]
+visibility = panel_body.index("visible: !root.fullscreenActive")
+mask = panel_body.index("mask: Region { item: edgeSurface }")
+if visibility > mask:
+    raise SystemExit("FAIL: fullscreen visibility must gate the Edge window itself")
 PY
 echo "PASS"
 
