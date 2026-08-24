@@ -38,7 +38,7 @@ chmod +x "$TMP/fake-bin/quickshell"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-setup)
+COMMANDS=(maho-launcher mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-setup)
 UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service maho-notify.service)
 
 echo "=== preflight ==="

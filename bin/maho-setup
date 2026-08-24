@@ -12,6 +12,7 @@ NOTIFY_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify"
 MARKER="# managed-by: maho-setup v1"
 
 COMMANDS=(
+    maho-launcher
     mahoctl
     maho-theme
     maho-wallpaper
@@ -67,6 +68,18 @@ NOTIFY_FILES=(
     NotificationCenter.qml
     HistoryRow.qml
     state.py
+)
+
+LAUNCHER_FILES=(
+    launcher.rasi
+    generated-colors.rasi
+    commands.sh
+    icons/app-grid.png
+    icons/settings.png
+    icons/search.png
+    icons/chevron-right.png
+    icons/chevron-down.png
+    icons/chevron-up.png
 )
 
 die() {
@@ -158,6 +171,15 @@ preflight() {
         fi
     done
 
+    for file in "${LAUNCHER_FILES[@]}"; do
+        if [ -r "$ROOT/config/rofi/maho-launcher/$file" ]; then
+            printf 'PASS  launcher %s\n' "$file"
+        else
+            printf 'FAIL  launcher %s missing\n' "$file"
+            failed=1
+        fi
+    done
+
     for file in config/ownership.json config/intent.json config/adapters.json; do
         if python -m json.tool "$ROOT/$file" >/dev/null 2>&1; then
             printf 'PASS  json   %s\n' "$file"
@@ -173,6 +195,7 @@ preflight() {
         "$ROOT/lib/security_incident.py" \
         "$ROOT/lib/security_preflight.py" \
         "$ROOT/lib/security_boundary.py" \
+        "$ROOT/lib/maho_launcher_theme.py" \
         "$SHELL_SOURCE/state.py" \
         "$NOTIFY_SOURCE/state.py" \
         >/dev/null 2>&1; then
@@ -183,6 +206,7 @@ preflight() {
     fi
 
     bash -n \
+        "$ROOT/bin/maho-launcher" \
         "$ROOT/bin/mahoctl" \
         "$ROOT/bin/maho-theme" \
         "$ROOT/bin/maho-wallpaper" \
@@ -206,6 +230,7 @@ preflight() {
         "$ROOT/lib/cycle.sh" \
         "$ROOT/lib/transaction.sh" \
         "$ROOT/adapters/appearance/wallpaper-theme.sh" \
+        "$ROOT/config/rofi/maho-launcher/commands.sh" \
         >/dev/null 2>&1 || {
             echo "FAIL  shell syntax"
             failed=1

@@ -1,0 +1,220 @@
+configuration {
+    show-icons: true;
+    matching: "fuzzy";
+    sort: true;
+    click-to-exit: true;
+}
+
+* {
+    background-color: @maho-glass;
+    text-color: @maho-foreground;
+    font: "Noto Sans 11";
+}
+
+window {
+    width: 720px;
+    height: 780px;
+    location: center;
+    anchor: center;
+    padding: 24px 28px;
+    border: 1px;
+    border-radius: 24px;
+    border-color: @maho-rim;
+    background-color: @maho-glass;
+}
+
+mainbox {
+    spacing: 16px;
+    background-color: transparent;
+    children: [ header, inputbar, mode-switcher, result-shell, show-more ];
+}
+
+header {
+    expand: false;
+    orientation: horizontal;
+    children: [ icon-app-grid, textbox-title, icon-settings ];
+    background-color: transparent;
+}
+
+icon-app-grid, icon-settings {
+    expand: false;
+    size: 25px;
+    vertical-align: 0.5;
+    background-color: transparent;
+}
+
+icon-app-grid {
+    filename: @maho-icon-app-grid;
+    action: "kb-clear-line";
+}
+
+icon-settings {
+    filename: @maho-icon-settings;
+    action: "kb-mode-previous";
+}
+
+textbox-title {
+    content: "Maho Launcher";
+    expand: true;
+    horizontal-align: 0.5;
+    vertical-align: 0.5;
+    font: "Noto Sans Medium 14";
+    text-color: @maho-foreground;
+    background-color: transparent;
+}
+
+inputbar {
+    expand: false;
+    children: [ icon-search, entry ];
+    spacing: 14px;
+    padding: 13px 17px;
+    border: 1px;
+    border-radius: 14px;
+    border-color: @maho-border-soft;
+    background-color: @maho-inset;
+}
+
+icon-search {
+    filename: @maho-icon-search;
+    expand: false;
+    size: 23px;
+    vertical-align: 0.5;
+    background-color: transparent;
+}
+
+entry {
+    placeholder: "Search apps, files, and commands...";
+    placeholder-color: @maho-muted;
+    text-color: @maho-foreground;
+    background-color: transparent;
+}
+
+mode-switcher {
+    expand: false;
+    orientation: horizontal;
+    spacing: 0px;
+    padding: 1px;
+    border: 1px;
+    border-radius: 13px;
+    border-color: @maho-border-soft;
+    background-color: @maho-inset;
+}
+
+button {
+    padding: 10px 20px;
+    border: 1px;
+    border-radius: 12px;
+    border-color: transparent;
+    text-color: @maho-muted;
+    background-color: transparent;
+}
+
+button selected {
+    border-color: @maho-accent-rim;
+    text-color: @maho-foreground;
+    background-color: @maho-accent-soft;
+}
+
+result-shell {
+    children: [ listview ];
+    padding: 0px;
+    border: 1px;
+    border-radius: 14px;
+    border-color: @maho-border-soft;
+    background-color: @maho-result-surface;
+}
+
+listview {
+    lines: 8;
+    columns: 1;
+    fixed-height: true;
+    dynamic: false;
+    cycle: true;
+    scrollbar: false;
+    spacing: 0px;
+    background-color: transparent;
+}
+
+element {
+    children: [ element-icon, element-text, icon-chevron ];
+    orientation: horizontal;
+    spacing: 13px;
+    padding: 8px 16px;
+    border: 1px;
+    border-radius: 13px;
+    border-color: transparent;
+    text-color: @maho-foreground;
+    background-color: transparent;
+}
+
+element normal.normal, element alternate.normal {
+    background-color: transparent;
+}
+
+element selected.normal, element selected.active, element selected.urgent {
+    border-color: @maho-accent-rim;
+    text-color: @maho-foreground;
+    background-color: @maho-selection;
+}
+
+element-icon {
+    size: 42px;
+    vertical-align: 0.5;
+    background-color: transparent;
+}
+
+element-text {
+    expand: true;
+    vertical-align: 0.5;
+    text-color: inherit;
+    background-color: transparent;
+    highlight: none;
+}
+
+icon-chevron {
+    filename: @maho-icon-chevron-right;
+    action: "kb-accept-entry";
+    expand: false;
+    size: 17px;
+    vertical-align: 0.5;
+    background-color: transparent;
+}
+
+show-more {
+    expand: false;
+    orientation: horizontal;
+    children: [ button-show-more, icon-expand ];
+    spacing: 9px;
+    background-color: transparent;
+}
+
+button-show-more {
+    content: "Show more apps";
+    action: "kb-page-next";
+    expand: true;
+    horizontal-align: 1.0;
+    vertical-align: 0.5;
+    text-color: @maho-muted;
+    background-color: transparent;
+}
+
+icon-expand {
+    filename: @maho-icon-chevron-down;
+    expand: true;
+    size: 16px;
+    horizontal-align: 0.0;
+    vertical-align: 0.5;
+    background-color: transparent;
+}
+
+message {
+    padding: 10px;
+    border-radius: 12px;
+    text-color: @maho-muted;
+    background-color: @maho-inset;
+}
+
+textbox {
+    text-color: @maho-muted;
+    background-color: transparent;
+}

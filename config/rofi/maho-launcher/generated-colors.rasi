@@ -1,0 +1,19 @@
+/* Fallback palette. Runtime colors are generated from active.json in cache. */
+* {
+    maho-glass: rgba(14, 22, 33, 88%);
+    maho-inset: rgba(255, 255, 255, 4%);
+    maho-result-surface: rgba(255, 255, 255, 2%);
+    maho-selection: rgba(106, 159, 237, 20%);
+    maho-rim: rgba(226, 236, 247, 25%);
+    maho-border-soft: rgba(226, 236, 247, 12%);
+    maho-accent-rim: rgba(106, 159, 237, 72%);
+    maho-accent-soft: rgba(106, 159, 237, 17%);
+    maho-foreground: #edf2f8;
+    maho-muted: #aeb8c7;
+    maho-icon-app-grid: "view-app-grid-symbolic";
+    maho-icon-settings: "applications-system-symbolic";
+    maho-icon-search: "system-search-symbolic";
+    maho-icon-chevron-right: "go-next-symbolic";
+    maho-icon-chevron-down: "go-down-symbolic";
+    maho-icon-chevron-up: "go-up-symbolic";
+}

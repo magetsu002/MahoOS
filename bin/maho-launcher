@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONFIG_DIR="${MAHO_LAUNCHER_CONFIG_DIR:-$ROOT/config/rofi/maho-launcher}"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/launcher"
+RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}/maho-launcher-${UID}"
+THEME_GENERATOR="$ROOT/lib/maho_launcher_theme.py"
+STATIC_THEME="$CONFIG_DIR/launcher.rasi"
+COMMANDS_MODE="$CONFIG_DIR/commands.sh"
+LOCK_FILE="$RUNTIME_ROOT/launcher.lock"
+WRAPPER_PID_FILE="$RUNTIME_ROOT/wrapper.pid"
+ROFI_PID_FILE="$RUNTIME_ROOT/rofi.pid"
+LOG_FILE="$CACHE_ROOT/launcher.log"
+
+mkdir -p "$CACHE_ROOT" "$RUNTIME_ROOT"
+chmod 0700 "$CACHE_ROOT" "$RUNTIME_ROOT" 2>/dev/null || true
+
+log_event() {
+    printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE"
+}
+
+read_pid_file() {
+    local path="$1" pid
+    [ -r "$path" ] || return 1
+    IFS= read -r pid < "$path"
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    printf '%s\n' "$pid"
+}
+
+pid_is_maho_rofi() {
+    local pid="$1" cmdline
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+    case "$cmdline" in
+        *rofi*"$RUNTIME_ROOT"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+pid_is_maho_wrapper() {
+    local pid="$1" cmdline
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+    case "$cmdline" in
+        *maho-launcher*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+launcher_running() {
+    local pid
+    pid="$(read_pid_file "$WRAPPER_PID_FILE" 2>/dev/null || true)"
+    [ -n "$pid" ] && pid_is_maho_wrapper "$pid"
+}
+
+generate_theme() {
+    command -v python3 >/dev/null 2>&1 || {
+        echo "maho-launcher: python3 is required for Palette V2 theme generation" >&2
+        return 1
+    }
+    python3 "$THEME_GENERATOR" \
+        --palette "${MAHO_ACTIVE_PALETTE:-${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json}" \
+        --static-theme "$STATIC_THEME" \
+        --output-dir "$CACHE_ROOT"
+}
+
+set_hyprland_material_rule() {
+    local state="$1"
+    command -v hyprctl >/dev/null 2>&1 || return 0
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || return 0
+
+    if [ "$state" = "on" ]; then
+        hyprctl eval '
+            if maho_launcher_rofi_material_rule == nil then
+                maho_launcher_rofi_material_rule = hl.layer_rule({
+                    name = "maho-launcher-rofi-material",
+                    match = { namespace = "rofi" },
+                    blur = true,
+                    ignore_alpha = 0.12,
+                    xray = false,
+                    order = 8,
+                })
+            else
+                maho_launcher_rofi_material_rule:set_enabled(true)
+            end
+        ' >/dev/null 2>&1 || true
+    else
+        hyprctl eval '
+            if maho_launcher_rofi_material_rule ~= nil then
+                maho_launcher_rofi_material_rule:set_enabled(false)
+            end
+        ' >/dev/null 2>&1 || true
+    fi
+}
+
+stop_child() {
+    local pid
+    pid="$(read_pid_file "$ROFI_PID_FILE" 2>/dev/null || true)"
+    if [ -n "$pid" ] && pid_is_maho_rofi "$pid"; then
+        kill "$pid" 2>/dev/null || true
+    fi
+}
+
+cleanup() {
+    stop_child
+    set_hyprland_material_rule off
+    if [ -r "$WRAPPER_PID_FILE" ] && [ "$(read_pid_file "$WRAPPER_PID_FILE" 2>/dev/null || true)" = "$$" ]; then
+        : > "$WRAPPER_PID_FILE"
+    fi
+    : > "$ROFI_PID_FILE"
+}
+
+run_main_rofi() {
+    local runtime_theme="$CACHE_ROOT/runtime-theme.rasi"
+
+    MAHO_LAUNCHER_COMMAND="$ROOT/bin/maho-launcher" \
+    rofi \
+        -no-config \
+        -show drun \
+        -modes "drun,filebrowser,Commands:$COMMANDS_MODE" \
+        -display-drun "Apps" \
+        -display-filebrowser "Files" \
+        -show-icons \
+        -markup \
+        -matching fuzzy \
+        -sorting-method fzf \
+        -sort \
+        -kb-mode-previous 'F10,Shift+Left,Control+ISO_Left_Tab' \
+        -kb-clear-line 'F11,Control+w' \
+        -kb-page-next 'F12,Page_Down' \
+        -drun-display-format $'<span size=\'large\'>{name}</span>\n<span size=\'small\' alpha=\'70%\'>{generic}</span>' \
+        -pid "$ROFI_PID_FILE" \
+        -theme "$runtime_theme" \
+        2>> "$LOG_FILE"
+}
+
+run_launcher() {
+    command -v rofi >/dev/null 2>&1 || {
+        echo "maho-launcher: rofi is unavailable" >&2
+        return 1
+    }
+    command -v flock >/dev/null 2>&1 || {
+        echo "maho-launcher: flock is unavailable" >&2
+        return 1
+    }
+    [ -r "$STATIC_THEME" ] || {
+        echo "maho-launcher: theme missing: $STATIC_THEME" >&2
+        return 1
+    }
+    [ -x "$COMMANDS_MODE" ] || {
+        echo "maho-launcher: commands mode missing: $COMMANDS_MODE" >&2
+        return 1
+    }
+    exec 9> "$LOCK_FILE"
+    if ! flock -n 9; then
+        echo "maho-launcher: already running"
+        return 0
+    fi
+
+    printf '%s\n' "$$" > "$WRAPPER_PID_FILE"
+    trap cleanup EXIT INT TERM
+    generate_theme || return 1
+    set_hyprland_material_rule on
+    log_event "opened engine=rofi mode=apps"
+
+    run_main_rofi || true
+
+    log_event "closed"
+}
+
+close_launcher() {
+    local wrapper_pid rofi_pid
+    rofi_pid="$(read_pid_file "$ROFI_PID_FILE" 2>/dev/null || true)"
+    wrapper_pid="$(read_pid_file "$WRAPPER_PID_FILE" 2>/dev/null || true)"
+
+    if [ -n "$rofi_pid" ] && pid_is_maho_rofi "$rofi_pid"; then
+        kill "$rofi_pid" 2>/dev/null || true
+    fi
+    if [ -n "$wrapper_pid" ] && pid_is_maho_wrapper "$wrapper_pid"; then
+        kill "$wrapper_pid" 2>/dev/null || true
+    fi
+}
+
+doctor() {
+    local failed=0 runtime_theme="$CACHE_ROOT/runtime-theme.rasi"
+
+    if command -v rofi >/dev/null 2>&1; then
+        printf 'PASS  engine         %s\n' "$(rofi -version 2>&1)"
+    else
+        echo "FAIL  engine         rofi is unavailable"
+        failed=1
+    fi
+
+    if generate_theme >/dev/null; then
+        echo "PASS  palette        active.json converted atomically"
+    else
+        echo "FAIL  palette        theme generation failed"
+        failed=1
+    fi
+
+    if command -v rofi >/dev/null 2>&1 && rofi -no-config -theme "$runtime_theme" -dump-theme >/dev/null 2>&1; then
+        echo "PASS  theme          Rasi parsed successfully"
+    else
+        echo "FAIL  theme          Rasi validation failed"
+        failed=1
+    fi
+
+    if [ -x "$COMMANDS_MODE" ]; then
+        echo "PASS  safe modes     curated Commands script is executable"
+    else
+        echo "FAIL  safe modes     curated Commands script is unavailable"
+        failed=1
+    fi
+
+    if launcher_running; then
+        echo "PASS  instance       one Maho launcher wrapper is active"
+    else
+        echo "INFO  instance       launcher is closed"
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        echo "PASS  compositor     Hyprland runtime material rule available"
+    else
+        echo "INFO  compositor     Hyprland unavailable; translucent fallback remains usable"
+    fi
+
+    [ "$failed" -eq 0 ] && echo "PASS  doctor         no blocking launcher problems detected"
+    return "$failed"
+}
+
+status() {
+    if launcher_running; then
+        echo "running"
+    else
+        echo "closed"
+    fi
+}
+
+case "${1:-open}" in
+    open|run|start)
+        run_launcher
+        ;;
+    close|stop)
+        close_launcher
+        ;;
+    toggle)
+        if launcher_running; then close_launcher; else run_launcher; fi
+        ;;
+    status)
+        status
+        ;;
+    doctor)
+        doctor
+        ;;
+    reload)
+        generate_theme
+        ;;
+    logs)
+        tail -n "${2:-80}" "$LOG_FILE" 2>/dev/null || true
+        ;;
+    *)
+        cat <<'HELP'
+Maho Launcher — production Rofi integration
+
+Usage:
+  maho-launcher open
+  maho-launcher toggle
+  maho-launcher close
+  maho-launcher status
+  maho-launcher doctor
+  maho-launcher reload
+  maho-launcher logs [LINES]
+HELP
+        exit 2
+        ;;
+esac
