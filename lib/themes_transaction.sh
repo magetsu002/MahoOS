@@ -211,6 +211,22 @@ for name in ("foreground", "primary"):
 PY
 }
 
+MAHO_THEMES_OBSERVER_WAS_ACTIVE=0
+
+maho_themes_pause_observer() {
+    MAHO_THEMES_OBSERVER_WAS_ACTIVE=0
+    command -v systemctl >/dev/null 2>&1 || return 0
+    systemctl --user is-active --quiet maho-wallpaper.service 2>/dev/null || return 0
+    systemctl --user stop maho-wallpaper.service || return 1
+    MAHO_THEMES_OBSERVER_WAS_ACTIVE=1
+}
+
+maho_themes_resume_observer() {
+    [ "$MAHO_THEMES_OBSERVER_WAS_ACTIVE" -eq 1 ] || return 0
+    systemctl --user start maho-wallpaper.service || return 1
+    MAHO_THEMES_OBSERVER_WAS_ACTIVE=0
+}
+
 maho_themes_validate_apply_options() {
     local transition="$1" duration="$2" fps="$3"
     case "$transition" in
@@ -253,6 +269,7 @@ maho_themes_apply_transaction() {
     }
 
     local wall kind txn palette_source before_wallpaper candidate previous_palette
+    local observer_was_active=0
     wall="$(realpath "$wallpaper")" || return 1
     kind="$(maho_themes_wallpaper_kind "$wall")" || {
         die "unsupported wallpaper format"
@@ -289,17 +306,27 @@ maho_themes_apply_transaction() {
     maho_themes_validate_active_palette "$CACHE/active.json" || return 1
     cp "$CACHE/active.json" "$previous_palette" || return 1
 
+    maho_themes_pause_observer || {
+        die "could not pause the related wallpaper observer; refusing mutation"
+        return 1
+    }
+    observer_was_active="$MAHO_THEMES_OBSERVER_WAS_ACTIVE"
+
     maho_themes_write_status applying "$txn" "candidate validated; runtime mutation pending"
     if ! maho_themes_apply_runtime "$kind" "$wall" "$transition" "$duration" "$fps"; then
-        maho_themes_write_status failed "$txn" "wallpaper apply failed before palette mutation"
-        die "wallpaper application failed; active palette was not changed"
+        maho_themes_rollback "$before_wallpaper" "$previous_palette" || true
+        maho_themes_resume_observer || true
+        maho_themes_write_status rolled_back "$txn" "wallpaper apply failed; previous wallpaper and palette restoration attempted"
+        die "wallpaper application failed; rollback attempted"
         return 1
     fi
 
     if [ "${MAHO_THEME_TEST_FAIL_AFTER_WALLPAPER:-0}" = 1 ] ||
        ! hypr_apply_palette_file "$candidate" 0 >/dev/null
     then
-        if maho_themes_rollback "$before_wallpaper" "$previous_palette"; then
+        if maho_themes_rollback "$before_wallpaper" "$previous_palette" &&
+           maho_themes_resume_observer
+        then
             maho_themes_write_status rolled_back "$txn" "palette apply failed; previous wallpaper and palette restored"
             die "palette application failed; previous wallpaper and palette restored"
         else
@@ -311,6 +338,7 @@ maho_themes_apply_transaction() {
 
     if ! maho_themes_verify_wallpaper "$kind" "$wall"; then
         maho_themes_rollback "$before_wallpaper" "$previous_palette" || true
+        maho_themes_resume_observer || true
         maho_themes_write_status rolled_back "$txn" "wallpaper verification failed"
         die "wallpaper verification failed; rollback attempted"
         return 1
@@ -321,8 +349,32 @@ maho_themes_apply_transaction() {
        ! maho_themes_publish_wallpaper "$kind" "$wall"
     then
         maho_themes_rollback "$before_wallpaper" "$previous_palette" || true
+        maho_themes_resume_observer || true
         maho_themes_write_status rolled_back "$txn" "commit verification failed"
         die "theme commit failed; rollback attempted"
+        return 1
+    fi
+
+    if ! maho_themes_resume_observer; then
+        maho_themes_rollback "$before_wallpaper" "$previous_palette" || true
+        maho_themes_resume_observer || true
+        maho_themes_write_status rolled_back "$txn" "wallpaper observer could not be restored"
+        die "wallpaper observer restart failed; rollback attempted"
+        return 1
+    fi
+
+    if [ "$observer_was_active" -eq 1 ]; then
+        sleep 1
+    fi
+
+    if ! maho_themes_verify_wallpaper "$kind" "$wall" ||
+       ! cmp -s "$candidate" "$CACHE/active.json"
+    then
+        maho_themes_pause_observer || true
+        maho_themes_rollback "$before_wallpaper" "$previous_palette" || true
+        maho_themes_resume_observer || true
+        maho_themes_write_status rolled_back "$txn" "post-resume verification detected competing wallpaper state"
+        die "post-resume verification failed; rollback attempted"
         return 1
     fi
 

@@ -63,6 +63,8 @@ grep -Fq 'maho_themes_rollback' "$ROOT/lib/themes_transaction.sh" || fail "rollb
 grep -Fq 'maho_themes_verify_wallpaper' "$ROOT/lib/themes_transaction.sh" || fail "wallpaper verification missing"
 grep -Fq 'cmp -s "$candidate" "$CACHE/active.json"' "$ROOT/lib/themes_transaction.sh" || fail "palette commit verification missing"
 grep -Fq 'MAHO_THEME_TEST_FAIL_AFTER_WALLPAPER' "$ROOT/lib/themes_transaction.sh" || fail "bounded failure injection missing"
+grep -Fq 'systemctl --user stop maho-wallpaper.service' "$ROOT/lib/themes_transaction.sh" || fail "observer coordination missing"
+grep -Fq 'post-resume verification' "$ROOT/lib/themes_transaction.sh" || fail "observer resume is not re-verified"
 echo "PASS"
 
 echo "=== single instance and independent launch ==="

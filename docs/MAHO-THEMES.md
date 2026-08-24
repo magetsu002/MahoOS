@@ -38,7 +38,13 @@ never applies a wallpaper or regenerates colors.
 3. apply and verify the selected wallpaper using the existing backend;
 4. apply and verify the candidate palette in Hyprland;
 5. atomically publish `active.json` and Maho wallpaper state;
-6. restore and verify the previous wallpaper and palette if a later step fails.
+6. resume the related wallpaper observer and re-verify the committed pair;
+7. restore and verify the previous wallpaper and palette if a later step fails.
+
+If the managed `maho-wallpaper.service` is active, the transaction pauses only
+that related observer during the bounded mutation and restores its prior active
+posture before returning. This prevents an older installed observer from racing
+manual acceptance of a newer Maho Themes checkout.
 
 Wallpaper files are referenced by stable real paths; they are not copied into
 transaction history. Video palettes are generated from a bounded extracted
