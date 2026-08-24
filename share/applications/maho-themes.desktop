@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Maho Themes
+Comment=Browse wallpapers and apply the shared Maho palette
+Exec=maho-theme open
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Categories=Settings;DesktopSettings;
+StartupNotify=false

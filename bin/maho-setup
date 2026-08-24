@@ -9,6 +9,10 @@ SHELL_SOURCE="$ROOT/config/quickshell/maho-shell"
 SHELL_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
 NOTIFY_SOURCE="$ROOT/config/quickshell/maho-notify"
 NOTIFY_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify"
+THEMES_SOURCE="$ROOT/config/quickshell/maho-themes"
+THEMES_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-themes"
+DESKTOP_SOURCE="$ROOT/share/applications/maho-themes.desktop"
+DESKTOP_TARGET="${XDG_DATA_HOME:-$HOME/.local/share}/applications/maho-themes.desktop"
 MARKER="# managed-by: maho-setup v1"
 
 COMMANDS=(
@@ -69,6 +73,19 @@ NOTIFY_FILES=(
     state.py
 )
 
+THEMES_FILES=(
+    shell.qml
+    WallpaperPicker.qml
+    MahoTheme.qml
+    Scaler.qml
+    WindowRegistry.js
+    config/Settings.qml
+    scripts/open_picker.sh
+    scripts/sync_thumbs.sh
+    scripts/online_search.sh
+    scripts/extract_colors.sh
+)
+
 die() {
     echo "maho-setup: $*" >&2
     return 1
@@ -118,6 +135,16 @@ is_managed_notify() {
     [ "$(readlink -f -- "$NOTIFY_TARGET" 2>/dev/null || true)" = "$NOTIFY_SOURCE" ]
 }
 
+is_managed_themes() {
+    [ -L "$THEMES_TARGET" ] || return 1
+    [ "$(readlink -f -- "$THEMES_TARGET" 2>/dev/null || true)" = "$THEMES_SOURCE" ]
+}
+
+is_managed_desktop_entry() {
+    [ -L "$DESKTOP_TARGET" ] || return 1
+    [ "$(readlink -f -- "$DESKTOP_TARGET" 2>/dev/null || true)" = "$DESKTOP_SOURCE" ]
+}
+
 preflight() {
     local failed=0 name file
     [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
@@ -157,6 +184,22 @@ preflight() {
             failed=1
         fi
     done
+
+    for name in "${THEMES_FILES[@]}"; do
+        if [ -r "$THEMES_SOURCE/$name" ]; then
+            printf 'PASS  themes %s\n' "$name"
+        else
+            printf 'FAIL  themes %s missing\n' "$name"
+            failed=1
+        fi
+    done
+
+    if [ -r "$DESKTOP_SOURCE" ]; then
+        echo "PASS  desktop maho-themes.desktop"
+    else
+        echo "FAIL  desktop maho-themes.desktop missing"
+        failed=1
+    fi
 
     for file in config/ownership.json config/intent.json config/adapters.json; do
         if python -m json.tool "$ROOT/$file" >/dev/null 2>&1; then
@@ -290,6 +333,32 @@ install_notify() {
     ln -s "$NOTIFY_SOURCE" "$NOTIFY_TARGET"
 }
 
+install_themes() {
+    mkdir -p "$(dirname "$THEMES_TARGET")"
+    if [ -e "$THEMES_TARGET" ] || [ -L "$THEMES_TARGET" ]; then
+        if is_managed_themes; then
+            rm -f "$THEMES_TARGET"
+        else
+            die "refusing to replace unmanaged Maho Themes configuration: $THEMES_TARGET"
+            return 1
+        fi
+    fi
+    ln -s "$THEMES_SOURCE" "$THEMES_TARGET"
+}
+
+install_desktop_entry() {
+    mkdir -p "$(dirname "$DESKTOP_TARGET")"
+    if [ -e "$DESKTOP_TARGET" ] || [ -L "$DESKTOP_TARGET" ]; then
+        if is_managed_desktop_entry; then
+            rm -f "$DESKTOP_TARGET"
+        else
+            die "refusing to replace unmanaged Maho Themes desktop entry: $DESKTOP_TARGET"
+            return 1
+        fi
+    fi
+    ln -s "$DESKTOP_SOURCE" "$DESKTOP_TARGET"
+}
+
 systemd_available() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
@@ -316,6 +385,13 @@ install() {
     echo "Installing Maho Notify..."
     install_notify || return 1
     echo "PASS  $NOTIFY_TARGET -> $NOTIFY_SOURCE"
+
+    echo
+    echo "Installing Maho Themes..."
+    install_themes || return 1
+    install_desktop_entry || return 1
+    echo "PASS  $THEMES_TARGET -> $THEMES_SOURCE"
+    echo "PASS  $DESKTOP_TARGET -> $DESKTOP_SOURCE"
 
     echo
     echo "Installing user services..."
@@ -379,6 +455,20 @@ status() {
         failed=1
     fi
 
+    if is_managed_themes; then
+        echo "PASS  themes  $THEMES_TARGET"
+    else
+        echo "INFO  themes  $THEMES_TARGET not managed by this checkout"
+        failed=1
+    fi
+
+    if is_managed_desktop_entry; then
+        echo "PASS  desktop $DESKTOP_TARGET"
+    else
+        echo "INFO  desktop $DESKTOP_TARGET not managed by this checkout"
+        failed=1
+    fi
+
     for name in "${UNITS[@]}"; do
         if is_managed_unit "$name"; then
             printf 'PASS  unit    %s\n' "$name"
@@ -435,6 +525,20 @@ uninstall() {
         echo "KEPT     unmanaged Quickshell configuration $NOTIFY_TARGET"
     fi
 
+    if is_managed_themes; then
+        rm -f "$THEMES_TARGET"
+        echo "REMOVED  $THEMES_TARGET"
+    elif [ -e "$THEMES_TARGET" ] || [ -L "$THEMES_TARGET" ]; then
+        echo "KEPT     unmanaged Maho Themes configuration $THEMES_TARGET"
+    fi
+
+    if is_managed_desktop_entry; then
+        rm -f "$DESKTOP_TARGET"
+        echo "REMOVED  $DESKTOP_TARGET"
+    elif [ -e "$DESKTOP_TARGET" ] || [ -L "$DESKTOP_TARGET" ]; then
+        echo "KEPT     unmanaged Maho Themes desktop entry $DESKTOP_TARGET"
+    fi
+
     for name in "${COMMANDS[@]}"; do
         path="$(launcher_path "$name")"
         if is_managed_launcher "$name"; then
@@ -477,6 +581,10 @@ unexpectedly.
 Maho Notify is packaged as an independent compact notification surface. Its
 user unit is installed but deliberately left disabled and inactive until the
 user explicitly activates it after notification-owner validation.
+
+Maho Themes is installed as an independent, on-demand wallpaper and Palette V2
+surface. It is never added to autostart and does not replace existing picker
+keybindings during installation.
 
 The Maho security service runs the stateful read-only monitor and
 incident-oriented shadow guard; the separate maho-contain command requires a
