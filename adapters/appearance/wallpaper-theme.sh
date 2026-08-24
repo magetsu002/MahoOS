@@ -213,7 +213,7 @@ PY
         source="$(video_source "$path")" || return 1
     fi
 
-    bash "$THEME" apply "$source" "$mode" >> "$LOG" 2>&1
+    bash "$THEME" adapt "$source" "$mode" >> "$LOG" 2>&1
 }
 
 verify_desired() {

@@ -2,7 +2,8 @@
 
 set -u
 
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+SELF="$(realpath -- "${BASH_SOURCE[0]}")"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "$SELF")/.." && pwd)}"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme"
 BACKENDS="$ROOT/theme/backends"
 
@@ -15,6 +16,28 @@ doctor() {
     local failed=0
 
     echo "Maho OS theme doctor"
+    echo
+
+    if command -v quickshell >/dev/null 2>&1 &&
+       [ -r "$ROOT/config/quickshell/maho-themes/shell.qml" ]; then
+        echo "PASS  Maho Themes UI"
+    else
+        echo "INFO  Maho Themes UI unavailable"
+    fi
+
+    command -v awww >/dev/null 2>&1 &&
+        echo "PASS  wallpaper    awww" ||
+        echo "INFO  wallpaper    awww unavailable"
+    command -v mpvpaper >/dev/null 2>&1 &&
+        echo "PASS  video        mpvpaper" ||
+        echo "INFO  video        mpvpaper unavailable"
+
+    if [ -f "$CACHE/active.json" ]; then
+        echo "PASS  active       $CACHE/active.json"
+    else
+        echo "INFO  active       no canonical palette yet"
+    fi
+
     echo
 
     for cmd in python realpath sha256sum; do
@@ -429,12 +452,27 @@ restore_hypr_active() {
     hypr_apply_palette_file "$active" 0
 }
 
-apply_wallpaper() {
+adapt_palette() {
     local wallpaper="${1:-}"
     local mode="${2:-dark}"
 
     generate "$wallpaper" "$mode" || return 1
     apply_hypr_candidate
+}
+
+open_themes() {
+    command -v quickshell >/dev/null 2>&1 || {
+        die "quickshell is unavailable"
+        return 1
+    }
+
+    local launcher="$ROOT/config/quickshell/maho-themes/scripts/open_picker.sh"
+    [ -x "$launcher" ] || {
+        die "Maho Themes launcher is unavailable"
+        return 1
+    }
+
+    MAHO_THEME_COMMAND="$SELF" bash "$launcher"
 }
 
 show_candidate() {
@@ -459,9 +497,16 @@ candidate_hash() {
     sha256sum "$candidate"
 }
 
+# shellcheck source=../lib/themes_transaction.sh
+source "$ROOT/lib/themes_transaction.sh"
+
 case "${1:-}" in
     doctor)
         doctor
+        ;;
+
+    open)
+        open_themes
         ;;
 
     generate)
@@ -485,7 +530,12 @@ case "${1:-}" in
         ;;
 
     apply)
-        apply_wallpaper "${2:-}" "${3:-dark}"
+        shift
+        maho_themes_apply_transaction "$@"
+        ;;
+
+    adapt)
+        adapt_palette "${2:-}" "${3:-dark}"
         ;;
 
     *)
@@ -493,6 +543,7 @@ case "${1:-}" in
 Maho OS theme engine
 
 Usage:
+  maho-theme open
   maho-theme doctor
   maho-theme generate WALLPAPER [dark|light]
   maho-theme show
@@ -502,7 +553,9 @@ Usage:
   maho-theme restore-hypr
 
 Generation alone does not modify the desktop.
-Applying a wallpaper generates, validates, applies, and verifies its palette.
+Applying a wallpaper changes the wallpaper and Palette V2 as one verified
+transaction. The internal adapt command updates only the palette for Maho's
+existing wallpaper observer.
 HELP
         ;;
 esac

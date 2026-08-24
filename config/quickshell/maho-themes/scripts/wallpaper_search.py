@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic Wallhaven discovery for qs-wallpaper-picker.
+"""Deterministic Wallhaven discovery for Maho Themes.
 
 The module is standard-library only. It keeps the shell/QML interface stable
 while separating request authority, candidate normalization, deterministic
@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 API_URL = "https://wallhaven.cc/api/v1/search"
-USER_AGENT = "qs-wallpaper-picker/3.0"
+USER_AGENT = "Maho-Themes/1.0"
 MAX_QUERY_LENGTH = 160
 DEFAULT_WIDTH = 1920
 DEFAULT_HEIGHT = 1080
@@ -110,7 +110,7 @@ class CacheLayout:
         values = os.environ if env is None else env
         home = Path(values.get("HOME") or str(Path.home()))
         cache_home = Path(values.get("XDG_CACHE_HOME") or home / ".cache")
-        root = cache_home / "wallpaper_picker"
+        root = cache_home / "maho" / "themes"
         online = root / "online"
         return cls(
             root=root,

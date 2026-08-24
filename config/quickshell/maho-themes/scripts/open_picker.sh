@@ -20,15 +20,12 @@ STATE_DIR="$(wallpaper_cache_dir)"
 ensure_wallpaper_cache_compatibility
 mkdir -p "$WALLPAPER_DIR" "$STATE_DIR"
 
-# Optional ML4W synchronization is opt-in for a fresh clone.
-export QS_WALLPAPER_ENABLE_ML4W="${QS_WALLPAPER_ENABLE_ML4W:-0}"
-
 "$SCRIPT_DIR/sync_thumbs.sh" "$WALLPAPER_DIR"
 
 if command -v flock >/dev/null 2>&1; then
     exec flock -n -o \
-        "$STATE_DIR/picker.lock" \
-        quickshell -p "$PROJECT_DIR/Main.qml"
+        "$STATE_DIR/ui.lock" \
+        quickshell --no-duplicate -p "$PROJECT_DIR/shell.qml"
 fi
 
-exec quickshell -p "$PROJECT_DIR/Main.qml"
+exec quickshell --no-duplicate -p "$PROJECT_DIR/shell.qml"

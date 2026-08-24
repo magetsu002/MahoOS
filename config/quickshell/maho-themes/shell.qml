@@ -7,7 +7,7 @@ import "."
 FloatingWindow {
     id: root
     visible: true
-    title: "wallpaper-picker"
+    title: "Maho Themes"
     color: "transparent"
 
     property string onlineSearchScript: {

@@ -273,7 +273,7 @@ PY
     fi
 
     mode="$(theme_mode)"
-    bash "$theme" apply "$source" "$mode"
+    bash "$theme" adapt "$source" "$mode"
 }
 
 run_automatic_cycle() {

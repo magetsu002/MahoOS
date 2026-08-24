@@ -6,7 +6,6 @@ import Qt.labs.folderlistmodel
 import QtMultimedia
 import Quickshell
 import Quickshell.Io
-import "../" 
 import QtQuick.Dialogs
 import "config"
 
@@ -73,7 +72,7 @@ Item {
         onTriggered: Qt.quit()
     }
 
-    MatugenColors { id: _theme }
+    MahoTheme { id: _theme }
 
     // -------------------------------------------------------------------------
     // PROPERTIES & IPC RECEIVER
@@ -102,6 +101,7 @@ Item {
     property string currentDownloadName: ""
     property string pendingOnlineDownloadName: ""
     property string pendingOnlineDownloadDestination: ""
+    property string applyError: ""
     
     // STRICT ARCHITECTURAL LOCK
     property bool isApplying: false 
@@ -172,71 +172,39 @@ Item {
             return
         }
 
-        window.isApplying = true
         window.targetWallName = safeFileName
-
-        const escapeBash = (str) => String(str).replace(/(["\\$`])/g, '\\$1')
-        const boolEnv = (value) => value ? "1" : "0"
         const destFile = window.srcDir + "/" + safeFileName
-        const finalThumb = decodeURIComponent(window.thumbDir.replace("file://", "")) + "/" + safeFileName
-        const tempThumb = decodeURIComponent(window.searchDir.replace("file://", "")) + "/" + safeFileName
-        const reloadScript = window.resolveProjectScript("scripts/matugen_reload.sh")
-        const randomTransition = window.transitions[Math.floor(Math.random() * window.transitions.length)]
+        Quickshell.execDetached([
+            "bash",
+            window.resolveProjectScript("scripts/sync_thumbs.sh"),
+            window.srcDir
+        ])
+        window.startTransactionalApply(destFile)
+    }
 
-        const applyScript = `
-            (
-                export DEST_FILE="${escapeBash(destFile)}"
-                export FINAL_THUMB="${escapeBash(finalThumb)}"
-                export TEMP_THUMB="${escapeBash(tempThumb)}"
-                export RELOAD_SCRIPT="${escapeBash(reloadScript)}"
-                export RANDOM_TRANSITION="${escapeBash(window.normalizeTransition(randomTransition))}"
-                export TRANSITION_DURATION="${Number(settings.wallpaperTransitionDuration).toFixed(2)}"
-                export TRANSITION_FPS="${Math.max(1, Number(settings.wallpaperTransitionFps))}"
+    function startTransactionalApply(wallpaperPath) {
+        if (!wallpaperPath || applyProcess.running) return
 
-                if [ -f "$TEMP_THUMB" ]; then
-                    cp "$TEMP_THUMB" "$FINAL_THUMB" 2>/dev/null || true
-                fi
-                if command -v magick >/dev/null 2>&1; then
-                    magick "$DEST_FILE" -resize x420 -quality 70 "$FINAL_THUMB" 2>/dev/null || true
-                fi
+        const configured = Quickshell.env("MAHO_THEME_COMMAND")
+        const command = configured !== ""
+            ? configured
+            : Quickshell.env("HOME") + "/.local/bin/maho-theme"
 
-                cp "$DEST_FILE" /tmp/lock_bg.png || true
-                pkill mpvpaper || true
-
-                (
-                    ENABLE_DYNAMIC_COLORS="${boolEnv(settings.enableDynamicColors)}" \
-                    ENABLE_MATUGEN="${boolEnv(settings.enableMatugen)}" \
-                    ENABLE_HYPR_RELOAD="${boolEnv(settings.enableHyprReload)}" \
-                    ENABLE_WAYBAR_RELOAD="${boolEnv(settings.enableWaybarReload)}" \
-                    ENABLE_KITTY_RELOAD="${boolEnv(settings.enableKittyReload)}" \
-                    ENABLE_CAVA_RELOAD="${boolEnv(settings.enableCavaReload)}" \
-                    ENABLE_SWAYNC_RELOAD="${boolEnv(settings.enableSwayncReload)}" \
-                    ENABLE_SWAYOSD_RELOAD="${boolEnv(settings.enableSwayosdReload)}" \
-                    HYPR_COLORS_PATH="${escapeBash(settings.hyprColorsPath)}" \
-                    WAYBAR_COLORS_PATH="${escapeBash(settings.waybarColorsPath)}" \
-                    WAYBAR_LAUNCH_PATH="${escapeBash(settings.waybarLaunchPath)}" \
-                    KITTY_SIGNAL_PROCESS="${escapeBash(settings.kittySignalProcess)}" \
-                    EXTRA_RELOAD_COMMAND="${escapeBash(settings.extraReloadCommand)}" \
-                    bash "$RELOAD_SCRIPT" "$DEST_FILE" || true
-                ) &
-                MATUGEN_PID=$!
-
-                for i in {1..20}; do
-                    if awww img --transition-type "$RANDOM_TRANSITION" --transition-duration "$TRANSITION_DURATION" --transition-fps "$TRANSITION_FPS" "$DEST_FILE" >/dev/null 2>&1; then
-                        break
-                    fi
-                    if awww img --transition-type fade --transition-duration "$TRANSITION_DURATION" --transition-fps "$TRANSITION_FPS" "$DEST_FILE" >/dev/null 2>&1; then
-                        break
-                    fi
-                    sleep 0.05
-                done
-
-                wait $MATUGEN_PID
-            ) > /tmp/qs_apply.log 2>&1 & disown
-        `
-
-        Quickshell.execDetached(["bash", "-c", applyScript])
-        window.requestClose()
+        window.isApplying = true
+        window.applyError = ""
+        applyProcess.command = [
+            command,
+            "apply",
+            wallpaperPath,
+            settings.themeMode,
+            "--transition",
+            window.pickTransition(),
+            "--duration",
+            Number(settings.wallpaperTransitionDuration).toFixed(2),
+            "--fps",
+            String(Math.max(1, Number(settings.wallpaperTransitionFps)))
+        ]
+        applyProcess.running = true
     }
 
     // -------------------------------------------------------------------------
@@ -261,17 +229,6 @@ Item {
             return
         }
 
-        window.isApplying = true
-
-        let reloadScript = Qt.resolvedUrl("scripts/matugen_reload.sh").toString()
-        
-        if (reloadScript.startsWith("file://")) {
-            reloadScript = decodeURIComponent(reloadScript.substring(7))
-        }
-
-        const boolEnv = (v) => v ? "1" : "0";
-        const escapeBash = (str) => String(str).replace(/(["\\$`])/g, '\\$1');
-
         const realFileName =
             window.getSourceFileName(
                 safeFileName,
@@ -279,90 +236,7 @@ Item {
             )
         const originalFile =
             window.srcDir + "/" + realFileName
-        const thumbFile = Quickshell.env("HOME") + "/.cache/wallpaper_picker/thumbs/" + safeFileName 
-        
-        let wallpaperCmd = ""
-        let lockBgCmd = ""
-        
-        const escOriginal = escapeBash(originalFile);
-        const escThumb = escapeBash(thumbFile);
-        const escReload = escapeBash(reloadScript);
-        const lastType = isVideo ? "video" : "image";
-        const ml4wMode = escapeBash(
-            Quickshell.env("QS_WALLPAPER_ENABLE_ML4W")
-            || "auto"
-        );
-
-        if (isVideo) {
-            wallpaperCmd = `
-                pkill mpvpaper || true
-                awww clear || true
-                swww clear || true
-                mpvpaper -o 'loop --no-audio --hwdec=auto --profile=high-quality --video-sync=display-resample --interpolation --tscale=oversample --panscan=1.0 --video-unscaled=no' '*' "$WALL_FILE" >/tmp/mpvpaper.log 2>&1 &
-            `
-            lockBgCmd = `cp "$THUMB_FILE" /tmp/lock_bg.png`
-        } else {
-            wallpaperCmd = `
-                pkill mpvpaper || true
-                TRANSITION="${window.pickTransition()}"
-                DURATION="${Number(settings.wallpaperTransitionDuration).toFixed(2)}"
-                FPS="${Math.max(1, Number(settings.wallpaperTransitionFps))}"
-                if ! awww img --transition-type "$TRANSITION" --transition-duration "$DURATION" --transition-fps "$FPS" "$WALL_FILE" >/dev/null 2>&1; then
-                    awww img --transition-type fade --transition-duration "$DURATION" --transition-fps "$FPS" "$WALL_FILE"
-                fi
-            `
-            lockBgCmd = `cp "$WALL_FILE" /tmp/lock_bg.png`
-        }
-
-        const fullScript = `
-            (
-                export WALL_FILE="${escOriginal}"
-                export THUMB_FILE="${escThumb}"
-                export RELOAD_SCRIPT="${escReload}"
-
-                mkdir -p "$HOME/.cache/wallpaper_picker"
-                printf '%s|%s\n' "${lastType}" "$WALL_FILE" > "$HOME/.cache/wallpaper_picker/last_wallpaper"
-
-                # Optional ML4W/Rofi synchronization.
-                (
-                    ML4W_MODE="${ml4wMode}"
-                    ML4W="$HOME/.cache/ml4w/hyprland-dotfiles"
-
-                    if [ "$ML4W_MODE" = "1" ] ||
-                       { [ "$ML4W_MODE" = "auto" ] && [ -d "$ML4W" ]; }
-                    then
-                        ML4W_SOURCE="$WALL_FILE"
-
-                        if [ "${isVideo}" = "true" ]; then
-                            ML4W_SOURCE="$THUMB_FILE"
-                        fi
-
-                        mkdir -p "$ML4W"
-                        printf '%s\n' "$WALL_FILE" > "$ML4W/current_wallpaper"
-
-                        if command -v magick >/dev/null 2>&1; then
-                            magick "$ML4W_SOURCE" -resize 2048x1280^ -gravity center -extent 2048x1280 -blur 0x18 "$ML4W/blurred_wallpaper.png" 2>/dev/null || true
-                        fi
-
-                        printf '%s\n' '* { current-image: url("'"$ML4W"'/blurred_wallpaper.png", height); }' > "$ML4W/current_wallpaper.rasi"
-                    fi
-                ) >/tmp/ml4w_rofi_wallpaper_sync.log 2>&1 &
-                echo "WALL_FILE=$WALL_FILE" > /tmp/qs_apply.log
-                ${lockBgCmd} || true
-
-                if [ "${isVideo}" = "true" ]; then
-                    pkill mpvpaper || true
-                    ${wallpaperCmd}
-                else
-                    ${wallpaperCmd}
-                fi
-
-                sleep 1
-                ENABLE_DYNAMIC_COLORS="${boolEnv(settings.enableDynamicColors)}" ENABLE_MATUGEN="${boolEnv(settings.enableMatugen)}" ENABLE_HYPR_RELOAD="${boolEnv(settings.enableHyprReload)}" ENABLE_WAYBAR_RELOAD="${boolEnv(settings.enableWaybarReload)}" ENABLE_KITTY_RELOAD="${boolEnv(settings.enableKittyReload)}" ENABLE_CAVA_RELOAD="${boolEnv(settings.enableCavaReload)}" ENABLE_SWAYNC_RELOAD="${boolEnv(settings.enableSwayncReload)}" ENABLE_SWAYOSD_RELOAD="${boolEnv(settings.enableSwayosdReload)}" HYPR_COLORS_PATH="${escapeBash(settings.hyprColorsPath)}" WAYBAR_COLORS_PATH="${escapeBash(settings.waybarColorsPath)}" WAYBAR_LAUNCH_PATH="${escapeBash(settings.waybarLaunchPath)}" KITTY_SIGNAL_PROCESS="${escapeBash(settings.kittySignalProcess)}" EXTRA_RELOAD_COMMAND="${escapeBash(settings.extraReloadCommand)}" bash "$RELOAD_SCRIPT" "$( [ "${isVideo}" = "true" ] && echo "$THUMB_FILE" || echo "$WALL_FILE" )" || true
-            ) >> /tmp/qs_apply.log 2>&1 & disown
-        `
-        Quickshell.execDetached(["bash", "-c", fullScript])
-        window.requestClose()
+        window.startTransactionalApply(originalFile)
     }
 
     // -------------------------------------------------------------------------
@@ -402,6 +276,10 @@ Item {
                                (window.currentFilter !== "Search" && window.isLoading)
 
     property string currentNotification: {
+        if (window.applyError !== "")
+            return window.applyError;
+        if (window.isApplying)
+            return "Applying wallpaper and Palette V2...";
         if (window.isDownloadingWallpaper)
             return "Downloading wallpaper...";
 
@@ -478,8 +356,7 @@ Item {
         let src = decodeURIComponent(fileUrl.toString().replace("file://", ""));
         let destDir = window.srcDir;
 
-        let cmd = `cp "${src}" "${destDir}/"`;
-        Quickshell.execDetached(["bash", "-c", cmd]);
+        Quickshell.execDetached(["cp", "--", src, destDir + "/"]);
     }
 
     function reloadFolder() {
@@ -628,7 +505,7 @@ Item {
 
     readonly property string homeDir: "file://" + Quickshell.env("HOME")
     readonly property string thumbDir: "file://" + settings.thumbDir
-    readonly property string searchDir: homeDir + "/.cache/wallpaper_picker/search_thumbs"
+    readonly property string searchDir: "file://" + settings.cacheDir + "/search_thumbs"
     readonly property string srcDir: settings.wallpaperDir
 
     readonly property var defaultTransitions: window.safeTransitions
@@ -744,7 +621,7 @@ Item {
 
     FolderListModel {
         id: markerModel
-        folder: "file://" + Quickshell.env("HOME") + "/.cache/wallpaper_picker/colors_markers"
+        folder: "file://" + settings.cacheDir + "/colors_markers"
         showDirs: false
         nameFilters: ["*_HEX_*"]
         
@@ -781,6 +658,30 @@ Item {
 
             window.isApplying = false
             window.onlineSearchError = "Download failed"
+            view.forceActiveFocus()
+        }
+    }
+
+    Process {
+        id: applyProcess
+
+        stderr: StdioCollector {
+            id: applyErrors
+        }
+
+        onExited: (exitCode, exitStatus) => {
+            window.isApplying = false
+
+            if (exitCode === 0) {
+                window.applyError = ""
+                window.requestClose()
+                return
+            }
+
+            const detail = applyErrors.text.trim()
+            window.applyError = detail !== ""
+                ? "Theme apply failed: " + detail.split("\n").pop()
+                : "Theme apply failed; previous wallpaper restored"
             view.forceActiveFocus()
         }
     }
@@ -907,43 +808,11 @@ Item {
     }
 
     function triggerColorExtraction() {
-        const extractScript = `
-            COLOR_DIR="$HOME/.cache/wallpaper_picker/colors_markers"
-            THUMBS="$HOME/.cache/wallpaper_picker/thumbs"
-            CSV="$HOME/.cache/wallpaper_picker/colors.csv"
-            
-            mkdir -p "$COLOR_DIR"
-            
-            if [ -f "$CSV" ]; then
-                while IFS=, read -r fname hexcode; do
-                    cleanhex=$(echo "$hexcode" | tr -d '\r#' | cut -c 1-6)
-                    if [ -n "$cleanhex" ] && [ -n "$fname" ]; then
-                        touch "$COLOR_DIR/$fname""_HEX_$cleanhex" 2>/dev/null
-                    fi
-                done < "$CSV"
-                mv "$CSV" "$CSV.bak" 2>/dev/null
-            fi
-            
-            if command -v magick &> /dev/null; then CMD="magick"; else CMD="convert"; fi
-            
-            for file in "$THUMBS"/*; do
-                if [ -f "$file" ]; then
-                    filename=$(basename "$file")
-                    found=0
-                    for marker in "$COLOR_DIR/$filename"_HEX_*; do
-                        if [ -e "$marker" ]; then found=1; break; fi
-                    done
-                    
-                    if [ $found -eq 0 ]; then
-                        hex=$($CMD "$file" -modulate 100,200 -resize "1x1^" -gravity center -extent 1x1 -depth 8 -format "%[hex:p{0,0}]" info:- 2>/dev/null | grep -oE '[0-9A-Fa-f]{6}' | head -n 1)
-                        if [ -n "$hex" ]; then
-                            touch "$COLOR_DIR/$filename""_HEX_$hex"
-                        fi
-                    fi
-                fi
-            done
-        `;
-        Quickshell.execDetached(["bash", "-c", extractScript]);
+        Quickshell.execDetached([
+            "bash",
+            window.resolveProjectScript("scripts/extract_colors.sh"),
+            settings.cacheDir
+        ])
     }
 
     function stepToNextValidIndex(direction) {
@@ -1453,6 +1322,29 @@ Item {
         }
     }
 
+    Rectangle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.margins: window.s(16)
+        z: 30
+        width: titleText.implicitWidth + window.s(24)
+        height: window.s(38)
+        radius: window.s(12)
+        color: Qt.rgba(_theme.mantle.r, _theme.mantle.g, _theme.mantle.b, 0.92)
+        border.width: 1
+        border.color: Qt.rgba(_theme.blue.r, _theme.blue.g, _theme.blue.b, 0.65)
+
+        Text {
+            id: titleText
+            anchors.centerIn: parent
+            text: "Maho Themes"
+            color: _theme.text
+            font.family: "JetBrains Mono"
+            font.pixelSize: window.s(14)
+            font.bold: true
+        }
+    }
+
     // -------------------------------------------------------------------------
     // FLOATING FILTER BAR & INLINE NOTIFICATION DRAWER
     // -------------------------------------------------------------------------
@@ -1769,7 +1661,12 @@ Item {
     }
 
     Component.onCompleted: {
-        Quickshell.execDetached(["bash", "-c", "mkdir -p '" + decodeURIComponent(window.searchDir.replace("file://", "")) + "'"]);
+        Quickshell.execDetached([
+            "mkdir",
+            "-p",
+            "--",
+            decodeURIComponent(window.searchDir.replace("file://", ""))
+        ]);
         
         if (searchState.searched) {
             searchInput.text = searchState.query;

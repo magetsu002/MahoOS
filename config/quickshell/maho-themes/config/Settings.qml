@@ -16,43 +16,18 @@ QtObject {
         configuredCacheHome !== ""
             ? configuredCacheHome
             : homeDir + "/.cache"
-    readonly property string cacheDir:
-        cacheHome + "/maho/themes"
-    readonly property string thumbDir:
-        cacheDir + "/thumbs"
+    readonly property string cacheDir: cacheHome + "/maho/themes"
+    readonly property string thumbDir: cacheDir + "/thumbs"
 
     property bool uiAnimationsEnabled: true
     property real uiAnimationScale: 1.0
-
     property string wallpaperTransitionType: "random"
     property real wallpaperTransitionDuration: 0.6
     property int wallpaperTransitionFps: 60
-
     property int closeDelayMs: 120
     property int scrollThrottleMs: 150
     property int filterAnimationMs: 800
     property int itemAnimationMs: 500
-
     property string themeMode:
         Quickshell.env("MAHO_THEME_MODE") === "light" ? "light" : "dark"
-
-    property bool enableDynamicColors: false
-    property bool enableMatugen: false
-    property bool enableHyprReload: false
-    property bool enableWaybarReload: false
-    property bool enableKittyReload: false
-    property bool enableCavaReload: false
-    property bool enableSwayncReload: false
-    property bool enableSwayosdReload: false
-
-    property string hyprColorsPath:
-        homeDir + "/.config/hypr/colors.conf"
-    property string waybarColorsPath:
-        homeDir + "/.config/waybar/colors.css"
-    property string waybarLaunchPath:
-        homeDir + "/.config/waybar/launch.sh"
-    property string kittySignalProcess:
-        ".kitty-wrapped"
-
-    property string extraReloadCommand: ""
 }
