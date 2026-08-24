@@ -13,10 +13,10 @@ configuration {
 
 window {
     width: 720px;
-    height: 780px;
+    height: 720px;
     location: center;
     anchor: center;
-    padding: 24px 28px;
+    padding: 20px 28px;
     border: 1px;
     border-radius: 24px;
     border-color: @maho-rim;
@@ -24,7 +24,7 @@ window {
 }
 
 mainbox {
-    spacing: 16px;
+    spacing: 14px;
     background-color: transparent;
     children: [ header, inputbar, mode-switcher, result-shell, show-more ];
 }
@@ -139,7 +139,7 @@ element {
     children: [ element-icon, element-text, icon-chevron ];
     orientation: horizontal;
     spacing: 13px;
-    padding: 8px 16px;
+    padding: 6px 16px;
     border: 1px;
     border-radius: 13px;
     border-color: transparent;
@@ -158,7 +158,7 @@ element selected.normal, element selected.active, element selected.urgent {
 }
 
 element-icon {
-    size: 42px;
+    size: 40px;
     vertical-align: 0.5;
     background-color: transparent;
 }

@@ -129,6 +129,7 @@ run_main_rofi() {
         -matching fuzzy \
         -sorting-method fzf \
         -sort \
+        -kb-mode-next 'F9,Shift+Right,Control+Tab' \
         -kb-mode-previous 'F10,Shift+Left,Control+ISO_Left_Tab' \
         -kb-clear-line 'F11,Control+w' \
         -kb-page-next 'F12,Page_Down' \
