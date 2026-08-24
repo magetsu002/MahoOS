@@ -10,7 +10,7 @@ import "."
 ShellRoot {
     id: root
 
-    property var filterBarItem: null
+    property string productName: "Maho Themes"
 
     property string onlineSearchScript: {
         let path = Qt.resolvedUrl("scripts/online_search.sh").toString()
@@ -25,34 +25,6 @@ ShellRoot {
             root.onlineSearchScript,
             "--invalidate"
         ])
-    }
-
-    function hideLegacyBranding() {
-        for (let i = 0; i < picker.children.length; i++) {
-            const child = picker.children[i]
-            if (Number(child.z) === 30 && Math.abs(Number(child.height) - picker.s(38)) < 2) {
-                child.visible = false
-            }
-        }
-    }
-
-    function discoverFilterBar() {
-        for (let i = 0; i < picker.children.length; i++) {
-            const child = picker.children[i]
-            if (Number(child.z) === 20 && Math.abs(Number(child.height) - picker.s(56)) < 2) {
-                root.filterBarItem = child
-                break
-            }
-        }
-        root.updateFilterBarPosition()
-    }
-
-    function updateFilterBarPosition() {
-        if (!root.filterBarItem)
-            return
-        root.filterBarItem.anchors.bottomMargin = picker.isReady
-            ? picker.s(-10)
-            : picker.s(-100)
     }
 
     function disableLegacyEscapeShortcut() {
@@ -72,8 +44,6 @@ ShellRoot {
     }
 
     function polishPickerRuntime() {
-        root.hideLegacyBranding()
-        root.discoverFilterBar()
         root.disableLegacyEscapeShortcut()
         picker.forceActiveFocus()
     }
@@ -99,7 +69,12 @@ ShellRoot {
         Shortcut {
             sequence: "Escape"
             context: Qt.ApplicationShortcut
-            enabled: !picker.isApplying
+            onActivated: Qt.quit()
+        }
+
+        Shortcut {
+            sequence: "Meta+Q"
+            context: Qt.ApplicationShortcut
             onActivated: Qt.quit()
         }
 
@@ -119,8 +94,8 @@ ShellRoot {
 
         Item {
             id: pickerSurface
-            width: Math.round(overlay.width * 0.94)
-            height: Math.round(overlay.height * 0.30)
+            width: Math.round(overlay.width * 0.82)
+            height: Math.round(overlay.height * 0.45)
             anchors.centerIn: parent
 
             WallpaperPicker {
@@ -131,13 +106,6 @@ ShellRoot {
                 onSearchQueryChanged: root.invalidateOnlineSearch()
 
                 Component.onCompleted: Qt.callLater(root.polishPickerRuntime)
-            }
-
-            Connections {
-                target: picker
-                function onIsReadyChanged() {
-                    Qt.callLater(root.updateFilterBarPosition)
-                }
             }
 
             Rectangle {

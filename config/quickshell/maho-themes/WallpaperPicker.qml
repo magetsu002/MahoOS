@@ -1322,29 +1322,6 @@ Item {
         }
     }
 
-    Rectangle {
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.margins: window.s(16)
-        z: 30
-        width: titleText.implicitWidth + window.s(24)
-        height: window.s(38)
-        radius: window.s(12)
-        color: Qt.rgba(_theme.mantle.r, _theme.mantle.g, _theme.mantle.b, 0.92)
-        border.width: 1
-        border.color: Qt.rgba(_theme.blue.r, _theme.blue.g, _theme.blue.b, 0.65)
-
-        Text {
-            id: titleText
-            anchors.centerIn: parent
-            text: "Maho Themes"
-            color: _theme.text
-            font.family: "JetBrains Mono"
-            font.pixelSize: window.s(14)
-            font.bold: true
-        }
-    }
-
     // -------------------------------------------------------------------------
     // FLOATING FILTER BAR & INLINE NOTIFICATION DRAWER
     // -------------------------------------------------------------------------

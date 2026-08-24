@@ -491,7 +491,9 @@ print(os.path.dirname(value) if value else "")
         fi
     fi
 
-    MAHO_THEME_COMMAND="$SELF" bash "$launcher"
+    MAHO_THEME_COMMAND="$SELF" \
+        MAHO_THEMES_MANAGE_SUPER_Q=1 \
+        bash "$launcher"
 }
 
 show_candidate() {
