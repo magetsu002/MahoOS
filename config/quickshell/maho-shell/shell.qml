@@ -630,7 +630,8 @@ ShellRoot {
                     onLauncherRequested: {
                         root.closePanel()
                         Quickshell.execDetached([
-                            Quickshell.env("HOME") + "/.local/bin/maho-rice-launcher"
+                            Quickshell.env("HOME") + "/.local/bin/maho-launcher",
+                            "open"
                         ])
                     }
 
