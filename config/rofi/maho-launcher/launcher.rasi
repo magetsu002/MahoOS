@@ -13,10 +13,10 @@ configuration {
 
 window {
     width: 720px;
-    height: 720px;
+    height: 780px;
     location: center;
     anchor: center;
-    padding: 20px 28px;
+    padding: 24px 28px 22px;
     border: 1px;
     border-radius: 20px;
     border-color: @maho-rim;
@@ -25,7 +25,7 @@ window {
 }
 
 mainbox {
-    spacing: 13px;
+    spacing: 16px;
     background-color: transparent;
     children: [ header, inputbar, mode-switcher, result-shell, show-more ];
 }
@@ -33,6 +33,7 @@ mainbox {
 header {
     expand: false;
     orientation: horizontal;
+    padding: 2px 1px 4px;
     children: [ icon-app-grid, textbox-title, icon-settings ];
     background-color: transparent;
 }
@@ -40,18 +41,21 @@ header {
 icon-app-grid, icon-settings {
     expand: false;
     size: 19px;
+    padding: 7px;
+    border-radius: 10px;
     vertical-align: 0.5;
+    tint: @maho-muted;
     background-color: transparent;
 }
 
 icon-app-grid {
     filename: @maho-icon-app-grid;
-    action: "kb-clear-line";
+    action: "kb-custom-1";
 }
 
 icon-settings {
     filename: @maho-icon-settings;
-    action: "kb-mode-previous";
+    action: "kb-custom-2";
 }
 
 textbox-title {
@@ -68,7 +72,7 @@ inputbar {
     expand: false;
     children: [ icon-search, entry ];
     spacing: 13px;
-    padding: 13px 17px;
+    padding: 15px 17px;
     border: 1px;
     border-radius: 14px;
     border-color: @maho-border-soft;
@@ -95,7 +99,7 @@ mode-switcher {
     expand: false;
     orientation: horizontal;
     spacing: 0px;
-    padding: 1px;
+    padding: 2px;
     border: 1px;
     border-radius: 13px;
     border-color: @maho-border-soft;
@@ -104,7 +108,7 @@ mode-switcher {
 }
 
 button {
-    padding: 10px 20px;
+    padding: 11px 20px;
     border: 1px;
     border-radius: 12px;
     border-color: transparent;
@@ -145,7 +149,7 @@ element {
     children: [ element-icon, element-text, icon-chevron ];
     orientation: horizontal;
     spacing: 13px;
-    padding: 6px 16px;
+    padding: 9px 16px;
     border: 1px;
     border-radius: 13px;
     border-color: transparent;
@@ -197,6 +201,7 @@ show-more {
     orientation: horizontal;
     children: [ button-show-more, icon-expand ];
     spacing: 6px;
+    padding: 4px 0px 2px;
     background-color: transparent;
 }
 

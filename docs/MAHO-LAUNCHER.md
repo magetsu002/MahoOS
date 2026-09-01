@@ -16,9 +16,11 @@ The former custom Quickshell launcher remains historical/experimental on `feat/m
 
 ## Reference-fidelity composition
 
-`config/rofi/maho-launcher/launcher.rasi` keeps the accepted product structure while converging on the current reference: a centered 720×720 logical frosted panel, 20px outer radius, calm centered title, inset search, one shared segmented-mode shelf, one shared results surface, eight visible rows, native application icons, two-line desktop metadata when available, quiet chevrons, and a low-hierarchy footer.
+`config/rofi/maho-launcher/launcher.rasi` keeps the accepted product structure while converging on the current reference: a centered 720×780 logical frosted panel, 20px outer radius, calm centered title, inset search, one shared segmented-mode shelf, one shared results surface, eight visible rows, native application icons, two-line desktop metadata when available, quiet chevrons, and a low-hierarchy footer.
 
-The visual controls stay functional through supported Rofi actions. The app-grid control clears the current query, the settings control performs bounded previous-mode navigation into Commands from the initial Apps mode, result chevrons accept entries, and “Show more apps” performs real next-page navigation.
+The extra 60 logical pixels are used as breathing room rather than feature space. Major vertical groups use 16px separation, search and segmented controls have slightly deeper vertical padding, result rows use 9px vertical padding, and the footer gets a small buffer. The result count remains eight; the density change does not remove functionality or add a new surface.
+
+The two header icons are real controls through supported Rofi keybinding actions. The app-grid icon triggers a dedicated `kb-custom-1` action; the wrapper handles Rofi return code 10 by reopening native Apps (`drun`) with a clean query. The settings icon triggers `kb-custom-2`; return code 11 reopens the bounded Commands mode. These custom actions are isolated to F13/F14 bindings so normal Alt+number shortcuts are not repurposed. Result chevrons still accept entries, and “Show more apps” still performs real next-page navigation.
 
 No mascot, decorative branding, shortcut-number badges, tutorial footer, replacement application branding, or second launcher engine is introduced.
 
@@ -58,7 +60,7 @@ Rofi 2.0 exposes the fixed Wayland namespace `rofi`; therefore another concurren
 
 ## Safety, performance, and rollback
 
-The fidelity pass does not change `drun`, Files, Commands dispatch, native icon resolution, filtering, navigation, launch semantics, Edge integration, singleton behavior, lifecycle, or the safe execution boundary. It adds no daemon, polling loop, wallpaper processing path, or persistent visual helper.
+The fidelity pass does not change `drun`, Files, Commands dispatch, native icon resolution, filtering, navigation, app launch semantics, Edge integration, singleton behavior, lifecycle, or the safe execution boundary. Header custom actions only choose which already-approved native mode is shown next; they do not evaluate user text or add an external command surface. It adds no daemon, polling loop, wallpaper processing path, or persistent visual helper.
 
 The last fully measured production baseline (2026-08-24, before this fidelity pass) was 123 ms for the first process-visible open, 115–147 ms across five warm opens (124.8 ms mean), and 20,112 KiB Rofi RSS, with 50 open/close cycles completing without duplicate/zombie processes. Those figures are historical baseline evidence, not measurements for the new material. The bounded native acceptance run must measure the exact new commit before performance is re-certified.
 

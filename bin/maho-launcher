@@ -159,7 +159,7 @@ cleanup() {
 }
 
 run_main_rofi() {
-    local runtime_theme="$CACHE_ROOT/runtime-theme.rasi" icon_theme
+    local initial_mode="${1:-drun}" runtime_theme="$CACHE_ROOT/runtime-theme.rasi" icon_theme
     local -a icon_theme_args=()
 
     icon_theme="$(detect_icon_theme 2>/dev/null || true)"
@@ -171,7 +171,7 @@ run_main_rofi() {
     rofi \
         "${icon_theme_args[@]}" \
         -no-config \
-        -show drun \
+        -show "$initial_mode" \
         -modes "drun,filebrowser,Commands:$COMMANDS_MODE" \
         -display-drun "Apps" \
         -display-filebrowser "Files" \
@@ -184,6 +184,8 @@ run_main_rofi() {
         -kb-mode-previous 'F10,Shift+Left,Control+ISO_Left_Tab' \
         -kb-clear-line 'F11,Control+w' \
         -kb-page-next 'F12,Page_Down' \
+        -kb-custom-1 'F13' \
+        -kb-custom-2 'F14' \
         -drun-display-format $'<span size=\'large\' weight=\'600\'>{name}</span>\n<span size=\'small\' alpha=\'76%\'>{generic}</span>' \
         -pid "$ROFI_PID_FILE" \
         -theme "$runtime_theme" \
@@ -191,6 +193,8 @@ run_main_rofi() {
 }
 
 run_launcher() {
+    local mode="drun" rofi_rc=0
+
     command -v rofi >/dev/null 2>&1 || {
         echo "maho-launcher: rofi is unavailable" >&2
         return 1
@@ -219,9 +223,26 @@ run_launcher() {
     set_hyprland_material_rule on
     log_event "opened engine=rofi mode=apps"
 
-    run_main_rofi || true
+    while :; do
+        run_main_rofi "$mode"
+        rofi_rc=$?
 
-    log_event "closed"
+        case "$rofi_rc" in
+            10)
+                mode="drun"
+                log_event "header-action apps"
+                ;;
+            11)
+                mode="Commands"
+                log_event "header-action controls"
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    log_event "closed rc=$rofi_rc"
 }
 
 close_launcher() {
