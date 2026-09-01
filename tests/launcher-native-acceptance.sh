@@ -16,18 +16,116 @@ SCREENSHOT="$HOME/Pictures/maho-launcher-$SHORT.png"
 RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}/maho-launcher-${UID}"
 REPO=""
 WRAPPER_PID=""
+ACTIVE_ROFI_PID=""
 RUNNING=0
 
 exec 3>&1 4>&2
 exec >"$LOG" 2>&1
 
+pid_cmdline() {
+    local pid="$1"
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline"
+}
+
+pid_is_owned_rofi() {
+    local pid="$1" cmdline
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    cmdline="$(pid_cmdline "$pid" 2>/dev/null || true)"
+    case "$cmdline" in
+        *rofi*"$WT/config/rofi/maho-launcher/commands.sh"*"$CACHE/maho/launcher/runtime-theme.rasi"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+owned_rofi_pid() {
+    local pid child children
+
+    if [ -r "$RUNTIME_ROOT/rofi.pid" ]; then
+        read -r pid < "$RUNTIME_ROOT/rofi.pid" || pid=""
+        if pid_is_owned_rofi "$pid"; then
+            printf '%s\n' "$pid"
+            return 0
+        fi
+    fi
+
+    if [[ "$WRAPPER_PID" =~ ^[0-9]+$ ]] && [ -r "/proc/$WRAPPER_PID/task/$WRAPPER_PID/children" ]; then
+        children="$(cat "/proc/$WRAPPER_PID/task/$WRAPPER_PID/children" 2>/dev/null || true)"
+        for child in $children; do
+            if pid_is_owned_rofi "$child"; then
+                printf '%s\n' "$child"
+                return 0
+            fi
+        done
+    fi
+
+    if command -v pgrep >/dev/null 2>&1 && [[ "$WRAPPER_PID" =~ ^[0-9]+$ ]]; then
+        while IFS= read -r child; do
+            if pid_is_owned_rofi "$child"; then
+                printf '%s\n' "$child"
+                return 0
+            fi
+        done < <(pgrep -P "$WRAPPER_PID" rofi 2>/dev/null || true)
+    fi
+
+    return 1
+}
+
+dump_startup_diagnostics() {
+    echo "--- startup diagnostics ---"
+    echo "wrapper_pid=${WRAPPER_PID:-unset}"
+    echo "runtime_root=$RUNTIME_ROOT"
+    ls -la "$RUNTIME_ROOT" 2>/dev/null || true
+    for file in wrapper.pid rofi.pid; do
+        printf '%s=' "$file"
+        cat "$RUNTIME_ROOT/$file" 2>/dev/null || true
+        printf '\n'
+    done
+    if [[ "$WRAPPER_PID" =~ ^[0-9]+$ ]]; then
+        printf 'wrapper_cmdline='
+        pid_cmdline "$WRAPPER_PID" 2>/dev/null || true
+        printf '\nwrapper_children='
+        cat "/proc/$WRAPPER_PID/task/$WRAPPER_PID/children" 2>/dev/null || true
+        printf '\n'
+    fi
+    ps -eo pid=,ppid=,stat=,comm=,args= | grep -E '[r]ofi|[m]aho-launcher' || true
+    echo "launcher log:"
+    tail -n 120 "$CACHE/maho/launcher/launcher.log" 2>/dev/null || true
+    echo "--- end startup diagnostics ---"
+}
+
+close_owned_launcher() {
+    set +e
+    if [ -x "$WT/bin/maho-launcher" ]; then
+        env XDG_CACHE_HOME="$CACHE" MAHO_ACTIVE_PALETTE="$PALETTE" MAHO_ROOT="$WT" \
+            "$WT/bin/maho-launcher" close >>"$LOG" 2>&1
+    fi
+    if [[ "$WRAPPER_PID" =~ ^[0-9]+$ ]]; then
+        wait "$WRAPPER_PID" 2>/dev/null
+    fi
+    if pid_is_owned_rofi "${ACTIVE_ROFI_PID:-}"; then
+        echo "INFO: wrapper close left exact owned Rofi child alive; terminating pid=$ACTIVE_ROFI_PID" >>"$LOG"
+        kill "$ACTIVE_ROFI_PID" 2>/dev/null || true
+        for _ in {1..50}; do
+            kill -0 "$ACTIVE_ROFI_PID" 2>/dev/null || break
+            sleep 0.01
+        done
+        if pid_is_owned_rofi "$ACTIVE_ROFI_PID"; then
+            kill -KILL "$ACTIVE_ROFI_PID" 2>/dev/null || true
+        fi
+    fi
+    RUNNING=0
+    WRAPPER_PID=""
+    ACTIVE_ROFI_PID=""
+    set -e
+}
+
 cleanup() {
     rc=$?
     set +e
-    if [ "$RUNNING" -eq 1 ] && [ -x "$WT/bin/maho-launcher" ]; then
-        env XDG_CACHE_HOME="$CACHE" MAHO_ACTIVE_PALETTE="$PALETTE" MAHO_ROOT="$WT" \
-            "$WT/bin/maho-launcher" close >>"$LOG" 2>&1
-        [ -n "$WRAPPER_PID" ] && wait "$WRAPPER_PID" 2>/dev/null
+    if [ "$RUNNING" -eq 1 ] && [ -e "$WT/.git" ]; then
+        close_owned_launcher
     fi
     if [ -n "$REPO" ] && [ -e "$WT/.git" ]; then
         git -C "$REPO" worktree remove --force "$WT" >>"$LOG" 2>&1
@@ -96,7 +194,7 @@ git -C "$REPO" worktree add --detach "$WT" "$COMMIT"
 [ -z "$(git -C "$WT" status --porcelain)" ]
 
 if [ -r "$RUNTIME_ROOT/wrapper.pid" ]; then
-    read -r existing_pid <"$RUNTIME_ROOT/wrapper.pid" || true
+    read -r existing_pid < "$RUNTIME_ROOT/wrapper.pid" || true
     if [[ "${existing_pid:-}" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
         echo "FAIL: a Maho Launcher instance is already running (pid=$existing_pid); refusing to disturb it"
         exit 1
@@ -137,7 +235,6 @@ printf '\n=== DOCTOR ===\n'
 env XDG_CACHE_HOME="$CACHE" MAHO_ACTIVE_PALETTE="$PALETTE" MAHO_ROOT="$WT" \
     "$WT/bin/maho-launcher" doctor
 
-# Force the measured first open to regenerate its private acceptance cache.
 rm -rf "$CACHE/maho/launcher"
 
 open_once() {
@@ -147,56 +244,55 @@ open_once() {
         "$WT/bin/maho-launcher" open &
     WRAPPER_PID=$!
     RUNNING=1
-    pid=""
+    ACTIVE_ROFI_PID=""
+
     for ((i=0; i<400; i++)); do
-        if [ -r "$RUNTIME_ROOT/rofi.pid" ]; then
-            read -r pid <"$RUNTIME_ROOT/rofi.pid" || pid=""
-            if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-                break
-            fi
+        pid="$(owned_rofi_pid 2>/dev/null || true)"
+        if [ -n "$pid" ]; then
+            ACTIVE_ROFI_PID="$pid"
+            break
         fi
-        pid=""
         sleep 0.01
     done
-    [ -n "$pid" ] || { echo "FAIL: $label Rofi process did not become visible within 4s"; return 1; }
+
+    if [ -z "$ACTIVE_ROFI_PID" ]; then
+        echo "FAIL: $label exact owned Rofi child did not become observable within 4s"
+        dump_startup_diagnostics
+        return 1
+    fi
+
     end_ns="$(date +%s%N)"
     elapsed=$(( (end_ns - start_ns) / 1000000 ))
-    rss="$(ps -o rss= -p "$pid" | tr -d ' ' || true)"
-    printf '%s_ms=%s rss_kib=%s rofi_pid=%s\n' "$label" "$elapsed" "${rss:-unknown}" "$pid"
+    rss="$(ps -o rss= -p "$ACTIVE_ROFI_PID" | tr -d ' ' || true)"
+    printf '%s_ms=%s rss_kib=%s rofi_pid=%s detection=pidfile-or-owned-child\n' \
+        "$label" "$elapsed" "${rss:-unknown}" "$ACTIVE_ROFI_PID"
     OPEN_ELAPSED="$elapsed"
     OPEN_RSS="${rss:-0}"
-    ROFI_PID="$pid"
 }
 
 printf '\n=== NATIVE FIRST OPEN ===\n'
-OPEN_ELAPSED=0 OPEN_RSS=0 ROFI_PID=""
+OPEN_ELAPSED=0 OPEN_RSS=0
 open_once first
 FIRST_MS="$OPEN_ELAPSED"
 FIRST_RSS="$OPEN_RSS"
 sleep 0.35
 printf '\n=== ACTIVE ROFI LAYER ===\n'
-hyprctl layers 2>/dev/null | grep -C 6 -i rofi || true
+LAYER_OUTPUT="$(hyprctl layers 2>/dev/null || true)"
+printf '%s\n' "$LAYER_OUTPUT" | grep -C 6 -i rofi || true
+printf '%s\n' "$LAYER_OUTPUT" | grep -qi rofi || { echo "FAIL: owned Rofi process exists but Hyprland exposes no rofi layer"; exit 1; }
 grim "$SCREENSHOT"
 echo "screenshot_saved=$SCREENSHOT"
-env XDG_CACHE_HOME="$CACHE" MAHO_ACTIVE_PALETTE="$PALETTE" MAHO_ROOT="$WT" \
-    "$WT/bin/maho-launcher" close
-wait "$WRAPPER_PID" || true
-RUNNING=0
-WRAPPER_PID=""
+close_owned_launcher
 
 printf '\n=== FIVE WARM OPENS ===\n'
 declare -a TIMES=()
 sum=0
 for run in 1 2 3 4 5; do
-    OPEN_ELAPSED=0 OPEN_RSS=0 ROFI_PID=""
+    OPEN_ELAPSED=0 OPEN_RSS=0
     open_once "warm_$run"
     TIMES+=("$OPEN_ELAPSED")
     sum=$((sum + OPEN_ELAPSED))
-    env XDG_CACHE_HOME="$CACHE" MAHO_ACTIVE_PALETTE="$PALETTE" MAHO_ROOT="$WT" \
-        "$WT/bin/maho-launcher" close
-    wait "$WRAPPER_PID" || true
-    RUNNING=0
-    WRAPPER_PID=""
+    close_owned_launcher
     sleep 0.05
 done
 MEAN="$(awk -v s="$sum" 'BEGIN { printf "%.1f", s / 5 }')"
@@ -206,12 +302,10 @@ printf 'first_ms=%s first_rss_kib=%s warm_ms=%s warm_mean_ms=%s\n' \
 printf '\n=== FINAL LIFECYCLE ===\n'
 env XDG_CACHE_HOME="$CACHE" MAHO_ACTIVE_PALETTE="$PALETTE" MAHO_ROOT="$WT" \
     "$WT/bin/maho-launcher" status
-if [ -r "$RUNTIME_ROOT/rofi.pid" ]; then
-    read -r final_rofi <"$RUNTIME_ROOT/rofi.pid" || true
-    if [[ "${final_rofi:-}" =~ ^[0-9]+$ ]] && kill -0 "$final_rofi" 2>/dev/null; then
-        echo "FAIL: owned Rofi process remains after close: $final_rofi"
-        exit 1
-    fi
+
+if pid="$(owned_rofi_pid 2>/dev/null || true)"; [ -n "$pid" ]; then
+    echo "FAIL: exact owned Rofi process remains after close: $pid"
+    exit 1
 fi
 
 echo "PASS: bounded native acceptance completed; visual judgment is still pending the screenshot comparison"
