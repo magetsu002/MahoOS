@@ -18,14 +18,14 @@ window {
     anchor: center;
     padding: 20px 28px;
     border: 1px;
-    border-radius: 24px;
+    border-radius: 20px;
     border-color: @maho-rim;
     background-color: transparent;
     background-image: @maho-panel-material;
 }
 
 mainbox {
-    spacing: 14px;
+    spacing: 13px;
     background-color: transparent;
     children: [ header, inputbar, mode-switcher, result-shell, show-more ];
 }
@@ -39,7 +39,7 @@ header {
 
 icon-app-grid, icon-settings {
     expand: false;
-    size: 22px;
+    size: 19px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -59,7 +59,7 @@ textbox-title {
     expand: true;
     horizontal-align: 0.5;
     vertical-align: 0.5;
-    font: "Noto Sans Medium 14";
+    font: "Noto Sans Medium 13";
     text-color: @maho-foreground;
     background-color: transparent;
 }
@@ -67,7 +67,7 @@ textbox-title {
 inputbar {
     expand: false;
     children: [ icon-search, entry ];
-    spacing: 14px;
+    spacing: 13px;
     padding: 13px 17px;
     border: 1px;
     border-radius: 14px;
@@ -79,7 +79,7 @@ inputbar {
 icon-search {
     filename: @maho-icon-search;
     expand: false;
-    size: 21px;
+    size: 19px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -170,7 +170,7 @@ element selected.normal, element selected.active, element selected.urgent {
 }
 
 element-icon {
-    size: 38px;
+    size: 32px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -187,7 +187,7 @@ icon-chevron {
     filename: @maho-icon-chevron-right;
     action: "kb-accept-entry";
     expand: false;
-    size: 14px;
+    size: 10px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -196,7 +196,7 @@ show-more {
     expand: false;
     orientation: horizontal;
     children: [ button-show-more, icon-expand ];
-    spacing: 7px;
+    spacing: 6px;
     background-color: transparent;
 }
 
@@ -214,7 +214,7 @@ button-show-more {
 icon-expand {
     filename: @maho-icon-chevron-down;
     expand: true;
-    size: 14px;
+    size: 10px;
     horizontal-align: 0.0;
     vertical-align: 0.5;
     background-color: transparent;

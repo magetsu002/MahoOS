@@ -1,61 +1,56 @@
-**Comparison Target**
+# Maho Launcher visual QA
 
-- Source visual truth: `/home/magetsu/maho_launcher.png` (Reference A — Frozen).
-- Rendered implementation: `docs/qa/maho-launcher-runtime-blue.png`.
-- Full-view evidence: `docs/qa/maho-launcher-panel-comparison.png` (source left, implementation right).
-- Focused evidence: `docs/qa/maho-launcher-focus-comparison.png` (header, search, segmented modes, and selected row; source left, implementation right).
-- Runtime viewport: 1600 × 1000 logical pixels on a 2560 × 1600 monitor at 1.6 scale; native Wayland Rofi, not a browser or CSS surface.
-- Source pixels: 1312 × 1199. The source panel was cropped to 1108 × 1102, normalized to 1152 × 1146, and placed on a 1152 × 1152 comparison canvas.
-- Implementation pixels: 1152 × 1152, corresponding to the frozen 720 × 720 logical Rofi window at 1.6 density. No density resampling was applied to the implementation.
-- State: Apps mode, immediate search focus, first result selected, eight visible installed desktop entries, cool-blue Palette V2 fixture, detailed wallpaper backdrop, production `blur + ignore_alpha + xray` layer material.
+## Authority
 
-**Findings**
+The current Maho Launcher reference supplied for the visual-fidelity pass is the visual source of truth. The older checked-in comparison images remain historical evidence only. Their previous `final result: passed` conclusion is superseded because the production runtime was subsequently rejected as visually final.
 
-- No actionable P0, P1, or P2 mismatch remains.
-- [P3] Rofi text metrics are slightly more rigid than the reference rendering.
-  Location: row primary/secondary labels and tab labels.
-  Evidence: the aligned focused comparison preserves hierarchy and wrapping, but Rofi/Pango uses fixed optical metrics rather than the reference's individually tuned type treatment.
-  Impact: minor optical difference only; scan order, contrast, eight-row density, and two-line metadata remain intact.
-  Follow-up: revisit only if Rofi exposes more granular per-line typography without replacing mature `drun` rendering.
-- [P3] Launcher-local blur strength inherits the compositor kernel.
-  Location: Hyprland layer material.
-  Evidence: the final comparison shows broad softened wallpaper forms through the panel, while Hyprland exposes per-layer `blur`, `ignore_alpha`, and `xray` but keeps size, passes, noise, contrast, brightness, and vibrancy in global decoration settings.
-  Impact: the launcher cannot independently increase blur radius further without changing system-wide decoration behavior. The current scoped rule remains compelling and readable without persistent side effects.
-  Follow-up: adopt per-layer kernel controls if Hyprland exposes them later.
-- [P3] The compositor material scope cannot be uniquely namespaced per invocation.
-  Location: Hyprland layer rule.
-  Evidence: Rofi 2.0 exposes the fixed Wayland namespace `rofi`; the launcher uses a named runtime rule and disables it on exit.
-  Impact: an unrelated Rofi surface opened concurrently could receive the same blur during the launcher's short lifetime. Process ownership remains isolated.
-  Follow-up: adopt a per-invocation namespace when the installed Rofi variant provides one.
+Acceptance is now deliberately split into two stages:
 
-**Required Fidelity Surfaces**
+1. source-level convergence and regression checks;
+2. a fresh native Hyprland/Rofi screenshot compared directly with the current reference.
 
-- Fonts and typography: Noto Sans/Pango hierarchy is readable, weight-balanced, untruncated, and visually close after normalization. The P3 optical-metric difference above is accepted.
-- Spacing and layout rhythm: the frozen 720 × 720 logical frame, 24px radius, header symmetry, inset search, one segmented control, one shared result surface, eight-row rhythm, and bottom affordance remain unchanged. No clipping or overlap is visible.
-- Colors and visual tokens: the panel uses a neutral graphite foundation with subtle environment mixing, 76/80/82% vertical material depth, restrained palette accents, a faint outer rim, quiet separators, and a brighter selected-state edge. Monochrome, cool blue, warm orange, pink/purple, and muted green fixtures remain neutral at panel scale and expressive at focus scale.
-- Image quality and asset fidelity: all application imagery uses installed desktop-entry icons without recoloring or substitution. Header, search, and chevron controls use packaged Adwaita-derived raster icons with clean transparency and no placeholders, emoji, inline SVG, or CSS-drawn replacement.
-- Copy and content: fixed product copy matches Reference A. Runtime application names and descriptions intentionally reflect installed desktop metadata rather than the reference's illustrative list.
-- Interaction/accessibility: immediate search focus, typing, clear, Up/Down, Return, Escape, mode changes, paging, Files, Commands, and exact `drun` activation remain covered. Focus rims, foreground text, muted metadata, icons, and chevrons remain legible across all five fixtures.
+Only the user can make final visual acceptance after stage 2.
 
-**Comparison History**
+## Source-level convergence in this pass
 
-1. The earlier layout milestone found and fixed a P2 proportion/density mismatch: 720 × 780 became the frozen 720 × 720 Reference A geometry, with aligned eight-row rhythm and icon scale.
-2. Material baseline comparison found a P2 mismatch: a fixed dark-navy fill read as flat and opaque, with little wallpaper blur, excessive blue cast, and weak depth separation.
-3. First material iteration added semantic graphite-first gradients and palette restraint, but the normalized comparison still found a P2 density mismatch because the panel's base color and gradient were both composited. Fix: make every gradient-backed surface transparent underneath so material alpha is applied once.
-4. Second material iteration found the blur backdrop incomplete over application windows. Fix: keep the scoped runtime-only layer rule, lower `ignore_alpha` to 0.06, and enable `xray` so the blur samples the full backdrop without changing global decoration settings.
-5. Post-fix evidence in `docs/qa/maho-launcher-panel-comparison.png` and `docs/qa/maho-launcher-focus-comparison.png` shows neutral frosted glass, softened wallpaper forms, subtle cool environmental tint, differentiated search/mode/result surfaces, a selected slab with a brighter focus edge, restrained separators, readable two-line metadata, and unchanged geometry. No actionable P0/P1/P2 finding remains.
+The launcher structure and product behavior remain frozen: native Rofi `drun`, Files, curated Commands, centered 720×720 frame, header, search, three modes, eight visible results, footer, native application icons, Edge seam, singleton handling, and safe execution model.
 
-**Open Questions**
+The visual pass changes the material rather than redesigning the launcher:
 
-- None blocking. Installed-app content differences are intentional product behavior; the Rofi/Hyprland constraints above are expected P3 limitations.
+- outer corner radius converges from 24px to 20px;
+- header/search chrome is slightly smaller and quieter;
+- application icons converge from 38px to 32px;
+- result/footer chevrons converge from 14px to 10px;
+- normal-row separators remain present but drop to a 3% material token;
+- the panel base is reduced from an 80% center alpha to 64%, with 60/64/68% top/center/bottom stops;
+- inset surfaces are intentionally low-alpha layers over the panel instead of opaque cards;
+- active mode and selected-result emphasis now comes primarily from illuminated material fill, while the accent rim drops from 36% to 18%;
+- palette/environment influence on the panel is sharply reduced while selection surfaces retain substantially stronger accent response.
 
-**Implementation Checklist**
+The resulting composited opacity is bounded by contract tests. With a 64% panel center, representative effective alpha is about 72% for search, 70% for the segmented shelf, 68% for the results surface, and 74% for the selected row. This keeps broad wallpaper luminance available to the compositor blur instead of stacking the UI into an effectively opaque dark window.
 
-- [x] Match the normalized full-view composition and focused header/result region.
-- [x] Replace the fixed opaque navy with a single-pass graphite-first material gradient.
-- [x] Scope full-backdrop blur to the launcher layer and restore the rule on close.
-- [x] Verify five palette families, including neutral monochrome behavior.
-- [x] Preserve eight visible results, installed desktop-entry imagery, layout, and behavior.
-- [x] Complete lifecycle, performance, parser, contract, and comparison checks.
+## Palette invariants
 
-final result: passed
+Five fixture families remain mandatory: monochrome, cool blue, warm orange, pink/purple, and muted green. Across all five:
+
+- the base panel remains low-chroma graphite;
+- per-channel panel spread is capped so Palette V2 cannot repaint the launcher;
+- cool/warm panel distance remains small;
+- selected surfaces carry materially more environmental/accent variation than the panel;
+- stacked surface opacity is bounded so glass does not collapse back into solid cards.
+
+Palette V2 remains the only color authority. No wallpaper extractor or persistent helper is added.
+
+## Compositor scope and limitations
+
+The production wrapper still uses the existing runtime-only Hyprland layer rule with `blur`, `ignore_alpha = 0.06`, and `xray`, and disables the rule when the launcher exits. No global decoration setting is mutated by this pass.
+
+The repository's known-good Hyprland baseline exposes blur kernel size/passes globally while layer rules provide scoped blur participation. Because this pass is being performed without direct access to the user's active compositor session, installed runtime capabilities and the optical effect of the current kernel must be re-confirmed by the bounded native acceptance run rather than inferred from source.
+
+Rofi 2.0 also exposes the fixed Wayland namespace `rofi`, so the temporary scoped layer rule can affect another concurrent Rofi surface while Maho Launcher is open. Process ownership itself remains isolated by the launcher lock and PID files.
+
+## Required fresh evidence
+
+The native acceptance run must capture the exact commit, Rofi/Hyprland versions, active blur settings, contract/doctor output, launch timing, RSS, and a real screenshot. That screenshot must be compared against the current reference for silhouette, translucency, wallpaper participation/diffusion, neutral hue, rim, internal layering, search, tabs, selected tab, results, selected row, normal rows, separators, typography, icons, chevrons, footer, spacing, and immediate overall impression.
+
+**Status: source-level fidelity pass ready for native acceptance; not visually accepted.**

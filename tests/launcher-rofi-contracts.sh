@@ -48,6 +48,11 @@ require_text "$THEME" 'children: [ icon-app-grid, textbox-title, icon-settings ]
 require_text "$THEME" 'action: "kb-clear-line"' "app-grid control no longer clears to the full list"
 require_text "$THEME" 'action: "kb-mode-previous"' "settings control no longer opens the bounded Commands mode from Apps"
 require_text "$THEME" 'action: "kb-page-next"' "Show more control is not functional"
+require_text "$THEME" 'width: 720px' "launcher width changed from the frozen composition"
+require_text "$THEME" 'height: 720px' "launcher height changed from the frozen composition"
+require_text "$THEME" 'border-radius: 20px' "outer corner treatment no longer matches the reference"
+require_text "$THEME" 'size: 32px' "application icon scale drifted from the reference density"
+require_text "$THEME" 'size: 10px' "tertiary chevrons are no longer restrained"
 require_text "$THEME" 'element selected.normal' "selected result slab styling is missing"
 require_text "$THEME" 'icon-chevron' "result activation affordance is missing"
 require_text "$THEME" 'background-image: @maho-panel-material' "panel material depth gradient is missing"
@@ -91,7 +96,6 @@ done
 
 python3 - "$TMP" <<'PY'
 from pathlib import Path
-import colorsys
 import math
 import re
 import sys
@@ -105,25 +109,43 @@ def token(sample, name):
         raise SystemExit(f"missing {name} for {sample}")
     return tuple(map(int, match.groups()))
 
+def effective_alpha(base_percent, layer_percent):
+    base = base_percent / 100
+    layer = layer_percent / 100
+    return base + (1 - base) * layer
+
 samples = ("monochrome", "cool", "warm", "pink", "green")
 panels = {sample: token(sample, "maho-glass") for sample in samples}
 selections = {sample: token(sample, "maho-selection") for sample in samples}
 
-if not all(72 <= value[3] <= 84 for value in panels.values()):
-    raise SystemExit("panel material escaped the frosted readability range")
+if not all(60 <= value[3] <= 68 for value in panels.values()):
+    raise SystemExit("panel material escaped the reference glass opacity range")
 if max(panels["monochrome"][:3]) - min(panels["monochrome"][:3]) > 6:
     raise SystemExit("monochrome palette produced a chromatic panel")
 if len({value[:3] for value in panels.values()}) < 4:
     raise SystemExit("environmental panel tint does not respond to palette changes")
 for sample, value in panels.items():
-    saturation = colorsys.rgb_to_hsv(*(channel / 255 for channel in value[:3]))[1]
-    if saturation > 0.28:
+    if max(value[:3]) - min(value[:3]) > 8:
         raise SystemExit(f"{sample} palette flooded the neutral panel with color")
 
 panel_distance = math.dist(panels["cool"][:3], panels["warm"][:3])
 selection_distance = math.dist(selections["cool"][:3], selections["warm"][:3])
-if selection_distance <= panel_distance:
-    raise SystemExit("selection no longer carries more environmental accent than the panel")
+if panel_distance > 8:
+    raise SystemExit("panel environmental tint is too strong across palette families")
+if selection_distance <= panel_distance * 3:
+    raise SystemExit("selection no longer carries substantially more environmental accent than the panel")
+
+for sample in samples:
+    panel_alpha = panels[sample][3]
+    for name, ceiling in (
+        ("maho-inset", 0.73),
+        ("maho-segment", 0.71),
+        ("maho-result-surface", 0.69),
+        ("maho-selection", 0.76),
+    ):
+        combined = effective_alpha(panel_alpha, token(sample, name)[3])
+        if combined > ceiling:
+            raise SystemExit(f"{sample} {name} became too opaque after panel compositing")
 PY
 echo "PASS"
 

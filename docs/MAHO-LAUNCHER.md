@@ -1,170 +1,69 @@
 # Maho Launcher
 
-Maho Launcher is Maho's production application launcher. Rofi is the mature
-underlying engine; Maho owns the product command, safe mode integration,
-Palette V2 translation, visual theme, compositor material rule, and Maho Edge
-bridge. Maho does not claim authorship of Rofi.
+Maho Launcher is Maho's production application launcher. Rofi is the mature underlying engine; Maho owns the bounded launcher command, safe mode integration, Palette V2 translation, visual theme, compositor material rule, and Maho Edge bridge.
 
 ## Architecture
 
-The production command is `maho-launcher`. `open` launches native Rofi `drun`,
-so desktop-entry discovery, fuzzy matching, icon resolution, keyboard and mouse
-navigation, launch semantics, and history remain Rofi responsibilities.
+`maho-launcher open` starts native Rofi `drun`, so installed desktop-entry discovery, fuzzy matching, native icon resolution, keyboard/mouse navigation, launch semantics, and history remain Rofi responsibilities.
 
 The visible modes are:
 
-- **Apps** — Rofi `drun`, using real installed desktop entries and icons.
-- **Files** — Rofi's built-in `filebrowser`; it does not index the home folder
-  with a custom per-keystroke scanner.
-- **Commands** — a short exact allowlist. Current entries regenerate launcher
-  colors, open launcher diagnostics, open Kitty, open Thunar, or lock with
-  Hyprlock when those commands exist. Search text is never evaluated.
+- **Apps** — native Rofi `drun`.
+- **Files** — Rofi's built-in `filebrowser`.
+- **Commands** — a short exact allowlist; search text is never evaluated as shell input.
 
-The former custom Quickshell implementation remains historical/experimental on
-`feat/maho-launcher`. Production does not import it or invoke Quickshell.
+The former custom Quickshell launcher remains historical/experimental on `feat/maho-launcher`. Production does not import it.
 
-## Reference A implementation
+## Reference-fidelity composition
 
-`config/rofi/maho-launcher/launcher.rasi` recreates the frozen approved
-Reference A as closely as Rofi 2.0 permits: a centered 720×720 logical glass
-panel, 24px outer radius, calm centered title, inset search, a single segmented
-mode surface, eight generous rows, one shared result container, a softly edged
-selection slab, native app icons, secondary desktop metadata when available,
-and quiet activation chevrons. It intentionally has no mascot, decorative
-branding, shortcut-number badges, or keyboard tutorial footer.
+`config/rofi/maho-launcher/launcher.rasi` keeps the accepted product structure while converging on the current reference: a centered 720×720 logical frosted panel, 20px outer radius, calm centered title, inset search, one shared segmented-mode shelf, one shared results surface, eight visible rows, native application icons, two-line desktop metadata when available, quiet chevrons, and a low-hierarchy footer.
 
-The header and footer affordances use supported Rofi actions:
+The visual controls stay functional through supported Rofi actions. The app-grid control clears the current query, the settings control performs bounded previous-mode navigation into Commands from the initial Apps mode, result chevrons accept entries, and “Show more apps” performs real next-page navigation.
 
-- The app-grid control clears the Apps query, returning to the full `drun`
-  list. In another mode it clears that mode's query.
-- From the initial Apps mode, the settings control wraps to Commands, the
-  bounded launcher action menu. Rofi does not expose a theme-button action that
-  targets an arbitrary named mode; in other modes the control performs standard
-  previous-mode navigation and Commands remains directly clickable.
-- “Show more apps” performs Rofi's real next-page action. The list remains
-  scrollable and no second result engine is introduced.
+No mascot, decorative branding, shortcut-number badges, tutorial footer, replacement application branding, or second launcher engine is introduced.
 
-## Palette V2
+## Frosted material and Palette V2
 
-`lib/maho_launcher_theme.py` reads the canonical
-`~/.cache/maho/theme/active.json` each time the launcher opens. It writes
-`generated-colors.rasi` and the final import file into
-`~/.cache/maho/launcher/` using a same-directory temporary file, `fsync`, and
-atomic replacement.
+`lib/maho_launcher_theme.py` reads the canonical `~/.cache/maho/theme/active.json` at launch and atomically emits the runtime Rasi palette. Same-directory temporary files, `fsync`, and `os.replace` preserve atomicity.
 
-The material starts from neutral graphite, then mixes in a very small amount of
-the wallpaper environment. Primary color remains strongest at the selected tab,
-selected result, and focus rim. Low-chroma palettes automatically collapse back
-to neutral gray. Foreground and muted semantics are desaturated and
-contrast-bounded so a colorful wallpaper cannot flood the whole launcher.
+The material is graphite-first. Palette/environment color is treated as reflected light rather than a background paint:
 
-The generator emits separate top/base material stops for the panel, search,
-segmented modes, active tab, and selected row. Rofi composites each gradient
-once over the blurred backdrop; transparent base fills prevent accidental
-double opacity. The outer panel runs at 76/80/82% from top through bottom,
-while inset and selected surfaces remain more transparent so the hierarchy
-comes from restrained depth rather than stacked opaque cards.
+- panel center alpha is 64%, with 60/64/68% vertical stops;
+- search is a 22/28% inset layer over the panel;
+- the segmented shelf is a 16/22% layer;
+- the results surface is a 10/13% layer;
+- active mode is a 24/32% illuminated accent layer;
+- selected result is a 28/36% illuminated accent layer;
+- the outer rim is 16%, soft inset borders 6%, separators 3%, and accent rims 18%.
 
-Five Palette V2 material fixtures are contract-tested and Rasi-parsed:
+Because those inner surfaces composite over the panel, their effective opacity is intentionally bounded rather than simply adding more dark alpha. At the center panel stop this is roughly 72% for search, 70% for the segmented shelf, 68% for results, and 74% for the selected result. The objective is for wallpaper luminance/color masses to remain optically present while the compositor diffuses fine detail.
 
-| Palette family | Panel RGBA | Selected row RGBA | Focus rim RGBA | Outcome |
-| --- | --- | --- | --- | --- |
-| Monochrome | 24/25/28/80 | 55/55/56/54 | 190/190/190/42 | neutral gray, no hue cast |
-| Cool blue | 28/32/37/80 | 66/75/87/54 | 146/192/254/42 | cool reflected tint, blue focus |
-| Warm orange | 31/29/31/80 | 75/63/59/54 | 254/180/146/42 | neutral panel, warm selected state |
-| Pink/purple | 30/27/33/80 | 71/58/71/54 | 234/145/218/42 | restrained magenta reflection |
-| Muted green | 27/29/29/80 | 62/66/55/54 | 175/190/119/42 | muted olive focus without green flood |
+The base panel receives only a small neutralized environment contribution and an even smaller primary-accent contribution. Accent remains much stronger in selected/focus material. Monochrome palettes collapse to graphite/silver behavior instead of acquiring a synthetic hue.
+
+Five fixture families are contract-tested: monochrome, cool blue, warm orange, pink/purple, and muted green. Tests bound panel chroma, cross-palette panel distance, selected-surface accent separation, and effective stacked opacity.
 
 ## Hyprland material
 
-While Maho Launcher is open, its wrapper installs a named runtime-only
-Hyprland layer rule with blur, `ignore_alpha = 0.06`, and `xray`. `xray` lets
-the frosted surface sample the full backdrop instead of collapsing to a flat
-fill over application windows. The rule is disabled on exit; no persistent
-global blur setting or Maho Edge rule is modified.
+While the launcher is open, the wrapper installs its existing runtime-only Hyprland layer rule for the `rofi` namespace with:
 
-Hyprland exposes blur kernel size, pass count, noise, contrast, and vibrancy as
-global decoration settings rather than per-layer rule properties. Maho
-Launcher therefore inherits the user's compositor blur kernel and limits its
-own changes to the scoped `rofi` layer rule. This preserves system ownership
-while producing the strongest launcher-local material the installed compositor
-API supports.
+- `blur = true`
+- `ignore_alpha = 0.06`
+- `xray = true`
 
-Rofi 2.0 exposes the fixed Wayland layer namespace `rofi` and does not provide a
-per-invocation namespace flag. Consequently the temporary material rule can
-also affect another Rofi surface opened concurrently during the short lifetime
-of Maho Launcher. The wrapper's dedicated pid file and lock still isolate
-process ownership and never kill unrelated Rofi processes. A future Rofi
-namespace option would remove this remaining compositor-scope limitation.
+The rule is disabled on launcher exit. This pass does not call `hl.config` and does not mutate global compositor decoration settings.
 
-## Commands and diagnostics
+The repository's known-good Hyprland baseline configures blur kernel size and pass count globally. Layer rules provide scoped participation but do not independently own the full kernel in the version previously validated. A fresh native acceptance run must inspect the user's currently installed Hyprland version/settings before making any stronger capability claim.
 
-```text
-maho-launcher open
-maho-launcher toggle
-maho-launcher close
-maho-launcher status
-maho-launcher doctor
-maho-launcher reload
-maho-launcher logs [LINES]
-```
+Rofi 2.0 exposes the fixed Wayland namespace `rofi`; therefore another concurrent Rofi surface can temporarily inherit the same material rule. The launcher wrapper still isolates its own process lifecycle using a lock and owned PID files and does not kill unrelated Rofi processes.
 
-The runtime log records lifecycle and engine errors only. It never records user
-queries. `doctor` checks Rofi, atomic palette conversion, Rasi parsing, safe
-mode scripts, singleton state, and compositor capability.
+## Safety, performance, and rollback
 
-## Maho Edge and rollback
+The fidelity pass does not change `drun`, Files, Commands dispatch, native icon resolution, filtering, navigation, launch semantics, Edge integration, singleton behavior, lifecycle, or the safe execution boundary. It adds no daemon, polling loop, wallpaper processing path, or persistent visual helper.
 
-The only Maho Edge integration change is its fixed launcher invocation:
+The last fully measured production baseline (2026-08-24, before this fidelity pass) was 123 ms for the first process-visible open, 115–147 ms across five warm opens (124.8 ms mean), and 20,112 KiB Rofi RSS, with 50 open/close cycles completing without duplicate/zombie processes. Those figures are historical baseline evidence, not measurements for the new material. The bounded native acceptance run must measure the exact new commit before performance is re-certified.
 
-```text
-~/.local/bin/maho-launcher open
-```
+The global launcher keybind and old rollback launcher remain untouched until visual approval. Repository rollback remains a normal revert of the production branch commits; no history rewriting or automatic merge is used.
 
-Edge geometry, input/drag behavior, `DockReservation`, exclusive zone,
-breathing room, workspace rail, control-center choreography, notification
-integration, and Maho Themes are untouched.
+## Current acceptance state
 
-The acceptance install intentionally does not own, replace, or remove
-`~/.local/bin/maho-rice-launcher`. On the development system that remains the
-old working Rofi rollback command and continues to use
-`~/.config/maho-rice/launcher/launcher.rasi`. The global launcher keybind is
-also intentionally unchanged until visual approval.
-
-Repository rollback is a normal revert of the production branch commits. The
-safety ref `safety/maho-launcher-rofi-base` points to the exact selected base.
-
-## Runtime acceptance (2026-08-24)
-
-The production path was exercised in the live Hyprland 0.56.2 session with
-native Wayland Rofi 2.0.0. Apps search, clear, Up/Down, Return activation,
-Escape, Files, Commands, paging, icon resolution, and the exact production
-`drun` execution path were checked. `Thunar File Manager` launched through the
-production Rofi arguments, covering a GTK app, a spaced desktop-entry name,
-secondary metadata, and a real installed icon. Electron entries (Vesktop and
-ChatGPT), OBS Studio, and unusual entries/icons were discovered from the 38
-installed desktop entries. Flatpak is not installed, so no Flatpak application
-was available for coverage.
-
-Measured from wrapper start until the owned Rofi PID became live after the
-material update, the first process-visible open was 123 ms. Five subsequent
-opens measured 115–147 ms (124.8 ms mean). Rofi RSS was 20,112 KiB. The prior
-baseline was 117 ms cold, 127.4 ms warm mean, and 20,176 KiB RSS, so the visual
-material introduced no meaningful launch-time or memory regression. Fifty
-automated open/close cycles completed with zero failures, no remaining PID,
-and no zombie Rofi process. A concurrent second invocation returned
-`maho-launcher: already running`.
-
-Five generated Palette V2 fixtures (monochrome, cool blue, warm orange,
-pink/purple, and muted green) passed atomic generation, material invariants,
-and live Rasi parsing. The cool fixture was rendered over a detailed wallpaper
-with the production layer rule for the final normalized Reference A comparison
-recorded in `design-qa.md`.
-
-The installed acceptance bridge was validated as a live fixed command and the
-Edge surface remained responsive after launcher cycles. This environment has
-no virtual pointer device available, and Hyprland's shortcut dispatcher sends
-mouse buttons to the focused client rather than synthesizing a compositor
-pointer click. Therefore an automated physical Edge click is the one remaining
-runtime test limitation; the visible Edge hit target and exact QML invocation
-seam were verified independently. No global keybind was changed.
+Source-level fidelity and five-palette material checks are required before commit. Final visual acceptance requires a fresh screenshot from the exact committed native runtime and belongs to the user. `design-qa.md` records that state and no longer treats the older synthetic comparison as final acceptance evidence.

@@ -86,7 +86,7 @@ def readable_foreground(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
 def restrained_accent(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
     red, green, blue = (value / 255 for value in rgb)
     hue, saturation, value = colorsys.rgb_to_hsv(red, green, blue)
-    saturation = min(saturation, 0.62)
+    saturation = min(saturation, 0.58)
     value = max(value, 0.62)
     adjusted = colorsys.hsv_to_rgb(hue, saturation, value)
     return tuple(round(channel * 255) for channel in adjusted)
@@ -95,7 +95,7 @@ def restrained_accent(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
 def neutral_text(rgb: tuple[int, int, int], minimum_value: float, maximum_value: float) -> tuple[int, int, int]:
     red, green, blue = (value / 255 for value in rgb)
     hue, saturation, value = colorsys.rgb_to_hsv(red, green, blue)
-    saturation = min(saturation, 0.07)
+    saturation = min(saturation, 0.06)
     value = min(max(value, minimum_value), maximum_value)
     adjusted = colorsys.hsv_to_rgb(hue, saturation, value)
     return tuple(round(channel * 255) for channel in adjusted)
@@ -133,39 +133,40 @@ def rasi_colors(colors: dict[str, object], icons_dir: Path) -> str:
     foreground = readable_foreground(
         neutral_text(parse_hex(colors.get("foreground"), FALLBACK["foreground"]), 0.91, 0.97)
     )
-    muted = neutral_text(parse_hex(colors.get("muted"), FALLBACK["muted"]), 0.72, 0.82)
+    muted = neutral_text(parse_hex(colors.get("muted"), FALLBACK["muted"]), 0.74, 0.84)
     primary = parse_hex(colors.get("primary"), FALLBACK["primary"])
     accent = restrained_accent(primary)
 
     low_chroma = saturation(primary) < 0.12
-    environment = neutralize(blend(background, surface, 0.55), 0.05 if low_chroma else 0.20)
-    accent_light = neutralize(accent, 0.10 if low_chroma else 0.46)
+    environment = neutralize(blend(background, surface, 0.55), 0.04 if low_chroma else 0.12)
+    accent_light = neutralize(accent, 0.08 if low_chroma else 0.42)
 
-    # Rofi surfaces stay graphite-first. Palette colors act like reflected
-    # environmental light instead of repainting the launcher background.
+    # The launcher is neutral graphite glass first. Palette V2 contributes only
+    # a faint reflected environment to the body; focus/selection carries the
+    # recognizable accent so warm wallpapers never repaint the full surface.
     neutral_glass = (22, 23, 27)
-    panel = blend(neutral_glass, environment, 0.20)
-    panel = blend(panel, accent_light, 0.008 if low_chroma else 0.028)
-    panel_top = blend(blend(panel, neutralize(surface_high, 0.18), 0.20), foreground, 0.035)
-    panel_bottom = blend(panel, neutralize(background, 0.18), 0.12)
+    panel = blend(neutral_glass, environment, 0.08)
+    panel = blend(panel, accent_light, 0.004 if low_chroma else 0.010)
+    panel_top = blend(blend(panel, neutralize(surface_high, 0.10), 0.12), foreground, 0.050)
+    panel_bottom = blend(panel, neutralize(background, 0.10), 0.08)
 
-    raised = blend(blend(panel, neutralize(surface_high, 0.18), 0.42), foreground, 0.025)
-    raised_top = blend(raised, foreground, 0.055)
-    segment = blend(panel, neutralize(surface, 0.15), 0.32)
-    segment_top = blend(segment, foreground, 0.045)
-    results = blend(panel, neutralize(surface, 0.12), 0.18)
-    results_top = blend(results, foreground, 0.025)
+    raised = blend(blend(panel, neutralize(surface_high, 0.10), 0.24), foreground, 0.035)
+    raised_top = blend(raised, foreground, 0.080)
+    segment = blend(panel, neutralize(surface, 0.08), 0.16)
+    segment_top = blend(segment, foreground, 0.055)
+    results = blend(panel, neutralize(surface, 0.06), 0.10)
+    results_top = blend(results, foreground, 0.030)
 
-    selected_mode = blend(raised, accent_light, 0.06 if low_chroma else 0.13)
-    selected_mode_top = blend(selected_mode, foreground, 0.045)
-    selected_result = blend(raised, accent_light, 0.045 if low_chroma else 0.10)
-    selected_result = blend(selected_result, foreground, 0.04)
-    selected_result_top = blend(selected_result, foreground, 0.075)
+    selected_mode = blend(raised, accent_light, 0.05 if low_chroma else 0.18)
+    selected_mode_top = blend(selected_mode, foreground, 0.085)
+    selected_result = blend(raised, accent_light, 0.04 if low_chroma else 0.15)
+    selected_result = blend(selected_result, foreground, 0.065)
+    selected_result_top = blend(selected_result, foreground, 0.120)
 
-    rim = blend(neutralize(outline, 0.07), foreground, 0.32)
-    border_soft = blend(neutralize(outline, 0.06), foreground, 0.18)
-    focus = blend(accent_light, foreground, 0.08)
-    divider = blend(panel, foreground, 0.22)
+    rim = blend(neutralize(outline, 0.05), foreground, 0.36)
+    border_soft = blend(neutralize(outline, 0.04), foreground, 0.22)
+    focus = blend(neutralize(accent_light, 0.34), foreground, 0.20)
+    divider = blend(panel, foreground, 0.18)
 
     # Chrome icons deliberately use icon-theme symbolic names instead of the
     # old baked raster copies. Rofi resolves these through GdkPixbuf/icon-theme,
@@ -175,28 +176,28 @@ def rasi_colors(colors: dict[str, object], icons_dir: Path) -> str:
 
     return f"""/* Generated atomically from Maho Palette V2 active.json. */
 * {{
-    maho-glass: {rgba(panel, 80)};
-    maho-panel-top: {rgba(panel_top, 76)};
-    maho-panel-bottom: {rgba(panel_bottom, 82)};
-    maho-inset: {rgba(raised, 48)};
-    maho-inset-top: {rgba(raised_top, 54)};
-    maho-segment: {rgba(segment, 38)};
-    maho-segment-top: {rgba(segment_top, 44)};
-    maho-result-surface: {rgba(results, 24)};
-    maho-selection: {rgba(selected_result, 56)};
-    maho-selection-top: {rgba(selected_result_top, 62)};
-    maho-rim: {rgba(rim, 18)};
-    maho-border-soft: {rgba(border_soft, 8)};
-    maho-divider: {rgba(divider, 4)};
-    maho-accent-rim: {rgba(focus, 36)};
-    maho-accent-soft: {rgba(selected_mode, 48)};
-    maho-accent-soft-top: {rgba(selected_mode_top, 54)};
-    maho-panel-material: linear-gradient(to bottom, {rgba(panel_top, 76)}, {rgba(panel, 80)}, {rgba(panel_bottom, 82)});
-    maho-inset-material: linear-gradient(to bottom, {rgba(raised_top, 54)}, {rgba(raised, 48)});
-    maho-segment-material: linear-gradient(to bottom, {rgba(segment_top, 44)}, {rgba(segment, 38)});
-    maho-result-material: linear-gradient(to bottom, {rgba(results_top, 28)}, {rgba(results, 24)});
-    maho-active-mode-material: linear-gradient(to bottom, {rgba(selected_mode_top, 54)}, {rgba(selected_mode, 48)});
-    maho-selection-material: linear-gradient(to bottom, {rgba(selected_result_top, 62)}, {rgba(selected_result, 56)});
+    maho-glass: {rgba(panel, 64)};
+    maho-panel-top: {rgba(panel_top, 60)};
+    maho-panel-bottom: {rgba(panel_bottom, 68)};
+    maho-inset: {rgba(raised, 22)};
+    maho-inset-top: {rgba(raised_top, 28)};
+    maho-segment: {rgba(segment, 16)};
+    maho-segment-top: {rgba(segment_top, 22)};
+    maho-result-surface: {rgba(results, 10)};
+    maho-selection: {rgba(selected_result, 28)};
+    maho-selection-top: {rgba(selected_result_top, 36)};
+    maho-rim: {rgba(rim, 16)};
+    maho-border-soft: {rgba(border_soft, 6)};
+    maho-divider: {rgba(divider, 3)};
+    maho-accent-rim: {rgba(focus, 18)};
+    maho-accent-soft: {rgba(selected_mode, 24)};
+    maho-accent-soft-top: {rgba(selected_mode_top, 32)};
+    maho-panel-material: linear-gradient(to bottom, {rgba(panel_top, 60)}, {rgba(panel, 64)}, {rgba(panel_bottom, 68)});
+    maho-inset-material: linear-gradient(to bottom, {rgba(raised_top, 28)}, {rgba(raised, 22)});
+    maho-segment-material: linear-gradient(to bottom, {rgba(segment_top, 22)}, {rgba(segment, 16)});
+    maho-result-material: linear-gradient(to bottom, {rgba(results_top, 13)}, {rgba(results, 10)});
+    maho-active-mode-material: linear-gradient(to bottom, {rgba(selected_mode_top, 32)}, {rgba(selected_mode, 24)});
+    maho-selection-material: linear-gradient(to bottom, {rgba(selected_result_top, 36)}, {rgba(selected_result, 28)});
     maho-foreground: {rgb_hex(foreground)};
     maho-muted: {rgb_hex(muted)};
     maho-icon-app-grid: "view-app-grid-symbolic";
