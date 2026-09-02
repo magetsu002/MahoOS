@@ -226,6 +226,7 @@ ShellRoot {
 
         MahoLink {
             id: linkSurface
+            x: root.surfaceX(overlay.width, width, 24)
             y: 20
             theme: theme
             wifi: wifi
