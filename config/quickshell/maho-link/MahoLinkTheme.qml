@@ -16,15 +16,17 @@ Scope {
         return Qt.rgba(c.r, c.g, c.b, a)
     }
 
-    property color background: palette("background", "#141218")
-    property color surface: palette("surface_container", "#211f26")
-    property color surfaceHigh: palette("surface_container_high", "#2b2930")
-    property color foreground: palette("foreground", "#e6e1e5")
-    property color muted: palette("muted", "#cac4d0")
-    property color outline: palette("outline", "#938f99")
-    property color primary: palette("primary", "#d0bcff")
-    property color secondary: palette("secondary", "#ccc2dc")
-    property color tertiary: palette("tertiary", "#efb8c8")
+    // active.json remains authoritative. These restrained neutral fallbacks are
+    // used only when the palette is absent or temporarily unreadable.
+    property color background: palette("background", "#151313")
+    property color surface: palette("surface_container", "#211e1e")
+    property color surfaceHigh: palette("surface_container_high", "#2b2727")
+    property color foreground: palette("foreground", "#eee9e7")
+    property color muted: palette("muted", "#c9c0bd")
+    property color outline: palette("outline", "#918986")
+    property color primary: palette("primary", "#b7a39d")
+    property color secondary: palette("secondary", "#bdb3af")
+    property color tertiary: palette("tertiary", "#c3aaa2")
     property color error: palette("error", "#f2b8b5")
 
     FileView {
