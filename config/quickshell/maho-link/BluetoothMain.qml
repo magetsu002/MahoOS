@@ -32,9 +32,10 @@ Item {
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.56),
         0.47
     )
-    readonly property color glassStroke: chrome.theme.alpha(chrome.theme.foreground, 0.078)
-    readonly property color glassHighlight: chrome.theme.alpha(chrome.theme.foreground, 0.105)
-    readonly property color glassLowlight: chrome.theme.alpha(chrome.theme.background, 0.12)
+    readonly property color glassStroke: chrome.theme.alpha(chrome.theme.foreground, 0.055)
+    readonly property color glassHighlight: chrome.theme.alpha(chrome.theme.foreground, 0.050)
+    readonly property color glassLowlight: chrome.theme.alpha(chrome.theme.background, 0.085)
+    readonly property color separator: chrome.theme.alpha(chrome.theme.foreground, 0.028)
 
     function glyph(kind) {
         switch (String(kind || "generic")) {
@@ -68,11 +69,11 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.032) }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.022) }
                     GradientStop { position: 0.52; color: "transparent" }
                     GradientStop {
                         position: 1
-                        color: chrome.theme.alpha(root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background, 0.018)
+                        color: chrome.theme.alpha(root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background, 0.014)
                     }
                 }
             }
@@ -80,8 +81,8 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
                 anchors.top: parent.top
                 height: 1
                 radius: 1
@@ -108,19 +109,19 @@ Item {
                 border.width: 1
                 border.color: chrome.theme.alpha(
                     root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.foreground,
-                    root.bluetooth.bluetoothEnabled ? 0.13 : 0.065
+                    root.bluetooth.bluetoothEnabled ? 0.10 : 0.050
                 )
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 7
-                    anchors.rightMargin: 7
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
                     anchors.top: parent.top
                     height: 1
                     radius: 1
                     antialiasing: true
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.11)
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.060)
                 }
 
                 Text {
@@ -171,21 +172,21 @@ Item {
                     : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.42)
                 border.width: 1
                 border.color: root.bluetooth.bluetoothEnabled
-                    ? chrome.theme.alpha(chrome.accent, 0.22)
-                    : chrome.theme.alpha(chrome.theme.foreground, 0.075)
+                    ? chrome.theme.alpha(chrome.accent, 0.18)
+                    : chrome.theme.alpha(chrome.theme.foreground, 0.055)
 
                 Behavior on color { ColorAnimation { duration: 150 } }
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: 9
+                    anchors.rightMargin: 9
                     anchors.top: parent.top
                     height: 1
                     radius: 1
                     antialiasing: true
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.13)
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.080)
                 }
 
                 Rectangle {
@@ -209,7 +210,7 @@ Item {
                     x: root.bluetooth.bluetoothEnabled ? parent.width - width - 3 : 3
                     color: Qt.rgba(0.99, 0.99, 0.99, 0.985)
                     border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.46)
+                    border.color: Qt.rgba(1, 1, 1, 0.42)
                     Behavior on x { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
                 }
 
@@ -236,8 +237,8 @@ Item {
                 : root.glassRaised
             border.width: 1
             border.color: heroHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.15)
-                : chrome.theme.alpha(chrome.theme.foreground, 0.090)
+                ? chrome.theme.alpha(chrome.accent, 0.12)
+                : chrome.theme.alpha(chrome.theme.foreground, 0.065)
 
             Behavior on color { ColorAnimation { duration: 150 } }
             Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -247,35 +248,35 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.045) }
-                    GradientStop { position: 0.30; color: chrome.theme.alpha(chrome.accent, 0.048) }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.032) }
+                    GradientStop { position: 0.30; color: chrome.theme.alpha(chrome.accent, 0.040) }
                     GradientStop { position: 0.72; color: "transparent" }
-                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.022) }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.016) }
                 }
             }
 
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
                 anchors.top: parent.top
                 height: 1
                 radius: 1
                 antialiasing: true
-                color: chrome.theme.alpha(chrome.theme.foreground, 0.135)
+                color: chrome.theme.alpha(chrome.theme.foreground, 0.070)
             }
 
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 26
-                anchors.rightMargin: 26
+                anchors.leftMargin: 30
+                anchors.rightMargin: 30
                 anchors.bottom: parent.bottom
                 height: 1
                 radius: 1
                 antialiasing: true
-                color: chrome.theme.alpha(chrome.accent, 0.045)
+                color: chrome.theme.alpha(chrome.accent, 0.018)
             }
 
             Rectangle {
@@ -293,29 +294,29 @@ Item {
                     0.50
                 )
                 border.width: 1
-                border.color: chrome.theme.alpha(chrome.theme.foreground, 0.095)
+                border.color: chrome.theme.alpha(chrome.theme.foreground, 0.070)
 
                 Rectangle {
                     anchors.fill: parent
                     radius: parent.radius
                     antialiasing: true
                     gradient: Gradient {
-                        GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.055) }
+                        GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.038) }
                         GradientStop { position: 0.55; color: "transparent" }
-                        GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.055) }
+                        GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.042) }
                     }
                 }
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 17
-                    anchors.rightMargin: 17
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
                     anchors.top: parent.top
                     height: 1
                     radius: 1
                     antialiasing: true
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.145)
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.075)
                 }
 
                 Text {
@@ -389,10 +390,10 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.leftMargin: 18
-                    anchors.rightMargin: 18
+                    anchors.leftMargin: 22
+                    anchors.rightMargin: 22
                     height: 1
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
+                    color: root.separator
                 }
 
                 Text {
@@ -457,7 +458,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.024) }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.016) }
                     GradientStop { position: 0.55; color: "transparent" }
                     GradientStop { position: 1; color: root.glassLowlight }
                 }
@@ -466,8 +467,8 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
                 anchors.top: parent.top
                 height: 1
                 radius: 1
@@ -499,12 +500,12 @@ Item {
 
                     Rectangle {
                         anchors.left: parent.left
-                        anchors.leftMargin: 58
+                        anchors.leftMargin: 60
                         anchors.right: parent.right
-                        anchors.rightMargin: 14
+                        anchors.rightMargin: 18
                         anchors.bottom: parent.bottom
                         height: 1
-                        color: chrome.theme.alpha(chrome.theme.foreground, 0.045)
+                        color: root.separator
                     }
                 }
             }
@@ -619,7 +620,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.022) }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.015) }
                     GradientStop { position: 0.58; color: "transparent" }
                     GradientStop { position: 1; color: root.glassLowlight }
                 }
@@ -628,8 +629,8 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
                 anchors.top: parent.top
                 height: 1
                 radius: 1
@@ -730,7 +731,7 @@ Item {
                     : root.glassInteractive
             border.width: 1
             border.color: pairHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.14)
+                ? chrome.theme.alpha(chrome.accent, 0.11)
                 : root.glassStroke
 
             Behavior on color { ColorAnimation { duration: 125 } }
@@ -741,17 +742,17 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.025) }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.016) }
                     GradientStop { position: 0.60; color: "transparent" }
-                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.018) }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.012) }
                 }
             }
 
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
                 anchors.top: parent.top
                 height: 1
                 radius: 1
@@ -769,18 +770,18 @@ Item {
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12), 0.46)
                 border.width: 1
-                border.color: chrome.theme.alpha(chrome.accent, 0.10)
+                border.color: chrome.theme.alpha(chrome.accent, 0.080)
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 6
-                    anchors.rightMargin: 6
+                    anchors.leftMargin: 7
+                    anchors.rightMargin: 7
                     anchors.top: parent.top
                     height: 1
                     radius: 1
                     antialiasing: true
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.10)
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.055)
                 }
 
                 Text {
