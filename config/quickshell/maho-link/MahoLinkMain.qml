@@ -9,6 +9,10 @@ Item {
     signal detailsRequested(var network)
     signal manualRequested()
 
+    readonly property int networkCount:
+        root.wifi.wifiEnabled && root.wifi.networks ? root.wifi.networks.length : 0
+    readonly property bool emptyState: networkCount === 0
+
     anchors.fill: parent
 
     Column {
@@ -18,14 +22,16 @@ Item {
         Rectangle {
             id: currentCard
             width: parent.width
-            height: 98
+            height: 96
             radius: 18
             readonly property var currentNetwork: root.wifi.currentNetwork
-            color: chrome.theme.alpha(currentNetwork ? chrome.accent : chrome.insetColor, currentNetwork ? 0.13 : 0.72)
+            color: currentNetwork
+                ? chrome.theme.alpha(chrome.mix(chrome.insetColor, chrome.accent, 0.11), 0.97)
+                : chrome.theme.alpha(chrome.insetColor, 0.94)
             border.width: 1
             border.color: currentNetwork
-                ? chrome.theme.alpha(chrome.accent, 0.22)
-                : chrome.theme.alpha(chrome.theme.outline, 0.15)
+                ? chrome.theme.alpha(chrome.accent, 0.12)
+                : chrome.theme.alpha(chrome.theme.outline, 0.08)
 
             Text {
                 anchors.left: parent.left
@@ -137,18 +143,18 @@ Item {
 
         Rectangle {
             width: parent.width
-            height: Math.max(144, root.height - 153)
+            height: Math.max(root.emptyState ? 176 : 144, root.height - 151)
             radius: 18
-            color: chrome.theme.alpha(chrome.insetColor, 0.67)
+            color: chrome.theme.alpha(chrome.mix(chrome.insetColor, chrome.theme.background, 0.10), 0.96)
             border.width: 1
-            border.color: chrome.theme.alpha(chrome.theme.outline, 0.14)
+            border.color: chrome.theme.alpha(chrome.theme.outline, 0.07)
             clip: true
 
             ListView {
                 id: networksList
                 anchors.fill: parent
                 anchors.topMargin: 4
-                anchors.bottomMargin: 60
+                anchors.bottomMargin: 58
                 clip: true
                 model: root.wifi.wifiEnabled ? root.wifi.networks : []
                 boundsBehavior: Flickable.StopAtBounds
@@ -173,19 +179,42 @@ Item {
                         anchors.rightMargin: 14
                         anchors.bottom: parent.bottom
                         height: 1
-                        color: chrome.theme.alpha(chrome.theme.outline, 0.10)
+                        color: chrome.theme.alpha(chrome.theme.outline, 0.065)
                     }
                 }
 
-                Text {
+                Column {
                     anchors.centerIn: parent
+                    width: Math.min(parent.width - 54, 330)
+                    spacing: 7
                     visible: networksList.count === 0
-                    text: !root.wifi.available ? "NetworkManager unavailable"
-                        : !root.wifi.wifiEnabled ? "Wi-Fi is turned off"
-                        : root.wifi.snapshotReady ? "No networks found" : "Scanning…"
-                    color: chrome.textSecondary
-                    font.family: "Inter"
-                    font.pixelSize: 12
+
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: !root.wifi.available ? "NetworkManager unavailable"
+                            : !root.wifi.wifiEnabled ? "Wi-Fi is turned off"
+                            : !root.wifi.snapshotReady ? "Scanning…"
+                            : root.wifi.currentNetwork ? "No other networks found" : "No networks found"
+                        color: chrome.textPrimary
+                        font.family: "Inter"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                    }
+
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        visible: root.wifi.available && root.wifi.wifiEnabled && root.wifi.snapshotReady
+                        text: root.wifi.currentNetwork
+                            ? "You’re connected. Refresh to scan for nearby networks again."
+                            : "Refresh the scan or move closer to a wireless network."
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.72)
+                        font.family: "Inter"
+                        font.pixelSize: 10
+                        lineHeight: 1.25
+                    }
                 }
             }
 
@@ -194,7 +223,7 @@ Item {
                 anchors.right: parent.right
                 anchors.bottom: otherRow.top
                 height: 1
-                color: chrome.theme.alpha(chrome.theme.outline, 0.12)
+                color: chrome.theme.alpha(chrome.theme.outline, 0.07)
             }
 
             Item {
@@ -202,13 +231,13 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                height: 56
+                height: 54
 
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 3
                     radius: 13
-                    color: otherHover.containsMouse ? chrome.theme.alpha(chrome.accent, 0.07) : "transparent"
+                    color: otherHover.containsMouse ? chrome.theme.alpha(chrome.accent, 0.05) : "transparent"
                 }
 
                 Rectangle {
@@ -218,7 +247,7 @@ Item {
                     width: 27
                     height: 27
                     radius: 14
-                    color: chrome.theme.alpha(chrome.textSecondary, 0.12)
+                    color: chrome.theme.alpha(chrome.textSecondary, 0.10)
                     Text {
                         anchors.centerIn: parent
                         text: "+"
@@ -244,7 +273,7 @@ Item {
                     anchors.rightMargin: 17
                     anchors.verticalCenter: parent.verticalCenter
                     text: "›"
-                    color: chrome.textSecondary
+                    color: chrome.theme.alpha(chrome.textSecondary, 0.84)
                     font.family: "Inter"
                     font.pixelSize: 20
                 }
