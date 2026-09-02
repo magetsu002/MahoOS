@@ -85,13 +85,14 @@ Item {
 
     IconImage {
         id: artwork
-        anchors.fill: parent
+        anchors.centerIn: parent
+        width: parent.width
+        height: parent.height
         source: root.currentSource
         visible: root.ready
         asynchronous: true
         mipmap: true
         smooth: true
-        fillMode: Image.PreserveAspectFit
 
         onStatusChanged: {
             if (status === Image.Error)
