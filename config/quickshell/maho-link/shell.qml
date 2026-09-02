@@ -24,12 +24,21 @@ ShellRoot {
         dockState.edge === "left" || dockState.edge === "right"
             || dockState.edge === "top" || dockState.edge === "bottom"
             ? dockState.edge : "top"
+    readonly property real dockPosition: {
+        const numeric = Number(dockState.position)
+        if (!isFinite(numeric))
+            return 0.5
+        return Math.max(0.08, Math.min(0.92, numeric))
+    }
+    readonly property bool dockOccupiesRightSide:
+        dockEdge === "right"
+            || ((dockEdge === "top" || dockEdge === "bottom") && dockPosition > 0.5)
 
     function surfaceX(containerWidth, surfaceWidth, margin) {
-        // Side-docked Maho Edge and transient system surfaces should never
-        // compete for the same screen edge. Top/bottom docks keep the familiar
-        // right-side placement because they do not occupy either side.
-        if (dockEdge === "right")
+        // Place transient surfaces on the opposite screen side from Maho Edge's
+        // actual location, not merely its orientation. A top/bottom Edge can be
+        // dragged along the edge, so its persisted position must participate.
+        if (dockOccupiesRightSide)
             return margin
         return Math.max(margin, containerWidth - surfaceWidth - margin)
     }
