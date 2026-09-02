@@ -2,6 +2,7 @@
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 
 ShellRoot {
@@ -12,6 +13,40 @@ ShellRoot {
 
     property bool presented: true
     property bool overlayOpen: false
+
+    readonly property string stateBase: {
+        const configured = Quickshell.env("XDG_STATE_HOME")
+        return configured && String(configured) !== ""
+            ? String(configured)
+            : Quickshell.env("HOME") + "/.local/state"
+    }
+    readonly property string dockEdge:
+        dockState.edge === "left" || dockState.edge === "right"
+            || dockState.edge === "top" || dockState.edge === "bottom"
+            ? dockState.edge : "top"
+
+    function surfaceX(containerWidth, surfaceWidth, margin) {
+        // Side-docked Maho Edge and transient system surfaces should never
+        // compete for the same screen edge. Top/bottom docks keep the familiar
+        // right-side placement because they do not occupy either side.
+        if (dockEdge === "right")
+            return margin
+        return Math.max(margin, containerWidth - surfaceWidth - margin)
+    }
+
+    FileView {
+        path: root.stateBase + "/quickshell/by-shell/maho-shell/dock.json"
+        watchChanges: true
+        blockLoading: true
+        onFileChanged: reload()
+
+        JsonAdapter {
+            id: dockState
+            property int version: 1
+            property string edge: "top"
+            property real position: 0.5
+        }
+    }
 
     function showOverlay() {
         closeTimer.stop()
@@ -79,7 +114,7 @@ ShellRoot {
 
         MahoLink {
             id: linkSurface
-            x: Math.max(18, overlay.width - width - 24)
+            x: root.surfaceX(overlay.width, width, 24)
             y: 20
             theme: theme
             wifi: wifi
