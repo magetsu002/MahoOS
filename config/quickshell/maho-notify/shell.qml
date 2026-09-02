@@ -20,9 +20,18 @@ ShellRoot {
         dockState.edge === "left" || dockState.edge === "right"
             || dockState.edge === "top" || dockState.edge === "bottom"
             ? dockState.edge : "top"
+    readonly property real dockPosition: {
+        const numeric = Number(dockState.position)
+        if (!isFinite(numeric))
+            return 0.5
+        return Math.max(0.08, Math.min(0.92, numeric))
+    }
+    readonly property bool dockOccupiesRightSide:
+        dockEdge === "right"
+            || ((dockEdge === "top" || dockEdge === "bottom") && dockPosition > 0.5)
 
     function surfaceX(containerWidth, surfaceWidth, margin) {
-        if (dockEdge === "right")
+        if (dockOccupiesRightSide)
             return margin
         return Math.max(margin, containerWidth - surfaceWidth - margin)
     }
