@@ -7,6 +7,20 @@ CONFIG="${MAHO_LINK_CONFIG:-$ROOT/config/quickshell/maho-link/shell.qml}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOCK="$RUNTIME_DIR/maho-link.lock"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-link.log"
+MODE="${1:-wifi}"
+
+case "$MODE" in
+    wifi|bluetooth) ;;
+    *)
+        echo "maho-link: mode must be wifi or bluetooth" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "maho-link: too many arguments" >&2
+    exit 2
+fi
 
 command -v quickshell >/dev/null 2>&1 || {
     echo "maho-link: quickshell is unavailable" >&2
@@ -30,4 +44,5 @@ if ! flock -n 9; then
     exit 0
 fi
 
+export MAHO_LINK_MODE="$MODE"
 exec quickshell -p "$CONFIG" >>"$LOG" 2>&1
