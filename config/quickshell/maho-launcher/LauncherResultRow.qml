@@ -56,7 +56,7 @@ Item {
         Behavior on scale { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
 
         // Application artwork sits directly on the launcher material. There is
-        // deliberately no generic icon tile and no synthetic monogram fallback.
+        // deliberately no generic tile or synthesized fallback artwork.
         LauncherAppIcon {
             anchors.centerIn: parent
             width: 36
