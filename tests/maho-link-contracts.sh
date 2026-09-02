@@ -7,6 +7,7 @@ LINK="$ROOT/config/quickshell/maho-link"
 BACKEND="$LINK/wifi.py"
 EDGE="$ROOT/config/quickshell/maho-shell/EdgeBar.qml"
 SIDE_EDGE="$ROOT/config/quickshell/maho-shell/SideEdgeBar.qml"
+SHELL="$ROOT/config/quickshell/maho-shell/shell.qml"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -63,6 +64,10 @@ require_text "$SIDE_EDGE" 'Quickshell.env("MAHO_LINK_LAUNCHER")' "side Edge lack
 require_text "$SIDE_EDGE" 'point.position.y <= 46' "side Wi-Fi hit target is not isolated"
 require_text "$EDGE" 'edge.openRequested()' "existing horizontal Edge expansion path was removed"
 require_text "$SIDE_EDGE" 'edge.openRequested()' "existing side Edge expansion path was removed"
+require_text "$SHELL" 'Quickshell.execDetached(["bash", Quickshell.env("HOME") + "/.local/bin/maho-link"])' "expanded Edge Wi-Fi card does not route to Maho Link"
+if grep -Fq 'kitty -e nmtui' "$SHELL"; then
+    fail "legacy nmtui Wi-Fi routing remains in Maho Edge"
+fi
 echo "PASS"
 
 echo "=== backend syntax ==="

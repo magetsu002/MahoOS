@@ -613,7 +613,7 @@ ShellRoot {
                     onVolumeRequested: function(value) { audio.setVolume(value) }
                     onBrightnessRequested: function(value) { brightness.setValue(value) }
 
-                    onWifiRequested: root.runShell("command -v nmtui >/dev/null && kitty -e nmtui")
+                    onWifiRequested: { root.closePanel(); Quickshell.execDetached(["bash", Quickshell.env("HOME") + "/.local/bin/maho-link"]) }
                     onBluetoothRequested: root.runShell("command -v bluetoothctl >/dev/null && kitty -e bluetoothctl")
 
                     onWallpaperRequested: {
