@@ -56,15 +56,17 @@ require_text "$LAUNCHER" 'mode="Commands"' "settings header action no longer ope
 require_text "$THEME" 'action: "kb-page-next"' "Show more control is not functional"
 
 require_text "$THEME" 'width: 760px' "approved near-square launcher width changed"
-require_text "$THEME" 'height: 730px' "approved near-square launcher height changed"
+reject_text "$THEME" 'height: 730px' "fixed window height returned; sparse result sets will produce a dead slab"
 require_text "$THEME" 'border-radius: 24px' "outer radius drifted from the current Maho surface grammar"
-require_text "$THEME" 'spacing: 14px' "major groups no longer match the approved density"
-require_text "$THEME" 'font: "Inter 11"' "launcher typography no longer follows current Maho surfaces"
+require_text "$THEME" 'spacing: 12px' "major groups no longer match the refined density"
+require_text "$THEME" 'font: "Inter 10"' "launcher typography is oversized again"
 require_text "$THEME" 'lines: 9' "approved visible result density changed"
-require_text "$THEME" 'padding: 6px 14px' "result-row density drifted from the approved target"
-require_text "$THEME" 'size: 30px' "application icon scale drifted from the approved target"
-require_text "$THEME" 'background-color: @maho-control-fill' "header utility controls lost their visible hit-target material"
+require_text "$THEME" 'padding: 7px 12px' "result-row density drifted from the refined target"
+require_text "$THEME" 'size: 28px' "application icon scale drifted from the refined target"
+require_text "$THEME" 'background-image: @maho-control-material' "header utility controls lost their layered glass hit-target material"
 require_text "$THEME" 'border-color: @maho-control-rim' "header utility controls lost their restrained rim"
+require_text "$THEME" 'fixed-height: false' "sparse result sets again reserve empty launcher space"
+require_text "$THEME" 'dynamic: true' "filtered result sets no longer resize naturally"
 require_text "$THEME" 'tint: @maho-icon-muted' "symbolic chrome is no longer intentionally subdued"
 require_text "$THEME" 'background-image: @maho-active-mode-material' "selected segment is no longer a lifted tinted material"
 require_text "$THEME" 'background-image: @maho-selection-material' "selected result is no longer a filled glass state"
@@ -83,10 +85,10 @@ require_text "$GENERATOR" 'os.replace' "theme generation is not atomically commi
 require_text "$GENERATOR" 'blend(surface_high, background, 0.28)' "launcher shell no longer mirrors Maho Link semantic shell mixing"
 require_text "$GENERATOR" 'blend(surface_high, background, 0.36)' "launcher insets no longer mirror Maho Link semantic inset mixing"
 require_text "$GENERATOR" 'current_saturation < 0.08' "stable low-chroma accent handling is missing"
-require_text "$GENERATOR" 'maho-control-fill:' "header control material token is missing"
+require_text "$GENERATOR" 'maho-control-material:' "layered header control material token is missing"
 require_text "$GENERATOR" 'maho-result-rim:' "results-region material token is missing"
 require_text "$GENERATOR" 'maho-muted-soft:' "secondary-text hierarchy token is missing"
-reject_text "$GENERATOR" 'neutral_glass = ' "launcher-specific graphite repainting returned"
+require_text "$GENERATOR" 'neutral = (18, 18, 20)' "Maho iOS graphite glass foundation is missing"
 reject_text "$GENERATOR" 'neutralize(' "launcher-specific palette desaturation returned"
 
 for sample in monochrome cool warm pink green; do
@@ -135,31 +137,31 @@ samples = ("monochrome", "cool", "warm", "pink", "green")
 panels = {sample: token(sample, "maho-glass") for sample in samples}
 selections = {sample: token(sample, "maho-selection") for sample in samples}
 
-if not all(84 <= value[3] <= 90 for value in panels.values()):
-    raise SystemExit("outer material escaped the approved Maho glass opacity envelope")
+if not all(68 <= value[3] <= 76 for value in panels.values()):
+    raise SystemExit("outer material escaped the frosted Maho iOS opacity envelope")
 
 if max(panels["monochrome"][:3]) - min(panels["monochrome"][:3]) > 6:
     raise SystemExit("monochrome palette produced a synthetic chromatic shell")
 
-if len({value[:3] for value in panels.values()}) < 5:
-    raise SystemExit("launcher shell no longer follows Palette V2 family changes")
+if len({value[:3] for value in panels.values()}) < 4:
+    raise SystemExit("launcher shell no longer responds to Palette V2 family changes")
 
 panel_distance = math.dist(panels["cool"][:3], panels["warm"][:3])
 selection_distance = math.dist(selections["cool"][:3], selections["warm"][:3])
 
-if panel_distance < 24:
-    raise SystemExit("wallpaper-derived tint is being suppressed at shell scale")
+if not 2 <= panel_distance <= 16:
+    raise SystemExit("shell tint must stay subtle while still reacting to the environment")
 
-if selection_distance <= panel_distance * 1.25:
-    raise SystemExit("selected state does not carry enough extra accent separation")
+if selection_distance <= panel_distance * 2.5:
+    raise SystemExit("selected state does not carry substantially more accent separation than the shell")
 
 for sample in samples:
     panel_alpha = panels[sample][3]
     for name, floor, ceiling in (
-        ("maho-inset", 0.89, 0.93),
-        ("maho-segment", 0.88, 0.92),
-        ("maho-result-surface", 0.87, 0.90),
-        ("maho-selection", 0.91, 0.95),
+        ("maho-inset", 0.74, 0.78),
+        ("maho-segment", 0.73, 0.76),
+        ("maho-result-surface", 0.72, 0.75),
+        ("maho-selection", 0.79, 0.83),
     ):
         combined = effective_alpha(panel_alpha, token(sample, name)[3])
         if not floor <= combined <= ceiling:
