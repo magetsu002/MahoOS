@@ -5,24 +5,35 @@ Item {
 
     required property var theme
     required property var wifi
+    required property var bluetooth
     required property real availableHeight
     property bool shown: false
+    property string section: "wifi"
     property string page: "main"
     property var selectedNetwork: null
+    property var selectedBluetoothDevice: null
+    property string pairingStage: "Pairing…"
 
     signal closeRequested()
 
     readonly property bool compactMain:
-        page === "main"
+        section === "wifi"
+        && page === "main"
         && wifi.snapshotReady
         && wifi.wifiEnabled
         && wifi.networks
         && wifi.networks.length === 0
 
+    readonly property var activeState: section === "bluetooth" ? bluetooth : wifi
+    readonly property string statusError: section === "bluetooth" ? bluetooth.errorText : wifi.errorText
+    readonly property string statusMessage: section === "bluetooth" ? bluetooth.actionMessage : wifi.actionMessage
+
     width: 486
-    height: compactMain
-        ? Math.min(470, Math.max(430, availableHeight - 40))
-        : Math.min(652, Math.max(500, availableHeight - 40))
+    height: section === "bluetooth"
+        ? Math.min(652, Math.max(560, availableHeight - 40))
+        : compactMain
+            ? Math.min(470, Math.max(430, availableHeight - 40))
+            : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
     scale: shown ? 1 : 0.988
@@ -69,8 +80,13 @@ Item {
             closeRequested()
             return
         }
+        if (section === "bluetooth" && page === "forget") {
+            page = "details"
+            return
+        }
         page = "main"
         selectedNetwork = null
+        selectedBluetoothDevice = null
     }
 
     function selectNetwork(network) {
@@ -88,20 +104,102 @@ Item {
         wifi.connectNetwork(network.ssid, "", false)
     }
 
+    function selectBluetoothDevice(device) {
+        if (!device)
+            return
+        selectedBluetoothDevice = device
+        page = "details"
+    }
+
+    function pairBluetoothDevice(device) {
+        if (!device || bluetooth.busy)
+            return
+        selectedBluetoothDevice = device
+        pairingStage = "Pairing…"
+        page = "pairing"
+        if (!bluetooth.pairDevice(device)) {
+            page = "main"
+            selectedBluetoothDevice = null
+        }
+    }
+
+    function syncSelectedBluetoothDevice() {
+        if (!selectedBluetoothDevice || !selectedBluetoothDevice.path)
+            return
+        const path = String(selectedBluetoothDevice.path)
+        const sources = [bluetooth.pairedDevices || [], bluetooth.availableDevices || [], bluetooth.connectedDevices || []]
+        for (let s = 0; s < sources.length; ++s) {
+            for (let i = 0; i < sources[s].length; ++i) {
+                if (String(sources[s][i].path || "") === path) {
+                    selectedBluetoothDevice = sources[s][i]
+                    return
+                }
+            }
+        }
+    }
+
     Keys.onEscapePressed: root.closeRequested()
 
     Connections {
         target: root.wifi
         function onActionMessageChanged() {
-            if (root.wifi.actionMessage !== "" && root.page !== "main") {
+            if (root.section === "wifi" && root.wifi.actionMessage !== "" && root.page !== "main") {
                 root.page = "main"
                 root.selectedNetwork = null
             }
         }
         function onWifiEnabledChanged() {
-            if (!root.wifi.wifiEnabled && root.page !== "main") {
+            if (root.section === "wifi" && !root.wifi.wifiEnabled && root.page !== "main") {
                 root.page = "main"
                 root.selectedNetwork = null
+            }
+        }
+    }
+
+    Connections {
+        target: root.bluetooth
+
+        function onBluetoothEnabledChanged() {
+            if (root.section === "bluetooth" && !root.bluetooth.bluetoothEnabled && root.page !== "main") {
+                root.page = "main"
+                root.selectedBluetoothDevice = null
+            }
+        }
+        function onPairedDevicesChanged() { root.syncSelectedBluetoothDevice() }
+        function onAvailableDevicesChanged() { root.syncSelectedBluetoothDevice() }
+        function onConnectedDevicesChanged() { root.syncSelectedBluetoothDevice() }
+
+        function onActionSucceeded(action, devicePath) {
+            if (root.section !== "bluetooth")
+                return
+            if (action === "pair" && root.page === "pairing" && root.selectedBluetoothDevice) {
+                root.pairingStage = "Connecting…"
+                if (!root.bluetooth.connectDevice(root.selectedBluetoothDevice))
+                    root.page = "main"
+                return
+            }
+            if (action === "connect") {
+                if (root.selectedBluetoothDevice)
+                    root.selectedBluetoothDevice = Object.assign({}, root.selectedBluetoothDevice, {"connected": true, "paired": true})
+                if (root.page === "pairing")
+                    root.page = "details"
+                return
+            }
+            if (action === "disconnect") {
+                if (root.selectedBluetoothDevice)
+                    root.selectedBluetoothDevice = Object.assign({}, root.selectedBluetoothDevice, {"connected": false})
+                return
+            }
+            if (action === "forget") {
+                root.page = "main"
+                root.selectedBluetoothDevice = null
+            }
+        }
+
+        function onActionFailed(action, devicePath) {
+            if (root.section === "bluetooth" && root.page === "pairing" && (action === "pair" || action === "connect")) {
+                root.page = "main"
+                root.selectedBluetoothDevice = null
             }
         }
     }
@@ -193,10 +291,17 @@ Item {
 
         Text {
             anchors.centerIn: parent
-            text: root.page === "main" ? "Wi-Fi"
-                : root.page === "password" ? "Join Network"
-                : root.page === "manual" ? "Other Network"
-                : "Network Details"
+            width: parent.width - 150
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            text: root.section === "bluetooth"
+                ? (root.page === "details" && root.selectedBluetoothDevice
+                    ? String(root.selectedBluetoothDevice.name || "Bluetooth Device")
+                    : root.page === "forget" ? "Forget Device" : "Bluetooth")
+                : root.page === "main" ? "Wi-Fi"
+                    : root.page === "password" ? "Join Network"
+                    : root.page === "manual" ? "Other Network"
+                    : "Network Details"
             color: root.textPrimary
             font.family: "Inter"
             font.pixelSize: 18
@@ -209,8 +314,8 @@ Item {
             spacing: 8
 
             Rectangle {
-                visible: root.page === "main"
-                width: 44
+                visible: root.section === "wifi" && root.page === "main"
+                width: visible ? 44 : 0
                 height: 26
                 radius: 13
                 color: root.wifi.wifiEnabled
@@ -281,7 +386,7 @@ Item {
 
         MahoLinkMain {
             anchors.fill: parent
-            visible: root.page === "main"
+            visible: root.section === "wifi" && root.page === "main"
             chrome: root
             wifi: root.wifi
             onNetworkSelected: function(network) { root.selectNetwork(network) }
@@ -294,7 +399,7 @@ Item {
 
         MahoLinkPassword {
             anchors.fill: parent
-            visible: root.page === "password"
+            visible: root.section === "wifi" && root.page === "password"
             chrome: root
             wifi: root.wifi
             network: root.selectedNetwork || ({"ssid": "Wi-Fi"})
@@ -303,7 +408,7 @@ Item {
 
         MahoLinkManual {
             anchors.fill: parent
-            visible: root.page === "manual"
+            visible: root.section === "wifi" && root.page === "manual"
             chrome: root
             wifi: root.wifi
             onBackRequested: root.goBack()
@@ -311,11 +416,52 @@ Item {
 
         MahoLinkDetails {
             anchors.fill: parent
-            visible: root.page === "details"
+            visible: root.section === "wifi" && root.page === "details"
             chrome: root
             wifi: root.wifi
             network: root.selectedNetwork || root.wifi.currentNetwork || ({"ssid": "Wi-Fi"})
             onBackRequested: root.goBack()
+        }
+
+        BluetoothMain {
+            anchors.fill: parent
+            visible: root.section === "bluetooth" && root.page === "main"
+            chrome: root
+            bluetooth: root.bluetooth
+            onDetailsRequested: function(device) { root.selectBluetoothDevice(device) }
+            onPairRequested: function(device) { root.pairBluetoothDevice(device) }
+        }
+
+        BluetoothPairing {
+            anchors.fill: parent
+            visible: root.section === "bluetooth" && root.page === "pairing"
+            chrome: root
+            bluetooth: root.bluetooth
+            device: root.selectedBluetoothDevice || ({"name": "Bluetooth Device"})
+            stage: root.pairingStage
+            onCancelRequested: {
+                root.page = "main"
+                root.selectedBluetoothDevice = null
+            }
+        }
+
+        BluetoothDetails {
+            anchors.fill: parent
+            visible: root.section === "bluetooth" && root.page === "details"
+            chrome: root
+            bluetooth: root.bluetooth
+            device: root.selectedBluetoothDevice || ({"name": "Bluetooth Device", "type": "Bluetooth Device"})
+            onForgetRequested: root.page = "forget"
+        }
+
+        BluetoothForgetConfirmation {
+            anchors.fill: parent
+            visible: root.section === "bluetooth" && root.page === "forget"
+            chrome: root
+            bluetooth: root.bluetooth
+            device: root.selectedBluetoothDevice || ({"name": "Bluetooth Device"})
+            onCancelRequested: root.page = "details"
+            onConfirmed: root.bluetooth.forgetDevice(root.selectedBluetoothDevice)
         }
     }
 
@@ -328,17 +474,17 @@ Item {
         height: 34
         radius: 17
         visible: statusText.text !== ""
-        color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.15)
+        color: theme.alpha(root.statusError !== "" ? theme.error : root.accent, 0.15)
         border.width: 1
-        border.color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.18)
+        border.color: theme.alpha(root.statusError !== "" ? theme.error : root.accent, 0.18)
 
         Text {
             id: statusText
             anchors.centerIn: parent
             width: Math.min(implicitWidth, root.width - 72)
             elide: Text.ElideRight
-            text: root.wifi.errorText !== "" ? root.wifi.errorText : root.wifi.actionMessage
-            color: root.wifi.errorText !== "" ? theme.error : root.textPrimary
+            text: root.statusError !== "" ? root.statusError : root.statusMessage
+            color: root.statusError !== "" ? theme.error : root.textPrimary
             font.family: "Inter"
             font.pixelSize: 11
         }
