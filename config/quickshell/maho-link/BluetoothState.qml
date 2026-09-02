@@ -17,7 +17,7 @@ Scope {
     property string activeAction: ""
     property string activeDevicePath: ""
     property bool snapshotReady: false
-    readonly property bool busy: snapshotProcess.running || actionProcess.running
+    readonly property bool busy: snapshotProcess.running || actionProcess.running || cancelProcess.running
 
     signal actionSucceeded(string action, string devicePath)
     signal actionFailed(string action, string devicePath)
@@ -77,6 +77,18 @@ Scope {
         if (!device || !device.path)
             return false
         return runAction(["pair", String(device.path)], "pair", String(device.path))
+    }
+
+    function cancelPairing(device) {
+        if (!device || !device.path || cancelProcess.running)
+            return false
+        // Device paths originate from BlueZ ObjectManager state, not user text.
+        // Pass them as a distinct argv item; never interpolate device names.
+        cancelProcess.exec([
+            "busctl", "--system", "call", "org.bluez", String(device.path),
+            "org.bluez.Device1", "CancelPairing"
+        ])
+        return true
     }
 
     function forgetDevice(device) {
@@ -140,6 +152,13 @@ Scope {
                 state.activeDevicePath = ""
                 refreshSoon.restart()
             }
+        }
+    }
+
+    Process {
+        id: cancelProcess
+        stdout: StdioCollector {
+            onStreamFinished: refreshSoon.restart()
         }
     }
 
