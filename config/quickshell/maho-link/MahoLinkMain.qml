@@ -128,18 +128,14 @@ Item {
                     }
                 }
 
-                Text {
+                MahoWifiGlyph {
                     anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -1
-                    text: currentCard.currentNetwork ? "󰖩" : "󰖪"
-                    color: currentCard.currentNetwork
+                    width: 29
+                    height: 29
+                    disabled: !currentCard.currentNetwork
+                    glyphColor: currentCard.currentNetwork
                         ? chrome.theme.alpha(chrome.accent, 0.92)
                         : chrome.theme.alpha(chrome.textSecondary, 0.82)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 25
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    renderType: Text.NativeRendering
                 }
             }
 
@@ -373,19 +369,15 @@ Item {
                             }
                         }
 
-                        Text {
+                        MahoWifiGlyph {
                             anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: root.wifi.wifiEnabled ? "󰖩" : "󰖪"
-                            color: chrome.theme.alpha(
+                            width: 20
+                            height: 20
+                            disabled: !root.wifi.wifiEnabled
+                            glyphColor: chrome.theme.alpha(
                                 root.wifi.busy ? chrome.accent : chrome.textSecondary,
                                 root.wifi.busy ? 0.82 : 0.56
                             )
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 17
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
                         }
                     }
 
