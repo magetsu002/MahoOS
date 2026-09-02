@@ -8,24 +8,24 @@ configuration {
 * {
     background-color: transparent;
     text-color: @maho-foreground;
-    font: "Noto Sans 11";
+    font: "Inter 11";
 }
 
 window {
-    width: 720px;
-    height: 780px;
+    width: 760px;
+    height: 730px;
     location: center;
     anchor: center;
-    padding: 24px 28px 22px;
+    padding: 22px 24px 18px;
     border: 1px;
-    border-radius: 20px;
+    border-radius: 24px;
     border-color: @maho-rim;
     background-color: transparent;
     background-image: @maho-panel-material;
 }
 
 mainbox {
-    spacing: 16px;
+    spacing: 14px;
     background-color: transparent;
     children: [ header, inputbar, mode-switcher, result-shell, show-more ];
 }
@@ -33,19 +33,21 @@ mainbox {
 header {
     expand: false;
     orientation: horizontal;
-    padding: 2px 1px 4px;
+    padding: 0px 2px 2px;
     children: [ icon-app-grid, textbox-title, icon-settings ];
     background-color: transparent;
 }
 
 icon-app-grid, icon-settings {
     expand: false;
-    size: 19px;
-    padding: 7px;
+    size: 17px;
+    padding: 8px;
+    border: 1px;
     border-radius: 10px;
+    border-color: @maho-control-rim;
     vertical-align: 0.5;
-    tint: @maho-muted;
-    background-color: transparent;
+    tint: @maho-icon-muted;
+    background-color: @maho-control-fill;
 }
 
 icon-app-grid {
@@ -63,7 +65,7 @@ textbox-title {
     expand: true;
     horizontal-align: 0.5;
     vertical-align: 0.5;
-    font: "Noto Sans Medium 13";
+    font: "Inter SemiBold 13";
     text-color: @maho-foreground;
     background-color: transparent;
 }
@@ -71,10 +73,10 @@ textbox-title {
 inputbar {
     expand: false;
     children: [ icon-search, entry ];
-    spacing: 13px;
-    padding: 15px 17px;
+    spacing: 12px;
+    padding: 13px 15px;
     border: 1px;
-    border-radius: 14px;
+    border-radius: 16px;
     border-color: @maho-border-soft;
     background-color: transparent;
     background-image: @maho-inset-material;
@@ -83,14 +85,15 @@ inputbar {
 icon-search {
     filename: @maho-icon-search;
     expand: false;
-    size: 19px;
+    size: 18px;
     vertical-align: 0.5;
+    tint: @maho-icon-muted;
     background-color: transparent;
 }
 
 entry {
     placeholder: "Search apps, files, and commands...";
-    placeholder-color: @maho-muted;
+    placeholder-color: @maho-muted-soft;
     text-color: @maho-foreground;
     background-color: transparent;
 }
@@ -101,20 +104,20 @@ mode-switcher {
     spacing: 0px;
     padding: 2px;
     border: 1px;
-    border-radius: 13px;
+    border-radius: 14px;
     border-color: @maho-border-soft;
     background-color: transparent;
     background-image: @maho-segment-material;
 }
 
 button {
-    padding: 11px 20px;
+    padding: 9px 18px;
     border: 1px;
     border-radius: 12px;
     border-color: transparent;
     text-color: @maho-muted;
     background-color: transparent;
-    font: "Noto Sans Medium 11";
+    font: "Inter Medium 10";
 }
 
 button selected {
@@ -128,14 +131,14 @@ result-shell {
     children: [ listview ];
     padding: 0px;
     border: 1px;
-    border-radius: 14px;
-    border-color: @maho-border-soft;
+    border-radius: 15px;
+    border-color: @maho-result-rim;
     background-color: transparent;
     background-image: @maho-result-material;
 }
 
 listview {
-    lines: 8;
+    lines: 9;
     columns: 1;
     fixed-height: true;
     dynamic: false;
@@ -148,8 +151,8 @@ listview {
 element {
     children: [ element-icon, element-text, icon-chevron ];
     orientation: horizontal;
-    spacing: 13px;
-    padding: 9px 16px;
+    spacing: 12px;
+    padding: 6px 14px;
     border: 1px;
     border-radius: 13px;
     border-color: transparent;
@@ -174,7 +177,7 @@ element selected.normal, element selected.active, element selected.urgent {
 }
 
 element-icon {
-    size: 32px;
+    size: 30px;
     vertical-align: 0.5;
     background-color: transparent;
 }
@@ -191,8 +194,9 @@ icon-chevron {
     filename: @maho-icon-chevron-right;
     action: "kb-accept-entry";
     expand: false;
-    size: 10px;
+    size: 9px;
     vertical-align: 0.5;
+    tint: @maho-icon-muted;
     background-color: transparent;
 }
 
@@ -201,7 +205,7 @@ show-more {
     orientation: horizontal;
     children: [ button-show-more, icon-expand ];
     spacing: 6px;
-    padding: 4px 0px 2px;
+    padding: 3px 0px 0px;
     background-color: transparent;
 }
 
@@ -211,17 +215,18 @@ button-show-more {
     expand: true;
     horizontal-align: 1.0;
     vertical-align: 0.5;
-    text-color: @maho-muted;
+    text-color: @maho-muted-soft;
     background-color: transparent;
-    font: "Noto Sans 10";
+    font: "Inter 10";
 }
 
 icon-expand {
     filename: @maho-icon-chevron-down;
     expand: true;
-    size: 10px;
+    size: 9px;
     horizontal-align: 0.0;
     vertical-align: 0.5;
+    tint: @maho-icon-muted;
     background-color: transparent;
 }
 

@@ -1,0 +1,43 @@
+name: launcher-rofi
+
+on:
+  push:
+    branches:
+      - 'feat/maho-launcher-rofi'
+  pull_request:
+    paths:
+      - 'bin/maho-launcher'
+      - 'config/rofi/maho-launcher/**'
+      - 'lib/maho_launcher_theme.py'
+      - 'tests/launcher-rofi-contracts.sh'
+      - '.github/workflows/launcher-rofi.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n \
+            bin/maho-launcher \
+            config/rofi/maho-launcher/commands.sh \
+            tests/launcher-rofi-contracts.sh
+
+      - name: Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile lib/maho_launcher_theme.py
+
+      - name: Launcher contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/launcher-rofi-contracts.sh

@@ -2,66 +2,82 @@
 
 ## Authority
 
-The current Maho Launcher reference supplied for the visual-fidelity pass is the visual source of truth. The older checked-in comparison images remain historical evidence only. Their previous `final result: passed` conclusion is superseded because the production runtime was subsequently rejected as visually final.
+The newly approved launcher target is the visual source of truth for Maho Launcher.
 
-Acceptance is now deliberately split into two stages:
+Maho Edge, Maho Link, and Maho Notify are the shared product-family authority for material, palette behavior, geometry, density, and state language. The launcher must converge toward them without redesigning those surfaces and without replacing the mature Rofi backend unless a hard blocker is proven.
 
-1. source-level convergence and regression checks;
-2. a fresh native Hyprland/Rofi screenshot compared directly with the current reference.
+Earlier launcher screenshots and previous claims of final visual acceptance are historical evidence only.
 
-Only the user can make final visual acceptance after stage 2.
+## What changed in this convergence pass
 
-## Source-level convergence in this pass
+This is a visual-material pass, not a launcher redesign.
 
-The launcher keeps the same product structure: native Rofi `drun`, Files, curated Commands, centered 720px-wide frame, header, search, three modes, eight visible results, footer, native application icons, Edge seam, singleton handling, and safe execution model.
+The production layout keeps its centered title, real header actions, search field, Apps / Files / Commands modes, real desktop icons, two-line results, keyboard/mouse navigation, selected row, and “Show more apps” continuation action.
 
-A focused density pass changes vertical composition without adding features:
+The implementation now targets the approved proportions and family grammar:
 
-- launcher height increases from 720px to 780px so the existing hierarchy can breathe;
-- major vertical groups move from 13px to 16px separation;
-- window padding increases to 24px top / 22px bottom;
-- search vertical padding increases from 13px to 15px;
-- segmented-mode vertical padding increases slightly;
-- result rows increase from 6px to 9px vertical padding while keeping all eight visible rows;
-- the footer gains a small vertical buffer;
-- outer corner radius remains 20px;
-- application icons remain 32px and tertiary chevrons remain 10px.
+- 760×730 logical frame instead of the previous tall 720×780 silhouette;
+- 24 px outer radius;
+- 14 px major-group rhythm;
+- compact 32–33 px header hit targets with visible low-contrast material;
+- 16 px search radius and restrained secondary text;
+- one cohesive 14 px segmented shelf;
+- nine visible results;
+- 30 px app icons;
+- 6×14 px row padding;
+- 15 px results-container radius;
+- subdued result rim and 6% separators;
+- selected tab/result hierarchy from filled tinted material instead of a primarily bright outline;
+- quieter centered footer.
 
-The two header icons are also promoted from weak/incidental behavior to explicit bounded controls. The app-grid icon uses Rofi `kb-custom-1`, and the wrapper maps return code 10 back to native Apps (`drun`) with a clean query. The settings icon uses `kb-custom-2`, and return code 11 jumps directly to the existing curated Commands mode. F13/F14 are used as isolated backing bindings, so existing common Alt+number shortcuts are not repurposed. No arbitrary shell execution is introduced.
+## Shared material evidence
 
-The material pass remains unchanged:
+The current authority sources were inspected on `feat/maho-link-wifi`.
 
-- the panel base is reduced from an 80% center alpha to 64%, with 60/64/68% top/center/bottom stops;
-- inset surfaces are intentionally low-alpha layers over the panel instead of opaque cards;
-- active mode and selected-result emphasis comes primarily from illuminated material fill, while the accent rim remains 18%;
-- palette/environment influence on the panel stays sharply reduced while selection surfaces retain substantially stronger accent response.
+Maho Link derives its shell from `mix(surfaceHigh, background, 0.28)` and its inset color from `mix(surfaceHigh, background, 0.36)`, with a stable accent that clamps saturation/value and becomes a neutral foreground/surface mixture for low-chroma palettes.
 
-The resulting composited opacity remains bounded by contract tests. With a 64% panel center, representative effective alpha is about 72% for search, 70% for the segmented shelf, 68% for the results surface, and 74% for the selected row. This keeps broad wallpaper luminance available to the compositor blur instead of stacking the UI into an effectively opaque dark window.
+Maho Edge cards use very low semantic fill with thin outline/primary rims.
 
-## Palette invariants
+Maho Notify uses a surface-high shell with a restrained primary/surface gradient and low-contrast card hierarchy.
 
-Five fixture families remain mandatory: monochrome, cool blue, warm orange, pink/purple, and muted green. Across all five:
+The launcher generator now translates those same semantic roles from Palette V2 instead of neutralizing the palette into a launcher-specific graphite theme. The current red/brown state remains wallpaper-derived; it is not hardcoded.
 
-- the base panel remains low-chroma graphite;
-- per-channel panel spread is capped so Palette V2 cannot repaint the launcher;
-- cool/warm panel distance remains small;
-- selected surfaces carry materially more environmental/accent variation than the panel;
-- stacked surface opacity is bounded so glass does not collapse back into solid cards.
+## Contracted palette behavior
 
-Palette V2 remains the only color authority. No wallpaper extractor or persistent helper is added.
+Five representative palette families remain mandatory: monochrome, cool blue, warm orange, pink/purple, and muted green.
 
-## Compositor scope and limitations
+Contracts require:
 
-The production wrapper still uses the existing runtime-only Hyprland layer rule with `blur`, `ignore_alpha = 0.06`, and `xray`, and disables the rule when the launcher exits. No global decoration setting is mutated by this pass.
+- shell tint to respond materially to all five Palette V2 families;
+- monochrome palettes to remain neutral;
+- selected states to carry stronger accent separation than the shell;
+- effective alpha to stay within bounded glass/material ranges;
+- active.json to remain the authority;
+- atomic generated-theme replacement to remain intact.
 
-The real acceptance machine previously reported Hyprland 0.56.2 with blur enabled, size 3, passes 4, `ignore_opacity=true`, `xray=true`, noise 0.0117, contrast 0.8916, brightness 1.0, and vibrancy 0.1696. The launcher scopes participation in that compositor configuration rather than mutating the global kernel.
+## Backend boundary
 
-Rofi 2.0 exposes the fixed Wayland namespace `rofi`, so the temporary scoped layer rule can affect another concurrent Rofi surface while Maho Launcher is open. Process ownership itself remains isolated by the launcher lock and PID files.
+Rofi remains the production engine. Apps, Files, Commands, native desktop-entry behavior, icon resolution, keyboard/mouse navigation, singleton handling, Edge invocation, and the existing safe Commands allowlist are unchanged.
 
-## Required fresh evidence
+The current Rofi-backed header controls remain genuine bounded actions. Their static rounded hit targets can match Maho geometry/material, but independent QML-style hover/pressed animation for those arbitrary header widgets is a known Rofi theming limitation. That is not a sufficient reason to introduce another launcher backend.
 
-The native acceptance run must capture the exact commit, Rofi/Hyprland versions, active blur settings, contract/doctor output, launch timing, RSS, and a real screenshot. That screenshot must be compared against the current reference for silhouette, translucency, wallpaper participation/diffusion, neutral hue, rim, internal layering, search, tabs, selected tab, results, selected row, normal rows, separators, typography, icons, chevrons, footer, spacing, and immediate overall impression.
+## Acceptance state
 
-The run must also verify both header controls on the real Rofi 2.0 build: app-grid returns cleanly to Apps, and settings jumps to the existing Commands mode without breaking singleton/lifecycle behavior.
+Repository/source convergence is not final visual acceptance.
 
-**Status: breathing-room and functional-header pass ready for native acceptance; not visually accepted.**
+The next required evidence is a native screenshot and interaction run from the exact committed head on the user's Hyprland/Rofi environment. Compare that screenshot directly against the approved target for:
+
+- overall silhouette and proportions;
+- warm/cool wallpaper-derived material;
+- outer rim;
+- search field;
+- segmented control;
+- selected tab;
+- selected row;
+- results-container subtlety;
+- typography hierarchy;
+- icon/chevron scale;
+- footer placement;
+- immediate family resemblance to Edge, Link, and Notify.
+
+**Status: implementation ready for exact-head native acceptance; not yet visually signed off.**

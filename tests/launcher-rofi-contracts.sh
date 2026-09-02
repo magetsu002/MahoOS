@@ -41,12 +41,12 @@ reject_text "$COMMANDS" 'eval ' "Commands mode exposes shell eval"
 reject_text "$COMMANDS" 'bash -c' "Commands mode exposes arbitrary shell execution"
 echo "PASS"
 
-echo "=== Reference A visual and functional controls ==="
-require_text "$THEME" 'content: "Maho Launcher"' "calm centered launcher title is missing"
+echo "=== approved target composition and functional chrome ==="
+require_text "$THEME" 'content: "Maho Launcher"' "centered launcher title is missing"
 require_text "$THEME" 'placeholder: "Search apps, files, and commands..."' "approved search copy changed"
 require_text "$THEME" 'children: [ icon-app-grid, textbox-title, icon-settings ]' "functional header composition changed"
-require_text "$THEME" 'action: "kb-custom-1"' "app-grid control is no longer a real bounded Apps action"
-require_text "$THEME" 'action: "kb-custom-2"' "settings control is no longer a real bounded Commands action"
+require_text "$THEME" 'action: "kb-custom-1"' "app-grid control is no longer a bounded Apps action"
+require_text "$THEME" 'action: "kb-custom-2"' "settings control is no longer a bounded Commands action"
 require_text "$LAUNCHER" "-kb-custom-1 'F13'" "Apps header action lost its isolated Rofi custom binding"
 require_text "$LAUNCHER" "-kb-custom-2 'F14'" "Commands header action lost its isolated Rofi custom binding"
 require_text "$LAUNCHER" '10)' "Apps header custom return code is not handled"
@@ -54,52 +54,61 @@ require_text "$LAUNCHER" 'mode="drun"' "Apps header action no longer returns to 
 require_text "$LAUNCHER" '11)' "Commands header custom return code is not handled"
 require_text "$LAUNCHER" 'mode="Commands"' "settings header action no longer opens bounded Commands"
 require_text "$THEME" 'action: "kb-page-next"' "Show more control is not functional"
-require_text "$THEME" 'width: 720px' "launcher width changed from the frozen composition"
-require_text "$THEME" 'height: 780px' "launcher lost the deliberate vertical breathing-room pass"
-require_text "$THEME" 'spacing: 16px' "major launcher groups are cramped again"
-require_text "$THEME" 'padding: 9px 16px' "result rows lost their deliberate vertical breathing room"
-require_text "$THEME" 'border-radius: 20px' "outer corner treatment no longer matches the reference"
-require_text "$THEME" 'size: 32px' "application icon scale drifted from the reference density"
-require_text "$THEME" 'size: 10px' "tertiary chevrons are no longer restrained"
-require_text "$THEME" 'element selected.normal' "selected result slab styling is missing"
-require_text "$THEME" 'icon-chevron' "result activation affordance is missing"
-require_text "$THEME" 'background-image: @maho-panel-material' "panel material depth gradient is missing"
-require_text "$THEME" 'background-image: @maho-selection-material' "selected result is no longer layered glass"
-reject_text "$THEME" 'background-color: @maho-glass' "panel gradient is being double-filled instead of composited once"
+
+require_text "$THEME" 'width: 760px' "approved near-square launcher width changed"
+require_text "$THEME" 'height: 730px' "approved near-square launcher height changed"
+require_text "$THEME" 'border-radius: 24px' "outer radius drifted from the current Maho surface grammar"
+require_text "$THEME" 'spacing: 14px' "major groups no longer match the approved density"
+require_text "$THEME" 'font: "Inter 11"' "launcher typography no longer follows current Maho surfaces"
+require_text "$THEME" 'lines: 9' "approved visible result density changed"
+require_text "$THEME" 'padding: 6px 14px' "result-row density drifted from the approved target"
+require_text "$THEME" 'size: 30px' "application icon scale drifted from the approved target"
+require_text "$THEME" 'background-color: @maho-control-fill' "header utility controls lost their visible hit-target material"
+require_text "$THEME" 'border-color: @maho-control-rim' "header utility controls lost their restrained rim"
+require_text "$THEME" 'tint: @maho-icon-muted' "symbolic chrome is no longer intentionally subdued"
+require_text "$THEME" 'background-image: @maho-active-mode-material' "selected segment is no longer a lifted tinted material"
+require_text "$THEME" 'background-image: @maho-selection-material' "selected result is no longer a filled glass state"
+require_text "$THEME" 'border-color: @maho-result-rim' "results region lost its quiet shared-container rim"
 reject_text "$THEME" 'Enter to launch' "footer keyboard tutorial returned"
 reject_text "$THEME" 'ESC to close' "footer keyboard tutorial returned"
 reject_text "$THEME" '⌘' "macOS shortcut badges returned"
 reject_text "$THEME" 'element-index' "number shortcut badges returned"
 echo "PASS"
 
-echo "=== Palette V2 and atomic generation ==="
+echo "=== shared Maho Palette V2 material ==="
 require_text "$LAUNCHER" '/maho/theme/active.json' "active.json is not the palette authority"
 require_text "$GENERATOR" 'NamedTemporaryFile' "theme generation is not staged"
 require_text "$GENERATOR" 'os.fsync' "theme generation is not flushed before commit"
 require_text "$GENERATOR" 'os.replace' "theme generation is not atomically committed"
-require_text "$GENERATOR" 'neutral_glass = (22, 23, 27)' "neutral graphite material foundation is missing"
-require_text "$GENERATOR" 'low_chroma = saturation(primary) < 0.12' "monochrome palettes are not detected"
-require_text "$GENERATOR" 'maho-panel-top:' "layered panel material token is missing"
-require_text "$GENERATOR" 'maho-selection-top:' "layered selection material token is missing"
-require_text "$GENERATOR" 'maho-foreground:' "semantic foreground generation is missing"
-reject_text "$GENERATOR" 'maho-glass: rgba(14, 22, 33, 91%)' "fixed opaque navy panel returned"
+require_text "$GENERATOR" 'blend(surface_high, background, 0.28)' "launcher shell no longer mirrors Maho Link semantic shell mixing"
+require_text "$GENERATOR" 'blend(surface_high, background, 0.36)' "launcher insets no longer mirror Maho Link semantic inset mixing"
+require_text "$GENERATOR" 'current_saturation < 0.08' "stable low-chroma accent handling is missing"
+require_text "$GENERATOR" 'maho-control-fill:' "header control material token is missing"
+require_text "$GENERATOR" 'maho-result-rim:' "results-region material token is missing"
+require_text "$GENERATOR" 'maho-muted-soft:' "secondary-text hierarchy token is missing"
+reject_text "$GENERATOR" 'neutral_glass = ' "launcher-specific graphite repainting returned"
+reject_text "$GENERATOR" 'neutralize(' "launcher-specific palette desaturation returned"
 
 for sample in monochrome cool warm pink green; do
     case "$sample" in
-        monochrome) background='#111111'; surface='#242424'; surface_high='#323232'; primary='#b9b9b9'; foreground='#f2f2f2'; muted='#c4c4c4' ;;
-        cool) background='#0b1524'; surface='#17283b'; surface_high='#263b53'; primary='#80b7ff'; foreground='#f1f5fb'; muted='#b4bfce' ;;
-        warm) background='#1d120c'; surface='#2b1e18'; surface_high='#392a22'; primary='#ff9b6c'; foreground='#f6eee9'; muted='#cbb9af' ;;
-        pink) background='#180f18'; surface='#281c28'; surface_high='#372737'; primary='#e989d8'; foreground='#f6eff5'; muted='#c9b8c6' ;;
-        green) background='#11150c'; surface='#202719'; surface_high='#2d3723'; primary='#a9b96d'; foreground='#f0f3e9'; muted='#b9c0ad' ;;
+        monochrome) background='#111111'; surface='#242424'; surface_high='#323232'; primary='#b9b9b9'; foreground='#f2f2f2'; muted='#c4c4c4'; outline='#888888' ;;
+        cool) background='#0b1524'; surface='#17283b'; surface_high='#263b53'; primary='#80b7ff'; foreground='#f1f5fb'; muted='#b4bfce'; outline='#778899' ;;
+        warm) background='#1d120c'; surface='#2b1e18'; surface_high='#392a22'; primary='#ff9b6c'; foreground='#f6eee9'; muted='#cbb9af'; outline='#8e7a70' ;;
+        pink) background='#180f18'; surface='#281c28'; surface_high='#372737'; primary='#e989d8'; foreground='#f6eff5'; muted='#c9b8c6'; outline='#917f8e' ;;
+        green) background='#11150c'; surface='#202719'; surface_high='#2d3723'; primary='#a9b96d'; foreground='#f0f3e9'; muted='#b9c0ad'; outline='#7d866e' ;;
     esac
+
     mkdir -p "$TMP/$sample"
-    printf '{"version":2,"mode":"dark","colors":{"background":"%s","surface_container":"%s","surface_container_high":"%s","primary":"%s","foreground":"%s","muted":"%s"}}\n' \
-        "$background" "$surface" "$surface_high" "$primary" "$foreground" "$muted" > "$TMP/$sample/active.json"
+    printf '{"version":2,"mode":"dark","colors":{"background":"%s","surface_container":"%s","surface_container_high":"%s","primary":"%s","foreground":"%s","muted":"%s","outline":"%s"}}\n' \
+        "$background" "$surface" "$surface_high" "$primary" "$foreground" "$muted" "$outline" > "$TMP/$sample/active.json"
+
     python3 "$GENERATOR" \
         --palette "$TMP/$sample/active.json" \
         --static-theme "$THEME" \
         --output-dir "$TMP/$sample/out"
-    require_text "$TMP/$sample/out/generated-colors.rasi" 'maho-accent-soft:' "$sample palette lacks a distinct soft-accent material"
+
+    require_text "$TMP/$sample/out/generated-colors.rasi" 'maho-accent-soft:' "$sample palette lacks a selected-segment material"
+    require_text "$TMP/$sample/out/generated-colors.rasi" 'maho-selection:' "$sample palette lacks a selected-row material"
 done
 
 python3 - "$TMP" <<'PY'
@@ -126,34 +135,37 @@ samples = ("monochrome", "cool", "warm", "pink", "green")
 panels = {sample: token(sample, "maho-glass") for sample in samples}
 selections = {sample: token(sample, "maho-selection") for sample in samples}
 
-if not all(60 <= value[3] <= 68 for value in panels.values()):
-    raise SystemExit("panel material escaped the reference glass opacity range")
+if not all(84 <= value[3] <= 90 for value in panels.values()):
+    raise SystemExit("outer material escaped the approved Maho glass opacity envelope")
+
 if max(panels["monochrome"][:3]) - min(panels["monochrome"][:3]) > 6:
-    raise SystemExit("monochrome palette produced a chromatic panel")
-if len({value[:3] for value in panels.values()}) < 4:
-    raise SystemExit("environmental panel tint does not respond to palette changes")
-for sample, value in panels.items():
-    if max(value[:3]) - min(value[:3]) > 8:
-        raise SystemExit(f"{sample} palette flooded the neutral panel with color")
+    raise SystemExit("monochrome palette produced a synthetic chromatic shell")
+
+if len({value[:3] for value in panels.values()}) < 5:
+    raise SystemExit("launcher shell no longer follows Palette V2 family changes")
 
 panel_distance = math.dist(panels["cool"][:3], panels["warm"][:3])
 selection_distance = math.dist(selections["cool"][:3], selections["warm"][:3])
-if panel_distance > 8:
-    raise SystemExit("panel environmental tint is too strong across palette families")
-if selection_distance <= panel_distance * 3:
-    raise SystemExit("selection no longer carries substantially more environmental accent than the panel")
+
+if panel_distance < 24:
+    raise SystemExit("wallpaper-derived tint is being suppressed at shell scale")
+
+if selection_distance <= panel_distance * 1.25:
+    raise SystemExit("selected state does not carry enough extra accent separation")
 
 for sample in samples:
     panel_alpha = panels[sample][3]
-    for name, ceiling in (
-        ("maho-inset", 0.73),
-        ("maho-segment", 0.71),
-        ("maho-result-surface", 0.69),
-        ("maho-selection", 0.76),
+    for name, floor, ceiling in (
+        ("maho-inset", 0.89, 0.93),
+        ("maho-segment", 0.88, 0.92),
+        ("maho-result-surface", 0.87, 0.90),
+        ("maho-selection", 0.91, 0.95),
     ):
         combined = effective_alpha(panel_alpha, token(sample, name)[3])
-        if combined > ceiling:
-            raise SystemExit(f"{sample} {name} became too opaque after panel compositing")
+        if not floor <= combined <= ceiling:
+            raise SystemExit(
+                f"{sample} {name} effective alpha {combined:.3f} escaped {floor:.2f}-{ceiling:.2f}"
+            )
 PY
 echo "PASS"
 
@@ -172,6 +184,7 @@ echo "PASS"
 echo "=== parser checks ==="
 bash -n "$LAUNCHER" "$COMMANDS"
 python3 -m py_compile "$GENERATOR"
+
 if command -v rofi >/dev/null 2>&1; then
     XDG_CACHE_HOME="$TMP/cache" MAHO_ACTIVE_PALETTE="$TMP/cool/active.json" MAHO_ROOT="$ROOT" bash "$LAUNCHER" reload >/dev/null
     parser_err="$TMP/rofi-parser.err"
