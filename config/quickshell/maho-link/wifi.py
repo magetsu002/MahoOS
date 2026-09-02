@@ -125,12 +125,53 @@ def ip_details(device: str):
     return {"ipv4": ipv4, "gateway": gateway}
 
 
-def scan_networks(enabled: bool):
+def active_connection(device: str):
+    if not device:
+        return None
+    code, out, _ = run([
+        "nmcli", "-t", "-e", "yes", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"
+    ])
+    if code != 0:
+        return None
+
+    profile = ""
+    for line in out.splitlines():
+        fields = split_nmcli(line)
+        if len(fields) < 3 or fields[2] != device:
+            continue
+        if fields[1] in ("802-11-wireless", "wifi", "wireless"):
+            profile = fields[0]
+            break
+    if not profile:
+        return None
+
+    code, ssid, _ = run([
+        "nmcli", "-t", "-g", "802-11-wireless.ssid", "connection", "show", profile
+    ])
+    if code != 0 or not ssid.strip():
+        ssid = profile
+
+    current = {
+        "ssid": ssid.splitlines()[0].strip(),
+        "signal": -1,
+        "quality": "",
+        "frequency": 0,
+        "band": "",
+        "security": "",
+        "secured": False,
+        "enterprise": False,
+        "state": "Connected",
+    }
+    current.update(ip_details(device))
+    return current
+
+
+def scan_networks(enabled: bool, *, rescan="auto"):
     if not enabled:
         return [], None
     code, out, _ = run([
         "nmcli", "-t", "-e", "yes", "-f",
-        "IN-USE,SSID,SIGNAL,SECURITY,FREQ", "device", "wifi", "list", "--rescan", "auto"
+        "IN-USE,SSID,SIGNAL,SECURITY,FREQ", "device", "wifi", "list", "--rescan", rescan
     ], timeout=5.0)
     if code != 0:
         return [], None
@@ -172,16 +213,64 @@ def scan_networks(enabled: bool):
     return networks, current
 
 
-def snapshot():
+def unavailable_payload():
+    return {
+        "available": False,
+        "enabled": False,
+        "device": "",
+        "current": None,
+        "networks": [],
+        "error": "NetworkManager nmcli is unavailable.",
+    }
+
+
+def status_snapshot():
     if not shutil.which("nmcli"):
-        emit({
-            "available": False,
-            "enabled": False,
-            "device": "",
-            "current": None,
-            "networks": [],
-            "error": "NetworkManager nmcli is unavailable.",
-        })
+        emit(unavailable_payload())
+        return 0
+
+    enabled = wifi_enabled()
+    device = wifi_device()
+    current = active_connection(device) if enabled else None
+    emit({
+        "available": True,
+        "enabled": enabled,
+        "device": device,
+        "current": current,
+        "error": "" if device or not enabled else "No Wi-Fi adapter is available.",
+    })
+    return 0
+
+
+def networks_snapshot():
+    if not shutil.which("nmcli"):
+        emit(unavailable_payload())
+        return 0
+
+    enabled = wifi_enabled()
+    device = wifi_device()
+    networks, current = scan_networks(enabled, rescan="no")
+    if current:
+        current.update(ip_details(device))
+        current["state"] = "Connected"
+    elif enabled:
+        current = active_connection(device)
+    emit({
+        "available": True,
+        "enabled": enabled,
+        "device": device,
+        "current": current,
+        "networks": networks,
+        "error": "" if device or not enabled else "No Wi-Fi adapter is available.",
+    })
+    return 0
+
+
+def snapshot():
+    # Compatibility/diagnostic snapshot. The live QML no longer waits for this
+    # rescan-capable path before showing authoritative connection state.
+    if not shutil.which("nmcli"):
+        emit(unavailable_payload())
         return 0
 
     enabled = wifi_enabled()
@@ -269,6 +358,10 @@ def action(argv):
 def main():
     if len(sys.argv) < 2 or sys.argv[1] == "snapshot":
         return snapshot()
+    if sys.argv[1] == "status":
+        return status_snapshot()
+    if sys.argv[1] == "networks":
+        return networks_snapshot()
     if sys.argv[1] == "action":
         return action(sys.argv[2:])
     emit({"ok": False, "message": "Unknown mode."})
