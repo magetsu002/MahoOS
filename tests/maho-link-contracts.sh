@@ -47,9 +47,15 @@ echo "=== focused native overlay contract ==="
 require_text "$LINK/shell.qml" 'WlrLayershell.namespace: "maho-link"' "Maho Link has no isolated layer-shell namespace"
 require_text "$LINK/shell.qml" 'WlrLayershell.layer: WlrLayer.Overlay' "Maho Link is not an overlay surface"
 require_text "$LINK/shell.qml" 'onClicked: root.closeOverlay()' "outside click does not close Maho Link"
+require_text "$LINK/shell.qml" 'root.overlayOpen ? 0.16 : 0' "overlay backdrop separation regressed"
 require_text "$LINK/MahoLink.qml" 'Keys.onEscapePressed: root.closeRequested()' "Escape close missing"
 require_text "$LINK/MahoLink.qml" '? "Wi-Fi"' "Wi-Fi title missing"
 require_text "$LINK/MahoLink.qml" 'function stableAccent(source)' "adaptive accent clamp missing"
+require_text "$LINK/MahoLink.qml" 'readonly property bool compactMain:' "compact empty-network layout missing"
+require_text "$LINK/MahoLink.qml" 'readonly property color shellFill:' "dense shell material missing"
+require_text "$LINK/MahoLink.qml" '0.985)' "shell material is too transparent"
+require_text "$LINK/MahoLinkMain.qml" '"No other networks found"' "connected empty-state copy missing"
+require_text "$LINK/MahoLinkMain.qml" 'root.height - 151' "empty/list height no longer follows panel geometry"
 require_text "$LINK/MahoLinkTheme.qml" '/.cache/maho/theme/active.json' "Maho Link does not use authoritative Maho palette"
 require_text "$LINK/MahoLinkTheme.qml" 'watchChanges: true' "Maho Link palette is not reactive"
 if grep -RnsEi '\bbluetooth\b' "$LINK" --include='*.qml' --include='*.py'; then
@@ -73,6 +79,7 @@ echo "PASS"
 echo "=== backend syntax ==="
 python -m py_compile "$BACKEND"
 bash -n "$ROOT/bin/maho-link"
+require_text "$BACKEND" '"--rescan", "auto"' "snapshot no longer permits NetworkManager to refresh stale discovery"
 echo "PASS"
 
 echo "=== deterministic NetworkManager snapshot ==="
@@ -90,7 +97,7 @@ case "$*" in
   "-t -e yes -f DEVICE,TYPE,STATE device status")
     echo "wlan0:wifi:connected"
     ;;
-  "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan no")
+  "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan auto")
     cat <<'SCAN'
 *:Ashraf4G:91:WPA2:5180
 :Guest\:Lab:61:WPA2:2412
