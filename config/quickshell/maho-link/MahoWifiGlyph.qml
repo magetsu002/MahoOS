@@ -5,7 +5,7 @@ Item {
 
     property color glyphColor: Qt.rgba(1, 1, 1, 1)
     property bool disabled: false
-    property real strokeScale: 0.082
+    property real strokeScale: 0.058
 
     implicitWidth: 24
     implicitHeight: 24
@@ -21,43 +21,38 @@ Item {
             ctx.clearRect(0, 0, width, height)
 
             const size = Math.min(width, height)
-            const cx = width / 2
-            const cy = height * 0.68
-            const lineWidth = Math.max(1.35, size * root.strokeScale)
+            const cx = width * 0.5
+            const cy = height * 0.665
+            const lineWidth = Math.max(1.05, size * root.strokeScale)
 
             ctx.strokeStyle = root.glyphColor
             ctx.fillStyle = root.glyphColor
             ctx.lineWidth = lineWidth
             ctx.lineCap = "round"
+            ctx.lineJoin = "round"
 
-            function wifiArc(radius) {
+            function arc(radius, start, end) {
                 ctx.beginPath()
-                ctx.arc(
-                    cx,
-                    cy,
-                    radius,
-                    Math.PI * 1.17,
-                    Math.PI * 1.83,
-                    false
-                )
+                ctx.arc(cx, cy, radius, Math.PI * start, Math.PI * end, false)
                 ctx.stroke()
             }
 
-            // Geometry is symmetric around cx; unlike a font glyph, it has no
-            // baseline or side-bearing bias. This keeps every Wi-Fi mark
-            // optically centered at every capsule size.
-            wifiArc(size * 0.36)
-            wifiArc(size * 0.225)
+            // A compact system-style Wi-Fi mark. Every arc shares the same
+            // center axis and mirrored endpoints, so visual centering is
+            // deterministic and independent of font metrics or glyph bearings.
+            arc(size * 0.365, 1.195, 1.805)
+            arc(size * 0.245, 1.215, 1.785)
+            arc(size * 0.130, 1.255, 1.745)
 
             ctx.beginPath()
-            ctx.arc(cx, cy, size * 0.060, 0, Math.PI * 2, false)
+            ctx.arc(cx, cy, size * 0.0375, 0, Math.PI * 2, false)
             ctx.fill()
 
             if (root.disabled) {
                 ctx.beginPath()
-                ctx.lineWidth = Math.max(1.25, lineWidth * 0.82)
-                ctx.moveTo(cx - size * 0.31, cy - size * 0.37)
-                ctx.lineTo(cx + size * 0.31, cy + size * 0.12)
+                ctx.lineWidth = Math.max(1.0, lineWidth * 0.88)
+                ctx.moveTo(cx - size * 0.285, cy - size * 0.335)
+                ctx.lineTo(cx + size * 0.285, cy + size * 0.075)
                 ctx.stroke()
             }
         }
