@@ -26,3 +26,16 @@ hl.config({
         },
     },
 })
+
+-- Maho Link is a layer-shell surface, so ordinary window blur is not enough.
+-- Keep the rule namespace-scoped: connectivity glass gets real compositor blur
+-- without changing the material or performance characteristics of other layers.
+hl.layer_rule({
+    name = "maho-link-material",
+    match = {
+        namespace = "maho-link",
+    },
+    blur = true,
+    ignore_alpha = 0.08,
+    xray = false,
+})
