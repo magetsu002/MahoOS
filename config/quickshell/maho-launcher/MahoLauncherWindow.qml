@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Widgets
 
 PanelWindow {
     id: root
@@ -31,6 +32,7 @@ PanelWindow {
         query: searchInput.text
         onCloseRequested: root.closeLauncher()
         onModelChanged: Qt.callLater(function() {
+            resultPageScroll.stop()
             resultList.currentIndex = resultList.count > 0 ? 0 : -1
             if (resultList.currentIndex >= 0)
                 resultList.positionViewAtBeginning()
@@ -40,24 +42,32 @@ PanelWindow {
     property bool shown: false
     property bool closing: false
     property bool modeChanging: false
+    property bool quickActionsOpen: false
     property int pendingMode: 0
     property int previousMode: 0
+
+    readonly property real resultMaxY: Math.max(0, resultList.contentHeight - resultList.height)
+    readonly property bool resultsScrollable: resultMaxY > 6
+    readonly property bool resultsAtBottom: resultsScrollable && resultList.contentY >= resultMaxY - 10
 
     function closeLauncher() {
         if (closing)
             return
         closing = true
+        quickActionsOpen = false
         shown = false
         closeTimer.restart()
     }
 
     function focusSearch() {
+        quickActionsOpen = false
         searchInput.forceActiveFocus()
     }
 
     function switchMode(index) {
         if (index < 0 || index > 2)
             return
+        quickActionsOpen = false
         if (index === backend.mode && !modeChanging) {
             searchInput.forceActiveFocus()
             return
@@ -68,7 +78,62 @@ PanelWindow {
         modeSwap.restart()
     }
 
+    function scrollResultsTo(targetY) {
+        if (!root.resultsScrollable)
+            return
+        const bounded = Math.max(0, Math.min(root.resultMaxY, targetY))
+        resultPageScroll.stop()
+        resultPageScroll.from = resultList.contentY
+        resultPageScroll.to = bounded
+        resultPageScroll.start()
+
+        if (resultList.count > 0) {
+            const visualCenter = bounded + resultList.height * 0.38
+            const row = Math.max(0, Math.min(resultList.count - 1, Math.floor(visualCenter / 58)))
+            resultList.currentIndex = row
+        }
+    }
+
+    function pageResults() {
+        if (!root.resultsScrollable)
+            return
+        if (root.resultsAtBottom) {
+            root.scrollResultsTo(0)
+            return
+        }
+        root.scrollResultsTo(resultList.contentY + resultList.height * 0.76)
+    }
+
+    function goAppsHome() {
+        quickActionsOpen = false
+        if (backend.mode !== 0) {
+            searchInput.text = ""
+            root.switchMode(0)
+            return
+        }
+        if (searchInput.text.length > 0) {
+            searchInput.text = ""
+            Qt.callLater(function() { searchInput.forceActiveFocus() })
+            return
+        }
+        if (resultList.contentY > 4) {
+            root.scrollResultsTo(0)
+            return
+        }
+        searchInput.forceActiveFocus()
+    }
+
+    function runQuickCommand(action) {
+        const allowed = ["terminal", "files", "lock", "diagnostics"]
+        if (allowed.indexOf(action) < 0)
+            return
+        quickActionsOpen = false
+        Quickshell.execDetached(["python3", backend.backendPath, "command", action])
+        root.closeLauncher()
+    }
+
     function moveSelection(delta) {
+        quickActionsOpen = false
         if (resultList.count <= 0)
             return
         const current = Math.max(0, resultList.currentIndex)
@@ -78,9 +143,18 @@ PanelWindow {
     }
 
     function activateSelected() {
+        quickActionsOpen = false
         if (resultList.currentIndex < 0 || !resultList.currentItem)
             return
         backend.activate(resultList.currentItem.modelData)
+    }
+
+    NumberAnimation {
+        id: resultPageScroll
+        target: resultList
+        property: "contentY"
+        duration: 310
+        easing.type: Easing.OutCubic
     }
 
     Timer {
@@ -109,8 +183,6 @@ PanelWindow {
         })
     }
 
-    // The entire desktop remains underneath this overlay. Hyprland blurs the
-    // live windows immediately behind it; this dim is only a tiny focus veil.
     Rectangle {
         id: backdropDim
         anchors.fill: parent
@@ -171,9 +243,6 @@ PanelWindow {
             border.color: theme.shellRim
             clip: true
 
-            // clip:true only clips to the item's rectangular bounds in Qt Quick.
-            // Give every full-surface material layer the same radius explicitly
-            // so reflections cannot paint square pixels through rounded corners.
             Rectangle {
                 anchors.fill: parent
                 radius: parent.radius
@@ -214,7 +283,11 @@ PanelWindow {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
-                onClicked: function(mouse) { mouse.accepted = true }
+                onClicked: function(mouse) {
+                    if (root.quickActionsOpen)
+                        root.quickActionsOpen = false
+                    mouse.accepted = true
+                }
             }
 
             ColumnLayout {
@@ -237,11 +310,8 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         theme: theme
                         symbol: "grid"
-                        emphasized: backend.mode === 0
-                        onActivated: {
-                            searchInput.text = ""
-                            root.switchMode(0)
-                        }
+                        emphasized: backend.mode === 0 && searchInput.text.length === 0 && resultList.contentY <= 4
+                        onActivated: root.goAppsHome()
                     }
 
                     Text {
@@ -260,10 +330,11 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         theme: theme
                         symbol: "controls"
-                        emphasized: backend.mode === 2
+                        emphasized: root.quickActionsOpen
                         onActivated: {
-                            searchInput.text = ""
-                            root.switchMode(2)
+                            root.quickActionsOpen = !root.quickActionsOpen
+                            if (!root.quickActionsOpen)
+                                searchInput.forceActiveFocus()
                         }
                     }
                 }
@@ -341,7 +412,7 @@ PanelWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: searchInput.text.length === 0
                                 text: "Search apps, files, and commands..."
-                                color: theme.alpha(theme.muted, 0.66)
+                                color: theme.alpha(theme.muted, 0.70)
                                 font.family: "Inter, Noto Sans, sans-serif"
                                 font.pixelSize: 12
                                 renderType: Text.NativeRendering
@@ -361,9 +432,14 @@ PanelWindow {
                                 focus: true
                                 activeFocusOnTab: true
 
+                                onTextChanged: root.quickActionsOpen = false
+
                                 Keys.onPressed: function(event) {
                                     if (event.key === Qt.Key_Escape) {
-                                        root.closeLauncher()
+                                        if (root.quickActionsOpen)
+                                            root.quickActionsOpen = false
+                                        else
+                                            root.closeLauncher()
                                         event.accepted = true
                                     } else if (event.key === Qt.Key_Up) {
                                         root.moveSelection(-1)
@@ -441,7 +517,7 @@ PanelWindow {
                                     text: parent.modelData
                                     color: parent.active
                                         ? theme.textPrimary
-                                        : theme.alpha(theme.muted, segmentHover.hovered ? 0.86 : 0.70)
+                                        : theme.alpha(theme.muted, segmentHover.hovered ? 0.90 : 0.76)
                                     font.family: "Inter, Noto Sans, sans-serif"
                                     font.pixelSize: 11
                                     font.weight: parent.active ? Font.DemiBold : Font.Medium
@@ -577,7 +653,7 @@ PanelWindow {
                                 text: backend.mode === 0 && backend.appIndexBusy
                                     ? "Loading applications..."
                                     : (backend.mode === 1 && backend.fileSearchBusy ? "Searching files..." : "Nothing found")
-                                color: theme.alpha(theme.foreground, 0.78)
+                                color: theme.alpha(theme.foreground, 0.82)
                                 font.family: "Inter, Noto Sans, sans-serif"
                                 font.pixelSize: 12
                                 font.weight: Font.Medium
@@ -588,7 +664,7 @@ PanelWindow {
                                 text: backend.mode === 0
                                     ? (backend.appIndexBusy ? "Reading installed desktop entries" : "Try a different application name")
                                     : (backend.mode === 1 ? "Search your home folder" : "No command matches this search")
-                                color: theme.alpha(theme.muted, 0.58)
+                                color: theme.alpha(theme.muted, 0.64)
                                 font.family: "Inter, Noto Sans, sans-serif"
                                 font.pixelSize: 10
                             }
@@ -598,46 +674,221 @@ PanelWindow {
 
                 Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 26
+                    Layout.preferredHeight: 32
 
-                    Row {
+                    Rectangle {
+                        id: footerControl
                         anchors.centerIn: parent
-                        spacing: 6
-                        y: footerHover.hovered ? parent.height / 2 - height / 2 - 1 : parent.height / 2 - height / 2
+                        width: Math.max(116, footerLabel.implicitWidth + 42)
+                        height: 28
+                        radius: 14
+                        antialiasing: true
+                        color: footerHover.hovered && root.resultsScrollable ? theme.controlHover : "transparent"
+                        border.width: footerHover.hovered && root.resultsScrollable ? 1 : 0
+                        border.color: theme.controlRim
+                        opacity: resultList.count > 0 ? 1 : 0
+                        scale: footerTap.pressed ? 0.975 : (footerHover.hovered && root.resultsScrollable ? 1.012 : 1)
 
-                        Text {
-                            text: backend.mode === 0 ? "Show more apps" : (backend.mode === 1 ? "More files" : "Commands")
-                            color: theme.alpha(theme.muted, footerHover.hovered ? 0.82 : 0.64)
-                            font.family: "Inter, Noto Sans, sans-serif"
-                            font.pixelSize: 9
-                            font.weight: Font.Medium
-                            Behavior on color { ColorAnimation { duration: 140 } }
+                        Behavior on width { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
+                        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 160 } }
+                        Behavior on scale { NumberAnimation { duration: 145; easing.type: Easing.OutCubic } }
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 8
+
+                            Text {
+                                id: footerLabel
+                                text: {
+                                    if (!root.resultsScrollable)
+                                        return resultList.count + (backend.mode === 0 ? " apps" : (backend.mode === 1 ? " results" : " commands"))
+                                    if (root.resultsAtBottom)
+                                        return "Back to top"
+                                    return backend.mode === 0 ? "Show more apps" : (backend.mode === 1 ? "Show more files" : "Show more commands")
+                                }
+                                color: theme.alpha(theme.muted, footerHover.hovered && root.resultsScrollable ? 0.92 : 0.74)
+                                font.family: "Inter, Noto Sans, sans-serif"
+                                font.pixelSize: 10
+                                font.weight: Font.Medium
+                                renderType: Text.NativeRendering
+                                Behavior on color { ColorAnimation { duration: 145 } }
+                            }
+
+                            Item {
+                                width: root.resultsScrollable ? 12 : 0
+                                height: 12
+                                visible: root.resultsScrollable
+                                rotation: root.resultsAtBottom ? 180 : 0
+                                opacity: footerHover.hovered ? 0.88 : 0.68
+
+                                Behavior on width { NumberAnimation { duration: 160 } }
+                                Behavior on rotation { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                                Behavior on opacity { NumberAnimation { duration: 140 } }
+
+                                Rectangle {
+                                    width: 6
+                                    height: 1.4
+                                    radius: 0.7
+                                    x: 1
+                                    y: 5
+                                    rotation: 42
+                                    color: theme.muted
+                                    antialiasing: true
+                                }
+                                Rectangle {
+                                    width: 6
+                                    height: 1.4
+                                    radius: 0.7
+                                    x: 5
+                                    y: 5
+                                    rotation: -42
+                                    color: theme.muted
+                                    antialiasing: true
+                                }
+                            }
                         }
 
-                        Text {
-                            text: "⌄"
-                            color: theme.alpha(theme.muted, footerHover.hovered ? 0.72 : 0.52)
-                            font.family: "Inter, Noto Sans, sans-serif"
-                            font.pixelSize: 11
-                            Behavior on color { ColorAnimation { duration: 140 } }
+                        HoverHandler {
+                            id: footerHover
+                            cursorShape: root.resultsScrollable ? Qt.PointingHandCursor : Qt.ArrowCursor
                         }
+                        TapHandler {
+                            id: footerTap
+                            enabled: root.resultsScrollable
+                            acceptedButtons: Qt.LeftButton
+                            gesturePolicy: TapHandler.ReleaseWithinBounds
+                            onTapped: root.pageResults()
+                        }
+                    }
+                }
+            }
 
-                        Behavior on y { NumberAnimation { duration: 145; easing.type: Easing.OutCubic } }
+            Rectangle {
+                id: quickActions
+                z: 30
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 64
+                anchors.rightMargin: 20
+                width: 232
+                height: 190
+                radius: 19
+                antialiasing: true
+                color: theme.alpha(theme.insetColor, 0.90)
+                border.width: 1
+                border.color: theme.alpha(theme.foreground, 0.075)
+                opacity: root.quickActionsOpen ? 1 : 0
+                visible: opacity > 0.001
+                scale: root.quickActionsOpen ? 1 : 0.97
+                clip: true
+
+                transform: Translate {
+                    y: root.quickActionsOpen ? 0 : -7
+                    Behavior on y { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
+                }
+
+                Behavior on opacity { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    antialiasing: true
+                    color: "transparent"
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: theme.alpha(theme.foreground, 0.035) }
+                        GradientStop { position: 0.42; color: "transparent" }
+                        GradientStop { position: 1; color: theme.alpha(theme.accent, 0.022) }
+                    }
+                }
+
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 2
+
+                    Text {
+                        text: "Quick actions"
+                        color: theme.alpha(theme.muted, 0.70)
+                        font.family: "Inter, Noto Sans, sans-serif"
+                        font.pixelSize: 9
+                        font.weight: Font.Medium
+                        leftPadding: 8
+                        height: 24
+                        verticalAlignment: Text.AlignVCenter
                     }
 
-                    HoverHandler {
-                        id: footerHover
-                        cursorShape: Qt.PointingHandCursor
-                    }
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        gesturePolicy: TapHandler.ReleaseWithinBounds
-                        onTapped: {
-                            if (resultList.count <= 0)
-                                return
-                            const target = Math.min(resultList.count - 1, Math.max(0, resultList.currentIndex) + 7)
-                            resultList.currentIndex = target
-                            resultList.positionViewAtIndex(target, ListView.Contain)
+                    Repeater {
+                        model: [
+                            { "id": "terminal", "name": "Terminal", "icon": "utilities-terminal" },
+                            { "id": "files", "name": "Files", "icon": "system-file-manager" },
+                            { "id": "lock", "name": "Lock Screen", "icon": "system-lock-screen" },
+                            { "id": "diagnostics", "name": "Diagnostics", "icon": "utilities-system-monitor" }
+                        ]
+
+                        Rectangle {
+                            required property var modelData
+                            width: 212
+                            height: 36
+                            radius: 11
+                            antialiasing: true
+                            color: quickHover.hovered ? theme.controlHover : "transparent"
+                            scale: quickTap.pressed ? 0.985 : 1
+
+                            Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
+                            IconImage {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 18
+                                height: 18
+                                source: Quickshell.iconPath(parent.modelData.icon, "")
+                                asynchronous: true
+                                mipmap: true
+                                opacity: quickHover.hovered ? 0.96 : 0.76
+                                Behavior on opacity { NumberAnimation { duration: 130 } }
+                            }
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 40
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: parent.modelData.name
+                                color: theme.textPrimary
+                                opacity: quickHover.hovered ? 1 : 0.88
+                                font.family: "Inter, Noto Sans, sans-serif"
+                                font.pixelSize: 11
+                                font.weight: Font.Medium
+                                renderType: Text.NativeRendering
+                                Behavior on opacity { NumberAnimation { duration: 130 } }
+                            }
+
+                            Text {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 11
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.verticalCenterOffset: -1
+                                text: "›"
+                                color: theme.alpha(theme.muted, quickHover.hovered ? 0.74 : 0.46)
+                                font.family: "Inter, Noto Sans, sans-serif"
+                                font.pixelSize: 16
+                                renderType: Text.NativeRendering
+                                Behavior on color { ColorAnimation { duration: 130 } }
+                            }
+
+                            HoverHandler {
+                                id: quickHover
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            TapHandler {
+                                id: quickTap
+                                acceptedButtons: Qt.LeftButton
+                                gesturePolicy: TapHandler.ReleaseWithinBounds
+                                onTapped: root.runQuickCommand(parent.modelData.id)
+                            }
                         }
                     }
                 }
