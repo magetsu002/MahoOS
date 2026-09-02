@@ -20,10 +20,11 @@ Item {
             : hover.containsMouse
                 ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
                 : "transparent"
-        Behavior on color { ColorAnimation { duration: 110 } }
+        Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
     }
 
     Rectangle {
+        id: networkIcon
         anchors.left: parent.left
         anchors.leftMargin: 14
         anchors.verticalCenter: parent.verticalCenter
@@ -31,12 +32,15 @@ Item {
         height: 32
         radius: 12
         antialiasing: true
+        scale: hover.containsMouse ? 1.018 : 1
         color: chrome.theme.alpha(
             chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.44),
             0.40
         )
         border.width: 1
         border.color: chrome.theme.alpha(chrome.theme.foreground, 0.040)
+
+        Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.fill: parent
@@ -51,13 +55,17 @@ Item {
 
         Text {
             anchors.centerIn: parent
+            anchors.verticalCenterOffset: -1
             text: "󰖩"
             color: hover.containsMouse
                 ? chrome.theme.alpha(chrome.accent, 0.84)
                 : chrome.theme.alpha(chrome.textSecondary, 0.78)
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 16
-            Behavior on color { ColorAnimation { duration: 110 } }
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            renderType: Text.NativeRendering
+            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
         }
     }
 
@@ -99,11 +107,15 @@ Item {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: -1
             visible: Boolean(root.network.secured)
             text: ""
             color: chrome.theme.alpha(chrome.textSecondary, 0.68)
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 11
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            renderType: Text.NativeRendering
         }
 
         MahoLinkSignal {
@@ -114,6 +126,7 @@ Item {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: -1
             text: "›"
             color: hover.containsMouse
                 ? chrome.theme.alpha(chrome.textPrimary, 0.76)
@@ -121,7 +134,10 @@ Item {
             font.family: "Inter"
             font.pixelSize: 20
             font.weight: Font.Light
-            Behavior on color { ColorAnimation { duration: 110 } }
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            renderType: Text.NativeRendering
+            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
         }
     }
 
