@@ -11,6 +11,7 @@ Rectangle {
     height: 45
     radius: 16
     antialiasing: true
+    scale: hover.pressed ? 0.992 : 1
     color: !enabled
         ? chrome.theme.alpha(
             chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.58),
@@ -69,6 +70,7 @@ Rectangle {
 
     Text {
         anchors.centerIn: parent
+        anchors.verticalCenterOffset: -1
         text: root.label
         color: root.destructive
             ? chrome.theme.error
@@ -78,6 +80,9 @@ Rectangle {
         font.family: "Inter"
         font.pixelSize: 12
         font.weight: Font.DemiBold
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        renderType: Text.NativeRendering
     }
 
     MouseArea {
@@ -85,10 +90,11 @@ Rectangle {
         anchors.fill: parent
         enabled: root.enabled
         hoverEnabled: true
-        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        cursorShape: Qt.PointingHandCursor
         onClicked: root.clicked()
     }
 
-    Behavior on color { ColorAnimation { duration: 120 } }
-    Behavior on border.color { ColorAnimation { duration: 120 } }
+    Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+    Behavior on border.color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 }
