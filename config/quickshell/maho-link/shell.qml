@@ -67,7 +67,7 @@ ShellRoot {
 
         Rectangle {
             anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.12 : 0)
+            color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.16 : 0)
             Behavior on color { ColorAnimation { duration: 170 } }
         }
 
