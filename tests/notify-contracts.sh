@@ -155,7 +155,10 @@ require_text "$NOTIFY_DIR/shell.qml" 'notificationModel.enqueue(notification, hi
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'maximumLineCount: 3' "long notification bodies are not clamped"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'textFormat: Text.PlainText' "notification text can render unadvertised markup"
 require_text "$NOTIFY_DIR/NotificationStack.qml" 'width: 324' "compact popup width contract missing"
-require_text "$NOTIFY_DIR/shell.qml" 'overlay.width - width - 18' "top-right placement missing"
+require_text "$NOTIFY_DIR/shell.qml" '/quickshell/by-shell/maho-shell/dock.json' "Maho Notify does not observe Edge placement"
+require_text "$NOTIFY_DIR/shell.qml" 'if (dockEdge === "right")' "Maho Notify does not avoid a right-docked Edge"
+require_text "$NOTIFY_DIR/shell.qml" 'x: root.surfaceX(overlay.width, width, 18)' "popup placement is not Edge-aware"
+require_text "$NOTIFY_DIR/shell.qml" 'x: root.surfaceX(centerOverlay.width, width, 18)' "notification center placement is not Edge-aware"
 require_text "$NOTIFY_DIR/shell.qml" 'y: 18' "top safe margin missing"
 require_text "$NOTIFY_DIR/shell.qml" 'exclusionMode: ExclusionMode.Ignore' "popup may reserve compositor space"
 echo "PASS"
@@ -171,9 +174,11 @@ echo "PASS"
 echo "=== palette and independence contract ==="
 require_text "$NOTIFY_DIR/NotifyTheme.qml" '/.cache/maho/theme/active.json' "Maho active palette is not used"
 require_text "$NOTIFY_DIR/NotifyTheme.qml" 'watchChanges: true' "active palette changes are not watched"
-if grep -RnsE 'maho-shell|EdgeBar|SideEdgeBar|ControlCenter|DockReservation' "$NOTIFY_DIR" --include='*.qml'; then
-    fail "Maho Notify depends on frozen Maho Edge components"
+if grep -RnsE 'EdgeBar|SideEdgeBar|ControlCenter|DockReservation' "$NOTIFY_DIR" --include='*.qml'; then
+    fail "Maho Notify imports or owns frozen Maho Edge components"
 fi
+MAHO_SHELL_REFS="$(grep -RhsF 'maho-shell' "$NOTIFY_DIR" --include='*.qml' | wc -l | tr -d ' ')"
+[ "$MAHO_SHELL_REFS" -eq 1 ] || fail "Maho Notify has a broader Maho Shell dependency than dock placement"
 echo "PASS"
 
 echo "=== privacy contract ==="
