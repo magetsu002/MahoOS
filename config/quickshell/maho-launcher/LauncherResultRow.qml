@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Widgets
 
 Item {
     id: root
@@ -8,6 +7,7 @@ Item {
     required property var theme
     required property var backend
     required property int index
+    required property string entryId
     required property string name
     required property string description
     required property string icon
@@ -19,17 +19,6 @@ Item {
 
     readonly property bool pointerHovered: hover.hovered
     readonly property bool pressed: tap.pressed
-    readonly property string requestedIcon: iconPath.length > 0 ? iconPath : icon
-    readonly property string resolvedIcon: {
-        if (requestedIcon.length === 0)
-            return ""
-        if (requestedIcon.startsWith("/") || requestedIcon.startsWith("file://"))
-            return requestedIcon
-        return Quickshell.iconPath(requestedIcon, "")
-    }
-    readonly property bool hasIcon: resolvedIcon && resolvedIcon.length > 0
-    readonly property bool iconReady: root.hasIcon && appIcon.status === Image.Ready
-    readonly property string monogram: name.length > 0 ? name.slice(0, 1).toUpperCase() : "•"
     property var modelData: root.backend.itemAt(root.index)
 
     height: 58
@@ -66,46 +55,19 @@ Item {
 
         Behavior on scale { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
 
-        Rectangle {
-            anchors.fill: parent
-            radius: 11
-            antialiasing: true
-            color: root.selected
-                ? theme.iconWellSelected
-                : (root.pointerHovered ? theme.iconWellHover : theme.iconWellFill)
-            border.width: root.selected || root.pointerHovered ? 1 : 0
-            border.color: root.selected ? theme.iconWellSelectedRim : theme.iconWellRim
-
-            Behavior on color { ColorAnimation { duration: 165 } }
-            Behavior on border.color { ColorAnimation { duration: 165 } }
-        }
-
-        IconImage {
-            id: appIcon
+        // Application artwork sits directly on the launcher material. There is
+        // deliberately no generic icon tile and no synthetic monogram fallback.
+        LauncherAppIcon {
             anchors.centerIn: parent
-            width: 34
-            height: 34
-            source: root.resolvedIcon
-            visible: root.iconReady
-            asynchronous: true
-            mipmap: true
-            smooth: true
+            width: 36
+            height: 36
+            name: root.name
+            entryId: root.entryId
+            icon: root.icon
+            iconPath: root.iconPath
             scale: root.selected ? 1.012 : (root.pointerHovered ? 1.008 : 1)
-            Behavior on scale { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
-        }
 
-        // A non-empty icon path is not proof that Qt could render the artwork.
-        // Keep a restrained text fallback until Image.Ready so broken symbolic
-        // or unsupported assets never become blank white application tiles.
-        Text {
-            anchors.centerIn: parent
-            visible: !root.iconReady
-            text: root.monogram
-            color: root.theme.alpha(root.theme.foreground, 0.72)
-            font.family: "Inter, Noto Sans, sans-serif"
-            font.pixelSize: 15
-            font.weight: Font.DemiBold
-            renderType: Text.NativeRendering
+            Behavior on scale { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
         }
     }
 
