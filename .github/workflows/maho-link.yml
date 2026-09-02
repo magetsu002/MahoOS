@@ -18,7 +18,10 @@ jobs:
       - name: Shell syntax
         run: |
           set -euo pipefail
-          bash -n bin/maho-link tests/maho-link-contracts.sh
+          bash -n \
+            bin/maho-link \
+            tests/maho-link-contracts.sh \
+            tests/maho-link-drag-startup-contracts.sh
 
       - name: Python syntax
         run: |
@@ -31,3 +34,8 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/maho-link-contracts.sh
+
+      - name: Maho Link drag and startup contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-link-drag-startup-contracts.sh
