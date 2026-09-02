@@ -57,14 +57,16 @@ Item {
             id: powerCard
             width: parent.width
             height: 58
-            radius: 17
-            clip: true
+            radius: 19
+            antialiasing: true
             color: root.glassInteractive
             border.width: 1
             border.color: root.glassStroke
 
             Rectangle {
                 anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
                 gradient: Gradient {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.032) }
                     GradientStop { position: 0.52; color: "transparent" }
@@ -78,10 +80,12 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
                 anchors.top: parent.top
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: root.glassHighlight
             }
 
@@ -91,8 +95,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 34
                 height: 34
-                radius: 12
-                clip: true
+                radius: 13
+                antialiasing: true
                 color: chrome.theme.alpha(
                     chrome.mix(
                         chrome.theme.surfaceHigh,
@@ -114,6 +118,8 @@ Item {
                     anchors.rightMargin: 7
                     anchors.top: parent.top
                     height: 1
+                    radius: 1
+                    antialiasing: true
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.11)
                 }
 
@@ -158,7 +164,7 @@ Item {
                 width: 46
                 height: 27
                 radius: 14
-                clip: true
+                antialiasing: true
                 opacity: root.bluetooth.available && !root.bluetooth.busy ? 1 : 0.48
                 color: root.bluetooth.bluetoothEnabled
                     ? chrome.theme.alpha(chrome.accent, toggleHover.containsMouse ? 0.77 : 0.67)
@@ -177,6 +183,8 @@ Item {
                     anchors.rightMargin: 8
                     anchors.top: parent.top
                     height: 1
+                    radius: 1
+                    antialiasing: true
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.13)
                 }
 
@@ -184,6 +192,7 @@ Item {
                     width: 22
                     height: 22
                     radius: 11
+                    antialiasing: true
                     y: 4
                     x: root.bluetooth.bluetoothEnabled ? parent.width - width - 2 : 2
                     color: Qt.rgba(0, 0, 0, 0.20)
@@ -195,6 +204,7 @@ Item {
                     width: 21
                     height: 21
                     radius: 11
+                    antialiasing: true
                     y: 3
                     x: root.bluetooth.bluetoothEnabled ? parent.width - width - 3 : 3
                     color: Qt.rgba(0.99, 0.99, 0.99, 0.985)
@@ -219,8 +229,8 @@ Item {
             width: parent.width
             height: root.primaryDevice ? 118 : 0
             visible: root.primaryDevice !== null
-            radius: 18
-            clip: true
+            radius: 20
+            antialiasing: true
             color: heroHover.containsMouse
                 ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.040), 0.60)
                 : root.glassRaised
@@ -234,6 +244,8 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
                 gradient: Gradient {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.045) }
                     GradientStop { position: 0.30; color: chrome.theme.alpha(chrome.accent, 0.048) }
@@ -245,20 +257,24 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
                 anchors.top: parent.top
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: chrome.theme.alpha(chrome.theme.foreground, 0.135)
             }
 
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 24
-                anchors.rightMargin: 24
+                anchors.leftMargin: 26
+                anchors.rightMargin: 26
                 anchors.bottom: parent.bottom
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.045)
             }
 
@@ -270,8 +286,8 @@ Item {
                     && String(root.primaryDevice.quality || "") !== "" ? -14 : 0
                 width: 70
                 height: 70
-                radius: 22
-                clip: true
+                radius: 24
+                antialiasing: true
                 color: chrome.theme.alpha(
                     chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12),
                     0.50
@@ -281,6 +297,8 @@ Item {
 
                 Rectangle {
                     anchors.fill: parent
+                    radius: parent.radius
+                    antialiasing: true
                     gradient: Gradient {
                         GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.055) }
                         GradientStop { position: 0.55; color: "transparent" }
@@ -291,10 +309,12 @@ Item {
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 16
+                    anchors.leftMargin: 17
+                    anchors.rightMargin: 17
                     anchors.top: parent.top
                     height: 1
+                    radius: 1
+                    antialiasing: true
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.145)
                 }
 
@@ -426,14 +446,16 @@ Item {
             width: parent.width
             height: !root.bluetooth.bluetoothEnabled ? 176
                 : root.pairedCount > 0 ? Math.min(144, root.pairedCount * 55 + 6) : 94
-            radius: 17
-            clip: true
+            radius: 19
+            antialiasing: true
             color: root.glassLow
             border.width: 1
             border.color: root.glassStroke
 
             Rectangle {
                 anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
                 gradient: Gradient {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.024) }
                     GradientStop { position: 0.55; color: "transparent" }
@@ -444,10 +466,12 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
                 anchors.top: parent.top
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: root.glassHighlight
             }
 
@@ -542,6 +566,7 @@ Item {
                     width: 7
                     height: 7
                     radius: 4
+                    antialiasing: true
                     visible: root.bluetooth.discovering
                     color: chrome.accent
                     opacity: 0.75
@@ -583,14 +608,16 @@ Item {
             width: parent.width
             height: root.bluetooth.bluetoothEnabled ? 104 : 0
             visible: root.bluetooth.bluetoothEnabled
-            radius: 17
-            clip: true
+            radius: 19
+            antialiasing: true
             color: root.glassLow
             border.width: 1
             border.color: root.glassStroke
 
             Rectangle {
                 anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
                 gradient: Gradient {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.022) }
                     GradientStop { position: 0.58; color: "transparent" }
@@ -601,10 +628,12 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
                 anchors.top: parent.top
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: root.glassHighlight
             }
 
@@ -651,6 +680,7 @@ Item {
                                 width: 2
                                 height: 2
                                 radius: 1
+                                antialiasing: true
                                 x: nearbyRing.width / 2 + Math.cos(angle) * 17 - width / 2
                                 y: nearbyRing.height / 2 + Math.sin(angle) * 17 - height / 2
                                 color: chrome.theme.alpha(
@@ -691,8 +721,8 @@ Item {
             width: parent.width
             height: root.bluetooth.bluetoothEnabled ? 45 : 0
             visible: root.bluetooth.bluetoothEnabled
-            radius: 15
-            clip: true
+            radius: 17
+            antialiasing: true
             color: pairHover.pressed
                 ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.055), 0.56)
                 : pairHover.containsMouse
@@ -708,6 +738,8 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
                 gradient: Gradient {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.025) }
                     GradientStop { position: 0.60; color: "transparent" }
@@ -718,10 +750,12 @@ Item {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
                 anchors.top: parent.top
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: root.glassHighlight
             }
 
@@ -731,8 +765,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 28
                 height: 28
-                radius: 10
-                clip: true
+                radius: 11
+                antialiasing: true
                 color: chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12), 0.46)
                 border.width: 1
                 border.color: chrome.theme.alpha(chrome.accent, 0.10)
@@ -744,6 +778,8 @@ Item {
                     anchors.rightMargin: 6
                     anchors.top: parent.top
                     height: 1
+                    radius: 1
+                    antialiasing: true
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.10)
                 }
 
