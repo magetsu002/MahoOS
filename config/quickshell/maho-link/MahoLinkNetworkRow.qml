@@ -53,19 +53,17 @@ Item {
             }
         }
 
-        Text {
+        MahoWifiGlyph {
             anchors.centerIn: parent
-            anchors.verticalCenterOffset: -1
-            text: "󰖩"
-            color: hover.containsMouse
+            width: 18
+            height: 18
+            glyphColor: hover.containsMouse
                 ? chrome.theme.alpha(chrome.accent, 0.84)
                 : chrome.theme.alpha(chrome.textSecondary, 0.78)
-            font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 16
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            renderType: Text.NativeRendering
-            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+
+            Behavior on glyphColor {
+                ColorAnimation { duration: 125; easing.type: Easing.OutCubic }
+            }
         }
     }
 
