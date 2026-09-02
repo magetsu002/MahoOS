@@ -120,8 +120,8 @@ set_hyprland_material_rule() {
                     name = "maho-launcher-qml-material",
                     match = { namespace = "maho-launcher" },
                     blur = true,
-                    ignore_alpha = 0.045,
-                    xray = true,
+                    ignore_alpha = 0.02,
+                    xray = false,
                     order = 9,
                 })
             else
