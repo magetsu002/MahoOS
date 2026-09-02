@@ -18,21 +18,23 @@ Rectangle {
     width: 40
     height: 40
     radius: 12
+    antialiasing: true
     color: pressed
         ? theme.controlPressed
         : (hovered ? theme.controlHover : theme.controlFill)
     border.width: 1
     border.color: emphasized ? theme.controlRimActive : theme.controlRim
-    scale: pressed ? 0.92 : (hovered ? 1.045 : 1)
+    scale: pressed ? 0.972 : (hovered ? 1.014 : 1)
 
-    Behavior on color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
-    Behavior on border.color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
-    Behavior on scale { NumberAnimation { duration: 165; easing.type: Easing.OutBack } }
+    Behavior on color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
+    Behavior on border.color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
     Rectangle {
         anchors.fill: parent
         anchors.margins: 1
         radius: root.radius - 1
+        antialiasing: true
         color: "transparent"
         border.width: 1
         border.color: theme.controlInnerRim
@@ -45,11 +47,11 @@ Rectangle {
         anchors.centerIn: parent
         width: 22
         height: 22
-        scale: root.pressed ? 0.88 : (root.hovered ? 1.04 : 1)
-        rotation: root.symbol === "controls" && root.hovered ? 1.5 : 0
+        scale: root.pressed ? 0.965 : (root.hovered ? 1.012 : 1)
+        rotation: root.symbol === "controls" && root.hovered ? 0.7 : 0
 
-        Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutBack } }
-        Behavior on rotation { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
+        Behavior on rotation { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
 
         Item {
             anchors.fill: parent
@@ -62,13 +64,14 @@ Rectangle {
                     width: 3.2
                     height: 3.2
                     radius: 1.6
+                    antialiasing: true
                     x: 3 + (index % 3) * 6.4
                     y: 3 + Math.floor(index / 3) * 6.4
                     color: root.theme.controlGlyph
                     opacity: root.hovered ? 1 : 0.84
-                    scale: root.hovered ? 1.06 : 1
-                    Behavior on opacity { NumberAnimation { duration: 140 } }
-                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    scale: root.hovered ? 1.025 : 1
+                    Behavior on opacity { NumberAnimation { duration: 135 } }
+                    Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
                 }
             }
         }
@@ -91,6 +94,7 @@ Rectangle {
                         width: parent.width
                         height: 1.4
                         radius: 0.7
+                        antialiasing: true
                         color: root.theme.controlGlyph
                         opacity: root.hovered ? 0.96 : 0.78
                     }
@@ -99,16 +103,17 @@ Rectangle {
                         width: 5
                         height: 5
                         radius: 2.5
+                        antialiasing: true
                         y: 0
                         x: {
                             if (parent.index === 0)
-                                return root.hovered ? 11 : 9
+                                return root.hovered ? 10 : 9
                             if (parent.index === 1)
-                                return root.hovered ? 4 : 6
-                            return root.hovered ? 9 : 11
+                                return root.hovered ? 5 : 6
+                            return root.hovered ? 10 : 11
                         }
                         color: root.theme.controlGlyph
-                        Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                        Behavior on x { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
                     }
                 }
             }
@@ -133,6 +138,7 @@ Rectangle {
 
     TapHandler {
         id: tap
+        acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: root.activated()
     }
