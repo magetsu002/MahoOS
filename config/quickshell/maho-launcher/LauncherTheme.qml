@@ -52,59 +52,59 @@ Scope {
     readonly property color textPrimary: foreground
     readonly property color textSecondary: alpha(muted, 0.78)
 
-    // Deliberately use the same material grammar as Maho Link / Bluetooth:
-    // semantic palette surfaces stay dark and calm while compositor blur carries
-    // the live desktop light through the translucent overlay around the panel.
+    // Shared Maho material grammar. The shell is intentionally translucent so
+    // Hyprland's scoped layer blur becomes part of the material, while inner
+    // controls use the same low / interactive / raised tiers as Maho Link.
     readonly property color insetColor: mix(surfaceHigh, background, 0.36)
-    readonly property color familyShell: mix(surfaceHigh, background, 0.28)
+    readonly property color familyShell: mix(surfaceHigh, background, 0.54)
 
-    readonly property color shellFill: alpha(familyShell, 0.965)
-    readonly property color shellRim: alpha(outline, 0.065)
-    readonly property color shellTopSpecular: "transparent"
-    readonly property color shellAccentWash: "transparent"
-    readonly property color shellBottomShade: "transparent"
-    readonly property color shellInnerLine: alpha(foreground, 0.020)
+    readonly property color shellFill: alpha(familyShell, 0.72)
+    readonly property color shellRim: alpha(foreground, 0.095)
+    readonly property color shellTopSpecular: alpha(foreground, 0.032)
+    readonly property color shellAccentWash: alpha(accent, 0.018)
+    readonly property color shellBottomShade: alpha(accent, 0.030)
+    readonly property color shellInnerLine: alpha(foreground, 0.055)
     readonly property color shellSideLine: "transparent"
-    readonly property color outerGlow: alpha(accent, 0.006)
+    readonly property color outerGlow: alpha(accent, 0.014)
 
-    readonly property color controlFill: alpha(insetColor, 0.82)
-    readonly property color controlHover: alpha(mix(insetColor, accent, 0.07), 0.90)
-    readonly property color controlPressed: alpha(mix(insetColor, accent, 0.12), 0.94)
-    readonly property color controlRim: alpha(outline, 0.070)
-    readonly property color controlRimActive: alpha(accent, 0.15)
-    readonly property color controlInnerRim: alpha(foreground, 0.020)
+    readonly property color controlFill: alpha(mix(surfaceHigh, background, 0.60), 0.42)
+    readonly property color controlHover: alpha(mix(surfaceHigh, accent, 0.08), 0.50)
+    readonly property color controlPressed: alpha(mix(surfaceHigh, accent, 0.12), 0.56)
+    readonly property color controlRim: alpha(foreground, 0.055)
+    readonly property color controlRimActive: alpha(accent, 0.14)
+    readonly property color controlInnerRim: alpha(foreground, 0.025)
     readonly property color controlGlyph: alpha(foreground, 0.90)
 
-    readonly property color searchFill: alpha(mix(insetColor, background, 0.06), 0.88)
-    readonly property color searchFocusedFill: alpha(mix(insetColor, accent, 0.055), 0.92)
-    readonly property color searchRim: alpha(outline, 0.070)
-    readonly property color searchFocusRim: alpha(accent, 0.15)
-    readonly property color searchSpecular: alpha(foreground, 0.016)
-    readonly property color searchSpecularFocus: alpha(mix(foreground, accent, 0.10), 0.030)
+    readonly property color searchFill: alpha(mix(surfaceHigh, background, 0.62), 0.42)
+    readonly property color searchFocusedFill: alpha(mix(surfaceHigh, accent, 0.055), 0.50)
+    readonly property color searchRim: alpha(foreground, 0.055)
+    readonly property color searchFocusRim: alpha(accent, 0.14)
+    readonly property color searchSpecular: alpha(foreground, 0.026)
+    readonly property color searchSpecularFocus: alpha(mix(foreground, accent, 0.10), 0.040)
     readonly property color searchGlyph: alpha(foreground, 0.72)
 
-    readonly property color segmentFill: alpha(mix(insetColor, background, 0.08), 0.84)
-    readonly property color segmentRim: alpha(outline, 0.065)
-    readonly property color selectedSegment: alpha(mix(insetColor, accent, 0.11), 0.96)
-    readonly property color selectedSegmentTop: alpha(mix(foreground, accent, 0.10), 0.055)
-    readonly property color selectedSegmentBottom: alpha(mix(insetColor, accent, 0.11), 0.96)
-    readonly property color selectedSegmentRim: alpha(accent, 0.12)
+    readonly property color segmentFill: alpha(mix(surfaceHigh, background, 0.64), 0.38)
+    readonly property color segmentRim: alpha(foreground, 0.050)
+    readonly property color selectedSegment: alpha(mix(surfaceHigh, accent, 0.10), 0.52)
+    readonly property color selectedSegmentTop: alpha(mix(foreground, accent, 0.10), 0.045)
+    readonly property color selectedSegmentBottom: alpha(mix(surfaceHigh, accent, 0.10), 0.52)
+    readonly property color selectedSegmentRim: alpha(accent, 0.11)
 
-    readonly property color resultsFill: alpha(mix(insetColor, background, 0.10), 0.92)
-    readonly property color resultsRim: alpha(outline, 0.070)
-    readonly property color resultsSpecular: alpha(foreground, 0.014)
+    readonly property color resultsFill: alpha(mix(surfaceHigh, background, 0.64), 0.42)
+    readonly property color resultsRim: alpha(foreground, 0.050)
+    readonly property color resultsSpecular: alpha(foreground, 0.024)
 
-    readonly property color rowHover: alpha(accent, 0.050)
-    readonly property color rowHoverRim: alpha(accent, 0.070)
-    readonly property color selectedRow: alpha(mix(insetColor, accent, 0.11), 0.97)
-    readonly property color selectedRowTop: alpha(mix(foreground, accent, 0.08), 0.035)
-    readonly property color selectedRowBottom: alpha(mix(insetColor, accent, 0.11), 0.97)
-    readonly property color selectedRowRim: alpha(accent, 0.12)
-    readonly property color selectedRowSpecular: alpha(foreground, 0.022)
-    readonly property color divider: alpha(outline, 0.032)
+    readonly property color rowHover: alpha(foreground, 0.028)
+    readonly property color rowHoverRim: alpha(foreground, 0.040)
+    readonly property color selectedRow: alpha(mix(surfaceHigh, accent, 0.10), 0.54)
+    readonly property color selectedRowTop: alpha(mix(foreground, accent, 0.08), 0.040)
+    readonly property color selectedRowBottom: alpha(mix(surfaceHigh, accent, 0.10), 0.54)
+    readonly property color selectedRowRim: alpha(accent, 0.10)
+    readonly property color selectedRowSpecular: alpha(foreground, 0.028)
+    readonly property color divider: alpha(foreground, 0.026)
 
-    // Real application artwork should sit directly on the material, not inside
-    // generic white icon tiles. Wells only appear as a whisper on interaction.
+    // Real application artwork sits directly on the material. Failed artwork
+    // falls back to a neutral monogram instead of painting a generic white tile.
     readonly property color iconWellFill: "transparent"
     readonly property color iconWellHover: alpha(foreground, 0.025)
     readonly property color iconWellSelected: alpha(accent, 0.050)
