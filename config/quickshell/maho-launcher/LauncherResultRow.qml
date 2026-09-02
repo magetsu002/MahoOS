@@ -17,9 +17,13 @@ Item {
     readonly property bool pointerHovered: hover.hovered
     readonly property bool pressed: tap.pressed
     readonly property string requestedIcon: String(root.backend.iconName(root.modelData) || "")
-    readonly property string resolvedIcon: requestedIcon.length > 0
-        ? Quickshell.iconPath(requestedIcon, "")
-        : ""
+    readonly property string resolvedIcon: {
+        if (requestedIcon.length === 0)
+            return ""
+        if (requestedIcon.startsWith("/") || requestedIcon.startsWith("file://"))
+            return requestedIcon
+        return Quickshell.iconPath(requestedIcon, "")
+    }
     readonly property bool hasIcon: resolvedIcon && resolvedIcon.length > 0
     readonly property string monogram: {
         const label = root.backend.displayName(root.modelData)
@@ -27,32 +31,37 @@ Item {
     }
 
     height: 58
-    scale: pressed ? 0.993 : 1
+    x: root.pointerHovered && !root.selected ? 2 : 0
+    scale: pressed ? 0.994 : 1
 
+    Behavior on x { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
     Rectangle {
         anchors.fill: parent
-        anchors.margins: 2
+        anchors.leftMargin: 3
+        anchors.rightMargin: 3
+        anchors.topMargin: 2
+        anchors.bottomMargin: 2
         radius: 14
         color: root.pointerHovered && !root.selected ? theme.rowHover : "transparent"
         border.width: 1
         border.color: root.pointerHovered && !root.selected ? theme.rowHoverRim : "transparent"
 
-        Behavior on color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
-        Behavior on border.color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
     }
 
     Item {
         id: iconWell
         anchors.left: parent.left
-        anchors.leftMargin: 15
+        anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         width: 40
         height: 40
-        scale: root.pressed ? 0.94 : (root.selected ? 1.035 : (root.pointerHovered ? 1.022 : 1))
+        scale: root.pressed ? 0.94 : (root.selected ? 1.035 : (root.pointerHovered ? 1.025 : 1))
 
-        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+        Behavior on scale { NumberAnimation { duration: 185; easing.type: Easing.OutBack } }
 
         Rectangle {
             anchors.fill: parent
@@ -77,17 +86,17 @@ Item {
             asynchronous: true
             mipmap: true
             smooth: true
-            scale: root.selected ? 1.015 : 1
-            Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+            scale: root.selected ? 1.018 : (root.pointerHovered ? 1.01 : 1)
+            Behavior on scale { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
         }
 
         Text {
             anchors.centerIn: parent
             visible: !root.hasIcon
             text: root.monogram
-            color: root.theme.alpha(root.theme.foreground, 0.88)
+            color: root.theme.alpha(root.theme.foreground, 0.86)
             font.family: "Inter, Noto Sans, sans-serif"
-            font.pixelSize: 15
+            font.pixelSize: 14
             font.weight: Font.DemiBold
             renderType: Text.NativeRendering
         }
@@ -97,7 +106,7 @@ Item {
         anchors.left: iconWell.right
         anchors.leftMargin: 14
         anchors.right: chevron.left
-        anchors.rightMargin: 14
+        anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
         spacing: 3
 
@@ -126,33 +135,33 @@ Item {
     Text {
         id: chevron
         anchors.right: parent.right
-        anchors.rightMargin: 17
+        anchors.rightMargin: 18
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: -1
         text: "›"
         color: root.selected
-            ? theme.alpha(theme.foreground, 0.88)
-            : theme.alpha(theme.muted, root.pointerHovered ? 0.76 : 0.50)
+            ? theme.alpha(theme.foreground, 0.82)
+            : theme.alpha(theme.muted, root.pointerHovered ? 0.66 : 0.38)
         font.family: "Inter, Noto Sans, sans-serif"
-        font.pixelSize: 19
+        font.pixelSize: 18
         font.weight: Font.Medium
         x: root.pointerHovered || root.selected ? 3 : 0
 
         Behavior on color { ColorAnimation { duration: 145 } }
-        Behavior on x { NumberAnimation { duration: 155; easing.type: Easing.OutCubic } }
+        Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
     }
 
-    // Premium inset separator: deliberately low contrast and aligned with the
-    // content rather than touching the app icon or container edges.
+    // Hairline separation, intentionally quieter than the row content.
     Rectangle {
         anchors.left: iconWell.right
-        anchors.leftMargin: 14
+        anchors.leftMargin: 16
         anchors.right: parent.right
-        anchors.rightMargin: 16
+        anchors.rightMargin: 24
         anchors.bottom: parent.bottom
         height: 1
+        radius: 1
         color: theme.divider
-        opacity: root.selected ? 0.20 : (root.pointerHovered ? 0.58 : 0.78)
+        opacity: root.selected ? 0.08 : (root.pointerHovered ? 0.24 : 0.36)
 
         Behavior on opacity { NumberAnimation { duration: 145 } }
     }
