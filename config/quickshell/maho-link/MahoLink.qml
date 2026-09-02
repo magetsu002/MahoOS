@@ -106,14 +106,14 @@ Item {
         }
     }
 
-    // A very soft accent halo separates the surface without drawing a visible
-    // second outline around it.
+    // Keep only enough perimeter lift to separate the material from dark
+    // wallpapers; it should never read as a second visible outline.
     Rectangle {
         anchors.fill: parent
-        anchors.margins: -4
-        radius: 27
-        color: theme.alpha(root.accent, 0.025)
-        opacity: 0.64
+        anchors.margins: -3
+        radius: 26
+        color: theme.alpha(root.accent, 0.015)
+        opacity: 0.42
     }
 
     Rectangle {
@@ -121,7 +121,7 @@ Item {
         radius: 24
         color: root.shellFill
         border.width: 1
-        border.color: theme.alpha(theme.outline, 0.11)
+        border.color: theme.alpha(theme.outline, 0.065)
         clip: true
 
         Rectangle {
@@ -130,7 +130,7 @@ Item {
             anchors.top: parent.top
             height: 150
             gradient: Gradient {
-                GradientStop { position: 0; color: theme.alpha(root.accent, 0.045) }
+                GradientStop { position: 0; color: theme.alpha(root.accent, 0.04) }
                 GradientStop { position: 1; color: "transparent" }
             }
         }
@@ -142,7 +142,7 @@ Item {
             anchors.rightMargin: 24
             anchors.top: parent.top
             height: 1
-            color: theme.alpha(theme.foreground, 0.035)
+            color: theme.alpha(theme.foreground, 0.02)
         }
     }
 
@@ -159,27 +159,27 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.leftMargin: 19
-        anchors.rightMargin: 19
-        anchors.topMargin: 19
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
+        anchors.topMargin: 18
         height: 40
 
         Rectangle {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            width: 34
-            height: 34
-            radius: 11
+            width: 32
+            height: 32
+            radius: 10
             color: backHover.containsMouse ? theme.alpha(root.accent, 0.075) : "transparent"
 
             Text {
                 anchors.centerIn: parent
+                anchors.verticalCenterOffset: -1
                 text: "‹"
                 color: root.textPrimary
                 font.family: "Inter"
-                font.pixelSize: 29
+                font.pixelSize: 28
                 font.weight: Font.Light
-                y: -1
             }
 
             MouseArea {
@@ -243,8 +243,8 @@ Item {
             }
 
             Rectangle {
-                width: 30
-                height: 30
+                width: 32
+                height: 32
                 radius: 10
                 color: closeHover.containsMouse ? theme.alpha(root.textSecondary, 0.075) : "transparent"
 
@@ -274,9 +274,9 @@ Item {
         anchors.right: parent.right
         anchors.top: header.bottom
         anchors.bottom: parent.bottom
-        anchors.leftMargin: 19
-        anchors.rightMargin: 19
-        anchors.topMargin: 13
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
+        anchors.topMargin: 12
         anchors.bottomMargin: 18
 
         MahoLinkMain {
