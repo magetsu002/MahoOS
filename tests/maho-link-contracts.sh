@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINK="$ROOT/config/quickshell/maho-link"
+NOTIFY="$ROOT/config/quickshell/maho-notify"
 BACKEND="$LINK/wifi.py"
 EDGE="$ROOT/config/quickshell/maho-shell/EdgeBar.qml"
 SIDE_EDGE="$ROOT/config/quickshell/maho-shell/SideEdgeBar.qml"
@@ -54,13 +55,30 @@ require_text "$LINK/MahoLink.qml" 'function stableAccent(source)' "adaptive acce
 require_text "$LINK/MahoLink.qml" 'readonly property bool compactMain:' "compact empty-network layout missing"
 require_text "$LINK/MahoLink.qml" 'readonly property color shellFill:' "dense shell material missing"
 require_text "$LINK/MahoLink.qml" '0.985)' "shell material is too transparent"
+require_text "$LINK/MahoLink.qml" 'theme.alpha(theme.outline, 0.065)' "residual shell edge is too prominent"
+require_text "$LINK/MahoLink.qml" 'anchors.leftMargin: 20' "left chrome alignment drifted"
+require_text "$LINK/MahoLink.qml" 'anchors.rightMargin: 20' "right chrome alignment drifted"
 require_text "$LINK/MahoLinkMain.qml" '"No other networks found"' "connected empty-state copy missing"
 require_text "$LINK/MahoLinkMain.qml" 'root.height - 151' "empty/list height no longer follows panel geometry"
+require_text "$LINK/MahoLinkState.qml" 'id: statusClearTimer' "transient success feedback timer missing"
+require_text "$LINK/MahoLinkState.qml" 'interval: 1500' "success feedback no longer clears promptly"
 require_text "$LINK/MahoLinkTheme.qml" '/.cache/maho/theme/active.json' "Maho Link does not use authoritative Maho palette"
 require_text "$LINK/MahoLinkTheme.qml" 'watchChanges: true' "Maho Link palette is not reactive"
 if grep -RnsEi '\bbluetooth\b' "$LINK" --include='*.qml' --include='*.py'; then
     fail "Bluetooth UI/backend leaked into Wi-Fi-only Maho Link milestone"
 fi
+echo "PASS"
+
+echo "=== Edge-aware transient placement contract ==="
+require_text "$LINK/shell.qml" '/quickshell/by-shell/maho-shell/dock.json' "Maho Link does not observe authoritative Edge placement"
+require_text "$LINK/shell.qml" 'if (dockEdge === "right")' "Maho Link does not avoid a right-docked Edge"
+require_text "$LINK/shell.qml" 'x: root.surfaceX(overlay.width, width, 24)' "Maho Link placement is no longer derived from Edge side"
+require_text "$NOTIFY/shell.qml" '/quickshell/by-shell/maho-shell/dock.json' "Maho Notify does not observe authoritative Edge placement"
+require_text "$NOTIFY/shell.qml" 'if (dockEdge === "right")' "Maho Notify does not avoid a right-docked Edge"
+require_text "$NOTIFY/shell.qml" 'x: root.surfaceX(overlay.width, width, 18)' "notification popup placement is not Edge-aware"
+require_text "$NOTIFY/shell.qml" 'x: root.surfaceX(centerOverlay.width, width, 18)' "notification center placement is not Edge-aware"
+require_text "$LINK/shell.qml" 'watchChanges: true' "Maho Link does not react to Edge moves"
+require_text "$NOTIFY/shell.qml" 'watchChanges: true' "Maho Notify does not react to Edge moves"
 echo "PASS"
 
 echo "=== narrow Edge hook contract ==="
