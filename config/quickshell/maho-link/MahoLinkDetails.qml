@@ -87,10 +87,14 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
                     text: "󰖩"
                     color: chrome.theme.alpha(chrome.accent, 0.92)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 29
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
                 }
             }
 
@@ -225,6 +229,7 @@ Item {
             height: 50
             radius: 17
             antialiasing: true
+            scale: disconnectHover.pressed ? 0.995 : 1
             color: disconnectHover.pressed
                 ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
                 : disconnectHover.containsMouse
@@ -236,8 +241,9 @@ Item {
                 : root.glassStroke
             opacity: root.wifi.busy ? 0.50 : 1
 
-            Behavior on color { ColorAnimation { duration: 120 } }
-            Behavior on border.color { ColorAnimation { duration: 120 } }
+            Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+            Behavior on border.color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 115; easing.type: Easing.OutCubic } }
 
             Rectangle {
                 anchors.fill: parent
@@ -264,10 +270,14 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
                     text: "󰖪"
                     color: chrome.theme.alpha(chrome.textSecondary, 0.80)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 15
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
                 }
             }
 
