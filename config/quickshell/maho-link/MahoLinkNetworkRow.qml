@@ -8,29 +8,62 @@ Item {
     signal selected()
 
     width: parent ? parent.width : 420
-    height: 61
+    height: 58
 
     Rectangle {
         anchors.fill: parent
         anchors.margins: 3
-        radius: 13
-        color: hover.containsMouse ? chrome.theme.alpha(chrome.accent, 0.07) : "transparent"
-        Behavior on color { ColorAnimation { duration: 105 } }
+        radius: 15
+        antialiasing: true
+        color: hover.pressed
+            ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
+            : hover.containsMouse
+                ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
+                : "transparent"
+        Behavior on color { ColorAnimation { duration: 110 } }
     }
 
-    Text {
+    Rectangle {
         anchors.left: parent.left
-        anchors.leftMargin: 17
+        anchors.leftMargin: 14
         anchors.verticalCenter: parent.verticalCenter
-        text: "󰖩"
-        color: chrome.textSecondary
-        font.family: "JetBrainsMono Nerd Font"
-        font.pixelSize: 18
+        width: 32
+        height: 32
+        radius: 12
+        antialiasing: true
+        color: chrome.theme.alpha(
+            chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.44),
+            0.40
+        )
+        border.width: 1
+        border.color: chrome.theme.alpha(chrome.theme.foreground, 0.040)
+
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            antialiasing: true
+            gradient: Gradient {
+                GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.030) }
+                GradientStop { position: 0.62; color: "transparent" }
+                GradientStop { position: 1; color: chrome.theme.alpha(chrome.theme.background, 0.026) }
+            }
+        }
+
+        Text {
+            anchors.centerIn: parent
+            text: "󰖩"
+            color: hover.containsMouse
+                ? chrome.theme.alpha(chrome.accent, 0.84)
+                : chrome.theme.alpha(chrome.textSecondary, 0.78)
+            font.family: "JetBrainsMono Nerd Font"
+            font.pixelSize: 16
+            Behavior on color { ColorAnimation { duration: 110 } }
+        }
     }
 
     Column {
         anchors.left: parent.left
-        anchors.leftMargin: 53
+        anchors.leftMargin: 58
         anchors.right: status.left
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
@@ -42,7 +75,7 @@ Item {
             color: chrome.textPrimary
             elide: Text.ElideRight
             font.family: "Inter"
-            font.pixelSize: 14
+            font.pixelSize: 13
             font.weight: Font.Medium
         }
 
@@ -50,10 +83,10 @@ Item {
             visible: Boolean(root.network.enterprise)
             width: parent.width
             text: "Enterprise authentication"
-            color: chrome.textSecondary
+            color: chrome.theme.alpha(chrome.textSecondary, 0.62)
             elide: Text.ElideRight
             font.family: "Inter"
-            font.pixelSize: 10
+            font.pixelSize: 9
         }
     }
 
@@ -62,15 +95,15 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: 15
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 10
+        spacing: 9
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
             visible: Boolean(root.network.secured)
             text: ""
-            color: chrome.textSecondary
+            color: chrome.theme.alpha(chrome.textSecondary, 0.68)
             font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 12
+            font.pixelSize: 11
         }
 
         MahoLinkSignal {
@@ -82,9 +115,13 @@ Item {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: "›"
-            color: chrome.textSecondary
+            color: hover.containsMouse
+                ? chrome.theme.alpha(chrome.textPrimary, 0.76)
+                : chrome.theme.alpha(chrome.textSecondary, 0.56)
             font.family: "Inter"
             font.pixelSize: 20
+            font.weight: Font.Light
+            Behavior on color { ColorAnimation { duration: 110 } }
         }
     }
 
@@ -93,7 +130,7 @@ Item {
         anchors.fill: parent
         enabled: root.interactionEnabled
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: root.selected()
     }
 }
