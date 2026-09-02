@@ -47,7 +47,7 @@ require_text "$LINK/shell.qml" 'WlrLayershell.namespace: "maho-link"' "Maho Link
 require_text "$LINK/shell.qml" 'WlrLayershell.layer: WlrLayer.Overlay' "Maho Link is not an overlay surface"
 require_text "$LINK/shell.qml" 'onClicked: root.closeOverlay()' "outside click does not close Maho Link"
 require_text "$LINK/MahoLink.qml" 'Keys.onEscapePressed: root.closeRequested()' "Escape close missing"
-require_text "$LINK/MahoLink.qml" 'text: "Wi-Fi"' "Wi-Fi title missing"
+require_text "$LINK/MahoLink.qml" '? "Wi-Fi"' "Wi-Fi title missing"
 require_text "$LINK/MahoLink.qml" 'function stableAccent(source)' "adaptive accent clamp missing"
 require_text "$LINK/MahoLinkTheme.qml" '/.cache/maho/theme/active.json' "Maho Link does not use authoritative Maho palette"
 require_text "$LINK/MahoLinkTheme.qml" 'watchChanges: true' "Maho Link palette is not reactive"
