@@ -4,6 +4,9 @@ import Quickshell
 Item {
     id: root
 
+    // These names intentionally differ from the window ids. Older builds used
+    // `theme: theme` / `backend: backend`, which could self-bind inside the
+    // delegate and leave row colors/model access undefined at runtime.
     required property var theme
     required property var backend
     required property int index
@@ -17,9 +20,22 @@ Item {
     signal hovered(int index)
     signal activated(int index)
 
+    LauncherTheme { id: fallbackPalette }
+
+    readonly property var palette: root.theme || fallbackPalette
     readonly property bool pointerHovered: hover.hovered
     readonly property bool pressed: tap.pressed
-    property var modelData: root.backend.itemAt(root.index)
+
+    // Activation must remain truthful even if an injected backend binding is
+    // temporarily unavailable. The delegate already owns all published roles.
+    property var modelData: ({
+        "entryId": root.entryId,
+        "id": root.entryId,
+        "name": root.name,
+        "description": root.description,
+        "icon": root.icon,
+        "iconPath": root.iconPath
+    })
 
     height: 58
     x: root.pointerHovered && !root.selected ? 2 : 0
@@ -36,9 +52,9 @@ Item {
         anchors.bottomMargin: 2
         radius: 14
         antialiasing: true
-        color: root.pointerHovered && !root.selected ? theme.rowHover : "transparent"
+        color: root.pointerHovered && !root.selected ? root.palette.rowHover : "transparent"
         border.width: 1
-        border.color: root.pointerHovered && !root.selected ? theme.rowHoverRim : "transparent"
+        border.color: root.pointerHovered && !root.selected ? root.palette.rowHoverRim : "transparent"
 
         Behavior on color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
@@ -55,8 +71,8 @@ Item {
 
         Behavior on scale { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
 
-        // Application artwork sits directly on the launcher material. There is
-        // deliberately no generic tile or synthesized fallback artwork.
+        // Real application artwork only. Missing artwork leaves transparent
+        // space rather than synthesizing a cheap tile or letter placeholder.
         LauncherAppIcon {
             anchors.centerIn: parent
             width: 36
@@ -82,22 +98,28 @@ Item {
         Text {
             width: parent.width
             text: root.name
-            color: theme.textPrimary
+            color: root.palette.textPrimary
+            opacity: root.selected ? 1 : 0.96
             elide: Text.ElideRight
             font.family: "Inter, Noto Sans, sans-serif"
-            font.pixelSize: 13
+            font.pixelSize: 14
             font.weight: root.selected ? Font.DemiBold : Font.Medium
             renderType: Text.NativeRendering
+
+            Behavior on opacity { NumberAnimation { duration: 140 } }
         }
 
         Text {
             width: parent.width
             text: root.description
-            color: theme.textSecondary
+            color: root.palette.textSecondary
+            opacity: root.selected ? 0.92 : 0.84
             elide: Text.ElideRight
             font.family: "Inter, Noto Sans, sans-serif"
-            font.pixelSize: 10
+            font.pixelSize: 11
             renderType: Text.NativeRendering
+
+            Behavior on opacity { NumberAnimation { duration: 140 } }
         }
     }
 
@@ -109,8 +131,8 @@ Item {
         anchors.verticalCenterOffset: -1
         text: "›"
         color: root.selected
-            ? theme.alpha(theme.foreground, 0.82)
-            : theme.alpha(theme.muted, root.pointerHovered ? 0.66 : 0.38)
+            ? root.palette.alpha(root.palette.foreground, 0.82)
+            : root.palette.alpha(root.palette.muted, root.pointerHovered ? 0.66 : 0.38)
         font.family: "Inter, Noto Sans, sans-serif"
         font.pixelSize: 18
         font.weight: Font.Medium
@@ -128,8 +150,8 @@ Item {
         anchors.bottom: parent.bottom
         height: 1
         radius: 1
-        color: theme.divider
-        opacity: root.selected ? 0.05 : (root.pointerHovered ? 0.18 : 0.28)
+        color: root.palette.divider
+        opacity: root.selected ? 0.05 : (root.pointerHovered ? 0.14 : 0.20)
 
         Behavior on opacity { NumberAnimation { duration: 145 } }
     }
