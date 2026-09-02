@@ -130,7 +130,7 @@ def scan_networks(enabled: bool):
         return [], None
     code, out, _ = run([
         "nmcli", "-t", "-e", "yes", "-f",
-        "IN-USE,SSID,SIGNAL,SECURITY,FREQ", "device", "wifi", "list", "--rescan", "no"
+        "IN-USE,SSID,SIGNAL,SECURITY,FREQ", "device", "wifi", "list", "--rescan", "auto"
     ], timeout=5.0)
     if code != 0:
         return [], None
