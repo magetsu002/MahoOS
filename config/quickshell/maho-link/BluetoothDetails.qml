@@ -112,10 +112,14 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
                     text: root.glyph(device ? device.kind : "generic")
                     color: chrome.theme.alpha(chrome.textPrimary, 0.96)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 37
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
                 }
             }
 
@@ -330,12 +334,14 @@ Item {
                         anchors.margins: 3
                         radius: 15
                         antialiasing: true
+                        scale: connectHover.pressed ? 0.996 : 1
                         color: connectHover.pressed
                             ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
                             : connectHover.containsMouse
                                 ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
                                 : "transparent"
-                        Behavior on color { ColorAnimation { duration: 115 } }
+                        Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
                     }
 
                     Rectangle {
@@ -352,10 +358,14 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
+                            anchors.verticalCenterOffset: -1
                             text: device && device.connected ? "󰂲" : "󰂱"
                             color: chrome.theme.alpha(chrome.textSecondary, 0.84)
                             font.family: "JetBrainsMono Nerd Font"
                             font.pixelSize: 15
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            renderType: Text.NativeRendering
                         }
                     }
 
@@ -401,12 +411,14 @@ Item {
                         anchors.margins: 3
                         radius: 15
                         antialiasing: true
+                        scale: forgetHover.pressed ? 0.996 : 1
                         color: forgetHover.pressed
                             ? chrome.theme.alpha(chrome.theme.error, 0.075)
                             : forgetHover.containsMouse
                                 ? chrome.theme.alpha(chrome.theme.error, 0.050)
                                 : "transparent"
-                        Behavior on color { ColorAnimation { duration: 115 } }
+                        Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
                     }
 
                     Rectangle {
@@ -423,10 +435,14 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
+                            anchors.verticalCenterOffset: -1
                             text: "󰆴"
                             color: chrome.theme.error
                             font.family: "JetBrainsMono Nerd Font"
                             font.pixelSize: 14
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            renderType: Text.NativeRendering
                         }
                     }
 
