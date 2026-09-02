@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="${MAHO_LINK_CONFIG:-$ROOT/config/quickshell/maho-link/shell.qml}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOCK="$RUNTIME_DIR/maho-link.lock"
+LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-link.log"
+
+command -v quickshell >/dev/null 2>&1 || {
+    echo "maho-link: quickshell is unavailable" >&2
+    exit 1
+}
+
+command -v flock >/dev/null 2>&1 || {
+    echo "maho-link: flock is unavailable" >&2
+    exit 1
+}
+
+[ -r "$CONFIG" ] || {
+    echo "maho-link: configuration missing: $CONFIG" >&2
+    exit 1
+}
+
+mkdir -p "$RUNTIME_DIR" "$(dirname "$LOG")"
+exec 9>"$LOCK"
+if ! flock -n 9; then
+    echo "maho-link: already running"
+    exit 0
+fi
+
+exec quickshell -p "$CONFIG" >>"$LOG" 2>&1
