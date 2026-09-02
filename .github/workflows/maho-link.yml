@@ -1,0 +1,31 @@
+name: maho-link
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-link tests/maho-link-contracts.sh
+
+      - name: Python syntax
+        run: |
+          set -euo pipefail
+          python -m py_compile config/quickshell/maho-link/wifi.py
+
+      - name: Maho Link contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-link-contracts.sh
