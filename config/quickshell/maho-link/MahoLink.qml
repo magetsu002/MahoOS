@@ -12,8 +12,17 @@ Item {
 
     signal closeRequested()
 
+    readonly property bool compactMain:
+        page === "main"
+        && wifi.snapshotReady
+        && wifi.wifiEnabled
+        && wifi.networks
+        && wifi.networks.length === 0
+
     width: 486
-    height: Math.min(652, Math.max(500, availableHeight - 40))
+    height: compactMain
+        ? Math.min(470, Math.max(430, availableHeight - 40))
+        : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
     scale: shown ? 1 : 0.988
@@ -22,13 +31,15 @@ Item {
         Behavior on y { NumberAnimation { duration: root.shown ? 210 : 150; easing.type: Easing.OutCubic } }
     }
 
+    Behavior on height { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
     Behavior on opacity { NumberAnimation { duration: shown ? 210 : 150; easing.type: Easing.OutCubic } }
     Behavior on scale { NumberAnimation { duration: shown ? 210 : 150; easing.type: Easing.OutCubic } }
 
     readonly property color textPrimary: theme.foreground
     readonly property color textSecondary: theme.alpha(theme.muted, 0.78)
-    readonly property color insetColor: mix(theme.surfaceHigh, theme.background, 0.30)
+    readonly property color insetColor: mix(theme.surfaceHigh, theme.background, 0.36)
     readonly property color accent: stableAccent(theme.primary)
+    readonly property color shellFill: theme.alpha(mix(theme.surfaceHigh, theme.background, 0.28), 0.985)
 
     function mix(a, b, amount) {
         const t = Math.max(0, Math.min(1, amount))
@@ -95,33 +106,43 @@ Item {
         }
     }
 
+    // A very soft accent halo separates the surface without drawing a visible
+    // second outline around it.
     Rectangle {
         anchors.fill: parent
-        anchors.margins: -7
-        radius: 28
-        color: theme.alpha(root.accent, 0.055)
-        border.width: 1
-        border.color: theme.alpha(root.accent, 0.07)
-        opacity: 0.86
+        anchors.margins: -4
+        radius: 27
+        color: theme.alpha(root.accent, 0.025)
+        opacity: 0.64
     }
 
     Rectangle {
         anchors.fill: parent
         radius: 24
-        color: theme.alpha(root.mix(theme.surfaceHigh, theme.background, 0.20), 0.935)
+        color: root.shellFill
         border.width: 1
-        border.color: theme.alpha(theme.outline, 0.25)
+        border.color: theme.alpha(theme.outline, 0.11)
         clip: true
 
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: 180
+            height: 150
             gradient: Gradient {
-                GradientStop { position: 0; color: theme.alpha(root.accent, 0.085) }
+                GradientStop { position: 0; color: theme.alpha(root.accent, 0.045) }
                 GradientStop { position: 1; color: "transparent" }
             }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: 24
+            anchors.rightMargin: 24
+            anchors.top: parent.top
+            height: 1
+            color: theme.alpha(theme.foreground, 0.035)
         }
     }
 
@@ -140,23 +161,23 @@ Item {
         anchors.top: parent.top
         anchors.leftMargin: 19
         anchors.rightMargin: 19
-        anchors.topMargin: 18
-        height: 42
+        anchors.topMargin: 19
+        height: 40
 
         Rectangle {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            width: 36
-            height: 36
-            radius: 12
-            color: backHover.containsMouse ? theme.alpha(root.accent, 0.10) : "transparent"
+            width: 34
+            height: 34
+            radius: 11
+            color: backHover.containsMouse ? theme.alpha(root.accent, 0.075) : "transparent"
 
             Text {
                 anchors.centerIn: parent
                 text: "‹"
                 color: root.textPrimary
                 font.family: "Inter"
-                font.pixelSize: 30
+                font.pixelSize: 29
                 font.weight: Font.Light
                 y: -1
             }
@@ -189,22 +210,22 @@ Item {
 
             Rectangle {
                 visible: root.page === "main"
-                width: 48
-                height: 28
-                radius: 14
+                width: 44
+                height: 26
+                radius: 13
                 color: root.wifi.wifiEnabled
-                    ? theme.alpha(root.accent, toggleHover.containsMouse ? 0.95 : 0.86)
-                    : theme.alpha(root.textSecondary, 0.18)
+                    ? theme.alpha(root.accent, toggleHover.containsMouse ? 0.84 : 0.74)
+                    : theme.alpha(root.textSecondary, 0.15)
                 border.width: 1
                 border.color: root.wifi.wifiEnabled
-                    ? theme.alpha(root.accent, 0.48)
-                    : theme.alpha(theme.outline, 0.20)
+                    ? theme.alpha(root.accent, 0.24)
+                    : theme.alpha(theme.outline, 0.12)
                 opacity: root.wifi.available && !root.wifi.busy ? 1 : 0.48
 
                 Rectangle {
-                    width: 22
-                    height: 22
-                    radius: 11
+                    width: 20
+                    height: 20
+                    radius: 10
                     y: 3
                     x: root.wifi.wifiEnabled ? parent.width - width - 3 : 3
                     color: Qt.rgba(1, 1, 1, 0.94)
@@ -222,17 +243,17 @@ Item {
             }
 
             Rectangle {
-                width: 32
-                height: 32
-                radius: 11
-                color: closeHover.containsMouse ? theme.alpha(root.textSecondary, 0.10) : "transparent"
+                width: 30
+                height: 30
+                radius: 10
+                color: closeHover.containsMouse ? theme.alpha(root.textSecondary, 0.075) : "transparent"
 
                 Text {
                     anchors.centerIn: parent
                     text: "×"
-                    color: root.textSecondary
+                    color: theme.alpha(root.textSecondary, 0.88)
                     font.family: "Inter"
-                    font.pixelSize: 21
+                    font.pixelSize: 20
                 }
 
                 MouseArea {
@@ -255,7 +276,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.leftMargin: 19
         anchors.rightMargin: 19
-        anchors.topMargin: 12
+        anchors.topMargin: 13
         anchors.bottomMargin: 18
 
         MahoLinkMain {
@@ -309,7 +330,7 @@ Item {
         visible: statusText.text !== ""
         color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.15)
         border.width: 1
-        border.color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.23)
+        border.color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.18)
 
         Text {
             id: statusText
