@@ -85,16 +85,11 @@ Item {
                     }
                 }
 
-                Text {
+                MahoWifiGlyph {
                     anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -1
-                    text: "󰖩"
-                    color: chrome.theme.alpha(chrome.accent, 0.92)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 29
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    renderType: Text.NativeRendering
+                    width: 32
+                    height: 32
+                    glyphColor: chrome.theme.alpha(chrome.accent, 0.92)
                 }
             }
 
@@ -268,16 +263,12 @@ Item {
                 border.width: 1
                 border.color: chrome.theme.alpha(chrome.theme.foreground, 0.035)
 
-                Text {
+                MahoWifiGlyph {
                     anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -1
-                    text: "󰖪"
-                    color: chrome.theme.alpha(chrome.textSecondary, 0.80)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 15
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    renderType: Text.NativeRendering
+                    width: 17
+                    height: 17
+                    disabled: true
+                    glyphColor: chrome.theme.alpha(chrome.textSecondary, 0.80)
                 }
             }
 
