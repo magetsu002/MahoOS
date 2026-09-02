@@ -62,7 +62,6 @@ PanelWindow {
             searchInput.forceActiveFocus()
             return
         }
-
         previousMode = backend.mode
         pendingMode = index
         modeChanging = true
@@ -86,13 +85,13 @@ PanelWindow {
 
     Timer {
         id: closeTimer
-        interval: 190
+        interval: 205
         onTriggered: Qt.quit()
     }
 
     Timer {
         id: modeSwap
-        interval: 92
+        interval: 96
         onTriggered: {
             backend.mode = root.pendingMode
             searchInput.text = ""
@@ -110,14 +109,15 @@ PanelWindow {
         })
     }
 
-    // Maho Link/Bluetooth-style full-screen material plane. The compositor
-    // blur now sees the entire backdrop instead of only the launcher rectangle,
-    // which is what makes color and luminance feel reflected through the glass.
+    // The entire desktop remains underneath this overlay. Hyprland blurs the
+    // live windows immediately behind it; this dim is only a tiny focus veil.
     Rectangle {
         id: backdropDim
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, root.shown ? 0.105 : 0)
-        Behavior on color { ColorAnimation { duration: root.shown ? 220 : 165; easing.type: Easing.OutCubic } }
+        color: Qt.rgba(0, 0, 0, root.shown ? 0.045 : 0)
+        Behavior on color {
+            ColorAnimation { duration: root.shown ? 255 : 180; easing.type: Easing.OutCubic }
+        }
     }
 
     MouseArea {
@@ -132,53 +132,50 @@ PanelWindow {
         height: Math.min(root.surfaceHeight, root.height - 40)
         anchors.centerIn: parent
         opacity: root.shown ? 1 : 0
-        scale: root.shown ? 1 : 0.978
+        scale: root.shown ? 1 : 0.986
 
         transform: Translate {
-            id: openTranslate
-            y: root.shown ? 0 : -11
+            y: root.shown ? 0 : -8
             Behavior on y {
                 NumberAnimation {
-                    duration: root.shown ? 235 : 160
+                    duration: root.shown ? 280 : 180
                     easing.type: Easing.OutCubic
                 }
             }
         }
 
         Behavior on opacity {
-            NumberAnimation { duration: root.shown ? 225 : 155; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: root.shown ? 250 : 175; easing.type: Easing.OutCubic }
         }
         Behavior on scale {
-            NumberAnimation { duration: root.shown ? 250 : 165; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: root.shown ? 290 : 190; easing.type: Easing.OutCubic }
         }
 
         Rectangle {
             anchors.fill: materialPanel
-            anchors.margins: -5
-            radius: 30
+            anchors.margins: -4
+            radius: 31
             color: theme.outerGlow
             opacity: root.shown ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 230 } }
+            Behavior on opacity { NumberAnimation { duration: 250 } }
         }
 
         Rectangle {
             id: materialPanel
             anchors.fill: parent
-            radius: 25
+            radius: 27
             color: theme.shellFill
             border.width: 1
             border.color: theme.shellRim
             clip: true
 
-            // A very soft environment wash. Most perceived color should come
-            // from the real blurred wallpaper behind this translucent surface.
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
                 gradient: Gradient {
                     GradientStop { position: 0.00; color: theme.shellTopSpecular }
-                    GradientStop { position: 0.22; color: theme.shellAccentWash }
-                    GradientStop { position: 0.72; color: "transparent" }
+                    GradientStop { position: 0.20; color: theme.shellAccentWash }
+                    GradientStop { position: 0.74; color: "transparent" }
                     GradientStop { position: 1.00; color: theme.shellBottomShade }
                 }
             }
@@ -186,10 +183,12 @@ PanelWindow {
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 22
-                anchors.rightMargin: 22
+                anchors.leftMargin: 28
+                anchors.rightMargin: 28
                 anchors.top: parent.top
+                anchors.topMargin: 1
                 height: 1
+                radius: 1
                 color: theme.shellInnerLine
             }
 
@@ -198,13 +197,12 @@ PanelWindow {
                 anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 width: 1
-                anchors.topMargin: 24
-                anchors.bottomMargin: 24
+                radius: 1
+                anchors.topMargin: 34
+                anchors.bottomMargin: 34
                 color: theme.shellSideLine
             }
 
-            // Consume blank clicks inside the material so only clicks outside
-            // the launcher dismiss it.
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
@@ -260,21 +258,22 @@ PanelWindow {
                     id: searchField
                     Layout.fillWidth: true
                     Layout.preferredHeight: 50
-                    radius: 16
+                    radius: 17
                     color: searchInput.activeFocus ? theme.searchFocusedFill : theme.searchFill
                     border.width: 1
                     border.color: searchInput.activeFocus ? theme.searchFocusRim : theme.searchRim
 
-                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                    Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on color { ColorAnimation { duration: 185; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 185; easing.type: Easing.OutCubic } }
 
                     Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 18
                         height: 1
+                        radius: 1
                         color: searchInput.activeFocus ? theme.searchSpecularFocus : theme.searchSpecular
                         Behavior on color { ColorAnimation { duration: 180 } }
                     }
@@ -375,7 +374,7 @@ PanelWindow {
                     id: modeShelf
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
-                    radius: 15
+                    radius: 16
                     color: theme.segmentFill
                     border.width: 1
                     border.color: theme.segmentRim
@@ -389,7 +388,7 @@ PanelWindow {
                         y: 2
                         width: modeShelf.segmentWidth
                         height: parent.height - 4
-                        radius: 13
+                        radius: 14
                         border.width: 1
                         border.color: theme.selectedSegmentRim
                         gradient: Gradient {
@@ -399,7 +398,7 @@ PanelWindow {
                         }
 
                         Behavior on x {
-                            NumberAnimation { duration: 230; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: 245; easing.type: Easing.OutCubic }
                         }
                     }
 
@@ -454,7 +453,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 522
-                    radius: 16
+                    radius: 18
                     color: theme.resultsFill
                     border.width: 1
                     border.color: theme.resultsRim
@@ -464,9 +463,11 @@ PanelWindow {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
+                        anchors.leftMargin: 20
+                        anchors.rightMargin: 20
+                        anchors.topMargin: 1
                         height: 1
+                        radius: 1
                         color: theme.resultsSpecular
                     }
 
@@ -475,16 +476,15 @@ PanelWindow {
                         anchors.fill: parent
                         opacity: root.modeChanging ? 0 : 1
                         transform: Translate {
-                            id: modeTranslate
                             x: root.modeChanging
-                                ? (root.pendingMode > root.previousMode ? 12 : -12)
+                                ? (root.pendingMode > root.previousMode ? 10 : -10)
                                 : 0
                             Behavior on x {
-                                NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+                                NumberAnimation { duration: 205; easing.type: Easing.OutCubic }
                             }
                         }
 
-                        Behavior on opacity { NumberAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
                         ListView {
                             id: resultList
@@ -498,14 +498,17 @@ PanelWindow {
                             boundsBehavior: Flickable.StopAtBounds
                             keyNavigationEnabled: false
                             highlightFollowsCurrentItem: true
-                            highlightMoveDuration: 210
-                            highlightResizeDuration: 160
+                            highlightMoveDuration: 225
+                            highlightResizeDuration: 170
                             highlightMoveVelocity: -1
 
                             highlight: Item {
                                 Rectangle {
                                     anchors.fill: parent
-                                    anchors.margins: 2
+                                    anchors.leftMargin: 3
+                                    anchors.rightMargin: 3
+                                    anchors.topMargin: 2
+                                    anchors.bottomMargin: 2
                                     radius: 14
                                     border.width: 1
                                     border.color: theme.selectedRowRim
@@ -518,11 +521,12 @@ PanelWindow {
                                 Rectangle {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
-                                    anchors.leftMargin: 18
-                                    anchors.rightMargin: 18
+                                    anchors.leftMargin: 24
+                                    anchors.rightMargin: 24
                                     anchors.top: parent.top
-                                    anchors.topMargin: 3
+                                    anchors.topMargin: 4
                                     height: 1
+                                    radius: 1
                                     color: theme.selectedRowSpecular
                                 }
                             }
@@ -547,9 +551,9 @@ PanelWindow {
 
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: backend.mode === 1 && backend.fileSearchBusy
-                                    ? "Searching files..."
-                                    : "Nothing found"
+                                text: backend.mode === 0 && backend.appIndexBusy
+                                    ? "Loading applications..."
+                                    : (backend.mode === 1 && backend.fileSearchBusy ? "Searching files..." : "Nothing found")
                                 color: theme.alpha(theme.foreground, 0.78)
                                 font.family: "Inter, Noto Sans, sans-serif"
                                 font.pixelSize: 12
@@ -559,7 +563,7 @@ PanelWindow {
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: backend.mode === 0
-                                    ? "Try a different application name"
+                                    ? (backend.appIndexBusy ? "Reading installed desktop entries" : "Try a different application name")
                                     : (backend.mode === 1 ? "Search your home folder" : "No command matches this search")
                                 color: theme.alpha(theme.muted, 0.58)
                                 font.family: "Inter, Noto Sans, sans-serif"
