@@ -44,6 +44,7 @@ Item {
             height: 102
             radius: 20
             antialiasing: true
+            scale: currentHover.pressed && currentNetwork ? 0.997 : 1
             readonly property var currentNetwork: root.wifi.currentNetwork
             color: currentHover.containsMouse && currentNetwork
                 ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.035), 0.59)
@@ -53,8 +54,9 @@ Item {
                 ? chrome.theme.alpha(chrome.accent, 0.11)
                 : root.glassStroke
 
-            Behavior on color { ColorAnimation { duration: 145 } }
-            Behavior on border.color { ColorAnimation { duration: 145 } }
+            Behavior on color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
+            Behavior on border.color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
             Rectangle {
                 anchors.fill: parent
@@ -87,6 +89,7 @@ Item {
             }
 
             Rectangle {
+                id: currentIcon
                 anchors.left: parent.left
                 anchors.leftMargin: 16
                 anchors.verticalCenter: parent.verticalCenter
@@ -94,6 +97,7 @@ Item {
                 height: 56
                 radius: 19
                 antialiasing: true
+                scale: currentHover.containsMouse && currentCard.currentNetwork ? 1.012 : 1
                 color: chrome.theme.alpha(
                     chrome.mix(
                         chrome.theme.surfaceHigh,
@@ -107,6 +111,8 @@ Item {
                     currentCard.currentNetwork ? chrome.accent : chrome.theme.foreground,
                     currentCard.currentNetwork ? 0.09 : 0.045
                 )
+
+                Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
                 Rectangle {
                     anchors.fill: parent
@@ -124,12 +130,16 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
                     text: currentCard.currentNetwork ? "󰖩" : "󰖪"
                     color: currentCard.currentNetwork
                         ? chrome.theme.alpha(chrome.accent, 0.92)
                         : chrome.theme.alpha(chrome.textSecondary, 0.82)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 25
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
                 }
             }
 
@@ -180,11 +190,15 @@ Item {
 
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: -1
                     visible: Boolean(currentCard.currentNetwork && currentCard.currentNetwork.secured)
                     text: ""
                     color: chrome.theme.alpha(chrome.textSecondary, 0.74)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 11
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
                 }
                 MahoLinkSignal {
                     anchors.verticalCenter: parent.verticalCenter
@@ -361,6 +375,7 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
+                            anchors.verticalCenterOffset: -1
                             text: root.wifi.wifiEnabled ? "󰖩" : "󰖪"
                             color: chrome.theme.alpha(
                                 root.wifi.busy ? chrome.accent : chrome.textSecondary,
@@ -368,6 +383,9 @@ Item {
                             )
                             font.family: "JetBrainsMono Nerd Font"
                             font.pixelSize: 17
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            renderType: Text.NativeRendering
                         }
                     }
 
@@ -422,12 +440,14 @@ Item {
                     anchors.margins: 3
                     radius: 15
                     antialiasing: true
+                    scale: otherHover.pressed ? 0.996 : 1
                     color: otherHover.pressed
                         ? chrome.theme.alpha(chrome.theme.foreground, 0.050)
                         : otherHover.containsMouse
                             ? chrome.theme.alpha(chrome.theme.foreground, 0.026)
                             : "transparent"
-                    Behavior on color { ColorAnimation { duration: 115 } }
+                    Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
                 }
 
                 Rectangle {
@@ -450,6 +470,9 @@ Item {
                         font.family: "Inter"
                         font.pixelSize: 18
                         font.weight: Font.Light
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        renderType: Text.NativeRendering
                     }
                 }
 
@@ -468,6 +491,7 @@ Item {
                     anchors.right: parent.right
                     anchors.rightMargin: 16
                     anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: -1
                     text: "›"
                     color: otherHover.containsMouse
                         ? chrome.theme.alpha(chrome.textPrimary, 0.78)
@@ -475,6 +499,9 @@ Item {
                     font.family: "Inter"
                     font.pixelSize: 20
                     font.weight: Font.Light
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
                 }
 
                 MouseArea {
