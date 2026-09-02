@@ -82,16 +82,16 @@ Item {
     Connections {
         target: root.wifi
         function onActionMessageChanged() {
-            if (root.wifi.actionMessage === "")
-                return
-            if (root.page !== "main") {
+            if (root.wifi.actionMessage !== "" && root.page !== "main") {
                 root.page = "main"
                 root.selectedNetwork = null
             }
         }
         function onWifiEnabledChanged() {
-            if (!root.wifi.wifiEnabled && root.page !== "main")
-                root.goBack()
+            if (!root.wifi.wifiEnabled && root.page !== "main") {
+                root.page = "main"
+                root.selectedNetwork = null
+            }
         }
     }
 
@@ -106,7 +106,6 @@ Item {
     }
 
     Rectangle {
-        id: material
         anchors.fill: parent
         radius: 24
         color: theme.alpha(root.mix(theme.surfaceHigh, theme.background, 0.20), 0.935)
@@ -119,7 +118,6 @@ Item {
             anchors.right: parent.right
             anchors.top: parent.top
             height: 180
-            color: theme.alpha(root.accent, 0.055)
             gradient: Gradient {
                 GradientStop { position: 0; color: theme.alpha(root.accent, 0.085) }
                 GradientStop { position: 1; color: "transparent" }
@@ -127,7 +125,7 @@ Item {
         }
     }
 
-    // Consume clicks inside the material so the full-screen outside catcher does not close it.
+    // Prevent the full-screen outside-click catcher from receiving blank panel clicks.
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton
@@ -146,7 +144,6 @@ Item {
         height: 42
 
         Rectangle {
-            id: backButton
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             width: 36
@@ -261,263 +258,17 @@ Item {
         anchors.topMargin: 12
         anchors.bottomMargin: 18
 
-        Item {
-            id: mainPage
+        MahoLinkMain {
             anchors.fill: parent
             visible: root.page === "main"
-
-            Column {
-                anchors.fill: parent
-                spacing: 13
-
-                Rectangle {
-                    width: parent.width
-                    height: 98
-                    radius: 18
-                    color: theme.alpha(root.currentNetwork ? root.accent : root.insetColor, root.currentNetwork ? 0.13 : 0.72)
-                    border.width: 1
-                    border.color: root.currentNetwork
-                        ? theme.alpha(root.accent, 0.22)
-                        : theme.alpha(theme.outline, 0.15)
-
-                    readonly property var currentNetwork: root.wifi.currentNetwork
-
-                    Text {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 19
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: parent.currentNetwork ? "󰖩" : (root.wifi.wifiEnabled ? "󰖪" : "󰖪")
-                        color: parent.currentNetwork ? root.accent : root.textSecondary
-                        font.family: "JetBrainsMono Nerd Font"
-                        font.pixelSize: 28
-                    }
-
-                    Column {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 67
-                        anchors.right: signalGroup.left
-                        anchors.rightMargin: 12
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 4
-
-                        Text {
-                            width: parent.width
-                            text: mainPage.parent.currentNetwork
-                                ? String(mainPage.parent.currentNetwork.ssid || "Wi-Fi")
-                                : root.wifi.wifiEnabled ? "Not Connected" : "Wi-Fi Off"
-                            color: root.textPrimary
-                            elide: Text.ElideRight
-                            font.family: "Inter"
-                            font.pixelSize: 17
-                            font.weight: Font.DemiBold
-                        }
-                        Text {
-                            width: parent.width
-                            text: mainPage.parent.currentNetwork
-                                ? "Connected · " + String(mainPage.parent.currentNetwork.quality || "")
-                                : root.wifi.available
-                                    ? (root.wifi.wifiEnabled ? "Choose a network below" : "Enable Wi-Fi to scan")
-                                    : "NetworkManager unavailable"
-                            color: root.textSecondary
-                            elide: Text.ElideRight
-                            font.family: "Inter"
-                            font.pixelSize: 12
-                        }
-                    }
-
-                    Row {
-                        id: signalGroup
-                        anchors.right: parent.right
-                        anchors.rightMargin: 18
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 10
-                        visible: parent.currentNetwork !== null
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: Boolean(mainPage.parent.currentNetwork && mainPage.parent.currentNetwork.secured)
-                            text: ""
-                            color: root.textSecondary
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 12
-                        }
-                        MahoLinkSignal {
-                            anchors.verticalCenter: parent.verticalCenter
-                            chrome: root
-                            strength: Number(mainPage.parent.currentNetwork ? mainPage.parent.currentNetwork.signal : 0)
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: parent.currentNetwork !== null
-                        hoverEnabled: true
-                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: {
-                            root.selectedNetwork = parent.currentNetwork
-                            root.page = "details"
-                        }
-                    }
-                }
-
-                Item {
-                    width: parent.width
-                    height: 29
-
-                    Text {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Available Networks"
-                        color: root.textSecondary
-                        font.family: "Inter"
-                        font.pixelSize: 12
-                        font.weight: Font.Medium
-                    }
-
-                    Text {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.wifi.busy ? "Scanning…" : "Refresh"
-                        color: root.wifi.wifiEnabled ? root.accent : theme.alpha(root.textSecondary, 0.40)
-                        font.family: "Inter"
-                        font.pixelSize: 11
-
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -8
-                            enabled: root.wifi.wifiEnabled && !root.wifi.busy
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.wifi.rescan()
-                        }
-                    }
-                }
-
-                Rectangle {
-                    width: parent.width
-                    height: Math.max(144, mainPage.height - 253)
-                    radius: 18
-                    color: theme.alpha(root.insetColor, 0.67)
-                    border.width: 1
-                    border.color: theme.alpha(theme.outline, 0.14)
-                    clip: true
-
-                    ListView {
-                        id: networksList
-                        anchors.fill: parent
-                        anchors.topMargin: 4
-                        anchors.bottomMargin: 60
-                        clip: true
-                        model: root.wifi.wifiEnabled ? root.wifi.networks : []
-                        boundsBehavior: Flickable.StopAtBounds
-
-                        delegate: Item {
-                            required property var modelData
-                            width: networksList.width
-                            height: 61
-
-                            MahoLinkNetworkRow {
-                                anchors.fill: parent
-                                chrome: root
-                                network: modelData
-                                interactionEnabled: !root.wifi.busy
-                                onSelected: root.selectNetwork(modelData)
-                            }
-
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.leftMargin: 53
-                                anchors.right: parent.right
-                                anchors.rightMargin: 14
-                                anchors.bottom: parent.bottom
-                                height: 1
-                                color: theme.alpha(theme.outline, 0.10)
-                            }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            visible: networksList.count === 0
-                            text: !root.wifi.available ? "NetworkManager unavailable"
-                                : !root.wifi.wifiEnabled ? "Wi-Fi is turned off"
-                                : root.wifi.snapshotReady ? "No networks found" : "Scanning…"
-                            color: root.textSecondary
-                            font.family: "Inter"
-                            font.pixelSize: 12
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: otherRow.top
-                        height: 1
-                        color: theme.alpha(theme.outline, 0.12)
-                    }
-
-                    Item {
-                        id: otherRow
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 56
-
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.margins: 3
-                            radius: 13
-                            color: otherHover.containsMouse ? theme.alpha(root.accent, 0.07) : "transparent"
-                        }
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.leftMargin: 17
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 27
-                            height: 27
-                            radius: 14
-                            color: theme.alpha(root.textSecondary, 0.12)
-                            Text {
-                                anchors.centerIn: parent
-                                text: "+"
-                                color: root.textSecondary
-                                font.family: "Inter"
-                                font.pixelSize: 18
-                            }
-                        }
-
-                        Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: 57
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "Other Network…"
-                            color: root.textPrimary
-                            font.family: "Inter"
-                            font.pixelSize: 14
-                            font.weight: Font.Medium
-                        }
-
-                        Text {
-                            anchors.right: parent.right
-                            anchors.rightMargin: 17
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "›"
-                            color: root.textSecondary
-                            font.family: "Inter"
-                            font.pixelSize: 20
-                        }
-
-                        MouseArea {
-                            id: otherHover
-                            anchors.fill: parent
-                            enabled: root.wifi.wifiEnabled && !root.wifi.busy
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.page = "manual"
-                        }
-                    }
-                }
+            chrome: root
+            wifi: root.wifi
+            onNetworkSelected: function(network) { root.selectNetwork(network) }
+            onDetailsRequested: function(network) {
+                root.selectedNetwork = network
+                root.page = "details"
             }
+            onManualRequested: root.page = "manual"
         }
 
         MahoLinkPassword {
@@ -556,7 +307,6 @@ Item {
         height: 34
         radius: 17
         visible: statusText.text !== ""
-        opacity: visible ? 1 : 0
         color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.15)
         border.width: 1
         border.color: theme.alpha(root.wifi.errorText !== "" ? theme.error : root.accent, 0.23)
