@@ -28,6 +28,7 @@ Item {
         return Quickshell.iconPath(requestedIcon, "")
     }
     readonly property bool hasIcon: resolvedIcon && resolvedIcon.length > 0
+    readonly property bool iconReady: root.hasIcon && appIcon.status === Image.Ready
     readonly property string monogram: name.length > 0 ? name.slice(0, 1).toUpperCase() : "•"
     property var modelData: root.backend.itemAt(root.index)
 
@@ -45,6 +46,7 @@ Item {
         anchors.topMargin: 2
         anchors.bottomMargin: 2
         radius: 14
+        antialiasing: true
         color: root.pointerHovered && !root.selected ? theme.rowHover : "transparent"
         border.width: 1
         border.color: root.pointerHovered && !root.selected ? theme.rowHoverRim : "transparent"
@@ -67,6 +69,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: 11
+            antialiasing: true
             color: root.selected
                 ? theme.iconWellSelected
                 : (root.pointerHovered ? theme.iconWellHover : theme.iconWellFill)
@@ -83,7 +86,7 @@ Item {
             width: 34
             height: 34
             source: root.resolvedIcon
-            visible: root.hasIcon
+            visible: root.iconReady
             asynchronous: true
             mipmap: true
             smooth: true
@@ -91,11 +94,14 @@ Item {
             Behavior on scale { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
         }
 
+        // A non-empty icon path is not proof that Qt could render the artwork.
+        // Keep a restrained text fallback until Image.Ready so broken symbolic
+        // or unsupported assets never become blank white application tiles.
         Text {
             anchors.centerIn: parent
-            visible: !root.hasIcon
+            visible: !root.iconReady
             text: root.monogram
-            color: root.theme.alpha(root.theme.foreground, 0.88)
+            color: root.theme.alpha(root.theme.foreground, 0.72)
             font.family: "Inter, Noto Sans, sans-serif"
             font.pixelSize: 15
             font.weight: Font.DemiBold
@@ -177,6 +183,7 @@ Item {
 
     TapHandler {
         id: tap
+        acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: root.activated(root.index)
     }
