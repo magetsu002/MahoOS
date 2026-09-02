@@ -29,6 +29,7 @@ Scope {
     function runAction(args, password) {
         if (actionProcess.running)
             return false
+        statusClearTimer.stop()
         actionMessage = ""
         errorText = ""
         pendingPassword = password || ""
@@ -93,16 +94,29 @@ Scope {
                     if (payload.ok) {
                         state.actionMessage = String(payload.message || "")
                         state.errorText = ""
+                        if (state.actionMessage !== "")
+                            statusClearTimer.restart()
                     } else {
+                        statusClearTimer.stop()
                         state.actionMessage = ""
                         state.errorText = String(payload.message || "Wi-Fi action failed.")
                     }
                 } catch (error) {
+                    statusClearTimer.stop()
                     state.errorText = "Wi-Fi action returned an invalid response."
                     console.log("maho-link action parse:", error)
                 }
                 refreshDelay.restart()
             }
+        }
+    }
+
+    Timer {
+        id: statusClearTimer
+        interval: 1500
+        onTriggered: {
+            if (state.errorText === "")
+                state.actionMessage = ""
         }
     }
 
