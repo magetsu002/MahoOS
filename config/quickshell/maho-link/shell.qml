@@ -10,9 +10,12 @@ ShellRoot {
 
     MahoLinkTheme { id: theme }
     MahoLinkState { id: wifi }
+    BluetoothState { id: bluetooth }
 
     property bool presented: true
     property bool overlayOpen: false
+    readonly property string initialMode:
+        String(Quickshell.env("MAHO_LINK_MODE")) === "bluetooth" ? "bluetooth" : "wifi"
 
     readonly property string stateBase: {
         const configured = Quickshell.env("XDG_STATE_HOME")
@@ -61,8 +64,12 @@ ShellRoot {
         closeTimer.stop()
         presented = true
         overlayOpen = true
+        linkSurface.section = root.initialMode
+        linkSurface.page = "main"
         linkSurface.shown = true
         linkSurface.forceActiveFocus()
+        if (root.initialMode === "bluetooth")
+            bluetooth.refresh()
     }
 
     function closeOverlay() {
@@ -127,7 +134,9 @@ ShellRoot {
             y: 20
             theme: theme
             wifi: wifi
+            bluetooth: bluetooth
             availableHeight: overlay.height
+            section: root.initialMode
             shown: root.overlayOpen
             onCloseRequested: root.closeOverlay()
         }
