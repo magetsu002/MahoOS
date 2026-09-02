@@ -18,18 +18,23 @@ Item {
     readonly property int nearbyCount:
         bluetooth.availableDevices ? bluetooth.availableDevices.length : 0
 
-    // Bluetooth should read as neutral material with state-colored accents,
-    // rather than tinting every surface with the wallpaper primary color.
+    // Glass tiers deliberately stay neutral. The wallpaper accent is reserved
+    // for state, not used as a blanket tint over every surface.
     readonly property color glassLow: chrome.theme.alpha(
-        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.58),
-        0.69
+        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64),
+        0.42
     )
     readonly property color glassRaised: chrome.theme.alpha(
-        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.40),
-        0.78
+        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.48),
+        0.54
     )
-    readonly property color glassStroke: chrome.theme.alpha(chrome.theme.foreground, 0.045)
-    readonly property color glassHighlight: chrome.theme.alpha(chrome.theme.foreground, 0.052)
+    readonly property color glassInteractive: chrome.theme.alpha(
+        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.56),
+        0.47
+    )
+    readonly property color glassStroke: chrome.theme.alpha(chrome.theme.foreground, 0.078)
+    readonly property color glassHighlight: chrome.theme.alpha(chrome.theme.foreground, 0.105)
+    readonly property color glassLowlight: chrome.theme.alpha(chrome.theme.background, 0.12)
 
     function glyph(kind) {
         switch (String(kind || "generic")) {
@@ -49,19 +54,26 @@ Item {
         spacing: 11
 
         Rectangle {
+            id: powerCard
             width: parent.width
             height: 58
             radius: 17
-            color: chrome.theme.alpha(
-                chrome.mix(
-                    chrome.theme.surfaceHigh,
-                    root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background,
-                    root.bluetooth.bluetoothEnabled ? 0.035 : 0.12
-                ),
-                0.70
-            )
+            clip: true
+            color: root.glassInteractive
             border.width: 1
             border.color: root.glassStroke
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.032) }
+                    GradientStop { position: 0.52; color: "transparent" }
+                    GradientStop {
+                        position: 1
+                        color: chrome.theme.alpha(root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background, 0.018)
+                    }
+                }
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -80,19 +92,30 @@ Item {
                 width: 34
                 height: 34
                 radius: 12
+                clip: true
                 color: chrome.theme.alpha(
                     chrome.mix(
                         chrome.theme.surfaceHigh,
                         root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background,
-                        root.bluetooth.bluetoothEnabled ? 0.14 : 0.18
+                        root.bluetooth.bluetoothEnabled ? 0.16 : 0.22
                     ),
-                    0.76
+                    0.50
                 )
                 border.width: 1
                 border.color: chrome.theme.alpha(
                     root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.foreground,
-                    root.bluetooth.bluetoothEnabled ? 0.11 : 0.04
+                    root.bluetooth.bluetoothEnabled ? 0.13 : 0.065
                 )
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 7
+                    anchors.rightMargin: 7
+                    anchors.top: parent.top
+                    height: 1
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.11)
+                }
 
                 Text {
                     anchors.centerIn: parent
@@ -135,16 +158,27 @@ Item {
                 width: 46
                 height: 27
                 radius: 14
+                clip: true
                 opacity: root.bluetooth.available && !root.bluetooth.busy ? 1 : 0.48
                 color: root.bluetooth.bluetoothEnabled
-                    ? chrome.theme.alpha(chrome.accent, toggleHover.containsMouse ? 0.74 : 0.64)
-                    : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.54)
+                    ? chrome.theme.alpha(chrome.accent, toggleHover.containsMouse ? 0.77 : 0.67)
+                    : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.42)
                 border.width: 1
                 border.color: root.bluetooth.bluetoothEnabled
-                    ? chrome.theme.alpha(chrome.accent, 0.18)
-                    : chrome.theme.alpha(chrome.theme.foreground, 0.05)
+                    ? chrome.theme.alpha(chrome.accent, 0.22)
+                    : chrome.theme.alpha(chrome.theme.foreground, 0.075)
 
                 Behavior on color { ColorAnimation { duration: 150 } }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    anchors.top: parent.top
+                    height: 1
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.13)
+                }
 
                 Rectangle {
                     width: 22
@@ -152,9 +186,9 @@ Item {
                     radius: 11
                     y: 4
                     x: root.bluetooth.bluetoothEnabled ? parent.width - width - 2 : 2
-                    color: Qt.rgba(0, 0, 0, 0.16)
-                    opacity: 0.7
-                    Behavior on x { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
+                    color: Qt.rgba(0, 0, 0, 0.20)
+                    opacity: 0.68
+                    Behavior on x { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
                 }
 
                 Rectangle {
@@ -163,10 +197,10 @@ Item {
                     radius: 11
                     y: 3
                     x: root.bluetooth.bluetoothEnabled ? parent.width - width - 3 : 3
-                    color: Qt.rgba(0.985, 0.985, 0.985, 0.98)
+                    color: Qt.rgba(0.99, 0.99, 0.99, 0.985)
                     border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.38)
-                    Behavior on x { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
+                    border.color: Qt.rgba(1, 1, 1, 0.46)
+                    Behavior on x { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
                 }
 
                 MouseArea {
@@ -186,14 +220,14 @@ Item {
             height: root.primaryDevice ? 118 : 0
             visible: root.primaryDevice !== null
             radius: 18
+            clip: true
             color: heroHover.containsMouse
-                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.045), 0.82)
+                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.040), 0.60)
                 : root.glassRaised
             border.width: 1
             border.color: heroHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.13)
-                : root.glassStroke
-            clip: true
+                ? chrome.theme.alpha(chrome.accent, 0.15)
+                : chrome.theme.alpha(chrome.theme.foreground, 0.090)
 
             Behavior on color { ColorAnimation { duration: 150 } }
             Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -201,9 +235,10 @@ Item {
             Rectangle {
                 anchors.fill: parent
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.accent, 0.050) }
-                    GradientStop { position: 0.52; color: chrome.theme.alpha(chrome.accent, 0.012) }
-                    GradientStop { position: 1; color: "transparent" }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.045) }
+                    GradientStop { position: 0.30; color: chrome.theme.alpha(chrome.accent, 0.048) }
+                    GradientStop { position: 0.72; color: "transparent" }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.022) }
                 }
             }
 
@@ -214,7 +249,17 @@ Item {
                 anchors.rightMargin: 18
                 anchors.top: parent.top
                 height: 1
-                color: chrome.theme.alpha(chrome.theme.foreground, 0.065)
+                color: chrome.theme.alpha(chrome.theme.foreground, 0.135)
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 24
+                anchors.rightMargin: 24
+                anchors.bottom: parent.bottom
+                height: 1
+                color: chrome.theme.alpha(chrome.accent, 0.045)
             }
 
             Rectangle {
@@ -226,12 +271,22 @@ Item {
                 width: 70
                 height: 70
                 radius: 22
+                clip: true
                 color: chrome.theme.alpha(
-                    chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.08),
-                    0.72
+                    chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12),
+                    0.50
                 )
                 border.width: 1
-                border.color: chrome.theme.alpha(chrome.theme.foreground, 0.055)
+                border.color: chrome.theme.alpha(chrome.theme.foreground, 0.095)
+
+                Rectangle {
+                    anchors.fill: parent
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.055) }
+                        GradientStop { position: 0.55; color: "transparent" }
+                        GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.055) }
+                    }
+                }
 
                 Rectangle {
                     anchors.left: parent.left
@@ -240,13 +295,13 @@ Item {
                     anchors.rightMargin: 16
                     anchors.top: parent.top
                     height: 1
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.07)
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.145)
                 }
 
                 Text {
                     anchors.centerIn: parent
                     text: root.glyph(root.primaryDevice ? root.primaryDevice.kind : "generic")
-                    color: chrome.theme.alpha(chrome.textPrimary, 0.94)
+                    color: chrome.theme.alpha(chrome.textPrimary, 0.96)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 34
                 }
@@ -272,7 +327,7 @@ Item {
                 }
                 Text {
                     text: "Connected"
-                    color: chrome.theme.alpha(chrome.accent, 0.88)
+                    color: chrome.theme.alpha(chrome.accent, 0.90)
                     font.family: "Inter"
                     font.pixelSize: 10
                     font.weight: Font.DemiBold
@@ -296,8 +351,8 @@ Item {
                     && String(root.primaryDevice.quality || "") !== "" ? -14 : 0
                 text: "›"
                 color: heroHover.containsMouse
-                    ? chrome.theme.alpha(chrome.textPrimary, 0.78)
-                    : chrome.theme.alpha(chrome.textSecondary, 0.62)
+                    ? chrome.theme.alpha(chrome.textPrimary, 0.82)
+                    : chrome.theme.alpha(chrome.textSecondary, 0.64)
                 font.family: "Inter"
                 font.pixelSize: 24
                 font.weight: Font.Light
@@ -317,7 +372,7 @@ Item {
                     anchors.leftMargin: 18
                     anchors.rightMargin: 18
                     height: 1
-                    color: chrome.theme.alpha(chrome.theme.foreground, 0.040)
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
                 }
 
                 Text {
@@ -359,7 +414,7 @@ Item {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Paired Devices"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.76)
+                color: chrome.theme.alpha(chrome.textSecondary, 0.78)
                 font.family: "Inter"
                 font.pixelSize: 11
                 font.weight: Font.Medium
@@ -367,14 +422,24 @@ Item {
         }
 
         Rectangle {
+            id: pairedCard
             width: parent.width
             height: !root.bluetooth.bluetoothEnabled ? 176
                 : root.pairedCount > 0 ? Math.min(144, root.pairedCount * 55 + 6) : 94
             radius: 17
+            clip: true
             color: root.glassLow
             border.width: 1
             border.color: root.glassStroke
-            clip: true
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.024) }
+                    GradientStop { position: 0.55; color: "transparent" }
+                    GradientStop { position: 1; color: root.glassLowlight }
+                }
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -415,7 +480,7 @@ Item {
                         anchors.rightMargin: 14
                         anchors.bottom: parent.bottom
                         height: 1
-                        color: chrome.theme.alpha(chrome.theme.foreground, 0.035)
+                        color: chrome.theme.alpha(chrome.theme.foreground, 0.045)
                     }
                 }
             }
@@ -462,7 +527,7 @@ Item {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Available Devices"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.76)
+                color: chrome.theme.alpha(chrome.textSecondary, 0.78)
                 font.family: "Inter"
                 font.pixelSize: 11
                 font.weight: Font.Medium
@@ -491,7 +556,7 @@ Item {
 
                 Text {
                     text: root.bluetooth.discovering ? "Looking…" : "Find Devices"
-                    color: chrome.theme.alpha(chrome.accent, 0.90)
+                    color: chrome.theme.alpha(chrome.accent, 0.92)
                     font.family: "Inter"
                     font.pixelSize: 10
                     font.weight: Font.Medium
@@ -514,14 +579,24 @@ Item {
         }
 
         Rectangle {
+            id: nearbyCard
             width: parent.width
             height: root.bluetooth.bluetoothEnabled ? 104 : 0
             visible: root.bluetooth.bluetoothEnabled
             radius: 17
+            clip: true
             color: root.glassLow
             border.width: 1
             border.color: root.glassStroke
-            clip: true
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.022) }
+                    GradientStop { position: 0.58; color: "transparent" }
+                    GradientStop { position: 1; color: root.glassLowlight }
+                }
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -559,24 +634,51 @@ Item {
 
                 Column {
                     anchors.centerIn: parent
-                    spacing: 6
+                    spacing: 7
                     visible: nearbyList.count === 0
 
-                    Text {
+                    Item {
+                        id: nearbyRing
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: root.bluetooth.discovering ? "󰂯" : "󰂲"
-                        color: chrome.theme.alpha(
-                            root.bluetooth.discovering ? chrome.accent : chrome.textSecondary,
-                            root.bluetooth.discovering ? 0.78 : 0.42
-                        )
-                        font.family: "JetBrainsMono Nerd Font"
-                        font.pixelSize: 18
+                        width: 40
+                        height: 40
+
+                        Repeater {
+                            model: 16
+                            Rectangle {
+                                required property int index
+                                readonly property real angle: index * Math.PI * 2 / 16
+                                width: 2
+                                height: 2
+                                radius: 1
+                                x: nearbyRing.width / 2 + Math.cos(angle) * 17 - width / 2
+                                y: nearbyRing.height / 2 + Math.sin(angle) * 17 - height / 2
+                                color: chrome.theme.alpha(
+                                    root.bluetooth.discovering ? chrome.accent : chrome.textSecondary,
+                                    0.52
+                                )
+                                opacity: root.bluetooth.discovering
+                                    ? 0.32 + ((index % 4) * 0.15)
+                                    : 0.55
+                            }
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "󰂯"
+                            color: chrome.theme.alpha(
+                                root.bluetooth.discovering ? chrome.accent : chrome.textSecondary,
+                                root.bluetooth.discovering ? 0.84 : 0.58
+                            )
+                            font.family: "JetBrainsMono Nerd Font"
+                            font.pixelSize: 17
+                        }
                     }
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: root.bluetooth.discovering ? "Looking for nearby devices…" : "No nearby devices found"
-                        color: chrome.theme.alpha(chrome.textSecondary, 0.62)
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.64)
                         font.family: "Inter"
                         font.pixelSize: 10
                     }
@@ -585,22 +687,43 @@ Item {
         }
 
         Rectangle {
+            id: pairCard
             width: parent.width
             height: root.bluetooth.bluetoothEnabled ? 45 : 0
             visible: root.bluetooth.bluetoothEnabled
             radius: 15
+            clip: true
             color: pairHover.pressed
-                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.08), 0.76)
+                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.055), 0.56)
                 : pairHover.containsMouse
-                    ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.045), 0.72)
-                    : root.glassLow
+                    ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.030), 0.51)
+                    : root.glassInteractive
             border.width: 1
             border.color: pairHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.12)
+                ? chrome.theme.alpha(chrome.accent, 0.14)
                 : root.glassStroke
 
             Behavior on color { ColorAnimation { duration: 125 } }
             Behavior on border.color { ColorAnimation { duration: 125 } }
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.025) }
+                    GradientStop { position: 0.60; color: "transparent" }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.018) }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                anchors.top: parent.top
+                height: 1
+                color: root.glassHighlight
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -609,9 +732,20 @@ Item {
                 width: 28
                 height: 28
                 radius: 10
-                color: chrome.theme.alpha(chrome.accent, 0.075)
+                clip: true
+                color: chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12), 0.46)
                 border.width: 1
-                border.color: chrome.theme.alpha(chrome.accent, 0.08)
+                border.color: chrome.theme.alpha(chrome.accent, 0.10)
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 6
+                    anchors.top: parent.top
+                    height: 1
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.10)
+                }
 
                 Text {
                     anchors.centerIn: parent
@@ -640,7 +774,9 @@ Item {
                 anchors.rightMargin: 16
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.bluetooth.discovering ? "•••" : "›"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.55)
+                color: pairHover.containsMouse
+                    ? chrome.theme.alpha(chrome.textPrimary, 0.78)
+                    : chrome.theme.alpha(chrome.textSecondary, 0.58)
                 font.family: "Inter"
                 font.pixelSize: root.bluetooth.discovering ? 11 : 20
                 font.weight: Font.Light
