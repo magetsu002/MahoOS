@@ -18,7 +18,6 @@ Item {
 
         onPaint: {
             const ctx = getContext("2d")
-            ctx.reset()
             ctx.clearRect(0, 0, width, height)
 
             const size = Math.min(width, height)
