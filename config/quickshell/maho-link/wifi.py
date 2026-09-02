@@ -6,6 +6,10 @@ import subprocess
 import sys
 from typing import Iterable
 
+# The compatibility snapshot still permits NetworkManager's bounded automatic
+# refresh. Live Maho Link startup uses the separate cached networks path.
+DEFAULT_SCAN_ARGS = ("--rescan", "auto")
+
 
 def emit(payload):
     print(json.dumps(payload, separators=(",", ":")))
