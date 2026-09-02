@@ -10,6 +10,37 @@ ShellRoot {
     property bool centerOpen: false
     property bool centerPresented: false
 
+    readonly property string stateBase: {
+        const configured = Quickshell.env("XDG_STATE_HOME")
+        return configured && String(configured) !== ""
+            ? String(configured)
+            : Quickshell.env("HOME") + "/.local/state"
+    }
+    readonly property string dockEdge:
+        dockState.edge === "left" || dockState.edge === "right"
+            || dockState.edge === "top" || dockState.edge === "bottom"
+            ? dockState.edge : "top"
+
+    function surfaceX(containerWidth, surfaceWidth, margin) {
+        if (dockEdge === "right")
+            return margin
+        return Math.max(margin, containerWidth - surfaceWidth - margin)
+    }
+
+    FileView {
+        path: root.stateBase + "/quickshell/by-shell/maho-shell/dock.json"
+        watchChanges: true
+        blockLoading: true
+        onFileChanged: reload()
+
+        JsonAdapter {
+            id: dockState
+            property int version: 1
+            property string edge: "top"
+            property real position: 0.5
+        }
+    }
+
     NotifyTheme { id: theme }
     AppIdentityResolver { id: appIdentityResolver }
     NotificationModel { id: notificationModel }
@@ -139,7 +170,7 @@ ShellRoot {
 
         NotificationStack {
             id: popupStack
-            x: Math.max(12, overlay.width - width - 18)
+            x: root.surfaceX(overlay.width, width, 18)
             y: 18
             theme: theme
             notificationModel: notificationModel
@@ -166,7 +197,7 @@ ShellRoot {
 
         NotificationCenter {
             id: centerSurface
-            x: Math.max(12, centerOverlay.width - width - 18)
+            x: root.surfaceX(centerOverlay.width, width, 18)
             y: 18
             theme: theme
             historyModel: historyModel
