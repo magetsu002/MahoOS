@@ -92,7 +92,7 @@ require_text "$LINK/BluetoothState.qml" 'busctl", "--system", "monitor", "org.bl
 if grep -RnsF 'bluetoothctl' "$LINK" --include='*.qml'; then
     fail "Maho Link Bluetooth QML must not drive bluetoothctl"
 fi
-if grep -nsE '(subprocess\.(run|Popen).*bluetoothctl|\[[^]]*["'"']bluetoothctl["'"'])' "$BT_BACKEND"; then
+if grep -nF '["bluetoothctl"' "$BT_BACKEND" || grep -nF "['bluetoothctl'" "$BT_BACKEND"; then
     fail "Maho Link Bluetooth backend must not execute bluetoothctl"
 fi
 if grep -RnsE 'WH-1000XM5|Magic Keyboard|Magic Trackpad|AirPods Pro|MX Master 3S|Echo Dot|Soundcore Liberty|WH-CH720N' "$LINK" --include='*.qml' --include='*.py'; then
