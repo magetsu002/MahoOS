@@ -38,7 +38,7 @@ chmod +x "$TMP/fake-bin/quickshell"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-setup)
+COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-link maho-notify maho-setup)
 UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service maho-notify.service)
 
 echo "=== preflight ==="
@@ -57,6 +57,12 @@ SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
 [ -L "$SHELL_TARGET" ] || fail "Maho Shell configuration is not a symlink"
 [ "$(readlink -f "$SHELL_TARGET")" = "$ROOT/config/quickshell/maho-shell" ] || fail "Maho Shell targets wrong checkout"
 [ -r "$SHELL_TARGET/shell.qml" ] || fail "Maho Shell entrypoint missing after install"
+
+LINK_TARGET="$XDG_CONFIG_HOME/quickshell/maho-link"
+[ -L "$LINK_TARGET" ] || fail "Maho Link configuration is not a symlink"
+[ "$(readlink -f "$LINK_TARGET")" = "$ROOT/config/quickshell/maho-link" ] || fail "Maho Link targets wrong checkout"
+[ -r "$LINK_TARGET/shell.qml" ] || fail "Maho Link entrypoint missing after install"
+[ -r "$LINK_TARGET/bluetooth.py" ] || fail "Maho Link Bluetooth backend missing after install"
 
 NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
 [ -L "$NOTIFY_TARGET" ] || fail "Maho Notify configuration is not a symlink"
@@ -122,6 +128,19 @@ bash "$ROOT/bin/maho-setup" install >/dev/null
 [ -L "$SHELL_TARGET" ] || fail "managed shell was not restored after unmanaged protection test"
 echo "PASS"
 
+echo "=== unmanaged link protected ==="
+rm -f "$LINK_TARGET"
+mkdir -p "$LINK_TARGET"
+printf '%s\n' 'external-link' > "$LINK_TARGET/owner.txt"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "setup overwrote unmanaged Maho Link configuration"
+fi
+grep -q '^external-link$' "$LINK_TARGET/owner.txt" || fail "unmanaged Maho Link configuration was modified"
+rm -rf "$LINK_TARGET"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+[ -L "$LINK_TARGET" ] || fail "managed Maho Link was not restored after unmanaged protection test"
+echo "PASS"
+
 echo "=== unmanaged notify protected ==="
 rm -f "$NOTIFY_TARGET"
 mkdir -p "$NOTIFY_TARGET"
@@ -145,6 +164,7 @@ for unit in "${UNITS[@]}"; do
     grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not disabled: $unit"
 done
 [ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail "managed shell configuration survived uninstall"
+[ ! -e "$LINK_TARGET" ] && [ ! -L "$LINK_TARGET" ] || fail "managed Maho Link configuration survived uninstall"
 [ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify configuration survived uninstall"
 echo "PASS"
 
