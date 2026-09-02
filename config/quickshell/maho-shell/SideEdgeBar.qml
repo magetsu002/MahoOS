@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 
 Item {
     id: edge
@@ -27,6 +28,14 @@ Item {
         if (system && system.networkKind === "wifi") return "󰖩"
         if (system && system.networkKind === "ethernet") return "󰈀"
         return "󰖪"
+    }
+
+    function openMahoLink() {
+        const override = Quickshell.env("MAHO_LINK_LAUNCHER")
+        const launcher = override !== ""
+            ? override
+            : Quickshell.env("HOME") + "/.local/bin/maho-link"
+        Quickshell.execDetached(["bash", launcher])
     }
 
     function batteryGlyph() {
@@ -74,7 +83,13 @@ Item {
     TapHandler {
         enabled: edge.enabled
         acceptedButtons: Qt.LeftButton
-        onTapped: edge.openRequested()
+        onTapped: {
+            // The vertical resting Wi-Fi glyph owns only the compact top target.
+            if (edge.mode === "idle" && point.position.y <= 46)
+                edge.openMahoLink()
+            else
+                edge.openRequested()
+        }
     }
 
     Item {
