@@ -50,7 +50,13 @@ Item {
     readonly property color textSecondary: theme.alpha(theme.muted, 0.78)
     readonly property color insetColor: mix(theme.surfaceHigh, theme.background, 0.36)
     readonly property color accent: stableAccent(theme.primary)
-    readonly property color shellFill: theme.alpha(mix(theme.surfaceHigh, theme.background, 0.28), 0.985)
+    readonly property color shellFill: section === "bluetooth"
+        ? theme.alpha(mix(theme.surfaceHigh, theme.background, 0.54), 0.72)
+        : theme.alpha(mix(theme.surfaceHigh, theme.background, 0.28), 0.985)
+    readonly property color shellStroke: section === "bluetooth"
+        ? theme.alpha(theme.foreground, 0.105)
+        : theme.alpha(theme.outline, 0.065)
+    readonly property color shellHighlight: theme.alpha(theme.foreground, section === "bluetooth" ? 0.115 : 0.02)
 
     function mix(a, b, amount) {
         const t = Math.max(0, Math.min(1, amount))
@@ -204,43 +210,55 @@ Item {
         }
     }
 
-    // Keep only enough perimeter lift to separate the material from dark
-    // wallpapers; it should never read as a second visible outline.
+    // One clipped shell owns the complete perimeter. Keeping every reflection
+    // inside this radius avoids corner halos peeking past the rounded mask.
     Rectangle {
-        anchors.fill: parent
-        anchors.margins: -3
-        radius: 26
-        color: theme.alpha(root.accent, 0.015)
-        opacity: 0.42
-    }
-
-    Rectangle {
+        id: shellMaterial
         anchors.fill: parent
         radius: 24
         color: root.shellFill
         border.width: 1
-        border.color: theme.alpha(theme.outline, 0.065)
+        border.color: root.shellStroke
         clip: true
 
         Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: 150
+            anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0; color: theme.alpha(root.accent, 0.04) }
-                GradientStop { position: 1; color: "transparent" }
+                GradientStop {
+                    position: 0
+                    color: theme.alpha(theme.foreground, root.section === "bluetooth" ? 0.032 : 0.0)
+                }
+                GradientStop {
+                    position: 0.20
+                    color: theme.alpha(root.accent, root.section === "bluetooth" ? 0.018 : 0.04)
+                }
+                GradientStop { position: 0.60; color: "transparent" }
+                GradientStop {
+                    position: 1
+                    color: theme.alpha(root.accent, root.section === "bluetooth" ? 0.035 : 0.0)
+                }
             }
         }
 
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: 24
-            anchors.rightMargin: 24
+            anchors.leftMargin: 20
+            anchors.rightMargin: 20
             anchors.top: parent.top
             height: 1
-            color: theme.alpha(theme.foreground, 0.02)
+            color: root.shellHighlight
+        }
+
+        Rectangle {
+            visible: root.section === "bluetooth"
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: 28
+            anchors.rightMargin: 28
+            anchors.bottom: parent.bottom
+            height: 1
+            color: theme.alpha(root.accent, 0.055)
         }
     }
 
@@ -268,7 +286,9 @@ Item {
             width: 32
             height: 32
             radius: 10
-            color: backHover.containsMouse ? theme.alpha(root.accent, 0.075) : "transparent"
+            color: backHover.containsMouse
+                ? theme.alpha(root.section === "bluetooth" ? theme.foreground : root.accent, root.section === "bluetooth" ? 0.045 : 0.075)
+                : "transparent"
 
             Text {
                 anchors.centerIn: parent
@@ -351,7 +371,9 @@ Item {
                 width: 32
                 height: 32
                 radius: 10
-                color: closeHover.containsMouse ? theme.alpha(root.textSecondary, 0.075) : "transparent"
+                color: closeHover.containsMouse
+                    ? theme.alpha(root.section === "bluetooth" ? theme.foreground : root.textSecondary, root.section === "bluetooth" ? 0.045 : 0.075)
+                    : "transparent"
 
                 Text {
                     anchors.centerIn: parent
