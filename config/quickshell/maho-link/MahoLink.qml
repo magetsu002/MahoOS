@@ -50,13 +50,16 @@ Item {
     readonly property color textSecondary: theme.alpha(theme.muted, 0.78)
     readonly property color insetColor: mix(theme.surfaceHigh, theme.background, 0.36)
     readonly property color accent: stableAccent(theme.primary)
-    readonly property color shellFill: section === "bluetooth"
-        ? theme.alpha(mix(theme.surfaceHigh, theme.background, 0.54), 0.72)
-        : theme.alpha(mix(theme.surfaceHigh, theme.background, 0.28), 0.985)
-    readonly property color shellStroke: section === "bluetooth"
-        ? theme.alpha(theme.foreground, 0.105)
-        : theme.alpha(theme.outline, 0.065)
-    readonly property color shellHighlight: theme.alpha(theme.foreground, section === "bluetooth" ? 0.115 : 0.02)
+
+    // Maho Link is one material regardless of which connectivity page is open.
+    // Keep the shell translucent enough for compositor blur to become part of
+    // the surface rather than hiding it behind an opaque color wash.
+    readonly property color shellFill: theme.alpha(
+        mix(theme.surfaceHigh, theme.background, 0.54),
+        0.72
+    )
+    readonly property color shellStroke: theme.alpha(theme.foreground, 0.105)
+    readonly property color shellHighlight: theme.alpha(theme.foreground, 0.115)
 
     function mix(a, b, amount) {
         const t = Math.max(0, Math.min(1, amount))
@@ -210,32 +213,32 @@ Item {
         }
     }
 
-    // One clipped shell owns the complete perimeter. Keeping every reflection
-    // inside this radius avoids corner halos peeking past the rounded mask.
     Rectangle {
         id: shellMaterial
         anchors.fill: parent
         radius: 24
+        antialiasing: true
         color: root.shellFill
         border.width: 1
         border.color: root.shellStroke
-        clip: true
 
         Rectangle {
             anchors.fill: parent
+            radius: parent.radius
+            antialiasing: true
             gradient: Gradient {
                 GradientStop {
                     position: 0
-                    color: theme.alpha(theme.foreground, root.section === "bluetooth" ? 0.032 : 0.0)
+                    color: theme.alpha(theme.foreground, 0.032)
                 }
                 GradientStop {
                     position: 0.20
-                    color: theme.alpha(root.accent, root.section === "bluetooth" ? 0.018 : 0.04)
+                    color: theme.alpha(root.accent, 0.018)
                 }
                 GradientStop { position: 0.60; color: "transparent" }
                 GradientStop {
                     position: 1
-                    color: theme.alpha(root.accent, root.section === "bluetooth" ? 0.035 : 0.0)
+                    color: theme.alpha(root.accent, 0.035)
                 }
             }
         }
@@ -247,18 +250,21 @@ Item {
             anchors.rightMargin: 20
             anchors.top: parent.top
             height: 1
+            radius: 1
+            antialiasing: true
             color: root.shellHighlight
         }
 
         Rectangle {
-            visible: root.section === "bluetooth"
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.leftMargin: 28
             anchors.rightMargin: 28
             anchors.bottom: parent.bottom
             height: 1
-            color: theme.alpha(root.accent, 0.055)
+            radius: 1
+            antialiasing: true
+            color: theme.alpha(root.accent, 0.045)
         }
     }
 
@@ -286,8 +292,9 @@ Item {
             width: 32
             height: 32
             radius: 10
+            antialiasing: true
             color: backHover.containsMouse
-                ? theme.alpha(root.section === "bluetooth" ? theme.foreground : root.accent, root.section === "bluetooth" ? 0.045 : 0.075)
+                ? theme.alpha(theme.foreground, 0.045)
                 : "transparent"
 
             Text {
@@ -334,27 +341,58 @@ Item {
             spacing: 8
 
             Rectangle {
+                id: wifiToggleTrack
                 visible: root.section === "wifi" && root.page === "main"
-                width: visible ? 44 : 0
-                height: 26
-                radius: 13
+                width: visible ? 46 : 0
+                height: 27
+                radius: 14
+                antialiasing: true
+                opacity: root.wifi.available && !root.wifi.busy ? 1 : 0.48
                 color: root.wifi.wifiEnabled
-                    ? theme.alpha(root.accent, toggleHover.containsMouse ? 0.84 : 0.74)
-                    : theme.alpha(root.textSecondary, 0.15)
+                    ? theme.alpha(root.accent, toggleHover.containsMouse ? 0.77 : 0.67)
+                    : theme.alpha(theme.surfaceHigh, 0.42)
                 border.width: 1
                 border.color: root.wifi.wifiEnabled
-                    ? theme.alpha(root.accent, 0.24)
-                    : theme.alpha(theme.outline, 0.12)
-                opacity: root.wifi.available && !root.wifi.busy ? 1 : 0.48
+                    ? theme.alpha(root.accent, 0.22)
+                    : theme.alpha(theme.foreground, 0.075)
+
+                Behavior on color { ColorAnimation { duration: 150 } }
 
                 Rectangle {
-                    width: 20
-                    height: 20
-                    radius: 10
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    anchors.top: parent.top
+                    height: 1
+                    radius: 1
+                    antialiasing: true
+                    color: theme.alpha(theme.foreground, 0.13)
+                }
+
+                Rectangle {
+                    width: 22
+                    height: 22
+                    radius: 11
+                    antialiasing: true
+                    y: 4
+                    x: root.wifi.wifiEnabled ? parent.width - width - 2 : 2
+                    color: Qt.rgba(0, 0, 0, 0.20)
+                    opacity: 0.68
+                    Behavior on x { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
+                }
+
+                Rectangle {
+                    width: 21
+                    height: 21
+                    radius: 11
+                    antialiasing: true
                     y: 3
                     x: root.wifi.wifiEnabled ? parent.width - width - 3 : 3
-                    color: Qt.rgba(1, 1, 1, 0.94)
-                    Behavior on x { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+                    color: Qt.rgba(0.99, 0.99, 0.99, 0.985)
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.46)
+                    Behavior on x { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
                 }
 
                 MouseArea {
@@ -362,7 +400,7 @@ Item {
                     anchors.fill: parent
                     enabled: root.wifi.available && !root.wifi.busy
                     hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: root.wifi.setWifiEnabled(!root.wifi.wifiEnabled)
                 }
             }
@@ -371,8 +409,9 @@ Item {
                 width: 32
                 height: 32
                 radius: 10
+                antialiasing: true
                 color: closeHover.containsMouse
-                    ? theme.alpha(root.section === "bluetooth" ? theme.foreground : root.textSecondary, root.section === "bluetooth" ? 0.045 : 0.075)
+                    ? theme.alpha(theme.foreground, 0.045)
                     : "transparent"
 
                 Text {
@@ -495,6 +534,7 @@ Item {
         width: Math.min(parent.width - 48, statusText.implicitWidth + 28)
         height: 34
         radius: 17
+        antialiasing: true
         visible: statusText.text !== ""
         color: theme.alpha(root.statusError !== "" ? theme.error : root.accent, 0.15)
         border.width: 1
