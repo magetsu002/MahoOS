@@ -9,6 +9,30 @@ Item {
 
     signal forgetRequested()
 
+    readonly property bool hasBattery:
+        device && device.battery !== null && device.battery !== undefined
+    readonly property bool hasQuality:
+        device && String(device.quality || "") !== ""
+
+    // Match the main Bluetooth surface exactly: neutral frosted material first,
+    // wallpaper accent only as a restrained state cue.
+    readonly property color glassLow: chrome.theme.alpha(
+        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64),
+        0.42
+    )
+    readonly property color glassRaised: chrome.theme.alpha(
+        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.48),
+        0.54
+    )
+    readonly property color glassInteractive: chrome.theme.alpha(
+        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.56),
+        0.47
+    )
+    readonly property color glassStroke: chrome.theme.alpha(chrome.theme.foreground, 0.060)
+    readonly property color glassHighlight: chrome.theme.alpha(chrome.theme.foreground, 0.060)
+    readonly property color separator: chrome.theme.alpha(chrome.theme.foreground, 0.032)
+    readonly property color lowlight: chrome.theme.alpha(chrome.theme.background, 0.10)
+
     function glyph(kind) {
         switch (String(kind || "generic")) {
         case "headphones": return "󰋋"
@@ -22,22 +46,43 @@ Item {
         }
     }
 
-    readonly property bool hasBattery:
-        device && device.battery !== null && device.battery !== undefined
-    readonly property bool hasQuality:
-        device && String(device.quality || "") !== ""
-
     Column {
         anchors.fill: parent
         spacing: 13
 
         Rectangle {
+            id: heroCard
             width: parent.width
             height: 130
-            radius: 19
-            color: chrome.theme.alpha(chrome.mix(chrome.insetColor, chrome.accent, 0.095), 0.975)
+            radius: 20
+            antialiasing: true
+            color: root.glassRaised
             border.width: 1
-            border.color: chrome.theme.alpha(chrome.accent, 0.10)
+            border.color: chrome.theme.alpha(chrome.theme.foreground, 0.070)
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.035) }
+                    GradientStop { position: 0.30; color: chrome.theme.alpha(chrome.accent, 0.040) }
+                    GradientStop { position: 0.72; color: "transparent" }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.018) }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
+                anchors.top: parent.top
+                height: 1
+                radius: 1
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.theme.foreground, 0.070)
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -45,13 +90,30 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 80
                 height: 80
-                radius: 25
-                color: chrome.theme.alpha(chrome.accent, 0.105)
+                radius: 26
+                antialiasing: true
+                color: chrome.theme.alpha(
+                    chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12),
+                    0.50
+                )
+                border.width: 1
+                border.color: chrome.theme.alpha(chrome.theme.foreground, 0.075)
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    antialiasing: true
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.045) }
+                        GradientStop { position: 0.58; color: "transparent" }
+                        GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.045) }
+                    }
+                }
 
                 Text {
                     anchors.centerIn: parent
                     text: root.glyph(device ? device.kind : "generic")
-                    color: chrome.textPrimary
+                    color: chrome.theme.alpha(chrome.textPrimary, 0.96)
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 37
                 }
@@ -77,7 +139,9 @@ Item {
 
                 Text {
                     text: device && device.connected ? "Connected" : "Not Connected"
-                    color: device && device.connected ? chrome.accent : chrome.textSecondary
+                    color: device && device.connected
+                        ? chrome.theme.alpha(chrome.accent, 0.90)
+                        : chrome.theme.alpha(chrome.textSecondary, 0.72)
                     font.family: "Inter"
                     font.pixelSize: 10
                     font.weight: Font.Medium
@@ -86,7 +150,7 @@ Item {
                 Text {
                     visible: root.hasBattery
                     text: visible ? String(device.battery) + "% Battery" : ""
-                    color: chrome.textSecondary
+                    color: chrome.theme.alpha(chrome.textSecondary, 0.70)
                     font.family: "Inter"
                     font.pixelSize: 11
                 }
@@ -94,13 +158,37 @@ Item {
         }
 
         Rectangle {
+            id: infoCard
             width: parent.width
             height: 53 + (root.hasQuality ? 53 : 0) + (root.hasBattery ? 53 : 0)
-            radius: 18
-            color: chrome.theme.alpha(chrome.mix(chrome.insetColor, chrome.theme.background, 0.08), 0.965)
+            radius: 19
+            antialiasing: true
+            color: root.glassLow
             border.width: 1
-            border.color: chrome.theme.alpha(chrome.theme.outline, 0.065)
-            clip: true
+            border.color: root.glassStroke
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.018) }
+                    GradientStop { position: 0.58; color: "transparent" }
+                    GradientStop { position: 1; color: root.lowlight }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
+                anchors.top: parent.top
+                height: 1
+                radius: 1
+                antialiasing: true
+                color: root.glassHighlight
+            }
 
             Column {
                 anchors.fill: parent
@@ -113,7 +201,7 @@ Item {
                         anchors.leftMargin: 17
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Device Type"
-                        color: chrome.textSecondary
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.74)
                         font.family: "Inter"
                         font.pixelSize: 11
                     }
@@ -122,7 +210,7 @@ Item {
                         anchors.rightMargin: 17
                         anchors.verticalCenter: parent.verticalCenter
                         text: String(device && device.type ? device.type : "Bluetooth Device")
-                        color: chrome.textPrimary
+                        color: chrome.theme.alpha(chrome.textPrimary, 0.91)
                         font.family: "Inter"
                         font.pixelSize: 11
                         font.weight: Font.Medium
@@ -130,11 +218,11 @@ Item {
                 }
 
                 Rectangle {
-                    width: parent.width - 34
+                    width: parent.width - 42
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 1
                     visible: root.hasQuality || root.hasBattery
-                    color: chrome.theme.alpha(chrome.theme.outline, 0.06)
+                    color: root.separator
                 }
 
                 Item {
@@ -146,7 +234,7 @@ Item {
                         anchors.leftMargin: 17
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Connection Quality"
-                        color: chrome.textSecondary
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.74)
                         font.family: "Inter"
                         font.pixelSize: 11
                     }
@@ -155,7 +243,7 @@ Item {
                         anchors.rightMargin: 17
                         anchors.verticalCenter: parent.verticalCenter
                         text: String(device && device.quality ? device.quality : "")
-                        color: chrome.textPrimary
+                        color: chrome.theme.alpha(chrome.textPrimary, 0.91)
                         font.family: "Inter"
                         font.pixelSize: 11
                         font.weight: Font.Medium
@@ -163,11 +251,11 @@ Item {
                 }
 
                 Rectangle {
-                    width: parent.width - 34
+                    width: parent.width - 42
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 1
                     visible: root.hasQuality && root.hasBattery
-                    color: chrome.theme.alpha(chrome.theme.outline, 0.06)
+                    color: root.separator
                 }
 
                 Item {
@@ -179,7 +267,7 @@ Item {
                         anchors.leftMargin: 17
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Battery"
-                        color: chrome.textSecondary
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.74)
                         font.family: "Inter"
                         font.pixelSize: 11
                     }
@@ -188,7 +276,7 @@ Item {
                         anchors.rightMargin: 17
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.hasBattery ? String(device.battery) + "%" : ""
-                        color: chrome.textPrimary
+                        color: chrome.theme.alpha(chrome.textPrimary, 0.91)
                         font.family: "Inter"
                         font.pixelSize: 11
                         font.weight: Font.Medium
@@ -198,13 +286,37 @@ Item {
         }
 
         Rectangle {
+            id: actionCard
             width: parent.width
             height: 104
-            radius: 18
-            color: chrome.theme.alpha(chrome.mix(chrome.insetColor, chrome.theme.background, 0.08), 0.965)
+            radius: 19
+            antialiasing: true
+            color: root.glassInteractive
             border.width: 1
-            border.color: chrome.theme.alpha(chrome.theme.outline, 0.065)
-            clip: true
+            border.color: root.glassStroke
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.018) }
+                    GradientStop { position: 0.60; color: "transparent" }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.012) }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
+                anchors.top: parent.top
+                height: 1
+                radius: 1
+                antialiasing: true
+                color: root.glassHighlight
+            }
 
             Column {
                 anchors.fill: parent
@@ -216,24 +328,40 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: 3
-                        radius: 13
-                        color: connectHover.containsMouse
-                            ? chrome.theme.alpha(chrome.accent, 0.06)
-                            : "transparent"
+                        radius: 15
+                        antialiasing: true
+                        color: connectHover.pressed
+                            ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
+                            : connectHover.containsMouse
+                                ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
+                                : "transparent"
+                        Behavior on color { ColorAnimation { duration: 115 } }
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 13
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 30
+                        height: 30
+                        radius: 11
+                        antialiasing: true
+                        color: chrome.theme.alpha(chrome.theme.surfaceHigh, 0.28)
+                        border.width: 1
+                        border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: device && device.connected ? "󰂲" : "󰂱"
+                            color: chrome.theme.alpha(chrome.textSecondary, 0.84)
+                            font.family: "JetBrainsMono Nerd Font"
+                            font.pixelSize: 15
+                        }
                     }
 
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: 17
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: device && device.connected ? "󰂲" : "󰂱"
-                        color: chrome.textSecondary
-                        font.family: "JetBrainsMono Nerd Font"
-                        font.pixelSize: 16
-                    }
-                    Text {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 48
+                        anchors.leftMargin: 54
                         anchors.verticalCenter: parent.verticalCenter
                         text: device && device.connected ? "Disconnect" : "Connect"
                         color: chrome.textPrimary
@@ -258,10 +386,10 @@ Item {
                 }
 
                 Rectangle {
-                    width: parent.width - 34
+                    width: parent.width - 42
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 1
-                    color: chrome.theme.alpha(chrome.theme.outline, 0.06)
+                    color: root.separator
                 }
 
                 Item {
@@ -271,24 +399,40 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: 3
-                        radius: 13
-                        color: forgetHover.containsMouse
+                        radius: 15
+                        antialiasing: true
+                        color: forgetHover.pressed
                             ? chrome.theme.alpha(chrome.theme.error, 0.075)
-                            : "transparent"
+                            : forgetHover.containsMouse
+                                ? chrome.theme.alpha(chrome.theme.error, 0.050)
+                                : "transparent"
+                        Behavior on color { ColorAnimation { duration: 115 } }
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 13
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 30
+                        height: 30
+                        radius: 11
+                        antialiasing: true
+                        color: chrome.theme.alpha(chrome.theme.error, 0.055)
+                        border.width: 1
+                        border.color: chrome.theme.alpha(chrome.theme.error, 0.070)
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "󰆴"
+                            color: chrome.theme.error
+                            font.family: "JetBrainsMono Nerd Font"
+                            font.pixelSize: 14
+                        }
                     }
 
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: 17
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "󰆴"
-                        color: chrome.theme.error
-                        font.family: "JetBrainsMono Nerd Font"
-                        font.pixelSize: 15
-                    }
-                    Text {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 48
+                        anchors.leftMargin: 54
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Forget Device"
                         color: chrome.theme.error
