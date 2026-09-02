@@ -11,52 +11,22 @@ Scope {
     property string backendPath: (Quickshell.env("MAHO_ROOT") || "") + "/lib/maho_launcher_backend.py"
     property string fileQueryInFlight: ""
     property bool fileSearchBusy: false
+    property bool appIndexBusy: true
+
+    property var appSource: []
+    property var appResults: []
+    property var fileResults: []
+    property var commandResults: []
 
     signal closeRequested()
     signal modelChanged()
 
-    ScriptModel { id: appModel }
-    ScriptModel { id: fileModel }
-    ScriptModel { id: commandModel }
-
-    property alias apps: appModel
-    property alias files: fileModel
-    property alias commands: commandModel
-
-    readonly property var activeModel: mode === 0 ? appModel : (mode === 1 ? fileModel : commandModel)
+    readonly property var activeModel: mode === 0 ? appResults : (mode === 1 ? fileResults : commandResults)
 
     function cleanString(value) {
         if (value === undefined || value === null)
             return ""
-        const text = String(value)
-        return text === "[object Object]" ? "" : text
-    }
-
-    function cleanStringList(value) {
-        if (!value || value.length === undefined)
-            return []
-        const output = []
-        for (let index = 0; index < value.length; ++index) {
-            const text = cleanString(value[index])
-            if (text.length > 0)
-                output.push(text)
-        }
-        return output
-    }
-
-    // ScriptModel is deliberately fed plain snapshots instead of live
-    // DesktopEntry QObjects. This keeps delegate roles deterministic across
-    // Quickshell versions and fixes blank text/generic white icon rows.
-    function snapshotApplication(entry) {
-        return {
-            "id": cleanString(entry.id),
-            "name": cleanString(entry.name),
-            "genericName": cleanString(entry.genericName),
-            "comment": cleanString(entry.comment),
-            "icon": cleanString(entry.icon),
-            "keywords": cleanStringList(entry.keywords),
-            "categories": cleanStringList(entry.categories)
-        }
+        return String(value)
     }
 
     function descriptionFor(entry) {
@@ -142,21 +112,32 @@ Scope {
         history.launches = launches
     }
 
+    function applyAppIndex(text) {
+        appIndexBusy = false
+        try {
+            const parsed = JSON.parse(text || "[]")
+            appSource = Array.isArray(parsed) ? parsed : []
+        } catch (error) {
+            console.warn("Maho Launcher application index parse failed:", error)
+            appSource = []
+        }
+        refilterApps()
+    }
+
     function refilterApps() {
-        const source = DesktopEntries.applications.values || []
+        const source = appSource || []
         const matches = []
         for (let index = 0; index < source.length; ++index) {
             const entry = source[index]
             const name = entry ? cleanString(entry.name) : ""
-            if (!entry || entry.noDisplay || name.length === 0)
+            if (!entry || name.length === 0)
                 continue
             const score = fuzzyScore(name, appSearchText(entry), query)
             if (score < 0)
                 continue
-            const id = cleanString(entry.id)
             matches.push({
                 "entry": entry,
-                "score": score + usageBoost(id)
+                "score": score + usageBoost(cleanString(entry.id))
             })
         }
 
@@ -168,8 +149,8 @@ Scope {
 
         const output = []
         for (let result = 0; result < Math.min(maximumResults, matches.length); ++result)
-            output.push(snapshotApplication(matches[result].entry))
-        appModel.values = output
+            output.push(matches[result].entry)
+        appResults = output
         modelChanged()
     }
 
@@ -192,7 +173,7 @@ Scope {
                 return b.score - a.score
             return a.item.name.localeCompare(b.item.name)
         })
-        commandModel.values = output.map(function(row) { return row.item })
+        commandResults = output.map(function(row) { return row.item })
         modelChanged()
     }
 
@@ -223,10 +204,10 @@ Scope {
         }
         try {
             const parsed = JSON.parse(text || "[]")
-            fileModel.values = Array.isArray(parsed) ? parsed : []
+            fileResults = Array.isArray(parsed) ? parsed : []
         } catch (error) {
             console.warn("Maho Launcher file search parse failed:", error)
-            fileModel.values = []
+            fileResults = []
         }
         modelChanged()
     }
@@ -290,11 +271,12 @@ Scope {
             refilterCommands()
     }
 
-    Connections {
-        target: DesktopEntries.applications
-        function onValuesChanged() {
-            if (root.mode === 0)
-                root.refilterApps()
+    Process {
+        id: appIndex
+        command: ["python3", root.backendPath, "apps"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.applyAppIndex(text)
         }
     }
 
@@ -324,8 +306,5 @@ Scope {
         }
     }
 
-    Component.onCompleted: {
-        refilterApps()
-        refilterCommands()
-    }
+    Component.onCompleted: refilterCommands()
 }
