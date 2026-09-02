@@ -52,50 +52,50 @@ require_text "$BUTTON" 'symbol === "controls"' "custom crisp controls glyph is m
 require_text "$ROW" 'height: 58' "application row breathing room changed"
 require_text "$ROW" 'radius: 14' "application row state lost rounded geometry"
 require_text "$ROW" 'height: 1' "premium application separator is missing"
-require_text "$ROW" 'opacity: root.selected ? 0.08' "application separator became visually loud again"
-require_text "$ROW" 'requestedIcon.startsWith("/")' "absolute desktop-entry icons are not preserved"
-require_text "$ROW" 'Quickshell.iconPath(requestedIcon, "")' "theme artwork lookup is not using a clean fallback"
-require_text "$ROW" 'monogram' "missing-icon fallback is not deterministic"
+require_text "$ROW" 'opacity: root.selected ? 0.05' "application separator became visually loud again"
+require_text "$ROW" 'required property string name' "application name is not bound as a real model role"
+require_text "$ROW" 'required property string iconPath' "resolved app artwork path is not bound as a real model role"
+require_text "$ROW" 'root.backend.itemAt(root.index)' "activation payload is not sourced from the published model"
 reject_text "$WINDOW" 'mascot' "old launcher mascot returned"
 reject_text "$WINDOW" 'to launch' "tutorial footer returned"
 echo "PASS"
 
-echo "=== live-window frosted material ==="
+echo "=== Maho family glass material ==="
 require_text "$THEME" '/maho/theme/active.json' "Palette V2 is not authoritative"
 require_text "$THEME" 'function stableAccent' "family stable-accent behavior is missing"
-require_text "$THEME" 'glassNeutral' "neutral iOS-like glass foundation is missing"
-require_text "$THEME" 'shellFill: alpha(shellBase, 0.48)' "shell is too opaque for live-window backdrop blur"
-require_text "$THEME" 'shellTopSpecular' "top glass specular is missing"
-require_text "$THEME" 'shellAccentWash' "subtle environment reflection token is missing"
-require_text "$THEME" 'selectedSegmentBottom' "selected segment lacks layered material"
-require_text "$THEME" 'selectedRowSpecular' "selected row lacks premium highlight"
-require_text "$THEME" 'divider: alpha' "row-divider material token is missing"
+require_text "$THEME" 'insetColor: mix(surfaceHigh, background, 0.36)' "launcher inset material drifted from Maho Link"
+require_text "$THEME" 'familyShell: mix(surfaceHigh, background, 0.28)' "launcher shell material drifted from Maho Link"
+require_text "$THEME" 'shellFill: alpha(familyShell, 0.965)' "launcher shell no longer uses the Maho family dark-glass density"
+require_text "$THEME" 'shellRim: alpha(outline, 0.065)' "launcher shell rim no longer matches Maho Link subtlety"
+require_text "$THEME" 'selectedRow: alpha(mix(insetColor, accent, 0.11), 0.97)' "selected row is not the Maho Link lifted material"
+require_text "$THEME" 'resultsFill: alpha(mix(insetColor, background, 0.10), 0.92)' "results well drifted from Maho family material"
+require_text "$THEME" 'shellTopSpecular: "transparent"' "full-size gradient can paint square pixels into rounded corners"
+require_text "$THEME" 'shellAccentWash: "transparent"' "full-size gradient can paint square pixels into rounded corners"
+require_text "$THEME" 'shellBottomShade: "transparent"' "full-size gradient can paint square pixels into rounded corners"
 require_text "$WINDOW" 'backdropDim' "full-screen backdrop layer is missing"
-require_text "$WINDOW" 'Qt.rgba(0, 0, 0, root.shown ? 0.045 : 0)' "overlay is dimming the desktop too aggressively"
-require_text "$WINDOW" 'radius: 27' "outer shell no longer follows the rounded Maho family silhouette"
-require_text "$WINDOW" 'radius: 18' "results well no longer has softened corners"
-require_text "$WINDOW" 'shellTopSpecular' "surface does not render its top reflection"
-require_text "$WINDOW" 'shellAccentWash' "surface does not render environmental wash"
 require_text "$LAUNCHER" 'ignore_alpha = 0.02' "blur no longer participates through the low-alpha overlay"
 require_text "$LAUNCHER" 'xray = false' "blur is bypassing live windows instead of blurring the actual desktop stack"
-reject_text "$THEME" 'shellFill: alpha(shellBase, 0.9' "opaque color slab returned"
 echo "PASS"
 
 echo "=== own real application engine ==="
 require_text "$MODEL" '["python3", root.backendPath, "apps"]' "QML no longer loads the native app index"
+require_text "$MODEL" 'ListModel { id: visibleRows }' "visible rows are not published through a stable QML ListModel"
+require_text "$MODEL" 'readonly property var activeModel: visibleRows' "ListView is not backed by the stable published model"
+require_text "$MODEL" 'function itemAt(index)' "row activation lookup is missing"
+require_text "$MODEL" 'visibleRows.append(row)' "real app snapshots are not copied into stable model roles"
 require_text "$MODEL" 'property var appSource: []' "real app source state is missing"
-require_text "$MODEL" 'property var appResults: []' "filtered real app state is missing"
-require_text "$MODEL" 'appIndexBusy' "real app index loading state is missing"
 require_text "$MODEL" 'function fuzzyScore' "Maho fuzzy ranking is missing"
 require_text "$MODEL" 'usageBoost' "usage/recency ranking is missing"
 require_text "$MODEL" 'launcher-history.json' "bounded launch history is missing"
 reject_text "$MODEL" 'DesktopEntries.applications.values' "launcher still depends on fragile live DesktopEntry QObject roles"
 reject_text "$MODEL" 'ScriptModel' "plain application snapshots are still being wrapped in ScriptModel"
 require_text "$BACKEND" 'def discover_apps()' "Maho desktop-entry discovery is missing"
+require_text "$BACKEND" 'def resolve_icon_paths(' "real app artwork resolver is missing"
+require_text "$BACKEND" 'QS_ICON_THEME' "backend does not honor the selected launcher icon theme"
+require_text "$BACKEND" '"iconPath": ""' "desktop snapshots do not expose a resolved artwork path"
 require_text "$BACKEND" 'configparser.ConfigParser(interpolation=None, strict=False)' "desktop parser is not safe for Exec percent tokens"
 require_text "$BACKEND" 'OnlyShowIn' "desktop visibility semantics are incomplete"
 require_text "$BACKEND" 'NoDisplay' "hidden desktop entries are not filtered"
-require_text "$BACKEND" 'sub.add_parser("apps")' "real application index command is missing"
 require_text "$BACKEND" 'gio", "launch"' "standards-aware desktop entry launching is missing"
 require_text "$BACKEND" 'gtk-launch' "desktop launch fallback is missing"
 require_text "$BACKEND" 'xdg-open' "Files mode open contract is missing"
@@ -119,16 +119,17 @@ require_text "$LAUNCHER" 'flock -n 9' "single-instance lock is missing"
 echo "PASS"
 
 echo "=== backend behavior ==="
-mkdir -p "$TMP/home/Documents" "$TMP/data/applications" "$TMP/empty"
+mkdir -p "$TMP/home/Documents" "$TMP/data/applications" "$TMP/data/icons/MahoTest/scalable/apps" "$TMP/empty"
 printf 'hello\n' > "$TMP/home/Documents/Project-Report.txt"
 printf 'notes\n' > "$TMP/home/Documents/notes.txt"
+printf '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"></svg>\n' > "$TMP/data/icons/MahoTest/scalable/apps/maho-test.svg"
 cat > "$TMP/data/applications/maho-test.desktop" <<'EOF_DESKTOP'
 [Desktop Entry]
 Type=Application
 Name=Maho Test
 GenericName=Test Application
 Comment=Real desktop entry fixture
-Icon=utilities-terminal
+Icon=maho-test
 Exec=true
 Categories=Utility;
 EOF_DESKTOP
@@ -140,21 +141,24 @@ NoDisplay=true
 Exec=true
 EOF_DESKTOP
 
-HOME="$TMP/home" XDG_DATA_HOME="$TMP/data" XDG_DATA_DIRS="$TMP/empty" \
+HOME="$TMP/home" XDG_DATA_HOME="$TMP/data" XDG_DATA_DIRS="$TMP/empty" QS_ICON_THEME=MahoTest \
 python3 "$BACKEND" apps > "$TMP/apps.json"
-python3 - "$TMP/apps.json" <<'PY'
+python3 - "$TMP/apps.json" "$TMP/data/icons/MahoTest/scalable/apps/maho-test.svg" <<'PY'
 import json
 import pathlib
 import sys
 
 rows = json.loads(pathlib.Path(sys.argv[1]).read_text())
+expected_icon = pathlib.Path(sys.argv[2])
 if [row["name"] for row in rows] != ["Maho Test"]:
     raise SystemExit(f"desktop discovery mismatch: {rows!r}")
 row = rows[0]
-if row["id"] != "maho-test.desktop" or row["icon"] != "utilities-terminal":
+if row["id"] != "maho-test.desktop" or row["icon"] != "maho-test":
     raise SystemExit(f"desktop roles mismatch: {row!r}")
 if row["genericName"] != "Test Application":
     raise SystemExit(f"generic name missing: {row!r}")
+if pathlib.Path(row["iconPath"]) != expected_icon:
+    raise SystemExit(f"icon path was not resolved: {row!r}")
 PY
 
 HOME="$TMP/home" XDG_DATA_HOME="$TMP/data" XDG_DATA_DIRS="$TMP/empty" \

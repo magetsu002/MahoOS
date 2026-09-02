@@ -13,6 +13,7 @@ import json
 import locale
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,8 @@ EXCLUDED_DIRS = {
     "__pycache__",
 }
 
+ICON_EXTENSIONS = {".svg": 60, ".png": 50, ".xpm": 20}
+
 
 def desktop_roots() -> list[Path]:
     home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
@@ -39,6 +42,21 @@ def desktop_roots() -> list[Path]:
         if raw:
             roots.append(Path(raw) / "applications")
     return roots
+
+
+def icon_roots() -> list[Path]:
+    roots = [Path.home() / ".icons", Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "icons"]
+    for raw in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":"):
+        if raw:
+            roots.append(Path(raw) / "icons")
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            unique.append(root)
+    return unique
 
 
 def desktop_id_for(path: Path, root: Path) -> str:
@@ -154,9 +172,106 @@ def parse_desktop_entry(path: Path, desktop_id: str) -> dict[str, object] | None
         "genericName": _localized(section, "GenericName"),
         "comment": _localized(section, "Comment"),
         "icon": section.get("Icon", fallback="").strip(),
+        "iconPath": "",
         "keywords": _split_semicolon(_localized(section, "Keywords")),
         "categories": _split_semicolon(section.get("Categories", fallback="")),
     }
+
+
+def _icon_stem(value: str) -> str:
+    name = Path(value).name
+    suffix = Path(name).suffix.casefold()
+    if suffix in ICON_EXTENSIONS:
+        return Path(name).stem
+    return name
+
+
+def _icon_score(path: Path, theme_rank: int) -> int:
+    score = 1000 - theme_rank * 100 + ICON_EXTENSIONS.get(path.suffix.casefold(), 0)
+    text = str(path).casefold()
+    if "/apps/" in text or "/applications/" in text:
+        score += 30
+    if "/scalable/" in text:
+        score += 80
+    for size in re.findall(r"(?:^|/)(\d+)x(?:\d+)(?:/|$)", text):
+        try:
+            numeric = int(size)
+        except ValueError:
+            continue
+        score += min(numeric, 512) // 8
+    return score
+
+
+def resolve_icon_paths(entries: list[dict[str, object]]) -> None:
+    """Resolve app artwork to real files so QML does not depend on theme-role magic."""
+    unresolved: dict[str, list[dict[str, object]]] = {}
+    for entry in entries:
+        raw = str(entry.get("icon", "") or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("file://"):
+            candidate = Path(raw[7:])
+            if candidate.is_file():
+                entry["iconPath"] = str(candidate)
+            continue
+        candidate = Path(raw).expanduser()
+        if candidate.is_absolute() and candidate.is_file():
+            entry["iconPath"] = str(candidate)
+            continue
+        stem = _icon_stem(raw)
+        if stem:
+            unresolved.setdefault(stem, []).append(entry)
+
+    if not unresolved:
+        return
+
+    selected = (os.environ.get("QS_ICON_THEME") or "").strip()
+    themes: list[str] = []
+    for theme in (selected, "Papirus-Dark", "Papirus", "Tela-circle-dark", "Tela-circle", "Tela", "Adwaita", "hicolor"):
+        if theme and theme not in themes:
+            themes.append(theme)
+
+    best: dict[str, tuple[int, str]] = {}
+    wanted = set(unresolved)
+    for rank, theme in enumerate(themes):
+        for root in icon_roots():
+            base = root / theme
+            if not base.is_dir():
+                continue
+            try:
+                for path in base.rglob("*"):
+                    if not path.is_file() or path.suffix.casefold() not in ICON_EXTENSIONS:
+                        continue
+                    stem = path.stem
+                    if stem not in wanted:
+                        continue
+                    score = _icon_score(path, rank)
+                    previous = best.get(stem)
+                    if previous is None or score > previous[0]:
+                        best[stem] = (score, str(path))
+            except OSError:
+                continue
+
+    pixmap_roots = [Path("/usr/local/share/pixmaps"), Path("/usr/share/pixmaps")]
+    for root in pixmap_roots:
+        if not root.is_dir():
+            continue
+        try:
+            for path in root.iterdir():
+                if not path.is_file() or path.suffix.casefold() not in ICON_EXTENSIONS:
+                    continue
+                stem = path.stem
+                if stem in wanted and stem not in best:
+                    best[stem] = (100, str(path))
+        except OSError:
+            continue
+
+    for stem, rows in unresolved.items():
+        resolved = best.get(stem)
+        if not resolved:
+            continue
+        for entry in rows:
+            entry["iconPath"] = resolved[1]
 
 
 def discover_apps() -> list[dict[str, object]]:
@@ -184,6 +299,7 @@ def discover_apps() -> list[dict[str, object]]:
             if entry is not None:
                 output.append(entry)
 
+    resolve_icon_paths(output)
     output.sort(key=lambda item: str(item["name"]).casefold())
     return output
 
@@ -375,6 +491,7 @@ def file_search(query: str, limit: int) -> int:
                 "path": str(path),
                 "relative": relative,
                 "icon": "folder" if is_dir else "text-x-generic",
+                "iconPath": "",
                 "kind": "directory" if is_dir else "file",
             }
         )
@@ -422,12 +539,15 @@ def run_command(action: str) -> int:
 
 def doctor() -> int:
     apps = discover_apps()
+    icon_paths = sum(1 for app in apps if app.get("iconPath"))
     result = {
         "gio": bool(shutil.which("gio")),
         "gtk_launch": bool(shutil.which("gtk-launch")),
         "xdg_open": bool(shutil.which("xdg-open")),
         "fd": bool(shutil.which("fd")),
         "desktop_entries": len(apps),
+        "resolved_icon_paths": icon_paths,
+        "icon_theme": os.environ.get("QS_ICON_THEME", ""),
         "desktop_roots": [str(path) for path in desktop_roots() if path.is_dir()],
     }
     json.dump(result, sys.stdout, separators=(",", ":"))

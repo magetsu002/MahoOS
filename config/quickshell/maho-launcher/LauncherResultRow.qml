@@ -8,10 +8,10 @@ Item {
     required property var theme
     required property var backend
     required property int index
-    property var modelData: root.backend && root.backend.activeModel
-        && root.index >= 0 && root.index < root.backend.activeModel.length
-        ? root.backend.activeModel[root.index]
-        : null
+    required property string name
+    required property string description
+    required property string icon
+    required property string iconPath
     property bool selected: false
 
     signal hovered(int index)
@@ -19,7 +19,7 @@ Item {
 
     readonly property bool pointerHovered: hover.hovered
     readonly property bool pressed: tap.pressed
-    readonly property string requestedIcon: String(root.backend.iconName(root.modelData) || "")
+    readonly property string requestedIcon: iconPath.length > 0 ? iconPath : icon
     readonly property string resolvedIcon: {
         if (requestedIcon.length === 0)
             return ""
@@ -28,10 +28,8 @@ Item {
         return Quickshell.iconPath(requestedIcon, "")
     }
     readonly property bool hasIcon: resolvedIcon && resolvedIcon.length > 0
-    readonly property string monogram: {
-        const label = root.backend.displayName(root.modelData)
-        return label && label.length > 0 ? label.slice(0, 1).toUpperCase() : "•"
-    }
+    readonly property string monogram: name.length > 0 ? name.slice(0, 1).toUpperCase() : "•"
+    property var modelData: root.backend.itemAt(root.index)
 
     height: 58
     x: root.pointerHovered && !root.selected ? 2 : 0
@@ -62,9 +60,9 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: 40
         height: 40
-        scale: root.pressed ? 0.94 : (root.selected ? 1.035 : (root.pointerHovered ? 1.025 : 1))
+        scale: root.pressed ? 0.94 : (root.selected ? 1.025 : (root.pointerHovered ? 1.018 : 1))
 
-        Behavior on scale { NumberAnimation { duration: 185; easing.type: Easing.OutBack } }
+        Behavior on scale { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.fill: parent
@@ -72,34 +70,34 @@ Item {
             color: root.selected
                 ? theme.iconWellSelected
                 : (root.pointerHovered ? theme.iconWellHover : theme.iconWellFill)
-            border.width: 1
+            border.width: root.selected || root.pointerHovered ? 1 : 0
             border.color: root.selected ? theme.iconWellSelectedRim : theme.iconWellRim
 
-            Behavior on color { ColorAnimation { duration: 170 } }
-            Behavior on border.color { ColorAnimation { duration: 170 } }
+            Behavior on color { ColorAnimation { duration: 165 } }
+            Behavior on border.color { ColorAnimation { duration: 165 } }
         }
 
         IconImage {
             id: appIcon
             anchors.centerIn: parent
-            width: 32
-            height: 32
+            width: 34
+            height: 34
             source: root.resolvedIcon
             visible: root.hasIcon
             asynchronous: true
             mipmap: true
             smooth: true
-            scale: root.selected ? 1.018 : (root.pointerHovered ? 1.01 : 1)
-            Behavior on scale { NumberAnimation { duration: 175; easing.type: Easing.OutCubic } }
+            scale: root.selected ? 1.012 : (root.pointerHovered ? 1.008 : 1)
+            Behavior on scale { NumberAnimation { duration: 165; easing.type: Easing.OutCubic } }
         }
 
         Text {
             anchors.centerIn: parent
             visible: !root.hasIcon
             text: root.monogram
-            color: root.theme.alpha(root.theme.foreground, 0.86)
+            color: root.theme.alpha(root.theme.foreground, 0.88)
             font.family: "Inter, Noto Sans, sans-serif"
-            font.pixelSize: 14
+            font.pixelSize: 15
             font.weight: Font.DemiBold
             renderType: Text.NativeRendering
         }
@@ -115,7 +113,7 @@ Item {
 
         Text {
             width: parent.width
-            text: root.backend.displayName(root.modelData)
+            text: root.name
             color: theme.textPrimary
             elide: Text.ElideRight
             font.family: "Inter, Noto Sans, sans-serif"
@@ -126,7 +124,7 @@ Item {
 
         Text {
             width: parent.width
-            text: root.backend.displayDescription(root.modelData)
+            text: root.description
             color: theme.textSecondary
             elide: Text.ElideRight
             font.family: "Inter, Noto Sans, sans-serif"
@@ -154,7 +152,6 @@ Item {
         Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
     }
 
-    // Hairline separation, intentionally quieter than the row content.
     Rectangle {
         anchors.left: iconWell.right
         anchors.leftMargin: 16
@@ -164,7 +161,7 @@ Item {
         height: 1
         radius: 1
         color: theme.divider
-        opacity: root.selected ? 0.08 : (root.pointerHovered ? 0.24 : 0.36)
+        opacity: root.selected ? 0.05 : (root.pointerHovered ? 0.18 : 0.28)
 
         Behavior on opacity { NumberAnimation { duration: 145 } }
     }

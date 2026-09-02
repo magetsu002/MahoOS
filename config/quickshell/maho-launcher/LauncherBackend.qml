@@ -21,7 +21,10 @@ Scope {
     signal closeRequested()
     signal modelChanged()
 
-    readonly property var activeModel: mode === 0 ? appResults : (mode === 1 ? fileResults : commandResults)
+    ListModel { id: visibleRows }
+
+    readonly property var activeModel: visibleRows
+    readonly property int activeCount: visibleRows.count
 
     function cleanString(value) {
         if (value === undefined || value === null)
@@ -29,12 +32,43 @@ Scope {
         return String(value)
     }
 
+    function itemAt(index) {
+        if (index < 0 || index >= visibleRows.count)
+            return null
+        return visibleRows.get(index)
+    }
+
     function descriptionFor(entry) {
-        if (entry.genericName && entry.genericName.trim().length > 0)
-            return entry.genericName.trim()
-        if (entry.comment && entry.comment.trim().length > 0)
-            return entry.comment.trim()
+        if (entry.genericName && cleanString(entry.genericName).trim().length > 0)
+            return cleanString(entry.genericName).trim()
+        if (entry.comment && cleanString(entry.comment).trim().length > 0)
+            return cleanString(entry.comment).trim()
         return "Application"
+    }
+
+    function normalizeRow(item) {
+        if (!item)
+            return null
+        return {
+            "entryId": cleanString(item.id || item.entryId),
+            "name": cleanString(item.name),
+            "description": mode === 0 ? descriptionFor(item) : cleanString(item.description),
+            "icon": cleanString(item.icon),
+            "iconPath": cleanString(item.iconPath),
+            "path": cleanString(item.path),
+            "kind": cleanString(item.kind)
+        }
+    }
+
+    function publish(rows) {
+        visibleRows.clear()
+        const source = rows || []
+        for (let index = 0; index < source.length; ++index) {
+            const row = normalizeRow(source[index])
+            if (row && row.name.length > 0)
+                visibleRows.append(row)
+        }
+        modelChanged()
     }
 
     function appSearchText(entry) {
@@ -151,15 +185,16 @@ Scope {
         for (let result = 0; result < Math.min(maximumResults, matches.length); ++result)
             output.push(matches[result].entry)
         appResults = output
-        modelChanged()
+        if (mode === 0)
+            publish(appResults)
     }
 
     function refilterCommands() {
         const source = [
-            { "id": "terminal", "name": "Terminal", "description": "Open a terminal session", "icon": "utilities-terminal" },
-            { "id": "files", "name": "File Manager", "description": "Browse your home folder", "icon": "system-file-manager" },
-            { "id": "lock", "name": "Lock Screen", "description": "Secure this session", "icon": "system-lock-screen" },
-            { "id": "diagnostics", "name": "Launcher Diagnostics", "description": "Inspect Maho Launcher health", "icon": "utilities-system-monitor" }
+            { "id": "terminal", "name": "Terminal", "description": "Open a terminal session", "icon": "utilities-terminal", "iconPath": "" },
+            { "id": "files", "name": "File Manager", "description": "Browse your home folder", "icon": "system-file-manager", "iconPath": "" },
+            { "id": "lock", "name": "Lock Screen", "description": "Secure this session", "icon": "system-lock-screen", "iconPath": "" },
+            { "id": "diagnostics", "name": "Launcher Diagnostics", "description": "Inspect Maho Launcher health", "icon": "utilities-system-monitor", "iconPath": "" }
         ]
         const output = []
         for (let index = 0; index < source.length; ++index) {
@@ -174,7 +209,8 @@ Scope {
             return a.item.name.localeCompare(b.item.name)
         })
         commandResults = output.map(function(row) { return row.item })
-        modelChanged()
+        if (mode === 2)
+            publish(commandResults)
     }
 
     function requestFileSearch() {
@@ -209,27 +245,28 @@ Scope {
             console.warn("Maho Launcher file search parse failed:", error)
             fileResults = []
         }
-        modelChanged()
+        publish(fileResults)
     }
 
     function activate(item) {
         if (!item)
             return
 
+        const itemId = cleanString(item.entryId || item.id)
         if (mode === 0) {
-            rememberLaunch(item.id)
-            Quickshell.execDetached(["python3", backendPath, "launch-app", item.id])
+            rememberLaunch(itemId)
+            Quickshell.execDetached(["python3", backendPath, "launch-app", itemId])
             closeRequested()
             return
         }
 
         if (mode === 1) {
-            Quickshell.execDetached(["python3", backendPath, "open-path", item.path])
+            Quickshell.execDetached(["python3", backendPath, "open-path", cleanString(item.path)])
             closeRequested()
             return
         }
 
-        Quickshell.execDetached(["python3", backendPath, "command", item.id])
+        Quickshell.execDetached(["python3", backendPath, "command", itemId])
         closeRequested()
     }
 
@@ -238,18 +275,14 @@ Scope {
     }
 
     function displayDescription(item) {
-        if (!item)
-            return ""
-        if (mode === 0)
-            return descriptionFor(item)
-        return cleanString(item.description)
+        return item ? cleanString(item.description) : ""
     }
 
     function iconName(item) {
         if (!item)
             return ""
-        if (mode === 0)
-            return cleanString(item.icon)
+        if (cleanString(item.iconPath).length > 0)
+            return cleanString(item.iconPath)
         return cleanString(item.icon) || (mode === 1 ? "text-x-generic" : "system-run")
     }
 
@@ -263,6 +296,7 @@ Scope {
     }
 
     onModeChanged: {
+        visibleRows.clear()
         if (mode === 0)
             refilterApps()
         else if (mode === 1)
