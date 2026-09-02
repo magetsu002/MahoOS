@@ -155,6 +155,7 @@ PanelWindow {
             anchors.fill: materialPanel
             anchors.margins: -4
             radius: 31
+            antialiasing: true
             color: theme.outerGlow
             opacity: root.shown ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: 250 } }
@@ -164,13 +165,19 @@ PanelWindow {
             id: materialPanel
             anchors.fill: parent
             radius: 27
+            antialiasing: true
             color: theme.shellFill
             border.width: 1
             border.color: theme.shellRim
             clip: true
 
+            // clip:true only clips to the item's rectangular bounds in Qt Quick.
+            // Give every full-surface material layer the same radius explicitly
+            // so reflections cannot paint square pixels through rounded corners.
             Rectangle {
                 anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
                 color: "transparent"
                 gradient: Gradient {
                     GradientStop { position: 0.00; color: theme.shellTopSpecular }
@@ -189,6 +196,7 @@ PanelWindow {
                 anchors.topMargin: 1
                 height: 1
                 radius: 1
+                antialiasing: true
                 color: theme.shellInnerLine
             }
 
@@ -219,10 +227,12 @@ PanelWindow {
 
                 Item {
                     id: header
+                    z: 4
                     Layout.fillWidth: true
                     Layout.preferredHeight: 40
 
                     LauncherIconButton {
+                        z: 5
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         theme: theme
@@ -245,12 +255,16 @@ PanelWindow {
                     }
 
                     LauncherIconButton {
+                        z: 5
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         theme: theme
                         symbol: "controls"
                         emphasized: backend.mode === 2
-                        onActivated: root.switchMode(2)
+                        onActivated: {
+                            searchInput.text = ""
+                            root.switchMode(2)
+                        }
                     }
                 }
 
@@ -259,6 +273,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 50
                     radius: 17
+                    antialiasing: true
                     color: searchInput.activeFocus ? theme.searchFocusedFill : theme.searchFill
                     border.width: 1
                     border.color: searchInput.activeFocus ? theme.searchFocusRim : theme.searchRim
@@ -274,6 +289,7 @@ PanelWindow {
                         anchors.rightMargin: 18
                         height: 1
                         radius: 1
+                        antialiasing: true
                         color: searchInput.activeFocus ? theme.searchSpecularFocus : theme.searchSpecular
                         Behavior on color { ColorAnimation { duration: 180 } }
                     }
@@ -297,6 +313,7 @@ PanelWindow {
                                 width: 13
                                 height: 13
                                 radius: 7
+                                antialiasing: true
                                 color: "transparent"
                                 border.width: 2
                                 border.color: theme.searchGlyph
@@ -375,6 +392,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
                     radius: 16
+                    antialiasing: true
                     color: theme.segmentFill
                     border.width: 1
                     border.color: theme.segmentRim
@@ -389,6 +407,7 @@ PanelWindow {
                         width: modeShelf.segmentWidth
                         height: parent.height - 4
                         radius: 14
+                        antialiasing: true
                         border.width: 1
                         border.color: theme.selectedSegmentRim
                         gradient: Gradient {
@@ -437,6 +456,7 @@ PanelWindow {
                                     cursorShape: Qt.PointingHandCursor
                                 }
                                 TapHandler {
+                                    acceptedButtons: Qt.LeftButton
                                     gesturePolicy: TapHandler.ReleaseWithinBounds
                                     onTapped: root.switchMode(index)
                                 }
@@ -454,6 +474,7 @@ PanelWindow {
                     Layout.fillHeight: true
                     Layout.minimumHeight: 522
                     radius: 18
+                    antialiasing: true
                     color: theme.resultsFill
                     border.width: 1
                     border.color: theme.resultsRim
@@ -468,6 +489,7 @@ PanelWindow {
                         anchors.topMargin: 1
                         height: 1
                         radius: 1
+                        antialiasing: true
                         color: theme.resultsSpecular
                     }
 
@@ -510,6 +532,7 @@ PanelWindow {
                                     anchors.topMargin: 2
                                     anchors.bottomMargin: 2
                                     radius: 14
+                                    antialiasing: true
                                     border.width: 1
                                     border.color: theme.selectedRowRim
                                     gradient: Gradient {
@@ -607,6 +630,7 @@ PanelWindow {
                         cursorShape: Qt.PointingHandCursor
                     }
                     TapHandler {
+                        acceptedButtons: Qt.LeftButton
                         gesturePolicy: TapHandler.ReleaseWithinBounds
                         onTapped: {
                             if (resultList.count <= 0)
