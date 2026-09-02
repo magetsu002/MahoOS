@@ -35,10 +35,11 @@ Item {
                 ? chrome.theme.alpha(chrome.theme.foreground, 0.026)
                 : "transparent"
 
-        Behavior on color { ColorAnimation { duration: 115 } }
+        Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
     }
 
     Rectangle {
+        id: deviceIcon
         anchors.left: parent.left
         anchors.leftMargin: 13
         anchors.verticalCenter: parent.verticalCenter
@@ -46,6 +47,7 @@ Item {
         height: 34
         radius: 13
         antialiasing: true
+        scale: rowHover.containsMouse ? 1.018 : 1
         color: chrome.theme.alpha(
             chrome.mix(
                 chrome.theme.surfaceHigh,
@@ -59,6 +61,8 @@ Item {
             device.connected ? chrome.accent : chrome.theme.foreground,
             device.connected ? 0.095 : 0.055
         )
+
+        Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.left: parent.left
@@ -85,10 +89,14 @@ Item {
 
         Text {
             anchors.centerIn: parent
+            anchors.verticalCenterOffset: -1
             text: root.glyph(device.kind)
             color: device.connected ? chrome.accent : chrome.theme.alpha(chrome.textSecondary, 0.88)
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 18
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            renderType: Text.NativeRendering
         }
     }
 
@@ -141,6 +149,7 @@ Item {
             visible: root.actionLabel !== ""
             radius: 12
             antialiasing: true
+            scale: actionHover.pressed ? 0.985 : 1
             color: actionHover.pressed
                 ? chrome.theme.alpha(chrome.accent, 0.115)
                 : actionHover.containsMouse
@@ -151,8 +160,9 @@ Item {
                 ? chrome.theme.alpha(chrome.accent, 0.13)
                 : chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
-            Behavior on color { ColorAnimation { duration: 115 } }
-            Behavior on border.color { ColorAnimation { duration: 115 } }
+            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+            Behavior on border.color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
             Rectangle {
                 anchors.left: parent.left
@@ -173,11 +183,15 @@ Item {
                 font.family: "Inter"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                renderType: Text.NativeRendering
             }
         }
 
         Text {
             anchors.centerIn: parent
+            anchors.verticalCenterOffset: -1
             visible: root.actionLabel === ""
             text: "›"
             color: rowHover.containsMouse
@@ -186,8 +200,11 @@ Item {
             font.family: "Inter"
             font.pixelSize: 22
             font.weight: Font.Light
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            renderType: Text.NativeRendering
 
-            Behavior on color { ColorAnimation { duration: 115 } }
+            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
         }
 
         MouseArea {
