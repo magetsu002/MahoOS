@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONFIG_DIR="${MAHO_LAUNCHER_CONFIG_DIR:-$ROOT/config/quickshell/maho-launcher}"
+CONFIG="$CONFIG_DIR/shell.qml"
+BACKEND="$ROOT/lib/maho_launcher_backend.py"
+PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
+RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}/maho-launcher-qml-${UID}"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/launcher-qml"
+LOG_FILE="$CACHE_ROOT/launcher.log"
+LOCK_FILE="$RUNTIME_ROOT/launcher.lock"
+
+mkdir -p "$RUNTIME_ROOT" "$CACHE_ROOT"
+chmod 0700 "$RUNTIME_ROOT" "$CACHE_ROOT" 2>/dev/null || true
+
+log_event() {
+    printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE"
+}
+
+launcher_pids() {
+    local pid argument matched
+
+    while read -r pid; do
+        [ -r "/proc/$pid/cmdline" ] || continue
+        matched=0
+        while read -r argument; do
+            case "$argument" in
+                "$CONFIG"|*/quickshell/maho-launcher/shell.qml)
+                    matched=1
+                    break
+                    ;;
+            esac
+        done < <(tr '\0' '\n' < "/proc/$pid/cmdline")
+        [ "$matched" -eq 1 ] && printf '%s\n' "$pid"
+    done < <({ pgrep -x quickshell 2>/dev/null; pgrep -x qs 2>/dev/null; } | sort -u)
+}
+
+launcher_pid() {
+    launcher_pids | head -1
+}
+
+launcher_running() {
+    [ -n "$(launcher_pid)" ]
+}
+
+icon_theme_exists() {
+    local theme="$1" root
+    [ -n "$theme" ] || return 1
+    for root in \
+        "$HOME/.icons" \
+        "${XDG_DATA_HOME:-$HOME/.local/share}/icons" \
+        /usr/local/share/icons \
+        /usr/share/icons
+    do
+        [ -d "$root/$theme" ] && return 0
+    done
+    return 1
+}
+
+desktop_icon_theme() {
+    local theme=""
+    if command -v gsettings >/dev/null 2>&1; then
+        theme="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null \
+            | sed -e "s/^'//" -e "s/'$//" || true)"
+    fi
+    printf '%s\n' "$theme"
+}
+
+detect_icon_theme() {
+    local requested="${MAHO_LAUNCHER_ICON_THEME:-}" desktop="" candidate
+
+    if [ -n "$requested" ] && icon_theme_exists "$requested"; then
+        printf '%s\n' "$requested"
+        return 0
+    fi
+
+    desktop="$(desktop_icon_theme)"
+    case "$desktop" in
+        ''|Adwaita|hicolor) ;;
+        *)
+            if icon_theme_exists "$desktop"; then
+                printf '%s\n' "$desktop"
+                return 0
+            fi
+            ;;
+    esac
+
+    for candidate in Papirus-Dark Papirus Tela-circle-dark Tela-circle Tela; do
+        if icon_theme_exists "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    if [ -n "$desktop" ] && icon_theme_exists "$desktop"; then
+        printf '%s\n' "$desktop"
+        return 0
+    fi
+
+    for candidate in Adwaita hicolor; do
+        if icon_theme_exists "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+set_hyprland_material_rule() {
+    local state="$1"
+    command -v hyprctl >/dev/null 2>&1 || return 0
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || return 0
+
+    if [ "$state" = "on" ]; then
+        hyprctl eval '
+            if maho_launcher_qml_material_rule == nil then
+                maho_launcher_qml_material_rule = hl.layer_rule({
+                    name = "maho-launcher-qml-material",
+                    match = { namespace = "maho-launcher" },
+                    blur = true,
+                    ignore_alpha = 0.045,
+                    xray = true,
+                    order = 9,
+                })
+            else
+                maho_launcher_qml_material_rule:set_enabled(true)
+            end
+        ' >/dev/null 2>&1 || true
+    else
+        hyprctl eval '
+            if maho_launcher_qml_material_rule ~= nil then
+                maho_launcher_qml_material_rule:set_enabled(false)
+            end
+        ' >/dev/null 2>&1 || true
+    fi
+}
+
+ipc_close() {
+    local pid="$1"
+    command -v quickshell >/dev/null 2>&1 || return 1
+    quickshell ipc --pid "$pid" call launcher close >/dev/null 2>&1
+}
+
+ipc_focus() {
+    local pid="$1"
+    command -v quickshell >/dev/null 2>&1 || return 1
+    quickshell ipc --pid "$pid" call launcher focus >/dev/null 2>&1
+}
+
+cleanup() {
+    set_hyprland_material_rule off
+}
+
+run_launcher() {
+    local icon_theme pid
+
+    command -v quickshell >/dev/null 2>&1 || {
+        echo "maho-launcher: quickshell is required" >&2
+        return 1
+    }
+    command -v python3 >/dev/null 2>&1 || {
+        echo "maho-launcher: python3 is required" >&2
+        return 1
+    }
+    command -v flock >/dev/null 2>&1 || {
+        echo "maho-launcher: flock is required" >&2
+        return 1
+    }
+    [ -r "$CONFIG" ] || {
+        echo "maho-launcher: QML configuration missing: $CONFIG" >&2
+        return 1
+    }
+    [ -r "$BACKEND" ] || {
+        echo "maho-launcher: backend helper missing: $BACKEND" >&2
+        return 1
+    }
+
+    exec 9> "$LOCK_FILE"
+    if ! flock -n 9; then
+        pid="$(launcher_pid)"
+        [ -n "$pid" ] && ipc_focus "$pid" || true
+        return 0
+    fi
+
+    pid="$(launcher_pid)"
+    if [ -n "$pid" ]; then
+        ipc_focus "$pid" || true
+        return 0
+    fi
+
+    icon_theme="$(detect_icon_theme 2>/dev/null || true)"
+    export MAHO_ROOT="$ROOT"
+    [ -n "$icon_theme" ] && export QS_ICON_THEME="$icon_theme"
+
+    trap cleanup EXIT INT TERM
+    set_hyprland_material_rule on
+    log_event "opened engine=quickshell icon_theme=${icon_theme:-default}"
+    quickshell -p "$CONFIG" >> "$LOG_FILE" 2>&1
+    local rc=$?
+    log_event "closed rc=$rc"
+    return "$rc"
+}
+
+open_launcher() {
+    local pid
+    pid="$(launcher_pid)"
+    if [ -n "$pid" ]; then
+        ipc_focus "$pid" || true
+        return 0
+    fi
+    nohup "$0" run >/dev/null 2>&1 &
+}
+
+close_launcher() {
+    local pid count=0
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        count=$((count + 1))
+        if ipc_close "$pid"; then
+            for _ in 1 2 3 4 5 6; do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.05
+            done
+        fi
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -TERM "$pid" 2>/dev/null || true
+        fi
+    done < <(launcher_pids)
+    [ "$count" -gt 0 ] || return 0
+}
+
+doctor() {
+    local failed=0 icon_theme count backend_json
+
+    if command -v quickshell >/dev/null 2>&1; then
+        printf 'PASS  engine         quickshell %s\n' "$(command -v quickshell)"
+    else
+        echo "FAIL  engine         quickshell unavailable"
+        failed=1
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        echo "PASS  backend        python3 available"
+    else
+        echo "FAIL  backend        python3 unavailable"
+        failed=1
+    fi
+
+    if [ -r "$CONFIG" ] && [ -r "$BACKEND" ]; then
+        echo "PASS  sources        QML and bounded backend present"
+    else
+        echo "FAIL  sources        launcher source incomplete"
+        failed=1
+    fi
+
+    if python3 -m py_compile "$BACKEND" >/dev/null 2>&1; then
+        backend_json="$(python3 "$BACKEND" doctor 2>/dev/null || true)"
+        if [ -n "$backend_json" ]; then
+            printf 'PASS  standards      %s\n' "$backend_json"
+        else
+            echo "FAIL  standards      application/file launch helpers unavailable"
+            failed=1
+        fi
+    else
+        echo "FAIL  backend        helper does not compile"
+        failed=1
+    fi
+
+    if [ -r "$PALETTE" ] && python3 -m json.tool "$PALETTE" >/dev/null 2>&1; then
+        echo "PASS  palette        valid Maho Palette V2 active.json"
+    elif [ -r "$PALETTE" ]; then
+        echo "FAIL  palette        active.json is invalid"
+        failed=1
+    else
+        echo "INFO  palette        active.json missing; restrained QML fallback will apply"
+    fi
+
+    icon_theme="$(detect_icon_theme 2>/dev/null || true)"
+    printf 'PASS  icons          %s\n' "${icon_theme:-Quickshell default}"
+
+    if command -v qmllint >/dev/null 2>&1; then
+        if qmllint "$CONFIG_DIR"/*.qml >/dev/null 2>&1; then
+            echo "PASS  qml            qmllint accepted launcher sources"
+        else
+            echo "INFO  qml            qmllint reported module/environment diagnostics; run natively for authoritative validation"
+        fi
+    else
+        echo "INFO  qml            qmllint unavailable"
+    fi
+
+    count="$(launcher_pids | awk 'NF { count++ } END { print count + 0 }')"
+    if [ "$count" -gt 1 ]; then
+        printf 'FAIL  singleton      %s launcher processes detected\n' "$count"
+        failed=1
+    elif [ "$count" -eq 1 ]; then
+        echo "PASS  singleton      exactly one launcher process"
+    else
+        echo "INFO  singleton      launcher is closed"
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        echo "PASS  compositor     scoped Maho Launcher blur available"
+    else
+        echo "INFO  compositor     Hyprland unavailable; translucent QML fallback remains usable"
+    fi
+
+    [ "$failed" -eq 0 ] && echo "PASS  doctor         no blocking launcher problems detected"
+    return "$failed"
+}
+
+status() {
+    if launcher_running; then
+        echo "running"
+    else
+        echo "closed"
+    fi
+}
+
+case "${1:-open}" in
+    run) run_launcher ;;
+    open|start) open_launcher ;;
+    close|stop) close_launcher ;;
+    toggle)
+        if launcher_running; then close_launcher; else open_launcher; fi
+        ;;
+    status) status ;;
+    doctor) doctor ;;
+    logs) tail -n "${2:-100}" "$LOG_FILE" 2>/dev/null || true ;;
+    *)
+        cat >&2 <<'EOF_USAGE'
+Maho Launcher — native Quickshell/QML launcher
+
+Usage:
+  maho-launcher open
+  maho-launcher close
+  maho-launcher toggle
+  maho-launcher status
+  maho-launcher doctor
+  maho-launcher logs [LINES]
+EOF_USAGE
+        exit 2
+        ;;
+esac

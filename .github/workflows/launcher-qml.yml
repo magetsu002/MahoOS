@@ -1,0 +1,40 @@
+name: launcher-qml
+
+on:
+  push:
+    branches:
+      - 'feat/maho-launcher-qml'
+  pull_request:
+    paths:
+      - 'bin/maho-launcher'
+      - 'lib/maho_launcher_backend.py'
+      - 'config/quickshell/maho-launcher/**'
+      - 'tests/launcher-qml-contracts.sh'
+      - '.github/workflows/launcher-qml.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-launcher tests/launcher-qml-contracts.sh
+
+      - name: Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile lib/maho_launcher_backend.py
+
+      - name: Native launcher contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/launcher-qml-contracts.sh
