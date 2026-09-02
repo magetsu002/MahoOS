@@ -27,7 +27,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         anchors.margins: 3
-        radius: 13
+        radius: 14
+        antialiasing: true
         color: rowHover.pressed
             ? chrome.theme.alpha(chrome.theme.foreground, 0.065)
             : rowHover.containsMouse
@@ -38,13 +39,14 @@ Item {
     }
 
     Rectangle {
+        id: deviceGlyphMaterial
         anchors.left: parent.left
         anchors.leftMargin: 13
         anchors.verticalCenter: parent.verticalCenter
         width: 34
         height: 34
-        radius: 12
-        clip: true
+        radius: 13
+        antialiasing: true
         color: chrome.theme.alpha(
             chrome.mix(
                 chrome.theme.surfaceHigh,
@@ -59,23 +61,29 @@ Item {
             device.connected ? 0.13 : 0.075
         )
 
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.leftMargin: 7
-            anchors.rightMargin: 7
-            height: 1
-            color: chrome.theme.alpha(chrome.theme.foreground, 0.105)
-        }
-
+        // QtQuick's clip property is rectangular, so every material child that
+        // fills a rounded parent must carry the same radius itself.
         Rectangle {
             anchors.fill: parent
+            radius: parent.radius
+            antialiasing: true
             gradient: Gradient {
                 GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.025) }
                 GradientStop { position: 0.55; color: "transparent" }
                 GradientStop { position: 1; color: chrome.theme.alpha(device.connected ? chrome.accent : chrome.theme.background, 0.025) }
             }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
+            height: 1
+            radius: 1
+            antialiasing: true
+            color: chrome.theme.alpha(chrome.theme.foreground, 0.055)
         }
 
         Text {
@@ -134,8 +142,8 @@ Item {
             width: parent.width
             height: 30
             visible: root.actionLabel !== ""
-            radius: 11
-            clip: true
+            radius: 12
+            antialiasing: true
             color: actionHover.pressed
                 ? chrome.theme.alpha(chrome.accent, 0.13)
                 : actionHover.containsMouse
@@ -156,6 +164,8 @@ Item {
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 height: 1
+                radius: 1
+                antialiasing: true
                 color: chrome.theme.alpha(chrome.theme.foreground, 0.075)
             }
 
