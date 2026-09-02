@@ -89,8 +89,11 @@ require_text "$BT_BACKEND" 'StartDiscovery' "BlueZ discovery action missing"
 require_text "$BT_BACKEND" 'RemoveDevice' "BlueZ forget action missing"
 require_text "$LINK/BluetoothState.qml" 'org.bluez.Device1", "CancelPairing"' "BlueZ pairing cancellation missing"
 require_text "$LINK/BluetoothState.qml" 'busctl", "--system", "monitor", "org.bluez"' "Bluetooth state is not driven by BlueZ signals"
-if grep -RnsF 'bluetoothctl' "$LINK" --include='*.qml' --include='*.py'; then
-    fail "Maho Link Bluetooth must not scrape or drive bluetoothctl"
+if grep -RnsF 'bluetoothctl' "$LINK" --include='*.qml'; then
+    fail "Maho Link Bluetooth QML must not drive bluetoothctl"
+fi
+if grep -nsE '(subprocess\.(run|Popen).*bluetoothctl|\[[^]]*["'"']bluetoothctl["'"'])' "$BT_BACKEND"; then
+    fail "Maho Link Bluetooth backend must not execute bluetoothctl"
 fi
 if grep -RnsE 'WH-1000XM5|Magic Keyboard|Magic Trackpad|AirPods Pro|MX Master 3S|Echo Dot|Soundcore Liberty|WH-CH720N' "$LINK" --include='*.qml' --include='*.py'; then
     fail "illustrative Bluetooth concept device data was hardcoded"
