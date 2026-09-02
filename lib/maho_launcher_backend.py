@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Bounded non-shell helpers for the native Maho Launcher.
+"""Bounded helpers for the native Maho Launcher.
 
-The QML frontend owns discovery/ranking for desktop applications. This helper
-only handles operations where a process boundary is useful: standards-aware
-application launch, bounded file search/open, and the curated Commands mode.
+Maho owns desktop-app discovery, launch, file search/open, and the curated
+Commands mode. Search text is never evaluated as shell input.
 """
 
 from __future__ import annotations
 
 import argparse
+import configparser
 import json
+import locale
 import os
 from pathlib import Path
 import shutil
@@ -51,14 +52,9 @@ def find_desktop_file(desktop_id: str) -> Path | None:
     for root in desktop_roots():
         if not root.is_dir():
             continue
-
         direct = root / desktop_id
         if direct.is_file():
             return direct
-
-        # Desktop IDs for nested entries replace '/' with '-'. Walking the
-        # comparatively small applications directories keeps this correct
-        # without guessing a reverse mapping that can be ambiguous.
         try:
             for candidate in root.rglob("*.desktop"):
                 if desktop_id_for(candidate, root) == desktop_id:
@@ -66,6 +62,135 @@ def find_desktop_file(desktop_id: str) -> Path | None:
         except OSError:
             continue
     return None
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().casefold() in {"1", "true", "yes"}
+
+
+def _split_semicolon(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(";") if item.strip()]
+
+
+def _locale_candidates() -> list[str]:
+    raw = os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
+    raw = raw.split(".", 1)[0].split("@", 1)[0]
+    candidates: list[str] = []
+    if raw and raw not in {"C", "POSIX"}:
+        candidates.append(raw)
+        if "_" in raw:
+            candidates.append(raw.split("_", 1)[0])
+    try:
+        current = locale.getlocale()[0]
+    except Exception:
+        current = None
+    if current and current not in candidates:
+        candidates.append(current)
+        if "_" in current:
+            language = current.split("_", 1)[0]
+            if language not in candidates:
+                candidates.append(language)
+    return candidates
+
+
+def _localized(section: configparser.SectionProxy, key: str) -> str:
+    for locale_name in _locale_candidates():
+        localized = section.get(f"{key}[{locale_name}]", fallback="").strip()
+        if localized:
+            return localized
+    return section.get(key, fallback="").strip()
+
+
+def _desktop_environment() -> set[str]:
+    raw = os.environ.get("XDG_CURRENT_DESKTOP", "")
+    normalized = raw.replace(";", ":")
+    return {item.strip().casefold() for item in normalized.split(":") if item.strip()}
+
+
+def _desktop_visible(section: configparser.SectionProxy) -> bool:
+    if section.get("Type", fallback="Application").strip() != "Application":
+        return False
+    if _truthy(section.get("Hidden")) or _truthy(section.get("NoDisplay")):
+        return False
+
+    try_exec = section.get("TryExec", fallback="").strip()
+    if try_exec and not (Path(try_exec).is_file() or shutil.which(try_exec)):
+        return False
+
+    desktops = _desktop_environment()
+    only = {item.casefold() for item in _split_semicolon(section.get("OnlyShowIn"))}
+    blocked = {item.casefold() for item in _split_semicolon(section.get("NotShowIn"))}
+    if only and desktops and not (only & desktops):
+        return False
+    if blocked and desktops and (blocked & desktops):
+        return False
+    return True
+
+
+def parse_desktop_entry(path: Path, desktop_id: str) -> dict[str, object] | None:
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            parser.read_file(handle)
+    except (OSError, configparser.Error):
+        return None
+
+    if not parser.has_section("Desktop Entry"):
+        return None
+    section = parser["Desktop Entry"]
+    if not _desktop_visible(section):
+        return None
+
+    name = _localized(section, "Name")
+    if not name:
+        return None
+
+    return {
+        "id": desktop_id,
+        "name": name,
+        "genericName": _localized(section, "GenericName"),
+        "comment": _localized(section, "Comment"),
+        "icon": section.get("Icon", fallback="").strip(),
+        "keywords": _split_semicolon(_localized(section, "Keywords")),
+        "categories": _split_semicolon(section.get("Categories", fallback="")),
+    }
+
+
+def discover_apps() -> list[dict[str, object]]:
+    """Return real installed desktop applications in XDG precedence order."""
+    seen: set[str] = set()
+    output: list[dict[str, object]] = []
+
+    for root in desktop_roots():
+        if not root.is_dir():
+            continue
+        try:
+            candidates = sorted(root.rglob("*.desktop"), key=lambda item: str(item).casefold())
+        except OSError:
+            continue
+
+        for path in candidates:
+            try:
+                desktop_id = desktop_id_for(path, root)
+            except ValueError:
+                continue
+            if desktop_id in seen:
+                continue
+            seen.add(desktop_id)
+            entry = parse_desktop_entry(path, desktop_id)
+            if entry is not None:
+                output.append(entry)
+
+    output.sort(key=lambda item: str(item["name"]).casefold())
+    return output
+
+
+def list_apps() -> int:
+    json.dump(discover_apps(), sys.stdout, ensure_ascii=False, separators=(",", ":"))
+    return 0
 
 
 def detached(argv: list[str]) -> int:
@@ -158,13 +283,11 @@ def scan_files_python(home: Path, query: str, candidate_limit: int = 24000) -> I
             if not is_excluded(root_path / name, home)
             and not name.startswith(".git")
         ]
-
         for name in dirs:
             yield root_path / name
             count += 1
             if count >= candidate_limit:
                 return
-
         for name in files:
             path = root_path / name
             if is_excluded(path, home):
@@ -179,14 +302,7 @@ def scan_files_fd(home: Path, query: str, candidate_limit: int) -> list[Path] | 
     if not shutil.which("fd"):
         return None
 
-    command = [
-        "fd",
-        "--color",
-        "never",
-        "--absolute-path",
-        "--max-results",
-        str(candidate_limit),
-    ]
+    command = ["fd", "--color", "never", "--absolute-path", "--max-results", str(candidate_limit)]
     if query:
         command += ["--ignore-case", "--fixed-strings", query]
     else:
@@ -233,7 +349,6 @@ def file_search(query: str, limit: int) -> int:
         score = fuzzy_score(path.name, relative, query)
         if score < 0:
             continue
-        # Direct children and directories get a small usability boost.
         depth = len(Path(relative).parts)
         if depth <= 1:
             score += 180
@@ -247,7 +362,7 @@ def file_search(query: str, limit: int) -> int:
 
     ranked.sort(key=lambda row: (-row[0], row[1]))
     output = []
-    for _, relative_key, path in ranked[:limit]:
+    for _, _, path in ranked[:limit]:
         relative = str(path.relative_to(home)) if path.is_absolute() else str(path)
         try:
             is_dir = path.is_dir()
@@ -306,20 +421,24 @@ def run_command(action: str) -> int:
 
 
 def doctor() -> int:
+    apps = discover_apps()
     result = {
         "gio": bool(shutil.which("gio")),
         "gtk_launch": bool(shutil.which("gtk-launch")),
         "xdg_open": bool(shutil.which("xdg-open")),
         "fd": bool(shutil.which("fd")),
+        "desktop_entries": len(apps),
         "desktop_roots": [str(path) for path in desktop_roots() if path.is_dir()],
     }
     json.dump(result, sys.stdout, separators=(",", ":"))
-    return 0 if (result["gio"] or result["gtk_launch"]) and result["xdg_open"] else 1
+    return 0 if apps and (result["gio"] or result["gtk_launch"]) and result["xdg_open"] else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("apps")
 
     launch = sub.add_parser("launch-app")
     launch.add_argument("desktop_id")
@@ -340,6 +459,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.command == "apps":
+        return list_apps()
     if args.command == "launch-app":
         return launch_app(args.desktop_id)
     if args.command == "files":
