@@ -157,7 +157,10 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.cancelRequested()
+                onClicked: {
+                    root.bluetooth.cancelPairing(root.device)
+                    root.cancelRequested()
+                }
             }
         }
     }
