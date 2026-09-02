@@ -28,11 +28,13 @@ Item {
         anchors.fill: parent
         anchors.margins: 3
         radius: 13
-        color: rowHover.containsMouse
-            ? chrome.theme.alpha(chrome.accent, 0.055)
-            : "transparent"
+        color: rowHover.pressed
+            ? chrome.theme.alpha(chrome.accent, 0.085)
+            : rowHover.containsMouse
+                ? chrome.theme.alpha(chrome.accent, 0.045)
+                : "transparent"
 
-        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on color { ColorAnimation { duration: 115 } }
     }
 
     Rectangle {
@@ -43,14 +45,33 @@ Item {
         height: 34
         radius: 12
         color: chrome.theme.alpha(
-            device.connected ? chrome.accent : chrome.textSecondary,
-            device.connected ? 0.13 : 0.075
+            chrome.mix(
+                chrome.theme.surfaceHigh,
+                device.connected ? chrome.accent : chrome.theme.background,
+                device.connected ? 0.12 : 0.18
+            ),
+            0.72
         )
+        border.width: 1
+        border.color: chrome.theme.alpha(
+            device.connected ? chrome.accent : chrome.theme.foreground,
+            device.connected ? 0.12 : 0.045
+        )
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
+            height: 1
+            color: chrome.theme.alpha(chrome.theme.foreground, 0.055)
+        }
 
         Text {
             anchors.centerIn: parent
             text: root.glyph(device.kind)
-            color: device.connected ? chrome.accent : chrome.textSecondary
+            color: device.connected ? chrome.accent : chrome.theme.alpha(chrome.textSecondary, 0.88)
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 18
         }
@@ -81,7 +102,9 @@ Item {
                     ? "Connected · " + String(device.battery) + "% battery"
                     : "Connected")
                 : String(device.type || "Bluetooth Device")
-            color: chrome.theme.alpha(chrome.textSecondary, 0.76)
+            color: device.connected
+                ? chrome.theme.alpha(chrome.accent, 0.82)
+                : chrome.theme.alpha(chrome.textSecondary, 0.68)
             elide: Text.ElideRight
             font.family: "Inter"
             font.pixelSize: 10
@@ -93,26 +116,35 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: 13
         anchors.verticalCenter: parent.verticalCenter
-        width: root.actionLabel !== "" ? 72 : 28
+        width: root.actionLabel !== "" ? 68 : 28
         height: 34
 
         Rectangle {
-            anchors.fill: parent
+            anchors.centerIn: parent
+            width: parent.width
+            height: 30
             visible: root.actionLabel !== ""
             radius: 11
-            color: actionHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.14)
-                : chrome.theme.alpha(chrome.textSecondary, 0.07)
+            color: actionHover.pressed
+                ? chrome.theme.alpha(chrome.accent, 0.15)
+                : actionHover.containsMouse
+                    ? chrome.theme.alpha(chrome.accent, 0.11)
+                    : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.46)
             border.width: 1
-            border.color: chrome.theme.alpha(chrome.theme.outline, 0.07)
+            border.color: actionHover.containsMouse
+                ? chrome.theme.alpha(chrome.accent, 0.15)
+                : chrome.theme.alpha(chrome.theme.foreground, 0.045)
+
+            Behavior on color { ColorAnimation { duration: 115 } }
+            Behavior on border.color { ColorAnimation { duration: 115 } }
 
             Text {
                 anchors.centerIn: parent
                 text: root.actionLabel
-                color: chrome.textPrimary
+                color: root.actionLabel !== "" ? chrome.accent : chrome.textPrimary
                 font.family: "Inter"
-                font.pixelSize: 11
-                font.weight: Font.Medium
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
             }
         }
 
@@ -120,10 +152,14 @@ Item {
             anchors.centerIn: parent
             visible: root.actionLabel === ""
             text: "›"
-            color: chrome.theme.alpha(chrome.textSecondary, 0.82)
+            color: rowHover.containsMouse
+                ? chrome.theme.alpha(chrome.textPrimary, 0.82)
+                : chrome.theme.alpha(chrome.textSecondary, 0.68)
             font.family: "Inter"
-            font.pixelSize: 23
+            font.pixelSize: 22
             font.weight: Font.Light
+
+            Behavior on color { ColorAnimation { duration: 115 } }
         }
 
         MouseArea {
