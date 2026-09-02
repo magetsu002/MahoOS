@@ -2,14 +2,18 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Widgets
 
 PanelWindow {
     id: root
 
+    anchors {
+        top: true
+        bottom: true
+        left: true
+        right: true
+    }
+
     color: "transparent"
-    implicitWidth: 760
-    implicitHeight: 730
     exclusiveZone: 0
     exclusionMode: ExclusionMode.Ignore
     aboveWindows: true
@@ -17,6 +21,9 @@ PanelWindow {
     WlrLayershell.namespace: "maho-launcher"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+
+    readonly property int surfaceWidth: 760
+    readonly property int surfaceHeight: 790
 
     LauncherTheme { id: theme }
     LauncherBackend {
@@ -55,6 +62,7 @@ PanelWindow {
             searchInput.forceActiveFocus()
             return
         }
+
         previousMode = backend.mode
         pendingMode = index
         modeChanging = true
@@ -78,13 +86,13 @@ PanelWindow {
 
     Timer {
         id: closeTimer
-        interval: 175
+        interval: 190
         onTriggered: Qt.quit()
     }
 
     Timer {
         id: modeSwap
-        interval: 88
+        interval: 92
         onTriggered: {
             backend.mode = root.pendingMode
             searchInput.text = ""
@@ -102,72 +110,105 @@ PanelWindow {
         })
     }
 
+    // Maho Link/Bluetooth-style full-screen material plane. The compositor
+    // blur now sees the entire backdrop instead of only the launcher rectangle,
+    // which is what makes color and luminance feel reflected through the glass.
+    Rectangle {
+        id: backdropDim
+        anchors.fill: parent
+        color: Qt.rgba(0, 0, 0, root.shown ? 0.105 : 0)
+        Behavior on color { ColorAnimation { duration: root.shown ? 220 : 165; easing.type: Easing.OutCubic } }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        enabled: root.shown && !root.closing
+        onClicked: root.closeLauncher()
+    }
+
     Item {
         id: motionLayer
-        anchors.fill: parent
+        width: Math.min(root.surfaceWidth, root.width - 40)
+        height: Math.min(root.surfaceHeight, root.height - 40)
+        anchors.centerIn: parent
         opacity: root.shown ? 1 : 0
-        scale: root.shown ? 1 : 0.965
+        scale: root.shown ? 1 : 0.978
+
         transform: Translate {
             id: openTranslate
-            y: root.shown ? 0 : -14
+            y: root.shown ? 0 : -11
             Behavior on y {
                 NumberAnimation {
-                    duration: root.shown ? 225 : 145
+                    duration: root.shown ? 235 : 160
                     easing.type: Easing.OutCubic
                 }
             }
         }
 
         Behavior on opacity {
-            NumberAnimation {
-                duration: root.shown ? 215 : 145
-                easing.type: Easing.OutCubic
-            }
+            NumberAnimation { duration: root.shown ? 225 : 155; easing.type: Easing.OutCubic }
         }
         Behavior on scale {
-            NumberAnimation {
-                duration: root.shown ? 240 : 150
-                easing.type: root.shown ? Easing.OutBack : Easing.InCubic
-            }
+            NumberAnimation { duration: root.shown ? 250 : 165; easing.type: Easing.OutCubic }
         }
 
         Rectangle {
             anchors.fill: materialPanel
-            anchors.margins: -3
-            radius: 27
-            color: theme.subtleGlow
-            opacity: 0.72
+            anchors.margins: -5
+            radius: 30
+            color: theme.outerGlow
+            opacity: root.shown ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 230 } }
         }
 
         Rectangle {
             id: materialPanel
             anchors.fill: parent
-            anchors.margins: 1
-            radius: 24
+            radius: 25
             color: theme.shellFill
             border.width: 1
             border.color: theme.shellRim
             clip: true
 
+            // A very soft environment wash. Most perceived color should come
+            // from the real blurred wallpaper behind this translucent surface.
             Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 165
+                anchors.fill: parent
+                color: "transparent"
                 gradient: Gradient {
-                    GradientStop { position: 0; color: theme.shellTopGlow }
-                    GradientStop { position: 1; color: "transparent" }
+                    GradientStop { position: 0.00; color: theme.shellTopSpecular }
+                    GradientStop { position: 0.22; color: theme.shellAccentWash }
+                    GradientStop { position: 0.72; color: "transparent" }
+                    GradientStop { position: 1.00; color: theme.shellBottomShade }
                 }
             }
 
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: 24
-                anchors.rightMargin: 24
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
                 anchors.top: parent.top
                 height: 1
                 color: theme.shellInnerLine
+            }
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                width: 1
+                anchors.topMargin: 24
+                anchors.bottomMargin: 24
+                color: theme.shellSideLine
+            }
+
+            // Consume blank clicks inside the material so only clicks outside
+            // the launcher dismiss it.
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                onClicked: function(mouse) { mouse.accepted = true }
             }
 
             ColumnLayout {
@@ -181,13 +222,13 @@ PanelWindow {
                 Item {
                     id: header
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 38
+                    Layout.preferredHeight: 40
 
                     LauncherIconButton {
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         theme: theme
-                        iconName: "view-app-grid-symbolic"
+                        symbol: "grid"
                         emphasized: backend.mode === 0
                         onActivated: {
                             searchInput.text = ""
@@ -200,7 +241,7 @@ PanelWindow {
                         text: "Maho Launcher"
                         color: theme.textPrimary
                         font.family: "Inter, Noto Sans, sans-serif"
-                        font.pixelSize: 13
+                        font.pixelSize: 14
                         font.weight: Font.DemiBold
                         renderType: Text.NativeRendering
                     }
@@ -209,8 +250,7 @@ PanelWindow {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         theme: theme
-                        iconName: "preferences-system-symbolic"
-                        hoverRotation: 10
+                        symbol: "controls"
                         emphasized: backend.mode === 2
                         onActivated: root.switchMode(2)
                     }
@@ -219,14 +259,25 @@ PanelWindow {
                 Rectangle {
                     id: searchField
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 48
-                    radius: 15
+                    Layout.preferredHeight: 50
+                    radius: 16
                     color: searchInput.activeFocus ? theme.searchFocusedFill : theme.searchFill
                     border.width: 1
                     border.color: searchInput.activeFocus ? theme.searchFocusRim : theme.searchRim
 
-                    Behavior on color { ColorAnimation { duration: 170; easing.type: Easing.OutCubic } }
-                    Behavior on border.color { ColorAnimation { duration: 170 } }
+                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        height: 1
+                        color: searchInput.activeFocus ? theme.searchSpecularFocus : theme.searchSpecular
+                        Behavior on color { ColorAnimation { duration: 180 } }
+                    }
 
                     RowLayout {
                         anchors.fill: parent
@@ -234,15 +285,36 @@ PanelWindow {
                         anchors.rightMargin: 15
                         spacing: 12
 
-                        IconImage {
-                            Layout.preferredWidth: 18
-                            Layout.preferredHeight: 18
+                        Item {
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 20
                             Layout.alignment: Qt.AlignVCenter
-                            source: Quickshell.iconPath("system-search-symbolic", "edit-find-symbolic")
-                            opacity: searchInput.activeFocus ? 0.92 : 0.64
-                            mipmap: true
+                            opacity: searchInput.activeFocus ? 0.96 : 0.68
+                            scale: searchInput.activeFocus ? 1.03 : 1
+
+                            Rectangle {
+                                x: 1
+                                y: 1
+                                width: 13
+                                height: 13
+                                radius: 7
+                                color: "transparent"
+                                border.width: 2
+                                border.color: theme.searchGlyph
+                            }
+                            Rectangle {
+                                x: 13
+                                y: 13
+                                width: 7
+                                height: 2
+                                radius: 1
+                                rotation: 45
+                                transformOrigin: Item.Left
+                                color: theme.searchGlyph
+                            }
 
                             Behavior on opacity { NumberAnimation { duration: 150 } }
+                            Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
                         }
 
                         Item {
@@ -253,7 +325,7 @@ PanelWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: searchInput.text.length === 0
                                 text: "Search apps, files, and commands..."
-                                color: theme.alpha(theme.muted, 0.62)
+                                color: theme.alpha(theme.muted, 0.66)
                                 font.family: "Inter, Noto Sans, sans-serif"
                                 font.pixelSize: 12
                                 renderType: Text.NativeRendering
@@ -302,8 +374,8 @@ PanelWindow {
                 Rectangle {
                     id: modeShelf
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
-                    radius: 14
+                    Layout.preferredHeight: 44
+                    radius: 15
                     color: theme.segmentFill
                     border.width: 1
                     border.color: theme.segmentRim
@@ -317,16 +389,17 @@ PanelWindow {
                         y: 2
                         width: modeShelf.segmentWidth
                         height: parent.height - 4
-                        radius: 12
+                        radius: 13
                         border.width: 1
                         border.color: theme.selectedSegmentRim
                         gradient: Gradient {
                             GradientStop { position: 0; color: theme.selectedSegmentTop }
-                            GradientStop { position: 1; color: theme.selectedSegment }
+                            GradientStop { position: 0.48; color: theme.selectedSegment }
+                            GradientStop { position: 1; color: theme.selectedSegmentBottom }
                         }
 
                         Behavior on x {
-                            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: 230; easing.type: Easing.OutCubic }
                         }
                     }
 
@@ -335,57 +408,42 @@ PanelWindow {
                         anchors.margins: 2
 
                         Repeater {
-                            model: [
-                                { "label": "Apps", "icon": "view-app-grid-symbolic" },
-                                { "label": "Files", "icon": "folder-symbolic" },
-                                { "label": "Commands", "icon": "system-run-symbolic" }
-                            ]
+                            model: ["Apps", "Files", "Commands"]
 
                             Item {
                                 required property int index
-                                required property var modelData
+                                required property string modelData
                                 width: modeShelf.segmentWidth
                                 height: modeShelf.height - 4
-
                                 readonly property bool active: modeShelf.visualMode === index
 
-                                Row {
+                                Text {
                                     anchors.centerIn: parent
-                                    spacing: 8
+                                    anchors.verticalCenterOffset: segmentHover.hovered && !parent.active ? -1 : 0
+                                    text: parent.modelData
+                                    color: parent.active
+                                        ? theme.textPrimary
+                                        : theme.alpha(theme.muted, segmentHover.hovered ? 0.86 : 0.70)
+                                    font.family: "Inter, Noto Sans, sans-serif"
+                                    font.pixelSize: 11
+                                    font.weight: parent.active ? Font.DemiBold : Font.Medium
+                                    renderType: Text.NativeRendering
 
-                                    IconImage {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 15
-                                        height: 15
-                                        source: Quickshell.iconPath(modelData.icon, true)
-                                        opacity: active ? 0.94 : 0.54
-                                        scale: active ? 1.02 : 0.96
-
-                                        Behavior on opacity { NumberAnimation { duration: 170 } }
-                                        Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
-                                    }
-
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: modelData.label
-                                        color: active ? theme.textPrimary : theme.alpha(theme.muted, 0.70)
-                                        font.family: "Inter, Noto Sans, sans-serif"
-                                        font.pixelSize: 11
-                                        font.weight: active ? Font.DemiBold : Font.Medium
-                                        renderType: Text.NativeRendering
-
-                                        Behavior on color { ColorAnimation { duration: 170 } }
-                                    }
+                                    Behavior on color { ColorAnimation { duration: 170 } }
+                                    Behavior on anchors.verticalCenterOffset { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                 }
 
-                                HoverHandler { id: segmentHover }
+                                HoverHandler {
+                                    id: segmentHover
+                                    cursorShape: Qt.PointingHandCursor
+                                }
                                 TapHandler {
                                     gesturePolicy: TapHandler.ReleaseWithinBounds
                                     onTapped: root.switchMode(index)
                                 }
 
-                                scale: segmentHover.hovered ? 1.008 : 1
-                                Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                scale: segmentHover.hovered ? 1.006 : 1
+                                Behavior on scale { NumberAnimation { duration: 145; easing.type: Easing.OutCubic } }
                             }
                         }
                     }
@@ -395,12 +453,22 @@ PanelWindow {
                     id: resultsViewport
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: 420
-                    radius: 15
+                    Layout.minimumHeight: 522
+                    radius: 16
                     color: theme.resultsFill
                     border.width: 1
                     border.color: theme.resultsRim
                     clip: true
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        height: 1
+                        color: theme.resultsSpecular
+                    }
 
                     Item {
                         id: resultMotion
@@ -409,14 +477,14 @@ PanelWindow {
                         transform: Translate {
                             id: modeTranslate
                             x: root.modeChanging
-                                ? (root.pendingMode > root.previousMode ? 10 : -10)
+                                ? (root.pendingMode > root.previousMode ? 12 : -12)
                                 : 0
                             Behavior on x {
-                                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
                             }
                         }
 
-                        Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 125; easing.type: Easing.OutCubic } }
 
                         ListView {
                             id: resultList
@@ -430,18 +498,32 @@ PanelWindow {
                             boundsBehavior: Flickable.StopAtBounds
                             keyNavigationEnabled: false
                             highlightFollowsCurrentItem: true
-                            highlightMoveDuration: 185
-                            highlightResizeDuration: 140
+                            highlightMoveDuration: 210
+                            highlightResizeDuration: 160
                             highlightMoveVelocity: -1
 
-                            highlight: Rectangle {
-                                z: -1
-                                radius: 13
-                                border.width: 1
-                                border.color: theme.selectedRowRim
-                                gradient: Gradient {
-                                    GradientStop { position: 0; color: theme.selectedRowTop }
-                                    GradientStop { position: 1; color: theme.selectedRow }
+                            highlight: Item {
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: 2
+                                    radius: 14
+                                    border.width: 1
+                                    border.color: theme.selectedRowRim
+                                    gradient: Gradient {
+                                        GradientStop { position: 0; color: theme.selectedRowTop }
+                                        GradientStop { position: 0.52; color: theme.selectedRow }
+                                        GradientStop { position: 1; color: theme.selectedRowBottom }
+                                    }
+                                }
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: 18
+                                    anchors.rightMargin: 18
+                                    anchors.top: parent.top
+                                    anchors.topMargin: 3
+                                    height: 1
+                                    color: theme.selectedRowSpecular
                                 }
                             }
 
@@ -493,25 +575,33 @@ PanelWindow {
 
                     Row {
                         anchors.centerIn: parent
-                        spacing: 5
+                        spacing: 6
+                        y: footerHover.hovered ? parent.height / 2 - height / 2 - 1 : parent.height / 2 - height / 2
 
                         Text {
                             text: backend.mode === 0 ? "Show more apps" : (backend.mode === 1 ? "More files" : "Commands")
-                            color: theme.alpha(theme.muted, 0.64)
+                            color: theme.alpha(theme.muted, footerHover.hovered ? 0.82 : 0.64)
                             font.family: "Inter, Noto Sans, sans-serif"
                             font.pixelSize: 9
                             font.weight: Font.Medium
+                            Behavior on color { ColorAnimation { duration: 140 } }
                         }
 
                         Text {
                             text: "⌄"
-                            color: theme.alpha(theme.muted, 0.52)
+                            color: theme.alpha(theme.muted, footerHover.hovered ? 0.72 : 0.52)
                             font.family: "Inter, Noto Sans, sans-serif"
                             font.pixelSize: 11
+                            Behavior on color { ColorAnimation { duration: 140 } }
                         }
+
+                        Behavior on y { NumberAnimation { duration: 145; easing.type: Easing.OutCubic } }
                     }
 
-                    HoverHandler { id: footerHover }
+                    HoverHandler {
+                        id: footerHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
                     TapHandler {
                         gesturePolicy: TapHandler.ReleaseWithinBounds
                         onTapped: {
@@ -522,9 +612,6 @@ PanelWindow {
                             resultList.positionViewAtIndex(target, ListView.Contain)
                         }
                     }
-
-                    opacity: footerHover.hovered ? 1 : 0.84
-                    Behavior on opacity { NumberAnimation { duration: 140 } }
                 }
             }
         }

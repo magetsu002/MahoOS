@@ -25,6 +25,40 @@ Scope {
 
     readonly property var activeModel: mode === 0 ? appModel : (mode === 1 ? fileModel : commandModel)
 
+    function cleanString(value) {
+        if (value === undefined || value === null)
+            return ""
+        const text = String(value)
+        return text === "[object Object]" ? "" : text
+    }
+
+    function cleanStringList(value) {
+        if (!value || value.length === undefined)
+            return []
+        const output = []
+        for (let index = 0; index < value.length; ++index) {
+            const text = cleanString(value[index])
+            if (text.length > 0)
+                output.push(text)
+        }
+        return output
+    }
+
+    // ScriptModel is deliberately fed plain snapshots instead of live
+    // DesktopEntry QObjects. This keeps delegate roles deterministic across
+    // Quickshell versions and fixes blank text/generic white icon rows.
+    function snapshotApplication(entry) {
+        return {
+            "id": cleanString(entry.id),
+            "name": cleanString(entry.name),
+            "genericName": cleanString(entry.genericName),
+            "comment": cleanString(entry.comment),
+            "icon": cleanString(entry.icon),
+            "keywords": cleanStringList(entry.keywords),
+            "categories": cleanStringList(entry.categories)
+        }
+    }
+
     function descriptionFor(entry) {
         if (entry.genericName && entry.genericName.trim().length > 0)
             return entry.genericName.trim()
@@ -36,7 +70,7 @@ Scope {
     function appSearchText(entry) {
         const keywords = entry.keywords ? entry.keywords.join(" ") : ""
         const categories = entry.categories ? entry.categories.join(" ") : ""
-        return (entry.name + " " + (entry.genericName || "") + " " + (entry.comment || "")
+        return (cleanString(entry.name) + " " + cleanString(entry.genericName) + " " + cleanString(entry.comment)
             + " " + keywords + " " + categories).toLowerCase()
     }
 
@@ -113,26 +147,28 @@ Scope {
         const matches = []
         for (let index = 0; index < source.length; ++index) {
             const entry = source[index]
-            if (!entry || entry.noDisplay || !entry.name)
+            const name = entry ? cleanString(entry.name) : ""
+            if (!entry || entry.noDisplay || name.length === 0)
                 continue
-            const score = fuzzyScore(entry.name, appSearchText(entry), query)
+            const score = fuzzyScore(name, appSearchText(entry), query)
             if (score < 0)
                 continue
+            const id = cleanString(entry.id)
             matches.push({
                 "entry": entry,
-                "score": score + usageBoost(entry.id)
+                "score": score + usageBoost(id)
             })
         }
 
         matches.sort(function(first, second) {
             if (first.score !== second.score)
                 return second.score - first.score
-            return first.entry.name.localeCompare(second.entry.name)
+            return cleanString(first.entry.name).localeCompare(cleanString(second.entry.name))
         })
 
         const output = []
         for (let result = 0; result < Math.min(maximumResults, matches.length); ++result)
-            output.push(matches[result].entry)
+            output.push(snapshotApplication(matches[result].entry))
         appModel.values = output
         modelChanged()
     }
@@ -217,7 +253,7 @@ Scope {
     }
 
     function displayName(item) {
-        return item ? (item.name || "") : ""
+        return item ? cleanString(item.name) : ""
     }
 
     function displayDescription(item) {
@@ -225,15 +261,15 @@ Scope {
             return ""
         if (mode === 0)
             return descriptionFor(item)
-        return item.description || ""
+        return cleanString(item.description)
     }
 
     function iconName(item) {
         if (!item)
-            return "application-x-executable"
+            return ""
         if (mode === 0)
-            return item.icon || "application-x-executable"
-        return item.icon || (mode === 1 ? "text-x-generic" : "system-run")
+            return cleanString(item.icon)
+        return cleanString(item.icon) || (mode === 1 ? "text-x-generic" : "system-run")
     }
 
     onQueryChanged: {
