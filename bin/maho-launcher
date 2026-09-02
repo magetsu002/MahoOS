@@ -82,6 +82,12 @@ icon_theme_exists() {
     return 1
 }
 
+desktop_icon_theme() {
+    command -v gsettings >/dev/null 2>&1 || return 1
+    gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null \
+        | sed -e "s/^'//" -e "s/'$//"
+}
+
 detect_icon_theme() {
     local requested="${MAHO_LAUNCHER_ICON_THEME:-}" desktop_theme="" candidate
 
@@ -90,19 +96,35 @@ detect_icon_theme() {
         return 0
     fi
 
-    # Respect the user's desktop icon theme first. This lets Rofi resolve
-    # vector/high-resolution replacements (Papirus, Tela, Adwaita, etc.) for
-    # legacy desktop entries without Maho bundling or falsifying app branding.
-    if command -v gsettings >/dev/null 2>&1; then
-        desktop_theme="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null \
-            | sed -e "s/^'//" -e "s/'$//" || true)"
-        if [ -n "$desktop_theme" ] && icon_theme_exists "$desktop_theme"; then
-            printf '%s\n' "$desktop_theme"
+    desktop_theme="$(desktop_icon_theme 2>/dev/null || true)"
+
+    # Preserve an intentionally chosen third-party desktop theme. If the
+    # desktop is still on the generic Adwaita/hicolor fallback, prefer a
+    # higher-coverage scalable app theme when one is already installed. This
+    # improves legacy app artwork without bundling or replacing branding.
+    case "$desktop_theme" in
+        ''|Adwaita|hicolor) ;;
+        *)
+            if icon_theme_exists "$desktop_theme"; then
+                printf '%s\n' "$desktop_theme"
+                return 0
+            fi
+            ;;
+    esac
+
+    for candidate in Papirus-Dark Papirus Tela-circle-dark Tela-circle Tela; do
+        if icon_theme_exists "$candidate"; then
+            printf '%s\n' "$candidate"
             return 0
         fi
+    done
+
+    if [ -n "$desktop_theme" ] && icon_theme_exists "$desktop_theme"; then
+        printf '%s\n' "$desktop_theme"
+        return 0
     fi
 
-    for candidate in Papirus-Dark Papirus Tela-circle-dark Tela-circle Tela Adwaita hicolor; do
+    for candidate in Adwaita hicolor; do
         if icon_theme_exists "$candidate"; then
             printf '%s\n' "$candidate"
             return 0
@@ -118,7 +140,10 @@ set_hyprland_material_rule() {
     [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || return 0
 
     if [ "$state" = "on" ]; then
-        hyprctl eval '
+        # Hyprland 0.56 supports per-layer animation styles. Use a restrained
+        # pop-in for Maho's iOS-like presentation, but fall back to the exact
+        # previous blur-only rule if an older compositor rejects the field.
+        if ! hyprctl eval '
             if maho_launcher_rofi_material_rule == nil then
                 maho_launcher_rofi_material_rule = hl.layer_rule({
                     name = "maho-launcher-rofi-material",
@@ -126,12 +151,28 @@ set_hyprland_material_rule() {
                     blur = true,
                     ignore_alpha = 0.06,
                     xray = true,
+                    animation = "popin",
                     order = 8,
                 })
             else
                 maho_launcher_rofi_material_rule:set_enabled(true)
             end
-        ' >/dev/null 2>&1 || true
+        ' >/dev/null 2>&1; then
+            hyprctl eval '
+                if maho_launcher_rofi_material_rule == nil then
+                    maho_launcher_rofi_material_rule = hl.layer_rule({
+                        name = "maho-launcher-rofi-material",
+                        match = { namespace = "rofi" },
+                        blur = true,
+                        ignore_alpha = 0.06,
+                        xray = true,
+                        order = 8,
+                    })
+                else
+                    maho_launcher_rofi_material_rule:set_enabled(true)
+                end
+            ' >/dev/null 2>&1 || true
+        fi
     else
         hyprctl eval '
             if maho_launcher_rofi_material_rule ~= nil then
@@ -186,7 +227,7 @@ run_main_rofi() {
         -kb-page-next 'F12,Page_Down' \
         -kb-custom-1 'F13' \
         -kb-custom-2 'F14' \
-        -drun-display-format $'<span size=\'large\' weight=\'600\'>{name}</span>\n<span size=\'small\' alpha=\'76%\'>{generic}</span>' \
+        -drun-display-format $'<span size=\'10500\' weight=\'600\'>{name}</span>\n<span size=\'8500\' alpha=\'72%\'>{generic}</span>' \
         -pid "$ROFI_PID_FILE" \
         -theme "$runtime_theme" \
         2>> "$LOG_FILE"
@@ -284,7 +325,7 @@ doctor() {
 
     icon_theme="$(detect_icon_theme 2>/dev/null || true)"
     if [ -n "$icon_theme" ]; then
-        printf 'PASS  icons          desktop theme %s\n' "$icon_theme"
+        printf 'PASS  icons          resolved theme %s\n' "$icon_theme"
     else
         echo "INFO  icons          Rofi default icon lookup will be used"
     fi
@@ -303,7 +344,7 @@ doctor() {
     fi
 
     if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-        echo "PASS  compositor     Hyprland runtime material rule available"
+        echo "PASS  compositor     Hyprland runtime glass/animation rule available"
     else
         echo "INFO  compositor     Hyprland unavailable; translucent fallback remains usable"
     fi
