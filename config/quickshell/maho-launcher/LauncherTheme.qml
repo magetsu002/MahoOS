@@ -62,9 +62,14 @@ Scope {
 
     readonly property color shellFill: alpha(shellBase, 0.48)
     readonly property color shellRim: alpha(mix(outline, foreground, 0.18), 0.15)
-    readonly property color shellTopSpecular: alpha(mix(foreground, accent, 0.04), 0.070)
-    readonly property color shellAccentWash: alpha(accent, 0.020)
-    readonly property color shellBottomShade: alpha(background, 0.095)
+
+    // The shell's large child gradient is rectangular in QtQuick even when its
+    // parent Rectangle has a radius. Keep that child optically inert so the
+    // rounded shell itself is the only material reaching the four corners.
+    // The rounded rim + inset lines retain the glass depth without square halos.
+    readonly property color shellTopSpecular: alpha(mix(foreground, accent, 0.04), 0.0)
+    readonly property color shellAccentWash: alpha(accent, 0.0)
+    readonly property color shellBottomShade: alpha(background, 0.0)
     readonly property color shellInnerLine: alpha(foreground, 0.042)
     readonly property color shellSideLine: alpha(foreground, 0.012)
     readonly property color outerGlow: alpha(accent, 0.018)

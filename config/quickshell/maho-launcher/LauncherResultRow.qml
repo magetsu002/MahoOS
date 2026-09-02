@@ -7,8 +7,11 @@ Item {
 
     required property var theme
     required property var backend
-    required property var modelData
     required property int index
+    property var modelData: root.backend && root.backend.activeModel
+        && root.index >= 0 && root.index < root.backend.activeModel.length
+        ? root.backend.activeModel[root.index]
+        : null
     property bool selected: false
 
     signal hovered(int index)
