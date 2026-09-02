@@ -30,16 +30,15 @@ Item {
         radius: 14
         antialiasing: true
         color: rowHover.pressed
-            ? chrome.theme.alpha(chrome.theme.foreground, 0.065)
+            ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
             : rowHover.containsMouse
-                ? chrome.theme.alpha(chrome.theme.foreground, 0.032)
+                ? chrome.theme.alpha(chrome.theme.foreground, 0.026)
                 : "transparent"
 
         Behavior on color { ColorAnimation { duration: 115 } }
     }
 
     Rectangle {
-        id: deviceGlyphMaterial
         anchors.left: parent.left
         anchors.leftMargin: 13
         anchors.verticalCenter: parent.verticalCenter
@@ -58,21 +57,8 @@ Item {
         border.width: 1
         border.color: chrome.theme.alpha(
             device.connected ? chrome.accent : chrome.theme.foreground,
-            device.connected ? 0.13 : 0.075
+            device.connected ? 0.095 : 0.055
         )
-
-        // QtQuick's clip property is rectangular, so every material child that
-        // fills a rounded parent must carry the same radius itself.
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            antialiasing: true
-            gradient: Gradient {
-                GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.025) }
-                GradientStop { position: 0.55; color: "transparent" }
-                GradientStop { position: 1; color: chrome.theme.alpha(device.connected ? chrome.accent : chrome.theme.background, 0.025) }
-            }
-        }
 
         Rectangle {
             anchors.left: parent.left
@@ -83,7 +69,18 @@ Item {
             height: 1
             radius: 1
             antialiasing: true
-            color: chrome.theme.alpha(chrome.theme.foreground, 0.055)
+            color: chrome.theme.alpha(chrome.theme.foreground, 0.060)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            antialiasing: true
+            gradient: Gradient {
+                GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.018) }
+                GradientStop { position: 0.55; color: "transparent" }
+                GradientStop { position: 1; color: chrome.theme.alpha(device.connected ? chrome.accent : chrome.theme.background, 0.018) }
+            }
         }
 
         Text {
@@ -145,14 +142,14 @@ Item {
             radius: 12
             antialiasing: true
             color: actionHover.pressed
-                ? chrome.theme.alpha(chrome.accent, 0.13)
+                ? chrome.theme.alpha(chrome.accent, 0.115)
                 : actionHover.containsMouse
-                    ? chrome.theme.alpha(chrome.accent, 0.09)
-                    : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.30)
+                    ? chrome.theme.alpha(chrome.accent, 0.075)
+                    : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.27)
             border.width: 1
             border.color: actionHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.16)
-                : chrome.theme.alpha(chrome.theme.foreground, 0.065)
+                ? chrome.theme.alpha(chrome.accent, 0.13)
+                : chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
             Behavior on color { ColorAnimation { duration: 115 } }
             Behavior on border.color { ColorAnimation { duration: 115 } }
@@ -161,12 +158,12 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.leftMargin: 8
-                anchors.rightMargin: 8
+                anchors.leftMargin: 9
+                anchors.rightMargin: 9
                 height: 1
                 radius: 1
                 antialiasing: true
-                color: chrome.theme.alpha(chrome.theme.foreground, 0.075)
+                color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
             }
 
             Text {
