@@ -96,6 +96,7 @@ mkdir -p \
     "$OLD_RELEASE/systemd/user" \
     "$UNIT_DIR/default.target.wants" \
     "$UNIT_DIR/graphical-session.target.wants" \
+    "$(dirname "$SHELL_TARGET")" \
     "$(dirname "$HYPR_SESSION")"
 
 ln -s "$OLD_RELEASE" "$CURRENT"
