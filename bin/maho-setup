@@ -38,6 +38,13 @@ managed_command() {
     grep -Fq "$MARKER" "$(command_path "$1")" 2>/dev/null
 }
 
+legacy_preview_launcher() {
+  local p="$1"
+  [ -f "$p" ] || return 1
+  grep -Fqx 'RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-launcher-preview"' "$p" 2>/dev/null || return 1
+  grep -Fqx 'exec bash "$RUNTIME/bin/maho-launcher" "$@"' "$p" 2>/dev/null
+}
+
 safe_command() {
   local name="$1" p
   p="$(command_path "$name")"
@@ -45,7 +52,7 @@ safe_command() {
   [ -f "$p" ] || return 1
   grep -Fq "$MARKER" "$p" 2>/dev/null && return 0
   grep -Fq "$OLD_MARKER" "$p" 2>/dev/null && return 0
-  [ "$name" = maho-launcher ] && grep -Fq maho-launcher-preview "$p" 2>/dev/null
+  [ "$name" = maho-launcher ] && legacy_preview_launcher "$p"
 }
 
 managed_unit() { link_is "$(unit_path "$1")" "$(runtime_path "systemd/user/$1")"; }
@@ -53,11 +60,20 @@ managed_config() { link_is "$CONFIG_HOME/$1" "$(runtime_path "$2")"; }
 managed_hypr() { link_is "$HYPR_TARGET" "$(runtime_path "$HYPR_REL")"; }
 
 legacy_hypr() {
-  [ -f "$HYPR_TARGET" ] && [ ! -L "$HYPR_TARGET" ] &&
-  grep -Fq 'hl.on("hyprland.start"' "$HYPR_TARGET" &&
-  grep -Fq '"$HOME/.local/bin/maho-session" start' "$HYPR_TARGET" &&
-  grep -Fq 'hl.on("hyprland.shutdown"' "$HYPR_TARGET" &&
-  grep -Fq '"$HOME/.local/bin/maho-session" stop' "$HYPR_TARGET"
+  [ -f "$HYPR_TARGET" ] && [ ! -L "$HYPR_TARGET" ] || return 1
+  cmp -s "$HYPR_TARGET" <(cat <<'EOF_LEGACY_HYPR'
+-- Own graphical Maho services only while this Hyprland session is alive.
+
+hl.on("hyprland.start", function()
+    hl.exec_cmd([["$HOME/.local/bin/maho-session" start]])
+    hl.exec_cmd("waybar")
+end)
+
+hl.on("hyprland.shutdown", function()
+    hl.exec_cmd([["$HOME/.local/bin/maho-session" stop]])
+end)
+EOF_LEGACY_HYPR
+)
 }
 
 preflight() {
@@ -311,25 +327,68 @@ rollback() {
   echo "INFO running graphical services were not restarted"
 }
 
+uninstall() {
+  local n rel src p wants
+
+  for n in "${CORE_UNITS[@]}" "${SESSION_UNITS[@]}"; do
+    for wants in default.target.wants graphical-session.target.wants; do
+      p="$UNIT_DIR/$wants/$n"
+      link_is "$p" "$UNIT_DIR/$n" && rm -f -- "$p" || true
+    done
+  done
+
+  for n in "${UNITS[@]}"; do
+    p="$(unit_path "$n")"
+    managed_unit "$n" && rm -f -- "$p" || true
+  done
+
+  rel="${SHELL_LINK%%:*}"; src="${SHELL_LINK#*:}"
+  managed_config "$rel" "$src" && rm -f -- "$CONFIG_HOME/$rel" || true
+
+  rel="${NOTIFY_LINK%%:*}"; src="${NOTIFY_LINK#*:}"
+  managed_config "$rel" "$src" && rm -f -- "$CONFIG_HOME/$rel" || true
+
+  managed_hypr && rm -f -- "$HYPR_TARGET" || true
+
+  for n in "${COMMANDS[@]}"; do
+    managed_command "$n" && rm -f -- "$(command_path "$n")" || true
+  done
+
+  systemd_available && systemctl --user daemon-reload || true
+  echo "PASS runtime wiring removed; releases and user-owned configuration preserved"
+}
+
 case "${1:-}" in
-  install) install_runtime ;;
+  install)
+    shift
+    case "${1:-}" in
+      ""|--adopt-live) ;;
+      *) die "unknown install option: $1"; exit 2 ;;
+    esac
+    install_runtime
+    ;;
   preflight) preflight ;;
   status) status ;;
   rollback) rollback ;;
+  uninstall) uninstall ;;
   *)
     cat <<'HELP'
 Maho OS durable runtime setup
 
 Usage:
   bash bin/maho-setup preflight
-  bash bin/maho-setup install
+  bash bin/maho-setup install [--adopt-live]
   maho-setup status
   maho-setup rollback
+  maho-setup uninstall
 
 Install validates every live target before mutation, builds an immutable release,
 atomically switches runtime/current, and wires commands and user units through
 that stable path. Existing real Maho Notify directories are preserved. Normal
 Hyprland startup owns graphical services; Waybar remains emergency fallback only.
+
+--adopt-live is retained for command-line compatibility but does not bypass
+validation: only recognized Maho-managed legacy wiring may be migrated.
 HELP
     ;;
 esac
