@@ -25,17 +25,17 @@ Item {
     }
 
     Rectangle {
+        id: rowHoverPlane
         anchors.fill: parent
         anchors.margins: 3
         radius: 14
         antialiasing: true
-        color: rowHover.pressed
-            ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
-            : rowHover.containsMouse
-                ? chrome.theme.alpha(chrome.theme.foreground, 0.026)
-                : "transparent"
+        color: chrome.theme.alpha(chrome.theme.foreground, 0.028)
+        opacity: rowHover.containsMouse ? 1 : 0
 
-        Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+        Behavior on opacity {
+            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+        }
     }
 
     Rectangle {
@@ -47,7 +47,6 @@ Item {
         height: 34
         radius: 13
         antialiasing: true
-        scale: rowHover.containsMouse ? 1.018 : 1
         color: chrome.theme.alpha(
             chrome.mix(
                 chrome.theme.surfaceHigh,
@@ -61,8 +60,6 @@ Item {
             device.connected ? chrome.accent : chrome.theme.foreground,
             device.connected ? 0.095 : 0.055
         )
-
-        Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.left: parent.left
@@ -142,25 +139,6 @@ Item {
         width: root.actionLabel !== "" ? 68 : 28
         height: 34
 
-        readonly property color idleFill: chrome.theme.alpha(chrome.theme.surfaceHigh, 0.27)
-        readonly property color hoverFill: chrome.theme.alpha(chrome.accent, 0.075)
-        readonly property color idleStroke: chrome.theme.alpha(chrome.theme.foreground, 0.050)
-        readonly property color hoverStroke: chrome.theme.alpha(chrome.accent, 0.13)
-        property real hoverProgress: actionHover.containsMouse ? 1 : 0
-
-        function blendColor(from, to, progress) {
-            return Qt.rgba(
-                from.r + (to.r - from.r) * progress,
-                from.g + (to.g - from.g) * progress,
-                from.b + (to.b - from.b) * progress,
-                from.a + (to.a - from.a) * progress
-            )
-        }
-
-        Behavior on hoverProgress {
-            NumberAnimation { duration: 135; easing.type: Easing.OutCubic }
-        }
-
         Rectangle {
             anchors.centerIn: parent
             width: parent.width
@@ -169,17 +147,26 @@ Item {
             radius: 12
             antialiasing: true
             scale: actionHover.pressed ? 0.985 : 1
-            color: actionHover.pressed
-                ? chrome.theme.alpha(chrome.accent, 0.115)
-                : actionArea.blendColor(actionArea.idleFill, actionArea.hoverFill, actionArea.hoverProgress)
+            color: chrome.theme.alpha(chrome.theme.surfaceHigh, 0.27)
             border.width: 1
-            border.color: actionArea.blendColor(
-                actionArea.idleStroke,
-                actionArea.hoverStroke,
-                actionArea.hoverProgress
-            )
+            border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
-            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+            Behavior on scale {
+                NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+            }
+
+            Rectangle {
+                id: actionHoverPlane
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent, 0.10)
+                opacity: actionHover.containsMouse ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                }
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -211,17 +198,13 @@ Item {
             anchors.verticalCenterOffset: -1
             visible: root.actionLabel === ""
             text: "›"
-            color: rowHover.containsMouse
-                ? chrome.theme.alpha(chrome.textPrimary, 0.84)
-                : chrome.theme.alpha(chrome.textSecondary, 0.64)
+            color: chrome.theme.alpha(chrome.textSecondary, 0.64)
             font.family: "Inter"
             font.pixelSize: 22
             font.weight: Font.Light
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             renderType: Text.NativeRendering
-
-            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
         }
 
         MouseArea {
