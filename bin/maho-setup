@@ -38,6 +38,28 @@ managed_command() {
     grep -Fq "$MARKER" "$(command_path "$1")" 2>/dev/null
 }
 
+legacy_direct_notify() {
+  local p="$1" sum
+  [ -f "$p" ] || return 1
+  sum="$(sha256sum "$p" 2>/dev/null | awk '{print $1}')"
+  [ "$sum" = "77d1b10eefb368648ef762b3275b066b5a7c0f554dd543678488ff6686bc5ddf" ]
+}
+
+legacy_link_bluetooth() {
+  local p="$1"
+  [ -f "$p" ] && cmp -s "$p" <(cat <<'EOF_LEGACY_LINK'
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-link-bluetooth"
+
+export MAHO_LINK_CONFIG="$RUNTIME/config/quickshell/maho-link/shell.qml"
+
+exec bash "$RUNTIME/bin/maho-link" "$@"
+EOF_LEGACY_LINK
+)
+}
+
 legacy_preview_launcher() {
   local p="$1"
   [ -f "$p" ] || return 1
@@ -52,6 +74,8 @@ safe_command() {
   [ -f "$p" ] || return 1
   grep -Fq "$MARKER" "$p" 2>/dev/null && return 0
   grep -Fq "$OLD_MARKER" "$p" 2>/dev/null && return 0
+  [ "$name" = maho-notify ] && legacy_direct_notify "$p" && return 0
+  [ "$name" = maho-link ] && legacy_link_bluetooth "$p" && return 0
   [ "$name" = maho-launcher ] && legacy_preview_launcher "$p"
 }
 
