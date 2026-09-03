@@ -18,18 +18,14 @@ Rectangle {
             0.30
         )
         : primary
-            ? chrome.theme.alpha(chrome.accent, hover.containsMouse ? 0.72 : 0.64)
-            : hover.pressed
-                ? chrome.theme.alpha(chrome.theme.foreground, 0.055)
-                : hover.containsMouse
-                    ? chrome.theme.alpha(chrome.theme.foreground, 0.030)
-                    : chrome.theme.alpha(
-                        chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.56),
-                        0.47
-                    )
+            ? chrome.theme.alpha(chrome.accent, 0.64)
+            : chrome.theme.alpha(
+                chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.56),
+                0.47
+            )
     border.width: 1
     border.color: primary
-        ? chrome.theme.alpha(chrome.accent, hover.containsMouse ? 0.20 : 0.15)
+        ? chrome.theme.alpha(chrome.accent, 0.15)
         : chrome.theme.alpha(
             destructive ? chrome.theme.error : chrome.theme.foreground,
             destructive ? 0.075 : 0.050
@@ -53,6 +49,24 @@ Rectangle {
                     root.primary ? 0.035 : 0.028
                 )
             }
+        }
+    }
+
+    Rectangle {
+        id: hoverPlane
+        anchors.fill: parent
+        radius: parent.radius
+        antialiasing: true
+        color: root.primary
+            ? chrome.theme.alpha(chrome.theme.foreground, 0.12)
+            : chrome.theme.alpha(
+                root.destructive ? chrome.theme.error : chrome.theme.foreground,
+                root.destructive ? 0.09 : 0.07
+            )
+        opacity: root.enabled && hover.containsMouse ? 1 : 0
+
+        Behavior on opacity {
+            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
         }
     }
 
@@ -94,7 +108,5 @@ Rectangle {
         onClicked: root.clicked()
     }
 
-    Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
-    Behavior on border.color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 }
