@@ -14,8 +14,6 @@ PanelWindow {
         bottom: true
     }
 
-    // Optical bottom anchor. Keep only a hairline of breathing room so the
-    // Dock belongs to the display edge instead of reading as a floating widget.
     margins {
         bottom: 2
     }
@@ -23,7 +21,7 @@ PanelWindow {
     // Keep layer-shell geometry stable. All reveal/preview motion stays inside
     // this carrier so Hyprland never has to chase a resizing surface.
     implicitWidth: 720
-    implicitHeight: 326
+    implicitHeight: 438
     color: "transparent"
     visible: dockModel.items.length > 0
     aboveWindows: true
@@ -36,9 +34,6 @@ PanelWindow {
     readonly property color accent: stableAccent(theme.semanticAccent)
     readonly property bool brightBackdrop: theme.semanticBackground.hslLightness > 0.52
 
-    // On very dark wallpapers blur alone has almost no visible luminance to
-    // transmit. Lift the internal neutral glass slightly toward foreground so
-    // the material keeps depth without becoming an opaque gray slab.
     readonly property real darkGlassLift: brightBackdrop ? 0.020 : 0.085
     readonly property color smokedNeutral:
         theme.mix(theme.semanticSurfaceElevated, theme.semanticShadow, brightBackdrop ? 0.40 : 0.34)
@@ -68,7 +63,7 @@ PanelWindow {
     readonly property int dockHeight: 84
     readonly property int retractedHeight: 12
     readonly property int retractedWidth: 104
-    readonly property int previewHeight: 220
+    readonly property int previewHeight: 324
     readonly property int previewWidth: 694
     readonly property int restingDockWidth: Math.max(320, dockRow.implicitWidth + 46)
     readonly property var previewWindows: {
@@ -83,6 +78,13 @@ PanelWindow {
             output.push(windows[index])
         return output
     }
+    readonly property int previewCount: previewWindows.length
+    readonly property int previewTargetWidth:
+        previewCount <= 1 ? 540 : (previewCount === 2 ? 660 : previewWidth)
+    readonly property int previewCardWidth:
+        previewCount <= 1 ? 414 : (previewCount === 2 ? 304 : 198)
+    readonly property int previewCardHeight:
+        previewCount <= 1 ? 208 : (previewCount === 2 ? 170 : 138)
 
     readonly property var activeTop: Hyprland.activeToplevel
     readonly property var activeIpc:
@@ -317,7 +319,7 @@ PanelWindow {
         anchors.bottom: dockShell.top
         anchors.bottomMargin: 8
         width: root.restingDockWidth
-            + (root.previewWidth - root.restingDockWidth) * root.previewProgress
+            + (root.previewTargetWidth - root.restingDockWidth) * root.previewProgress
         height: root.previewHeight * root.previewProgress
         radius: 28
         antialiasing: true
@@ -411,49 +413,62 @@ PanelWindow {
                 }
             }
 
-            Row {
-                id: previewRow
+            Item {
+                id: previewStage
+                anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.top: previewHeader.bottom
-                anchors.topMargin: 14
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: 12
+                anchors.bottom: previewActions.top
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
+                anchors.topMargin: 13
+                anchors.bottomMargin: 12
 
-                Repeater {
-                    model: root.previewWindows
+                Row {
+                    id: previewRow
+                    anchors.centerIn: parent
+                    spacing: 12
 
-                    MahoDockPreviewCard {
-                        required property var modelData
-                        theme: root.theme
-                        accent: root.accent
-                        windowData: modelData
-                        appName: root.previewItem ? String(root.previewItem.name || "Application") : "Application"
-                        appEntryId: root.previewItem ? String(root.previewItem.id || "") : ""
-                        appIcon: root.previewItem ? String(root.previewItem.icon || "") : ""
-                        appIconPath: root.previewItem ? String(root.previewItem.iconPath || "") : ""
-                        active: root.previewOpen && root.previewProgress > 0.62
-                        onActivated: function(windowData) {
-                            root.closePreview()
-                            root.dockModel.focusWindow(windowData)
+                    Repeater {
+                        model: root.previewWindows
+
+                        MahoDockPreviewCard {
+                            required property var modelData
+                            theme: root.theme
+                            accent: root.accent
+                            windowData: modelData
+                            appName: root.previewItem ? String(root.previewItem.name || "Application") : "Application"
+                            appEntryId: root.previewItem ? String(root.previewItem.id || "") : ""
+                            appIcon: root.previewItem ? String(root.previewItem.icon || "") : ""
+                            appIconPath: root.previewItem ? String(root.previewItem.iconPath || "") : ""
+                            cardWidth: root.previewCardWidth
+                            cardHeight: root.previewCardHeight
+                            active: root.previewOpen && root.previewProgress > 0.62
+                            onActivated: function(windowData) {
+                                root.closePreview()
+                                root.dockModel.focusWindow(windowData)
+                            }
                         }
                     }
                 }
             }
 
             Row {
+                id: previewActions
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: 15
+                anchors.bottomMargin: 16
                 anchors.horizontalCenter: parent.horizontalCenter
-                spacing: 12
+                spacing: 14
 
                 Rectangle {
                     id: newWindowAction
                     visible: root.previewItem && !root.previewItem.temporary
-                    width: 126
+                    width: 128
                     height: 30
                     radius: 15
-                    color: root.theme.alpha(root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.015), newWindowHover.hovered ? 0.58 : 0.44)
+                    color: root.theme.alpha(root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.015), newWindowHover.hovered ? 0.54 : 0.38)
                     border.width: 1
-                    border.color: root.theme.alpha(newWindowHover.hovered ? root.accent : root.theme.semanticForeground, newWindowHover.hovered ? 0.17 : 0.070)
+                    border.color: root.theme.alpha(newWindowHover.hovered ? root.accent : root.theme.semanticForeground, newWindowHover.hovered ? 0.17 : 0.060)
 
                     Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                     Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -476,23 +491,15 @@ PanelWindow {
                     }
                 }
 
-                Rectangle {
-                    width: 112
-                    height: 30
-                    radius: 15
-                    color: root.theme.alpha(root.theme.semanticSurfaceElevated, 0.30)
-                    border.width: 1
-                    border.color: root.theme.alpha(root.theme.semanticForeground, 0.050)
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: root.previewItem
-                            ? String(root.previewItem.windowCount || 0) + (Number(root.previewItem.windowCount || 0) === 1 ? " Window" : " Windows")
-                            : "0 Windows"
-                        color: root.theme.semanticForegroundMuted
-                        font.pixelSize: 11
-                        font.weight: Font.Medium
-                    }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.previewItem
+                        ? String(root.previewItem.windowCount || 0) + (Number(root.previewItem.windowCount || 0) === 1 ? " window" : " windows")
+                        : ""
+                    color: root.theme.semanticForegroundMuted
+                    opacity: 0.56
+                    font.pixelSize: 10
+                    font.weight: Font.Medium
                 }
             }
         }
