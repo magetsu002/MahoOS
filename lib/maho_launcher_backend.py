@@ -17,6 +17,13 @@ import subprocess
 import sys
 from typing import Iterable
 
+# The backend is both executed as a script and imported directly by the
+# launcher contract tests. Make the sibling shared model resolvable in both
+# modes without relying on the caller's working directory.
+LIB_DIR = Path(__file__).resolve().parent
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+
 from maho_app_model import (
     discover_apps as shared_discover_apps,
     find_desktop_file,
