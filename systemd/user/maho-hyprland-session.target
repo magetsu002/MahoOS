@@ -1,0 +1,4 @@
+[Unit]
+Description=Maho Hyprland graphical session
+BindsTo=graphical-session.target
+Before=graphical-session.target

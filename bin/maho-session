@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+TARGET="maho-hyprland-session.target"
+
+import_graphical_environment() {
+    local name
+    local -a names=()
+
+    for name in WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP XDG_SESSION_TYPE DISPLAY; do
+        if [ -n "${!name:-}" ]; then
+            names+=("$name")
+        fi
+    done
+
+    [ "${#names[@]}" -gt 0 ] || {
+        echo "maho-session: no graphical session environment is available" >&2
+        return 1
+    }
+
+    systemctl --user import-environment "${names[@]}"
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        dbus-update-activation-environment --systemd "${names[@]}" >/dev/null
+    fi
+}
+
+case "${1:-}" in
+    start)
+        command -v systemctl >/dev/null 2>&1 || {
+            echo "maho-session: systemctl is required" >&2
+            exit 1
+        }
+        [ -n "${WAYLAND_DISPLAY:-}" ] || {
+            echo "maho-session: refusing to start outside a Wayland session" >&2
+            exit 1
+        }
+        import_graphical_environment
+        systemctl --user start "$TARGET"
+        ;;
+    stop)
+        command -v systemctl >/dev/null 2>&1 || exit 0
+        systemctl --user stop "$TARGET" >/dev/null 2>&1 || true
+        ;;
+    status)
+        systemctl --user status "$TARGET"
+        ;;
+    *)
+        echo "Usage: maho-session {start|stop|status}" >&2
+        exit 2
+        ;;
+esac

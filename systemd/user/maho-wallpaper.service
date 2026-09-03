@@ -1,5 +1,8 @@
 [Unit]
 Description=Maho wallpaper runtime restoration, observation and theme adaptation
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
@@ -8,4 +11,4 @@ Restart=on-failure
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
