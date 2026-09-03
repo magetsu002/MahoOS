@@ -142,6 +142,25 @@ Item {
         width: root.actionLabel !== "" ? 68 : 28
         height: 34
 
+        readonly property color idleFill: chrome.theme.alpha(chrome.theme.surfaceHigh, 0.27)
+        readonly property color hoverFill: chrome.theme.alpha(chrome.accent, 0.075)
+        readonly property color idleStroke: chrome.theme.alpha(chrome.theme.foreground, 0.050)
+        readonly property color hoverStroke: chrome.theme.alpha(chrome.accent, 0.13)
+        property real hoverProgress: actionHover.containsMouse ? 1 : 0
+
+        function blendColor(from, to, progress) {
+            return Qt.rgba(
+                from.r + (to.r - from.r) * progress,
+                from.g + (to.g - from.g) * progress,
+                from.b + (to.b - from.b) * progress,
+                from.a + (to.a - from.a) * progress
+            )
+        }
+
+        Behavior on hoverProgress {
+            NumberAnimation { duration: 135; easing.type: Easing.OutCubic }
+        }
+
         Rectangle {
             anchors.centerIn: parent
             width: parent.width
@@ -152,16 +171,14 @@ Item {
             scale: actionHover.pressed ? 0.985 : 1
             color: actionHover.pressed
                 ? chrome.theme.alpha(chrome.accent, 0.115)
-                : actionHover.containsMouse
-                    ? chrome.theme.alpha(chrome.accent, 0.075)
-                    : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.27)
+                : actionArea.blendColor(actionArea.idleFill, actionArea.hoverFill, actionArea.hoverProgress)
             border.width: 1
-            border.color: actionHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.13)
-                : chrome.theme.alpha(chrome.theme.foreground, 0.050)
+            border.color: actionArea.blendColor(
+                actionArea.idleStroke,
+                actionArea.hoverStroke,
+                actionArea.hoverProgress
+            )
 
-            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
-            Behavior on border.color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
             Rectangle {
