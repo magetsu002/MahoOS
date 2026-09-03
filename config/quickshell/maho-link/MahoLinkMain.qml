@@ -13,8 +13,6 @@ Item {
         root.wifi.wifiEnabled && root.wifi.networks ? root.wifi.networks.length : 0
     readonly property bool emptyState: networkCount === 0
 
-    // Mirror the proven Bluetooth material tiers so Wi-Fi feels like the same
-    // native surface instead of a separate opaque settings panel.
     readonly property color glassLow: chrome.theme.alpha(
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64),
         0.42
@@ -46,16 +44,10 @@ Item {
             antialiasing: true
             scale: currentHover.pressed && currentNetwork ? 0.997 : 1
             readonly property var currentNetwork: root.wifi.currentNetwork
-            color: currentHover.containsMouse && currentNetwork
-                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.035), 0.59)
-                : root.glassRaised
+            color: root.glassRaised
             border.width: 1
-            border.color: currentHover.containsMouse && currentNetwork
-                ? chrome.theme.alpha(chrome.accent, 0.11)
-                : root.glassStroke
+            border.color: root.glassStroke
 
-            Behavior on color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
-            Behavior on border.color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
             Rectangle {
@@ -73,6 +65,19 @@ Item {
                         position: 1
                         color: chrome.theme.alpha(currentCard.currentNetwork ? chrome.accent : chrome.theme.background, 0.018)
                     }
+                }
+            }
+
+            Rectangle {
+                id: currentHoverPlane
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent, 0.075)
+                opacity: currentHover.containsMouse && currentCard.currentNetwork ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
                 }
             }
 
@@ -97,7 +102,6 @@ Item {
                 height: 56
                 radius: 19
                 antialiasing: true
-                scale: currentHover.containsMouse && currentCard.currentNetwork ? 1.012 : 1
                 color: chrome.theme.alpha(
                     chrome.mix(
                         chrome.theme.surfaceHigh,
@@ -111,8 +115,6 @@ Item {
                     currentCard.currentNetwork ? chrome.accent : chrome.theme.foreground,
                     currentCard.currentNetwork ? 0.09 : 0.045
                 )
-
-                Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
                 Rectangle {
                     anchors.fill: parent
@@ -246,14 +248,14 @@ Item {
                         radius: 4
                         antialiasing: true
                         color: chrome.accent
-                    opacity: 0.72
+                        opacity: 0.72
 
-                    SequentialAnimation on opacity {
-                        running: root.wifi.busy
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.26; duration: 620; easing.type: Easing.InOutSine }
-                        NumberAnimation { to: 0.82; duration: 620; easing.type: Easing.InOutSine }
-                    }
+                        SequentialAnimation on opacity {
+                            running: root.wifi.busy
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.26; duration: 620; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 0.82; duration: 620; easing.type: Easing.InOutSine }
+                        }
                     }
                 }
 
@@ -438,18 +440,17 @@ Item {
                 height: 54
 
                 Rectangle {
+                    id: otherHoverPlane
                     anchors.fill: parent
                     anchors.margins: 3
                     radius: 15
                     antialiasing: true
-                    scale: otherHover.pressed ? 0.996 : 1
-                    color: otherHover.pressed
-                        ? chrome.theme.alpha(chrome.theme.foreground, 0.050)
-                        : otherHover.containsMouse
-                            ? chrome.theme.alpha(chrome.theme.foreground, 0.026)
-                            : "transparent"
-                    Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
-                    Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
+                    color: chrome.theme.alpha(chrome.theme.foreground, 0.030)
+                    opacity: otherHover.containsMouse ? 1 : 0
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
+                    }
                 }
 
                 Rectangle {
@@ -495,9 +496,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.verticalCenterOffset: -1
                     text: "›"
-                    color: otherHover.containsMouse
-                        ? chrome.theme.alpha(chrome.textPrimary, 0.78)
-                        : chrome.theme.alpha(chrome.textSecondary, 0.58)
+                    color: chrome.theme.alpha(chrome.textSecondary, 0.60)
                     font.family: "Inter"
                     font.pixelSize: 20
                     font.weight: Font.Light
