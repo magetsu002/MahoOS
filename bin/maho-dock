@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONFIG="${MAHO_DOCK_CONFIG:-$ROOT/config/quickshell/maho-shell/dock-shell.qml}"
+APP_MODEL="${MAHO_APP_MODEL:-$ROOT/lib/maho_app_model.py}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOCK="$RUNTIME_DIR/maho-dock.lock"
+LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-dock.log"
+
+running() {
+    pgrep -af 'quickshell.*maho-shell/dock-shell.qml' >/dev/null 2>&1
+}
+
+pids() {
+    pgrep -f 'quickshell.*maho-shell/dock-shell.qml' 2>/dev/null || true
+}
+
+ensure_wayland_env() {
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$RUNTIME_DIR}"
+
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        local candidate
+        candidate="$(
+            find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' 2>/dev/null |
+            sort |
+            head -1
+        )"
+        [ -n "$candidate" ] && export WAYLAND_DISPLAY="$candidate"
+    fi
+
+    if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
+        local signature
+        signature="$(
+            hyprctl instances -j 2>/dev/null |
+            python -c '
+import json,sys
+try:
+    rows=json.load(sys.stdin)
+except Exception:
+    rows=[]
+if rows:
+    print(rows[-1].get("instance", rows[-1].get("signature", "")))
+' 2>/dev/null || true
+        )"
+        [ -n "$signature" ] && export HYPRLAND_INSTANCE_SIGNATURE="$signature"
+    fi
+}
+
+run_dock() {
+    command -v quickshell >/dev/null 2>&1 || {
+        echo "maho-dock: quickshell is unavailable" >&2
+        return 1
+    }
+
+    command -v flock >/dev/null 2>&1 || {
+        echo "maho-dock: flock is unavailable" >&2
+        return 1
+    }
+
+    [ -r "$CONFIG" ] || {
+        echo "maho-dock: configuration missing: $CONFIG" >&2
+        return 1
+    }
+
+    [ -r "$APP_MODEL" ] || {
+        echo "maho-dock: app model missing: $APP_MODEL" >&2
+        return 1
+    }
+
+    ensure_wayland_env
+    mkdir -p "$RUNTIME_DIR" "$(dirname "$LOG")"
+
+    exec 9>"$LOCK"
+    if ! flock -n 9; then
+        echo "maho-dock: already running"
+        return 0
+    fi
+
+    if running; then
+        echo "maho-dock: existing Dock instance detected"
+        return 0
+    fi
+
+    export MAHO_APP_MODEL="$APP_MODEL"
+    exec quickshell -p "$CONFIG" >>"$LOG" 2>&1
+}
+
+status() {
+    if running; then
+        echo "Maho Dock: active"
+        pgrep -af 'quickshell.*maho-shell/dock-shell.qml'
+        return 0
+    fi
+    echo "Maho Dock: inactive"
+    return 1
+}
+
+doctor() {
+    local failed=0
+    echo "Maho Dock doctor"
+    echo
+
+    if command -v quickshell >/dev/null 2>&1; then
+        printf 'PASS  quickshell     %s\n' "$(command -v quickshell)"
+    else
+        echo "FAIL  quickshell     unavailable"
+        failed=1
+    fi
+
+    [ -r "$CONFIG" ] && echo "PASS  config         $CONFIG" || {
+        echo "FAIL  config         missing: $CONFIG"
+        failed=1
+    }
+
+    [ -r "$APP_MODEL" ] && echo "PASS  app-model      $APP_MODEL" || {
+        echo "FAIL  app-model      missing: $APP_MODEL"
+        failed=1
+    }
+
+    ensure_wayland_env
+    [ -n "${WAYLAND_DISPLAY:-}" ] && echo "PASS  wayland        $WAYLAND_DISPLAY" || echo "INFO  wayland        unresolved"
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && echo "PASS  hyprland       instance signature resolved" || echo "INFO  hyprland       unresolved"
+
+    if running; then
+        echo "PASS  lifecycle      Dock process active independently"
+    else
+        echo "INFO  lifecycle      Dock currently inactive"
+    fi
+
+    if pgrep -af 'quickshell.*maho-shell/shell.qml' >/dev/null 2>&1; then
+        echo "PASS  edge           Maho Edge process is independent and active"
+    else
+        echo "INFO  edge           Maho Edge process not detected"
+    fi
+
+    return "$failed"
+}
+
+case "${1:-run}" in
+    run)
+        run_dock
+        ;;
+    start|open)
+        if running; then
+            exit 0
+        fi
+        nohup "$0" run >/dev/null 2>&1 &
+        ;;
+    stop|close)
+        pkill -f 'quickshell.*maho-shell/dock-shell.qml' 2>/dev/null || true
+        ;;
+    restart|reload)
+        "$0" stop
+        sleep 0.15
+        "$0" start
+        ;;
+    toggle)
+        if running; then "$0" stop; else "$0" start; fi
+        ;;
+    status)
+        status
+        ;;
+    doctor)
+        doctor
+        ;;
+    logs)
+        tail -n "${2:-120}" "$LOG" 2>/dev/null || true
+        ;;
+    *)
+        echo "Usage: maho-dock [run|start|open|stop|close|restart|reload|toggle|status|doctor|logs [LINES]]" >&2
+        exit 2
+        ;;
+esac
