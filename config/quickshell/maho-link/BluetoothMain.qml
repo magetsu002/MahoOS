@@ -18,8 +18,6 @@ Item {
     readonly property int nearbyCount:
         bluetooth.availableDevices ? bluetooth.availableDevices.length : 0
 
-    // Glass tiers deliberately stay neutral. The wallpaper accent is reserved
-    // for state, not used as a blanket tint over every surface.
     readonly property color glassLow: chrome.theme.alpha(
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64),
         0.42
@@ -232,16 +230,9 @@ Item {
             visible: root.primaryDevice !== null
             radius: 20
             antialiasing: true
-            color: heroHover.containsMouse
-                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.040), 0.60)
-                : root.glassRaised
+            color: root.glassRaised
             border.width: 1
-            border.color: heroHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.12)
-                : chrome.theme.alpha(chrome.theme.foreground, 0.065)
-
-            Behavior on color { ColorAnimation { duration: 150 } }
-            Behavior on border.color { ColorAnimation { duration: 150 } }
+            border.color: chrome.theme.alpha(chrome.theme.foreground, 0.065)
 
             Rectangle {
                 anchors.fill: parent
@@ -252,6 +243,19 @@ Item {
                     GradientStop { position: 0.30; color: chrome.theme.alpha(chrome.accent, 0.040) }
                     GradientStop { position: 0.72; color: "transparent" }
                     GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.016) }
+                }
+            }
+
+            Rectangle {
+                id: heroHoverPlane
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent, 0.075)
+                opacity: heroHover.containsMouse ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
                 }
             }
 
@@ -371,9 +375,7 @@ Item {
                 anchors.verticalCenterOffset: root.primaryDevice !== null
                     && String(root.primaryDevice.quality || "") !== "" ? -14 : 0
                 text: "›"
-                color: heroHover.containsMouse
-                    ? chrome.theme.alpha(chrome.textPrimary, 0.82)
-                    : chrome.theme.alpha(chrome.textSecondary, 0.64)
+                color: chrome.theme.alpha(chrome.textSecondary, 0.64)
                 font.family: "Inter"
                 font.pixelSize: 24
                 font.weight: Font.Light
@@ -577,14 +579,14 @@ Item {
                         radius: 4
                         antialiasing: true
                         color: chrome.accent
-                    opacity: 0.75
+                        opacity: 0.75
 
-                    SequentialAnimation on opacity {
-                        running: root.bluetooth.discovering
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.28; duration: 650; easing.type: Easing.InOutSine }
-                        NumberAnimation { to: 0.85; duration: 650; easing.type: Easing.InOutSine }
-                    }
+                        SequentialAnimation on opacity {
+                            running: root.bluetooth.discovering
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.28; duration: 650; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 0.85; duration: 650; easing.type: Easing.InOutSine }
+                        }
                     }
                 }
 
@@ -734,18 +736,9 @@ Item {
             visible: root.bluetooth.bluetoothEnabled
             radius: 17
             antialiasing: true
-            color: pairHover.pressed
-                ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.055), 0.56)
-                : pairHover.containsMouse
-                    ? chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.030), 0.51)
-                    : root.glassInteractive
+            color: root.glassInteractive
             border.width: 1
-            border.color: pairHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.11)
-                : root.glassStroke
-
-            Behavior on color { ColorAnimation { duration: 125 } }
-            Behavior on border.color { ColorAnimation { duration: 125 } }
+            border.color: root.glassStroke
 
             Rectangle {
                 anchors.fill: parent
@@ -755,6 +748,19 @@ Item {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.016) }
                     GradientStop { position: 0.60; color: "transparent" }
                     GradientStop { position: 1; color: chrome.theme.alpha(chrome.accent, 0.012) }
+                }
+            }
+
+            Rectangle {
+                id: pairHoverPlane
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent, 0.075)
+                opacity: pairHover.containsMouse ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
                 }
             }
 
@@ -821,9 +827,7 @@ Item {
                 anchors.rightMargin: 16
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.bluetooth.discovering ? "•••" : "›"
-                color: pairHover.containsMouse
-                    ? chrome.theme.alpha(chrome.textPrimary, 0.78)
-                    : chrome.theme.alpha(chrome.textSecondary, 0.58)
+                color: chrome.theme.alpha(chrome.textSecondary, 0.60)
                 font.family: "Inter"
                 font.pixelSize: root.bluetooth.discovering ? 11 : 20
                 font.weight: Font.Light
