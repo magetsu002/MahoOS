@@ -114,13 +114,47 @@ EOF_WRAPPER
 }
 
 for name in "${COMMANDS[@]}"; do
-    [ "$name" = "maho-launcher" ] && continue
+    case "$name" in
+        maho-notify|maho-link|maho-launcher) continue ;;
+    esac
     write_live_v2_wrapper "$name"
 done
 
+# Recovered production has the canonical Notify launcher installed directly
+# instead of behind a v2 wrapper. Adoption is permitted only for this exact
+# deployed content hash.
+cp "$ROOT/bin/maho-notify" "$HOME/.local/bin/maho-notify"
+chmod +x "$HOME/.local/bin/maho-notify"
+[ "$(sha256sum "$HOME/.local/bin/maho-notify" | awk '{print $1}')" = \
+  '77d1b10eefb368648ef762b3275b066b5a7c0f554dd543678488ff6686bc5ddf' ] ||
+    fail "canonical Notify no longer matches recovered production hash"
+
+# Recovered production Maho Link still routes through its dedicated Bluetooth
+# runtime. This exact wrapper is a recognized migration source.
+cat >"$HOME/.local/bin/maho-link" <<'EOF_LEGACY_LINK'
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-link-bluetooth"
+
+export MAHO_LINK_CONFIG="$RUNTIME/config/quickshell/maho-link/shell.qml"
+
+exec bash "$RUNTIME/bin/maho-link" "$@"
+EOF_LEGACY_LINK
+chmod +x "$HOME/.local/bin/maho-link"
+[ "$(sha256sum "$HOME/.local/bin/maho-link" | awk '{print $1}')" = \
+  '0f366321f351059e9600591008c4bce22d194377e68bc6e4d149af10166729a3' ] ||
+    fail "legacy Maho Link fixture no longer matches recovered production hash"
+
 cat >"$HOME/.local/bin/maho-launcher" <<'EOF_PREVIEW'
 #!/usr/bin/env bash
+set -euo pipefail
+
 RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-launcher-preview"
+
+export MAHO_ROOT="$RUNTIME"
+export MAHO_LAUNCHER_CONFIG_DIR="$RUNTIME/config/quickshell/maho-launcher"
+
 exec bash "$RUNTIME/bin/maho-launcher" "$@"
 EOF_PREVIEW
 chmod +x "$HOME/.local/bin/maho-launcher"
