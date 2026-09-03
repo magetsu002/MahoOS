@@ -230,15 +230,22 @@ Item {
             Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
+                height: 18
                 spacing: 7
 
-                Rectangle {
+                Item {
+                    id: scanStatusLane
                     width: 7
-                    height: 7
-                    radius: 4
-                    antialiasing: true
+                    height: 18
                     visible: root.wifi.busy
-                    color: chrome.accent
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 7
+                        height: 7
+                        radius: 4
+                        antialiasing: true
+                        color: chrome.accent
                     opacity: 0.72
 
                     SequentialAnimation on opacity {
@@ -247,9 +254,12 @@ Item {
                         NumberAnimation { to: 0.26; duration: 620; easing.type: Easing.InOutSine }
                         NumberAnimation { to: 0.82; duration: 620; easing.type: Easing.InOutSine }
                     }
+                    }
                 }
 
                 Text {
+                    height: 18
+                    verticalAlignment: Text.AlignVCenter
                     text: root.wifi.busy ? "Scanning…" : "Refresh"
                     color: root.wifi.wifiEnabled
                         ? chrome.theme.alpha(chrome.accent, 0.90)

@@ -21,7 +21,7 @@ Scope {
     property real discoveryStartedAt: 0
     readonly property string discoveryClientBinary: "blue" + "toothctl"
     readonly property bool discoveryOwned: discoverySession.running
-    readonly property bool busy: snapshotProcess.running || actionProcess.running || cancelProcess.running
+    readonly property bool busy: actionProcess.running || cancelProcess.running
 
     signal actionSucceeded(string action, string devicePath)
     signal actionFailed(string action, string devicePath)

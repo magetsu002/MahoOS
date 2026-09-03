@@ -561,15 +561,22 @@ Item {
             Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
+                height: 18
                 spacing: 7
 
-                Rectangle {
+                Item {
+                    id: discoveryStatusLane
                     width: 7
-                    height: 7
-                    radius: 4
-                    antialiasing: true
+                    height: 18
                     visible: root.bluetooth.discovering
-                    color: chrome.accent
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 7
+                        height: 7
+                        radius: 4
+                        antialiasing: true
+                        color: chrome.accent
                     opacity: 0.75
 
                     SequentialAnimation on opacity {
@@ -578,9 +585,12 @@ Item {
                         NumberAnimation { to: 0.28; duration: 650; easing.type: Easing.InOutSine }
                         NumberAnimation { to: 0.85; duration: 650; easing.type: Easing.InOutSine }
                     }
+                    }
                 }
 
                 Text {
+                    height: 18
+                    verticalAlignment: Text.AlignVCenter
                     text: root.bluetooth.discovering ? "Looking…" : "Find Devices"
                     color: chrome.theme.alpha(chrome.accent, 0.92)
                     font.family: "Inter"
