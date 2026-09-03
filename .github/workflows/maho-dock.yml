@@ -35,6 +35,11 @@ jobs:
           set -euo pipefail
           bash tests/maho-dock-contracts.sh
 
+      - name: Maho Dock material cleanup contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-dock-material-cleanup-contracts.sh
+
       - name: Existing Maho Shell contracts
         run: |
           set -euo pipefail
