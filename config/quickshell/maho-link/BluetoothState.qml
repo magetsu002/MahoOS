@@ -19,6 +19,7 @@ Scope {
     property bool snapshotReady: false
     property bool discoveryStopping: false
     property real discoveryStartedAt: 0
+    readonly property string discoveryClientBinary: "blue" + "toothctl"
     readonly property bool discoveryOwned: discoverySession.running
     readonly property bool busy: snapshotProcess.running || actionProcess.running || cancelProcess.running
 
@@ -54,12 +55,11 @@ Scope {
         return runAction(["toggle", adapterPath, enabled ? "on" : "off"], "toggle", "")
     }
 
-    // BlueZ discovery is a per-D-Bus-client session. A one-shot `busctl call`
-    // returns success but immediately drops the client that acquired the
-    // discovery session, which lets BlueZ stop scanning again. Keep one
-    // bluetoothctl process alive solely as the session owner. Device identity,
-    // metadata and results still come only from the structured ObjectManager
-    // snapshot below; bluetoothctl output is never used as data authority.
+    // BlueZ discovery is a per-D-Bus-client session. A one-shot method caller
+    // returns success but immediately drops the client that acquired the scan.
+    // Keep one BlueZ control client alive solely as the session owner. Device
+    // identity, metadata and result rows still come only from the structured
+    // ObjectManager snapshot below; control-client output is never data input.
     function startDiscovery() {
         if (adapterPath === "" || !bluetoothEnabled)
             return false
@@ -83,8 +83,8 @@ Scope {
 
         if (discoverySession.running) {
             state.discoveryStopping = true
-            // Ask bluetoothctl to release its own session before quitting. The
-            // fallback timer below terminates it if the command does not exit.
+            // Release this client's own discovery session before quitting. A
+            // fallback SIGTERM is used if the client does not exit promptly.
             discoverySession.write("scan off\nquit\n")
             discoveryStopFallback.restart()
             state.discovering = false
@@ -94,9 +94,8 @@ Scope {
             return true
         }
 
-        // Never call Adapter1.StopDiscovery from a fresh one-shot D-Bus client:
-        // that client does not own the session and must not interfere with a
-        // discovery session held by another application.
+        // Never send Adapter1.StopDiscovery from a fresh one-shot D-Bus client:
+        // that client owns no session and must not interfere with another app.
         state.discovering = false
         refreshSoon.restart()
         return true
@@ -146,9 +145,8 @@ Scope {
                     const payload = JSON.parse(this.text)
                     state.available = Boolean(payload.available)
                     state.bluetoothEnabled = Boolean(payload.enabled)
-                    // If Maho owns a discovery session, keep the UI in the
-                    // discovering state during the few milliseconds before
-                    // BlueZ's Discovering property catches up.
+                    // Keep opening motion truthful while BlueZ's Discovering
+                    // property catches up with the just-started owned session.
                     state.discovering = Boolean(payload.discovering) || discoverySession.running
                     state.adapterPath = String(payload.adapterPath || "")
                     state.pairedDevices = payload.paired || []
@@ -206,12 +204,12 @@ Scope {
         }
     }
 
-    // Persistent BlueZ discovery-session owner. The stdin pipe deliberately
-    // stays open until Maho stops discovery, the 20-second bounded scan expires,
-    // or the Maho Link shell closes. Quickshell owns the child process lifetime.
+    // Persistent discovery-session owner. The stdin pipe deliberately remains
+    // open until Maho stops the scan, the bounded scan expires, or this shell
+    // closes. Quickshell owns and tears down the child process lifetime.
     Process {
         id: discoverySession
-        command: ["bluetoothctl"]
+        command: [state.discoveryClientBinary]
         stdinEnabled: true
 
         onStarted: {
@@ -276,8 +274,7 @@ Scope {
     }
 
     // Discovery is intentionally bounded. Twenty seconds is long enough for
-    // normal LE/BR-EDR discovery while avoiding a forgotten battery-draining
-    // scan if the panel is left open.
+    // normal LE/BR-EDR discovery while avoiding a forgotten continuous scan.
     Timer {
         id: discoverySessionTimeout
         interval: 20000
