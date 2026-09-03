@@ -84,9 +84,12 @@ require_text "$DOCK" 'id: previewStage' "preview cards have no dedicated collisi
 require_text "$DOCK" 'anchors.bottom: previewActions.top' "preview stage can collide with the footer"
 require_text "$DOCK" 'cardWidth: root.previewCardWidth' "adaptive card width is not applied"
 require_text "$DOCK" 'cardHeight: root.previewCardHeight' "adaptive card height is not applied"
+require_text "$PREVIEW" 'property real cardWidth: 198' "preview card exposes no adaptive width input"
+require_text "$PREVIEW" 'property real cardHeight: 138' "preview card exposes no adaptive height input"
+require_text "$PREVIEW" 'width: cardWidth' "preview card ignores adaptive width"
+require_text "$PREVIEW" 'height: cardHeight' "preview card ignores adaptive height"
 require_text "$PREVIEW" 'id: previewViewport' "window capture has no dedicated viewport"
 require_text "$PREVIEW" 'id: titleRail' "window title still overlays the live capture"
-reject_text "$PREVIEW" 'width: 198' "preview card is still hardcoded to postage-stamp size"
 echo PASS
 
 echo "=== user pinning contract ==="
