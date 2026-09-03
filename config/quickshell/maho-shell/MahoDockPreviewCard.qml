@@ -31,6 +31,14 @@ Item {
         return top.handle || top.wayland || null
     }
 
+    readonly property string liveWindowTitle: {
+        if (!root.windowData)
+            return "Window"
+        if (root.windowData.toplevel && root.windowData.toplevel.title)
+            return String(root.windowData.toplevel.title)
+        return String(root.windowData.title || "Window")
+    }
+
     Rectangle {
         id: frame
         anchors.fill: parent
@@ -43,7 +51,7 @@ Item {
         border.width: 1
         border.color: root.theme.alpha(
             root.windowFocused ? root.accent
-                : (root.hovered ? root.theme.semanticForeground : root.theme.semanticForeground),
+                : root.theme.semanticForeground,
             root.windowFocused ? 0.42 : (root.hovered ? 0.20 : 0.11)
         )
         clip: true
@@ -194,7 +202,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
-                text: root.windowData ? String(root.windowData.title || "Window") : "Window"
+                text: root.liveWindowTitle
                 color: root.theme.semanticForeground
                 font.pixelSize: root.width > 300 ? 11 : 10
                 font.weight: Font.Medium
