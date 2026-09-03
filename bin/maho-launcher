@@ -5,6 +5,7 @@ set -u
 ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 CONFIG_DIR="${MAHO_LAUNCHER_CONFIG_DIR:-$ROOT/config/quickshell/maho-launcher}"
 CONFIG="$CONFIG_DIR/shell.qml"
+BACKDROP="$CONFIG_DIR/LauncherBackdrop.qml"
 BACKEND="$ROOT/lib/maho_launcher_backend.py"
 PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
 RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}/maho-launcher-qml-${UID}"
@@ -118,11 +119,11 @@ set_hyprland_material_rule() {
             if maho_launcher_qml_material_rule == nil then
                 maho_launcher_qml_material_rule = hl.layer_rule({
                     name = "maho-launcher-qml-material",
-                    match = { namespace = "maho-launcher" },
+                    match = { namespace = "maho-launcher-backdrop" },
                     blur = true,
-                    ignore_alpha = 0.02,
+                    ignore_alpha = 0.001,
                     xray = false,
-                    order = 9,
+                    order = 8,
                 })
             else
                 maho_launcher_qml_material_rule:set_enabled(true)
@@ -172,6 +173,10 @@ run_launcher() {
         echo "maho-launcher: QML configuration missing: $CONFIG" >&2
         return 1
     }
+    [ -r "$BACKDROP" ] || {
+        echo "maho-launcher: backdrop configuration missing: $BACKDROP" >&2
+        return 1
+    }
     [ -r "$BACKEND" ] || {
         echo "maho-launcher: backend helper missing: $BACKEND" >&2
         return 1
@@ -195,6 +200,9 @@ run_launcher() {
     [ -n "$icon_theme" ] && export QS_ICON_THEME="$icon_theme"
 
     trap cleanup EXIT INT TERM
+    # Install blur before the first QML commit. LauncherBackdrop.qml carries a
+    # constant alpha above ignore_alpha from its first frame, so the compositor
+    # never watches an animated full-screen rectangle cross the blur threshold.
     set_hyprland_material_rule on
     log_event "opened engine=quickshell icon_theme=${icon_theme:-default}"
     quickshell -p "$CONFIG" >> "$LOG_FILE" 2>&1
@@ -248,8 +256,8 @@ doctor() {
         failed=1
     fi
 
-    if [ -r "$CONFIG" ] && [ -r "$BACKEND" ]; then
-        echo "PASS  sources        QML and bounded backend present"
+    if [ -r "$CONFIG" ] && [ -r "$BACKDROP" ] && [ -r "$BACKEND" ]; then
+        echo "PASS  sources        QML, backdrop, and bounded backend present"
     else
         echo "FAIL  sources        launcher source incomplete"
         failed=1
@@ -301,7 +309,7 @@ doctor() {
     fi
 
     if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-        echo "PASS  compositor     scoped Maho Launcher blur available"
+        echo "PASS  compositor     scoped Maho Launcher backdrop blur available"
     else
         echo "INFO  compositor     Hyprland unavailable; translucent QML fallback remains usable"
     fi
