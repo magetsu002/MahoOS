@@ -17,18 +17,34 @@ Rectangle {
 
     implicitHeight: content.implicitHeight + 20
     radius: 14
-    color: theme.alpha(
-        unread ? theme.primary : theme.surfaceHighest,
-        historyHover.hovered || selected ? (unread ? 0.14 : 0.42) : (unread ? 0.075 : 0.22)
-    )
+    antialiasing: true
+    color: row.selected
+        ? theme.rowSelected
+        : (row.unread
+            ? (historyHover.hovered ? theme.rowUnreadHover : theme.rowUnread)
+            : (historyHover.hovered ? theme.rowHover : theme.rowFill))
     border.width: 1
-    border.color: theme.alpha(
-        critical ? theme.error : (selected || unread ? theme.primary : theme.outline),
-        critical ? 0.42 : (selected ? 0.42 : (unread ? 0.22 : 0.12))
-    )
+    border.color: row.critical
+        ? theme.criticalRim
+        : (row.selected || row.unread ? theme.rowActiveRim : theme.rowRim)
+    scale: historyTap.pressed ? 0.994 : 1
+    clip: true
 
-    Behavior on color { ColorAnimation { duration: 130 } }
-    Behavior on border.color { ColorAnimation { duration: 130 } }
+    Behavior on color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
+    Behavior on border.color { ColorAnimation { duration: 155; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: 115; easing.type: Easing.OutCubic } }
+
+    Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        antialiasing: true
+        color: "transparent"
+        gradient: Gradient {
+            GradientStop { position: 0.00; color: theme.alpha(theme.foreground, row.selected ? 0.030 : 0.018) }
+            GradientStop { position: 0.26; color: row.critical ? theme.criticalWash : "transparent" }
+            GradientStop { position: 1.00; color: theme.alpha(theme.accent, row.unread ? 0.025 : 0.012) }
+        }
+    }
 
     Rectangle {
         anchors.left: parent.left
@@ -38,12 +54,13 @@ Rectangle {
         height: Math.min(30, parent.height - 18)
         radius: 2
         visible: row.unread
-        color: critical ? theme.error : theme.primary
+        color: row.critical ? theme.error : theme.accent
         opacity: row.selected ? 0.96 : 0.72
     }
 
     HoverHandler { id: historyHover }
     TapHandler {
+        id: historyTap
         gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: {
             row.expanded = !row.expanded
@@ -64,8 +81,8 @@ Rectangle {
             entry: row.entry
             iconSize: 30
             cornerRadius: 9
-            backgroundColor: theme.alpha(critical ? theme.error : theme.primary, 0.13)
-            foregroundColor: critical ? theme.error : theme.primary
+            backgroundColor: theme.alpha(row.critical ? theme.error : theme.accent, 0.10)
+            foregroundColor: row.critical ? theme.error : theme.accent
         }
 
         Column {
@@ -79,7 +96,7 @@ Rectangle {
                 Text {
                     width: parent.width - groupBadge.width - timeLabel.width - 12
                     text: entry.appName || "Notification"
-                    color: row.unread ? theme.foreground : theme.muted
+                    color: row.unread ? theme.textPrimary : theme.textSecondary
                     font.pixelSize: 10
                     font.weight: row.unread ? Font.DemiBold : Font.Medium
                     elide: Text.ElideRight
@@ -92,15 +109,15 @@ Rectangle {
                     height: 18
                     radius: 9
                     visible: Number(entry.groupCount || 1) > 1
-                    color: theme.alpha(theme.primary, 0.12)
+                    color: theme.badgeFill
                     border.width: 1
-                    border.color: theme.alpha(theme.primary, 0.20)
+                    border.color: theme.badgeRim
 
                     Text {
                         id: groupText
                         anchors.centerIn: parent
                         text: String(entry.groupCount) + " grouped"
-                        color: theme.primary
+                        color: theme.textPrimary
                         font.pixelSize: 8
                         font.weight: Font.DemiBold
                         textFormat: Text.PlainText
@@ -110,7 +127,7 @@ Rectangle {
                 Text {
                     id: timeLabel
                     text: row.relativeTimestamp
-                    color: theme.alpha(theme.muted, 0.78)
+                    color: theme.alpha(theme.muted, 0.68)
                     font.pixelSize: 10
                     textFormat: Text.PlainText
                 }
@@ -119,7 +136,7 @@ Rectangle {
             Text {
                 width: parent.width
                 text: entry.summary || entry.appName || "Notification"
-                color: theme.foreground
+                color: theme.textPrimary
                 font.pixelSize: 12
                 font.weight: Font.DemiBold
                 maximumLineCount: 1
@@ -131,9 +148,9 @@ Rectangle {
                 width: parent.width
                 visible: text.length > 0
                 text: entry.body || ""
-                color: theme.muted
+                color: theme.textSecondary
                 font.pixelSize: 11
-                lineHeight: 1.12
+                lineHeight: 1.13
                 wrapMode: Text.Wrap
                 maximumLineCount: row.expanded ? 8 : 2
                 elide: Text.ElideRight
@@ -147,7 +164,7 @@ Rectangle {
                 text: Number(entry.replacementCount || 0) > 0
                     ? "Updated " + String(entry.replacementCount) + "×"
                     : String(entry.groupUnread) + " unread in group"
-                color: theme.alpha(critical ? theme.error : theme.primary, 0.86)
+                color: theme.alpha(row.critical ? theme.error : theme.accent, 0.84)
                 font.pixelSize: 10
                 textFormat: Text.PlainText
             }
@@ -155,11 +172,13 @@ Rectangle {
     }
 
     Rectangle {
-        anchors.fill: parent
-        anchors.margins: 3
-        radius: 11
-        color: "transparent"
-        border.width: row.selected ? 1 : 0
-        border.color: theme.alpha(theme.primary, 0.26)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.top: parent.top
+        height: 1
+        radius: 1
+        color: theme.alpha(theme.foreground, row.selected ? 0.030 : 0.016)
     }
 }
