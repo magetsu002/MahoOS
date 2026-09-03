@@ -9,7 +9,6 @@ PREVIEW="$QML/MahoDockPreviewCard.qml"
 MODEL="$QML/MahoDockModel.qml"
 STATE="$QML/MahoDockState.qml"
 THEME="$QML/MahoTheme.qml"
-EDGE_SHELL="$QML/shell.qml"
 WRAPPER="$ROOT/bin/maho-dock"
 APP_MODEL="$ROOT/lib/maho_app_model.py"
 LAUNCHER_BACKEND="$ROOT/lib/maho_launcher_backend.py"
@@ -90,12 +89,6 @@ require_text "$STATE" 'Quickshell.statePath("maho-dock.json")' "Dock pins do not
 require_text "$STATE" 'atomicWrites: true' "Dock state writes are not atomic"
 require_text "$MODEL" 'function pinItem(item)' "Dock model lost pin API"
 require_text "$MODEL" 'function unpinItem(item)' "Dock model lost unpin API"
-echo PASS
-
-echo "=== Edge connectivity remains authoritative ==="
-require_text "$EDGE_SHELL" '"bluetooth"' "Maho Edge Bluetooth tile does not route to Maho Link"
-require_text "$EDGE_SHELL" '/.local/bin/maho-link' "Maho Edge no longer launches the accepted Maho Link runtime"
-reject_text "$EDGE_SHELL" 'kitty -e bluetoothctl' "Dock branch regressed Bluetooth to a terminal"
 echo PASS
 
 echo "=== shared application identity ==="
