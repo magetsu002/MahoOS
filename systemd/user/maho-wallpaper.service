@@ -1,6 +1,7 @@
 [Unit]
 Description=Maho wallpaper runtime restoration, observation and theme adaptation
-After=graphical-session.target
+After=graphical-session.target maho-awww-daemon.service
+Requires=maho-awww-daemon.service
 PartOf=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 

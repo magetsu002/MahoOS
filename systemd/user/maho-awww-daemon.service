@@ -1,13 +1,13 @@
 [Unit]
-Description=Maho adaptive Quickshell desktop surface
+Description=Maho awww wallpaper runtime
 After=graphical-session.target
 PartOf=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
-Type=simple
-ExecStart=%h/.local/bin/maho-shell run
-SuccessExitStatus=143
+Type=exec
+ExecStart=/usr/bin/awww-daemon
+ExecStartPost=%h/.local/bin/maho-session wait-awww
 Restart=on-failure
 RestartSec=2
 

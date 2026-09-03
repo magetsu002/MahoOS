@@ -1,4 +1,4 @@
--- managed-by: maho-setup session-v1
+-- managed-by: maho-setup session-v2
 -- Own graphical Maho services only while this Hyprland session is alive.
 
 hl.on("hyprland.start", function()

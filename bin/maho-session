@@ -2,16 +2,20 @@
 
 set -euo pipefail
 
-TARGET="maho-hyprland-session.target"
+TARGET=maho-hyprland-session.target
+
+systemd_available() {
+    command -v systemctl >/dev/null 2>&1 &&
+        systemctl --user show-environment >/dev/null 2>&1
+}
 
 import_graphical_environment() {
-    local name
     local -a names=()
+    local name
 
-    for name in WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP XDG_SESSION_TYPE DISPLAY; do
-        if [ -n "${!name:-}" ]; then
-            names+=("$name")
-        fi
+    for name in DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE \
+        XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE; do
+        [ -n "${!name:-}" ] && names+=("$name")
     done
 
     [ "${#names[@]}" -gt 0 ] || {
@@ -20,33 +24,78 @@ import_graphical_environment() {
     }
 
     systemctl --user import-environment "${names[@]}"
+
     if command -v dbus-update-activation-environment >/dev/null 2>&1; then
         dbus-update-activation-environment --systemd "${names[@]}" >/dev/null
     fi
 }
 
+wayland_ready() {
+    local display runtime
+    display="${WAYLAND_DISPLAY:-$(systemctl --user show-environment | sed -n 's/^WAYLAND_DISPLAY=//p')}"
+    runtime="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+    [ -n "$display" ] && [ -S "$runtime/$display" ]
+}
+
+start_session() {
+    systemd_available || {
+        echo "maho-session: systemd user manager unavailable" >&2
+        return 1
+    }
+
+    import_graphical_environment
+    wayland_ready || {
+        echo "maho-session: Wayland socket is not ready" >&2
+        return 1
+    }
+
+    systemctl --user reset-failed \
+        maho-awww-daemon.service \
+        maho-wallpaper.service \
+        maho-shell.service \
+        maho-notify.service \
+        >/dev/null 2>&1 || true
+
+    systemctl --user start "$TARGET"
+}
+
+stop_session() {
+    systemd_available || return 0
+    systemctl --user stop "$TARGET"
+
+    systemctl --user unset-environment \
+        DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE \
+        XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE \
+        || true
+}
+
+wait_awww() {
+    local i
+
+    for i in $(seq 1 100); do
+        awww query >/dev/null 2>&1 && return 0
+        sleep 0.05
+    done
+
+    echo "maho-session: awww socket did not become ready" >&2
+    return 1
+}
+
 case "${1:-}" in
-    start)
-        command -v systemctl >/dev/null 2>&1 || {
-            echo "maho-session: systemctl is required" >&2
-            exit 1
-        }
-        [ -n "${WAYLAND_DISPLAY:-}" ] || {
-            echo "maho-session: refusing to start outside a Wayland session" >&2
-            exit 1
-        }
-        import_graphical_environment
-        systemctl --user start "$TARGET"
-        ;;
-    stop)
-        command -v systemctl >/dev/null 2>&1 || exit 0
-        systemctl --user stop "$TARGET" >/dev/null 2>&1 || true
-        ;;
+    start) start_session ;;
+    stop) stop_session ;;
+    wait-awww) wait_awww ;;
     status)
-        systemctl --user status "$TARGET"
+        systemctl --user is-active \
+            "$TARGET" \
+            graphical-session.target \
+            maho-awww-daemon.service \
+            maho-wallpaper.service \
+            maho-shell.service \
+            maho-notify.service
         ;;
     *)
-        echo "Usage: maho-session {start|stop|status}" >&2
+        echo "usage: maho-session start|stop|status|wait-awww" >&2
         exit 2
         ;;
 esac
