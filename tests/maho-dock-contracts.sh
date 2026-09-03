@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 QML="$ROOT/config/quickshell/maho-shell"
 DOCK="$QML/MahoDock.qml"
+PREVIEW="$QML/MahoDockPreviewCard.qml"
 MODEL="$QML/MahoDockModel.qml"
 STATE="$QML/MahoDockState.qml"
 RUNTIME="$QML/MahoDockRuntime.qml"
@@ -24,30 +25,57 @@ require_text "$RUNTIME" 'MahoDock {' "Dock visual surface missing from shell run
 reject_text "$RUNTIME" 'Process {' "Dock runtime created a separate daemon/process"
 echo PASS
 
-echo "=== bounded resting surface ==="
+echo "=== bounded stable carrier ==="
 require_text "$DOCK" 'bottom: true' "Dock is not bottom anchored"
-reject_text "$DOCK" 'top: true' "resting Dock unexpectedly spans top edge"
-reject_text "$DOCK" 'left: true' "resting Dock unexpectedly spans left edge"
-reject_text "$DOCK" 'right: true' "resting Dock unexpectedly spans right edge"
-require_text "$DOCK" 'implicitWidth: Math.max(86, dockRow.implicitWidth + 24)' "Dock width is not icon-count driven"
-require_text "$DOCK" 'exclusionMode: ExclusionMode.Ignore' "Dock reserves compositor space in M1"
+reject_text "$DOCK" 'top: true' "Dock unexpectedly spans the top edge"
+reject_text "$DOCK" 'left: true' "Dock unexpectedly spans the left edge"
+reject_text "$DOCK" 'right: true' "Dock unexpectedly spans the right edge"
+require_text "$DOCK" 'implicitWidth: 720' "Dock no longer uses the stable preview carrier"
+require_text "$DOCK" 'implicitHeight: 326' "Dock no longer uses the stable preview carrier"
+require_text "$DOCK" 'restingDockWidth: Math.max(300, dockRow.implicitWidth + 38)' "resting Dock is not icon-count driven"
+require_text "$DOCK" 'item: root.previewOpen || root.previewProgress > 0.02 ? materialBounds : dockShell' "Dock input is not bounded to visible material state"
+require_text "$DOCK" 'exclusionMode: ExclusionMode.Ignore' "Dock reserves compositor space"
 require_text "$DOCK" 'WlrLayershell.namespace: "maho-dock"' "Dock has no scoped layer namespace"
 require_text "$DOCK" 'WlrLayershell.layer: WlrLayer.Top' "Dock is not on the fullscreen-safe Top layer"
-require_text "$DOCK" 'mask: Region { item: dockShell }' "Dock input is not bounded to visible material"
 echo PASS
 
-echo "=== adaptive Maho material ==="
+echo "=== adaptive premium glass ==="
 require_text "$THEME" 'semanticSurfaceElevated' "Shell theme does not expose Palette V2 semantic material"
 require_text "$DOCK" 'theme.semanticSurfaceElevated' "Dock ignores Palette V2 elevated surface"
 require_text "$DOCK" 'theme.semanticBackground' "Dock does not adapt to wallpaper-derived background"
 require_text "$DOCK" 'brightBackdrop' "Dock does not densify its material for bright palettes"
+require_text "$DOCK" 'smokedNeutral' "Dock has no neutral smoked-glass base"
 require_text "$DOCK" 'stableAccent(theme.semanticAccent)' "Dock accent is not stabilized"
-require_text "$DOCK" 'radius: dockShell.radius' "Dock full material wash is not radius-matched"
+require_text "$DOCK" 'shellInnerRim' "Dock lost layered rim depth"
+require_text "$DOCK" 'shellSpecular' "Dock lost the optical top reflection"
 require_text "$DECORATIONS" 'match = { namespace = "maho-dock" }' "Dock compositor blur is not namespace scoped"
 require_text "$DECORATIONS" 'blur = true' "Dock compositor blur is missing"
 require_text "$DECORATIONS" 'xray = false' "Dock blur does not respond to the real background stack"
 reject_text "$DOCK" '#ff0000' "Dock hardcodes target-wallpaper red"
 reject_text "$DOCK" '#ff' "Dock contains a hardcoded bright wallpaper color"
+echo PASS
+
+echo "=== coordinated motion and hover intent ==="
+require_text "$DOCK" 'property real previewProgress: previewOpen ? 1 : 0' "preview reveal has no single material progress authority"
+require_text "$DOCK" 'duration: 360' "preview material transition lost the deliberate reveal duration"
+require_text "$DOCK" 'id: hoverIntent' "Dock has no hover-intent timer"
+require_text "$DOCK" 'interval: 620' "window previews reveal too eagerly or too slowly"
+require_text "$DOCK" 'previewHeight * root.previewProgress' "preview surface does not grow upward from the shelf"
+require_text "$DOCK" 'previewDismiss' "preview has no graceful pointer-leave dismissal"
+require_text "$DOCK" 'duration: 220' "icon hover motion is no longer calm"
+reject_text "$DOCK" 'SpringAnimation' "Dock reintroduced bouncy motion"
+echo PASS
+
+echo "=== native window preview ==="
+require_text "$PREVIEW" 'ScreencopyView {' "Dock preview does not use native screencopy"
+require_text "$PREVIEW" 'root.windowData.toplevel.wayland' "Dock preview is not bound to the real Hyprland toplevel handle"
+require_text "$PREVIEW" 'live: root.active && captureSource !== null' "Dock preview stream is not demand-driven"
+require_text "$PREVIEW" 'paintCursor: false' "Dock window preview paints the pointer"
+require_text "$DOCK" 'previewItem.windows.slice(0, 3)' "Dock preview does not use the selected app window group"
+require_text "$DOCK" 'MahoDockPreviewCard {' "Dock does not render native window cards"
+require_text "$DOCK" 'New Window' "preview panel lost the bounded new-window action"
+reject_text "$PREVIEW" 'grabWindow' "Dock uses external screenshot machinery"
+reject_text "$PREVIEW" 'grim' "Dock preview depends on external screenshot tooling"
 echo PASS
 
 echo "=== shared application identity ==="
@@ -91,7 +119,7 @@ require_text "$MODEL" 'root.dockState.seedPins(output)' "first-run pins are not 
 echo PASS
 
 echo "=== responsibility and safety boundary ==="
-for file in "$DOCK" "$MODEL" "$STATE" "$RUNTIME"; do
+for file in "$DOCK" "$PREVIEW" "$MODEL" "$STATE" "$RUNTIME"; do
     reject_text "$file" 'wifi' "Dock absorbed Wi-Fi responsibility"
     reject_text "$file" 'bluetooth' "Dock absorbed Bluetooth responsibility"
     reject_text "$file" 'battery' "Dock absorbed battery responsibility"
@@ -106,4 +134,4 @@ require_text "$DOCK" 'acceptedButtons: Qt.LeftButton | Qt.MiddleButton' "Dock pr
 require_text "$MODEL" 'Quickshell.execDetached(["python3", root.appModelPath, "launch-app", id])' "Dock launch does not use trusted XDG app identity"
 echo PASS
 
-echo "ALL MAHO DOCK M1 CONTRACTS PASS"
+echo "ALL MAHO DOCK M1.5 CONTRACTS PASS"
