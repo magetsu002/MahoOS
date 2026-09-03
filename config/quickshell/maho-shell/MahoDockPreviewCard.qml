@@ -13,6 +13,7 @@ Item {
     property string appIconPath: ""
     property bool active: false
     property bool hovered: hoverHandler.hovered
+    property bool showCloseButton: true
     property real cardWidth: 198
     property real cardHeight: 138
 
@@ -195,6 +196,7 @@ Item {
             Rectangle {
                 id: closeButton
                 z: 20
+                visible: root.showCloseButton && root.active
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: root.cardWidth > 300 ? 10 : 7
@@ -212,7 +214,6 @@ Item {
                     closeMouse.containsMouse ? root.theme.semanticForeground : root.theme.semanticForegroundMuted,
                     closeMouse.containsMouse ? 0.22 : 0.11
                 )
-                opacity: root.active ? 1 : 0
 
                 Text {
                     anchors.centerIn: parent
@@ -291,7 +292,7 @@ Item {
 
     HoverHandler {
         id: hoverHandler
-        cursorShape: closeMouse.containsMouse ? Qt.PointingHandCursor : Qt.PointingHandCursor
+        cursorShape: Qt.PointingHandCursor
     }
 
     TapHandler {
