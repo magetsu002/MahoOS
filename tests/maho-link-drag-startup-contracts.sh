@@ -6,6 +6,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINK="$ROOT/config/quickshell/maho-link"
 SHELL="$LINK/shell.qml"
 STATE="$LINK/MahoLinkState.qml"
+BT_STATE="$LINK/BluetoothState.qml"
 BACKEND="$LINK/wifi.py"
 
 fail() {
@@ -43,6 +44,15 @@ require_text "$SHELL" 'wifi.refresh()' "Wi-Fi status/discovery does not start wh
 require_text "$BACKEND" 'scan_networks(enabled, rescan="no")' "startup network discovery is still allowed to trigger a rescan"
 require_text "$BACKEND" 'if sys.argv[1] == "status"' "fast status backend mode missing"
 require_text "$BACKEND" 'if sys.argv[1] == "networks"' "cached networks backend mode missing"
+echo "PASS"
+
+echo "=== responsive BlueZ discovery contract ==="
+require_text "$BT_STATE" 'id: discoveryRefresh' "Bluetooth discovery has no responsive snapshot cadence"
+require_text "$BT_STATE" 'interval: 900' "Bluetooth discovery refresh cadence drifted"
+require_text "$BT_STATE" 'running: state.bluetoothEnabled && state.discovering' "Bluetooth discovery refresh is not bounded to active discovery"
+require_text "$BT_STATE" 'if (action === "scan-start")' "Bluetooth scan start does not publish discovery state promptly"
+require_text "$BT_STATE" 'state.discovering = true' "Bluetooth scan start does not activate discovery refresh promptly"
+require_text "$BT_STATE" 'else if (action === "scan-stop")' "Bluetooth scan stop does not clear discovery state promptly"
 echo "PASS"
 
 echo "=== deterministic fast NetworkManager status ==="
