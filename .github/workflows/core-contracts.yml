@@ -34,6 +34,7 @@ jobs:
             bin/maho-contain \
             bin/maho-shell \
             bin/maho-setup \
+            bin/maho-notify \
             lib/authority.sh \
             lib/state.sh \
             lib/events.sh \
@@ -63,7 +64,9 @@ jobs:
             tests/security-boundaries.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh \
-            tests/shell-contracts.sh
+            tests/shell-contracts.sh \
+            tests/notify-contracts.sh \
+            tests/glass-contracts.sh
 
       - name: Python syntax
         shell: bash
@@ -75,7 +78,8 @@ jobs:
             lib/security_incident.py \
             lib/security_preflight.py \
             lib/security_boundary.py \
-            config/quickshell/maho-shell/state.py
+            config/quickshell/maho-shell/state.py \
+            config/quickshell/maho-notify/state.py
 
       - name: JSON contracts
         shell: bash
@@ -192,3 +196,15 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/shell-contracts.sh
+
+      - name: Maho Notify behavior contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/notify-contracts.sh
+
+      - name: Maho Notify glass contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/glass-contracts.sh
