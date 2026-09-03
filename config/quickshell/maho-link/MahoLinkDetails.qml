@@ -225,19 +225,11 @@ Item {
             radius: 17
             antialiasing: true
             scale: disconnectHover.pressed ? 0.995 : 1
-            color: disconnectHover.pressed
-                ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
-                : disconnectHover.containsMouse
-                    ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
-                    : root.glassInteractive
+            color: root.glassInteractive
             border.width: 1
-            border.color: disconnectHover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.070)
-                : root.glassStroke
+            border.color: root.glassStroke
             opacity: root.wifi.busy ? 0.50 : 1
 
-            Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
-            Behavior on border.color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: 115; easing.type: Easing.OutCubic } }
 
             Rectangle {
@@ -248,6 +240,19 @@ Item {
                     GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.018) }
                     GradientStop { position: 0.66; color: "transparent" }
                     GradientStop { position: 1; color: chrome.theme.alpha(chrome.theme.background, 0.030) }
+                }
+            }
+
+            Rectangle {
+                id: disconnectHoverPlane
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent, 0.065)
+                opacity: disconnectHover.containsMouse ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
                 }
             }
 
