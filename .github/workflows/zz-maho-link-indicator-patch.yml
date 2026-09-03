@@ -1,0 +1,130 @@
+name: temporary-maho-link-indicator-patch
+
+on:
+  push:
+    branches:
+      - fix/maho-link-bluetooth-discovery-session
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !startsWith(github.event.head_commit.message, 'fix(link): stabilize discovery chrome') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply narrow QML patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          state = Path('config/quickshell/maho-link/BluetoothState.qml')
+          text = state.read_text()
+          old = 'readonly property bool busy: snapshotProcess.running || actionProcess.running || cancelProcess.running'
+          new = 'readonly property bool busy: actionProcess.running || cancelProcess.running'
+          assert text.count(old) == 1, text.count(old)
+          state.write_text(text.replace(old, new, 1))
+
+          def polish(path, status_id, active_expr, active_text, idle_text):
+              p = Path(path)
+              text = p.read_text()
+
+              row_old = '''            Row {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 7
+'''
+              row_new = f'''            Row {{
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: 18
+                spacing: 7
+'''
+              assert text.count(row_old) == 1, (path, 'row', text.count(row_old))
+              text = text.replace(row_old, row_new, 1)
+
+              dot_old = f'''                Rectangle {{
+                    width: 7
+                    height: 7
+                    radius: 4
+                    antialiasing: true
+                    visible: {active_expr}
+                    color: chrome.accent
+'''
+              dot_new = f'''                Item {{
+                    id: {status_id}
+                    width: 7
+                    height: 18
+                    visible: {active_expr}
+
+                    Rectangle {{
+                        anchors.centerIn: parent
+                        width: 7
+                        height: 7
+                        radius: 4
+                        antialiasing: true
+                        color: chrome.accent
+'''
+              assert text.count(dot_old) == 1, (path, 'dot', text.count(dot_old))
+              text = text.replace(dot_old, dot_new, 1)
+
+              anim_end = '''                    }
+                }
+
+                Text {
+'''
+              anim_end_new = '''                    }
+                    }
+                }
+
+                Text {
+'''
+              # The first matching animation close after the new status lane belongs to its dot.
+              pos = text.index(f'id: {status_id}')
+              tail = text[pos:]
+              assert anim_end in tail, (path, 'dot-close')
+              tail = tail.replace(anim_end, anim_end_new, 1)
+              text = text[:pos] + tail
+
+              label_old = f'''                Text {{
+                    text: {active_expr} ? "{active_text}" : "{idle_text}"
+'''
+              label_new = f'''                Text {{
+                    height: 18
+                    verticalAlignment: Text.AlignVCenter
+                    text: {active_expr} ? "{active_text}" : "{idle_text}"
+'''
+              assert text.count(label_old) == 1, (path, 'label', text.count(label_old))
+              text = text.replace(label_old, label_new, 1)
+              p.write_text(text)
+
+          polish(
+              'config/quickshell/maho-link/BluetoothMain.qml',
+              'discoveryStatusLane',
+              'root.bluetooth.discovering',
+              'Looking…',
+              'Find Devices',
+          )
+          polish(
+              'config/quickshell/maho-link/MahoLinkMain.qml',
+              'scanStatusLane',
+              'root.wifi.busy',
+              'Scanning…',
+              'Refresh',
+          )
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name 'Magetsu!!'
+          git config user.email '148205878+magetsu002@users.noreply.github.com'
+          git add config/quickshell/maho-link/BluetoothState.qml \
+                  config/quickshell/maho-link/BluetoothMain.qml \
+                  config/quickshell/maho-link/MahoLinkMain.qml
+          git diff --cached --check
+          git commit -m 'fix(link): stabilize discovery chrome'
+          git push origin HEAD:fix/maho-link-bluetooth-discovery-session
