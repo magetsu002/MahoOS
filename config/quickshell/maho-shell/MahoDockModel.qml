@@ -472,10 +472,15 @@ Scope {
 
         function onRawEvent(event) {
             const name = clean(event.name)
+            // Window-title churn is display metadata, not Dock identity/state.
+            // Browsers/media apps can emit it repeatedly while the pointer is
+            // stationary; rebuilding the whole array then destroys the hovered
+            // delegate and cancels hover intent. Preview cards read the live
+            // toplevel title directly instead.
             const relevant = [
                 "openwindow", "closewindow", "movewindow", "movewindowv2",
                 "activewindow", "activewindowv2", "workspace", "workspacev2",
-                "fullscreen", "windowtitle", "windowtitlev2"
+                "fullscreen"
             ]
             if (relevant.indexOf(name) >= 0)
                 eventRefresh.restart()
