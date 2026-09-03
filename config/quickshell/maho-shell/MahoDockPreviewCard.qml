@@ -39,6 +39,20 @@ Item {
         return String(root.windowData.title || "Window")
     }
 
+    function closeWindow() {
+        if (!root.windowData || !root.windowData.toplevel)
+            return
+
+        const top = root.windowData.toplevel
+        const handle = top.handle || top.wayland || null
+        if (handle && handle.close) {
+            handle.close()
+            return
+        }
+        if (top.wayland && top.wayland.close)
+            top.wayland.close()
+    }
+
     Rectangle {
         id: frame
         anchors.fill: parent
@@ -177,6 +191,59 @@ Item {
                 height: 1
                 color: root.theme.alpha(root.theme.semanticForeground, 0.13)
             }
+
+            Rectangle {
+                id: closeButton
+                z: 20
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: root.cardWidth > 300 ? 10 : 7
+                anchors.rightMargin: root.cardWidth > 300 ? 10 : 7
+                width: root.cardWidth > 300 ? 30 : 24
+                height: width
+                radius: width / 2
+                antialiasing: true
+                color: root.theme.alpha(
+                    root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticForeground, 0.035),
+                    closeMouse.containsMouse ? 0.70 : 0.48
+                )
+                border.width: 1
+                border.color: root.theme.alpha(
+                    closeMouse.containsMouse ? root.theme.semanticForeground : root.theme.semanticForegroundMuted,
+                    closeMouse.containsMouse ? 0.22 : 0.11
+                )
+                opacity: root.active ? 1 : 0
+
+                Text {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
+                    text: "×"
+                    color: root.theme.semanticForeground
+                    opacity: closeMouse.containsMouse ? 0.96 : 0.74
+                    font.pixelSize: root.cardWidth > 300 ? 20 : 16
+                    font.weight: Font.Light
+                }
+
+                MouseArea {
+                    id: closeMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton
+                    cursorShape: Qt.PointingHandCursor
+                    preventStealing: true
+                    onClicked: function(mouse) {
+                        mouse.accepted = true
+                        root.closeWindow()
+                    }
+                }
+
+                Behavior on color {
+                    ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
+                }
+                Behavior on border.color {
+                    ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
+                }
+            }
         }
 
         Rectangle {
@@ -224,11 +291,12 @@ Item {
 
     HoverHandler {
         id: hoverHandler
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: closeMouse.containsMouse ? Qt.PointingHandCursor : Qt.PointingHandCursor
     }
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
+        enabled: !closeMouse.containsMouse
         onTapped: root.activated(root.windowData)
     }
 
