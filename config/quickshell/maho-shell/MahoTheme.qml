@@ -60,14 +60,8 @@ Scope {
     readonly property color semanticFocus: semanticPalette("focus", primary)
     readonly property color semanticShadow: semanticPalette("shadow", "#000000")
 
-    // MahoTheme is already instantiated exactly once by the persistent ShellRoot.
-    // This narrow bootstrap keeps the accepted Edge tree byte-for-byte intact
-    // while making Maho Dock a sibling shell surface in the same Quickshell
-    // process. It is not a second daemon or a separately launched shell.
-    MahoDockRuntime {
-        theme: theme
-    }
-
+    // Theme is shared data, not a lifecycle owner. Maho Edge and Maho Dock may
+    // instantiate this type independently while reading the same active palette.
     FileView {
         path: Quickshell.env("HOME") + "/.cache/maho/theme/active.json"
         watchChanges: true
