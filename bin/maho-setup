@@ -276,7 +276,11 @@ install_runtime() (
   [ -n "$old" ] && [ "$old" != "$release" ] && atomic_link "$old" "$PREVIOUS"
   atomic_link "$release" "$CURRENT"
   wire_runtime
-  systemd_available && wire_ownership || echo "INFO systemd user manager unavailable; activation links deferred"
+  if systemd_available; then
+    wire_ownership
+  else
+    echo "INFO systemd user manager unavailable; activation links deferred"
+  fi
 
   committed=1; rm -rf -- "$tx"; trap - EXIT
   echo "PASS runtime $CURRENT -> $release"
