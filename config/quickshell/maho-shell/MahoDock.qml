@@ -438,20 +438,20 @@ PanelWindow {
             }
         }
 
-        // Full-width reflected-light field. It is intentionally not rounded;
-        // previewShell.clip gives it the exact optical silhouette, eliminating
-        // the visible circular cap produced by a separate rounded highlight.
+        // Reflection is a full-shell layer with the exact parent radius.
+        // Qt Quick's clip is rectangular, so the layer must carry the radius
+        // itself to avoid square corner leaks without creating an inner cap.
         Rectangle {
             id: previewReflectionField
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: 24
+            anchors.fill: parent
+            radius: previewShell.radius
+            antialiasing: true
             color: "transparent"
             gradient: Gradient {
-                GradientStop { position: 0.0; color: root.shellReflection }
-                GradientStop { position: 0.38; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.026 : 0.040) }
-                GradientStop { position: 1.0; color: "transparent" }
+                GradientStop { position: 0.000; color: root.shellReflection }
+                GradientStop { position: 0.074; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.026 : 0.040) }
+                GradientStop { position: 0.150; color: "transparent" }
+                GradientStop { position: 1.000; color: "transparent" }
             }
             opacity: 0.74
         }
@@ -734,20 +734,19 @@ PanelWindow {
             opacity: root.dockRevealProgress
         }
 
-        // One continuous reflection field, clipped by the shell itself. There
-        // are no rounded reflection sub-shapes, so the white shade cannot end
-        // in a visible circular cap or tube-like artifact.
+        // Full-shell reflection avoids both rectangular corner leakage and the
+        // rounded-ended highlight tube. The shell radius defines its silhouette.
         Rectangle {
             id: dockReflectionField
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: Math.max(2, 21 * root.dockRevealProgress)
+            anchors.fill: parent
+            radius: dockShell.radius
+            antialiasing: true
             color: "transparent"
             gradient: Gradient {
-                GradientStop { position: 0.0; color: root.shellReflection }
-                GradientStop { position: 0.36; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.026 : 0.040) }
-                GradientStop { position: 1.0; color: "transparent" }
+                GradientStop { position: 0.000; color: root.shellReflection }
+                GradientStop { position: 0.105; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.026 : 0.040) }
+                GradientStop { position: 0.250; color: "transparent" }
+                GradientStop { position: 1.000; color: "transparent" }
             }
             opacity: 0.72 * root.dockRevealProgress
         }
