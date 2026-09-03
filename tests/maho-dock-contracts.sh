@@ -58,7 +58,7 @@ require_text "$DECORATIONS" 'xray = false' "Dock blur ignores the real backgroun
 reject_text "$DOCK" '#ff0000' "Dock hardcodes target-wallpaper red"
 echo PASS
 
-echo "=== coordinated motion and reliable dismissal ==="
+echo "=== coordinated motion and deterministic hover preview ==="
 require_text "$DOCK" 'property real previewProgress: previewOpen ? 1 : 0' "preview reveal has no single material progress authority"
 require_text "$DOCK" 'interval: 620' "window preview hover intent drifted"
 require_text "$DOCK" 'readonly property bool pointerInsideMaterial' "preview dismissal still relies on stale manual hover bookkeeping"
@@ -70,6 +70,15 @@ reject_text "$DOCK" 'SpringAnimation' "Dock reintroduced bouncy motion"
 reject_text "$MODEL" '"windowtitle"' "window-title churn can still rebuild hovered Dock delegates"
 require_text "$PREVIEW" 'readonly property string liveWindowTitle:' "preview does not read mutable window title metadata live"
 require_text "$PREVIEW" 'root.windowData.toplevel.title' "preview title is still tied to stale model snapshots"
+require_text "$DOCK" 'property string hoverCandidateId:' "hover preview still stores disposable delegate objects"
+reject_text "$DOCK" 'property var hoverCandidate:' "legacy delegate-object hover candidate returned"
+require_text "$DOCK" 'function currentDockItemById(id)' "hover intent cannot resolve the current live Dock item"
+require_text "$DOCK" 'root.currentDockItemById(root.hoverCandidateId)' "hover timer does not re-resolve identity at trigger time"
+require_text "$DOCK" 'function dockItemUnderPointer()' "Dock cannot recover hover after stationary geometry/model changes"
+require_text "$DOCK" 'id: appRepeater' "hover recovery cannot inspect current rendered app cells"
+require_text "$DOCK" 'id: hoverWatchdog' "Dock lacks UI-only hover intent repair"
+require_text "$DOCK" 'interval: 90' "hover repair cadence drifted"
+require_text "$DOCK" 'onTriggered: root.syncHoverIntent()' "hover repair does not reconcile the actual pointer target"
 echo PASS
 
 echo "=== native adaptive window preview ==="
@@ -131,4 +140,4 @@ require_text "$MODEL" 'Hyprland.dispatch("focuswindow address:" + address)' "Doc
 reject_text "$MODEL" 'repeat: true' "Dock introduced continuous window polling"
 echo PASS
 
-echo "ALL MAHO DOCK M1.11 CONTRACTS PASS"
+echo "ALL MAHO DOCK M1.12 CONTRACTS PASS"
