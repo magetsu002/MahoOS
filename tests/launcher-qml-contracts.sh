@@ -138,6 +138,7 @@ require_text "$BACKEND" 'choices=("terminal", "files", "lock", "diagnostics")' "
 reject_text "$BACKEND" 'shell=True' "backend introduced shell execution"
 reject_text "$BACKEND" 'os.system' "backend introduced os.system"
 reject_text "$LAUNCHER" 'rofi' "native launcher wrapper still depends on Rofi"
+reject_text "$LAUNCHER" 'maho-launcher-preview' "native launcher wrapper points back to the obsolete preview runtime"
 echo "PASS"
 
 echo "=== stable overlay and compositor integration ==="

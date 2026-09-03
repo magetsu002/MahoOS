@@ -9,7 +9,10 @@ SHELL_SOURCE="$ROOT/config/quickshell/maho-shell"
 SHELL_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-shell"
 NOTIFY_SOURCE="$ROOT/config/quickshell/maho-notify"
 NOTIFY_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/maho-notify"
+HYPR_SESSION_SOURCE="$ROOT/config/hypr/maho/core/session.lua"
+HYPR_SESSION_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/maho/core/session.lua"
 MARKER="# managed-by: maho-setup v1"
+HYPR_SESSION_MARKER="-- managed-by: maho-setup session-v1"
 
 COMMANDS=(
     mahoctl
@@ -25,6 +28,8 @@ COMMANDS=(
     maho-contain
     maho-shell
     maho-notify
+    maho-launcher
+    maho-session
     maho-setup
 )
 
@@ -34,6 +39,7 @@ UNITS=(
     maho-security.service
     maho-shell.service
     maho-notify.service
+    maho-hyprland-session.target
 )
 
 SHELL_FILES=(
@@ -118,6 +124,21 @@ is_managed_notify() {
     [ "$(readlink -f -- "$NOTIFY_TARGET" 2>/dev/null || true)" = "$NOTIFY_SOURCE" ]
 }
 
+is_managed_hypr_session() {
+    [ -e "$HYPR_SESSION_TARGET" ] || [ -L "$HYPR_SESSION_TARGET" ] || return 1
+    if [ -L "$HYPR_SESSION_TARGET" ]; then
+        [ "$(readlink -f -- "$HYPR_SESSION_TARGET" 2>/dev/null || true)" = "$HYPR_SESSION_SOURCE" ] && return 0
+    fi
+    grep -Fq "$HYPR_SESSION_MARKER" "$HYPR_SESSION_TARGET" 2>/dev/null
+}
+
+is_legacy_maho_hypr_session() {
+    [ -f "$HYPR_SESSION_TARGET" ] || return 1
+    grep -Fq 'hl.on("hyprland.start"' "$HYPR_SESSION_TARGET" 2>/dev/null || return 1
+    grep -Fq '"$HOME/.local/bin/maho-session" start' "$HYPR_SESSION_TARGET" 2>/dev/null || return 1
+    grep -Fq '"$HOME/.local/bin/maho-session" stop' "$HYPR_SESSION_TARGET" 2>/dev/null || return 1
+}
+
 preflight() {
     local failed=0 name file
     [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
@@ -139,6 +160,13 @@ preflight() {
             failed=1
         fi
     done
+
+    if [ -r "$HYPR_SESSION_SOURCE" ]; then
+        echo "PASS  hypr   maho/core/session.lua"
+    else
+        echo "FAIL  hypr   maho/core/session.lua missing"
+        failed=1
+    fi
 
     for name in "${SHELL_FILES[@]}"; do
         if [ -r "$SHELL_SOURCE/$name" ]; then
@@ -173,6 +201,7 @@ preflight() {
         "$ROOT/lib/security_incident.py" \
         "$ROOT/lib/security_preflight.py" \
         "$ROOT/lib/security_boundary.py" \
+        "$ROOT/lib/maho_launcher_backend.py" \
         "$SHELL_SOURCE/state.py" \
         "$NOTIFY_SOURCE/state.py" \
         >/dev/null 2>&1; then
@@ -196,6 +225,8 @@ preflight() {
         "$ROOT/bin/maho-contain" \
         "$ROOT/bin/maho-shell" \
         "$ROOT/bin/maho-notify" \
+        "$ROOT/bin/maho-launcher" \
+        "$ROOT/bin/maho-session" \
         "$ROOT/bin/maho-setup" \
         "$ROOT/lib/authority.sh" \
         "$ROOT/lib/intent.sh" \
@@ -216,7 +247,7 @@ preflight() {
     if command -v quickshell >/dev/null 2>&1; then
         echo "PASS  capability quickshell"
     else
-        echo "INFO  capability quickshell unavailable; Maho Shell will remain installed but inactive"
+        echo "INFO  capability quickshell unavailable; Maho Shell and Launcher will remain installed but inactive"
     fi
 
     if command -v brightnessctl >/dev/null 2>&1; then
@@ -290,6 +321,21 @@ install_notify() {
     ln -s "$NOTIFY_SOURCE" "$NOTIFY_TARGET"
 }
 
+install_hypr_session() {
+    mkdir -p "$(dirname "$HYPR_SESSION_TARGET")"
+
+    if [ -e "$HYPR_SESSION_TARGET" ] || [ -L "$HYPR_SESSION_TARGET" ]; then
+        if is_managed_hypr_session || is_legacy_maho_hypr_session; then
+            rm -f "$HYPR_SESSION_TARGET"
+        else
+            die "refusing to replace unmanaged Hyprland session hook: $HYPR_SESSION_TARGET"
+            return 1
+        fi
+    fi
+
+    ln -s "$HYPR_SESSION_SOURCE" "$HYPR_SESSION_TARGET"
+}
+
 systemd_available() {
     command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
 }
@@ -318,6 +364,11 @@ install() {
     echo "PASS  $NOTIFY_TARGET -> $NOTIFY_SOURCE"
 
     echo
+    echo "Installing Hyprland session hook..."
+    install_hypr_session || return 1
+    echo "PASS  $HYPR_SESSION_TARGET -> $HYPR_SESSION_SOURCE"
+
+    echo
     echo "Installing user services..."
     for name in "${UNITS[@]}"; do
         install_unit "$name" || return 1
@@ -327,8 +378,13 @@ install() {
     if systemd_available; then
         systemctl --user daemon-reload
         for name in "${UNITS[@]}"; do
+            if [ "$name" = "maho-hyprland-session.target" ]; then
+                echo "PASS  $name installed for explicit Hyprland-session ownership"
+                continue
+            fi
+
             if [ "$name" = "maho-notify.service" ]; then
-                echo "INFO  $name installed but left disabled and inactive for explicit activation"
+                echo "INFO  $name installed but activation policy was not changed"
                 continue
             fi
 
@@ -379,6 +435,13 @@ status() {
         failed=1
     fi
 
+    if is_managed_hypr_session; then
+        echo "PASS  hypr    $HYPR_SESSION_TARGET"
+    else
+        echo "INFO  hypr    $HYPR_SESSION_TARGET not managed by this checkout"
+        failed=1
+    fi
+
     for name in "${UNITS[@]}"; do
         if is_managed_unit "$name"; then
             printf 'PASS  unit    %s\n' "$name"
@@ -406,7 +469,9 @@ uninstall() {
     echo "Maho OS V1 user uninstall"
     local name target path
     if systemd_available; then
+        systemctl --user stop maho-hyprland-session.target >/dev/null 2>&1 || true
         for name in "${UNITS[@]}"; do
+            [ "$name" = "maho-hyprland-session.target" ] && continue
             systemctl --user disable --now "$name" >/dev/null 2>&1 || true
         done
     fi
@@ -420,6 +485,13 @@ uninstall() {
             echo "KEPT     unmanaged user unit $target"
         fi
     done
+
+    if is_managed_hypr_session; then
+        rm -f "$HYPR_SESSION_TARGET"
+        echo "REMOVED  $HYPR_SESSION_TARGET"
+    elif [ -e "$HYPR_SESSION_TARGET" ] || [ -L "$HYPR_SESSION_TARGET" ]; then
+        echo "KEPT     unmanaged Hyprland session hook $HYPR_SESSION_TARGET"
+    fi
 
     if is_managed_shell; then
         rm -f "$SHELL_TARGET"
@@ -464,19 +536,23 @@ Usage:
   maho-setup status
   maho-setup uninstall
 
-Setup wires the current checkout into the user session. It installs no system
-packages and uses no root access. Existing unmanaged commands, units, and
-Quickshell configuration are preserved rather than overwritten.
+Setup wires the selected Maho runtime into the user session. It installs no
+system packages and uses no root access. Existing unmanaged commands, units,
+Quickshell configuration, and Hyprland session hooks are preserved rather than
+overwritten. The known legacy Maho session hook is migrated in place.
 
 Maho Shell is installed as the Maho desktop surface when Quickshell is
 available. Maho Edge reads Maho's active adaptive palette directly, provides
 contextual workspace/audio/brightness feedback, reserves a small compositor
-breathing gap at its resting edge, and restores Waybar if the shell exits
+breathing gap at its resting edge, and restores Waybar only if the shell exits
 unexpectedly.
 
-Maho Notify is packaged as an independent compact notification surface. Its
-user unit is installed but deliberately left disabled and inactive until the
-user explicitly activates it after notification-owner validation.
+Maho Launcher is the native Quickshell/QML launcher packaged by this runtime.
+The managed command always routes through bin/maho-launcher; preview runtimes
+are not installation targets.
+
+Maho Notify is packaged as an independent compact notification surface. Setup
+does not change its activation policy during migration.
 
 The Maho security service runs the stateful read-only monitor and
 incident-oriented shadow guard; the separate maho-contain command requires a
