@@ -99,7 +99,7 @@ PanelWindow {
         return activeIpc.floating === false
     }
 
-    property var hoverCandidate: null
+    property string hoverCandidateId: ""
     property var previewItem: null
     property bool previewOpen: false
     property real previewProgress: previewOpen ? 1 : 0
@@ -146,23 +146,85 @@ PanelWindow {
         )
     }
 
-    function armPreview(item) {
-        previewDismiss.stop()
+    function currentDockItemById(id) {
+        const wanted = String(id || "")
+        if (wanted.length === 0)
+            return null
+        const rows = dockModel.items || []
+        for (let index = 0; index < rows.length; ++index) {
+            const item = rows[index]
+            if (item && String(item.id || "") === wanted)
+                return item
+        }
+        return null
+    }
 
+    function dockItemUnderPointer() {
+        if (!dockSurfaceHover.hovered || dockRevealProgress <= 0.82)
+            return null
+
+        const point = dockSurfaceHover.point.position
+        const rowPoint = dockShell.mapToItem(dockRow, point.x, point.y)
+        for (let index = 0; index < appRepeater.count; ++index) {
+            const cell = appRepeater.itemAt(index)
+            if (!cell)
+                continue
+            if (rowPoint.x >= cell.x && rowPoint.x <= cell.x + cell.width
+                    && rowPoint.y >= cell.y && rowPoint.y <= cell.y + cell.height)
+                return cell.modelData
+        }
+        return null
+    }
+
+    function syncHoverIntent() {
+        const item = dockItemUnderPointer()
         if (!item || !item.running || !item.windows || item.windows.length === 0) {
-            hoverCandidate = null
+            hoverCandidateId = ""
             hoverIntent.stop()
             return
         }
 
-        hoverCandidate = item
-        if (previewOpen && previewItem && String(previewItem.id) === String(item.id))
+        const id = String(item.id || "")
+        if (id.length === 0)
             return
-        hoverIntent.restart()
+
+        if (previewOpen && previewItem && String(previewItem.id || "") === id) {
+            hoverCandidateId = id
+            return
+        }
+
+        const changed = hoverCandidateId !== id
+        hoverCandidateId = id
+        if (changed || !hoverIntent.running)
+            hoverIntent.restart()
+    }
+
+    function armPreview(item) {
+        previewDismiss.stop()
+
+        if (!item || !item.running || !item.windows || item.windows.length === 0) {
+            hoverCandidateId = ""
+            hoverIntent.stop()
+            return
+        }
+
+        const id = String(item.id || "")
+        if (id.length === 0) {
+            hoverCandidateId = ""
+            hoverIntent.stop()
+            return
+        }
+
+        const changed = hoverCandidateId !== id
+        hoverCandidateId = id
+        if (previewOpen && previewItem && String(previewItem.id || "") === id)
+            return
+        if (changed || !hoverIntent.running)
+            hoverIntent.restart()
     }
 
     function leaveDockItem() {
-        hoverIntent.stop()
+        hoverReconcile.restart()
         if (!root.pointerInsideMaterial)
             previewDismiss.restart()
     }
@@ -224,7 +286,22 @@ PanelWindow {
         id: hoverIntent
         interval: 620
         repeat: false
-        onTriggered: root.openPreview(root.hoverCandidate)
+        onTriggered: root.openPreview(root.currentDockItemById(root.hoverCandidateId))
+    }
+
+    Timer {
+        id: hoverWatchdog
+        interval: 90
+        repeat: true
+        running: dockSurfaceHover.hovered && root.dockRevealProgress > 0.82 && !previewHover.hovered
+        onTriggered: root.syncHoverIntent()
+    }
+
+    Timer {
+        id: hoverReconcile
+        interval: 70
+        repeat: false
+        onTriggered: root.syncHoverIntent()
     }
 
     Timer {
@@ -684,6 +761,7 @@ PanelWindow {
             y: (parent.height - height) / 2 + 3 * (1 - root.dockRevealProgress)
 
             Repeater {
+                id: appRepeater
                 model: root.dockModel.items
 
                 delegate: Item {
@@ -843,7 +921,10 @@ PanelWindow {
             onHoveredChanged: {
                 if (hovered) {
                     previewDismiss.stop()
+                    hoverReconcile.restart()
                 } else {
+                    root.hoverCandidateId = ""
+                    hoverIntent.stop()
                     root.hideHoverLensSoon()
                     if (!previewHover.hovered)
                         previewDismiss.restart()
