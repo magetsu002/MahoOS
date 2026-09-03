@@ -11,16 +11,17 @@ Item {
     height: 58
 
     Rectangle {
+        id: rowHoverPlane
         anchors.fill: parent
         anchors.margins: 3
         radius: 15
         antialiasing: true
-        color: hover.pressed
-            ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
-            : hover.containsMouse
-                ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
-                : "transparent"
-        Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+        color: chrome.theme.alpha(chrome.theme.foreground, 0.030)
+        opacity: hover.containsMouse ? 1 : 0
+
+        Behavior on opacity {
+            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+        }
     }
 
     Rectangle {
@@ -32,15 +33,12 @@ Item {
         height: 32
         radius: 12
         antialiasing: true
-        scale: hover.containsMouse ? 1.018 : 1
         color: chrome.theme.alpha(
             chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.44),
             0.40
         )
         border.width: 1
         border.color: chrome.theme.alpha(chrome.theme.foreground, 0.040)
-
-        Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.fill: parent
@@ -57,13 +55,7 @@ Item {
             anchors.centerIn: parent
             width: 18
             height: 18
-            glyphColor: hover.containsMouse
-                ? chrome.theme.alpha(chrome.accent, 0.84)
-                : chrome.theme.alpha(chrome.textSecondary, 0.78)
-
-            Behavior on glyphColor {
-                ColorAnimation { duration: 125; easing.type: Easing.OutCubic }
-            }
+            glyphColor: chrome.theme.alpha(chrome.textSecondary, 0.78)
         }
     }
 
@@ -126,16 +118,13 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: -1
             text: "›"
-            color: hover.containsMouse
-                ? chrome.theme.alpha(chrome.textPrimary, 0.76)
-                : chrome.theme.alpha(chrome.textSecondary, 0.56)
+            color: chrome.theme.alpha(chrome.textSecondary, 0.60)
             font.family: "Inter"
             font.pixelSize: 20
             font.weight: Font.Light
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             renderType: Text.NativeRendering
-            Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
         }
     }
 
