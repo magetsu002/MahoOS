@@ -8,202 +8,325 @@ trap 'rm -rf "$TMP"' EXIT
 
 export HOME="$TMP/home"
 export XDG_CONFIG_HOME="$TMP/config"
+export XDG_DATA_HOME="$TMP/data"
 export XDG_STATE_HOME="$TMP/state"
 export XDG_CACHE_HOME="$TMP/cache"
 export PATH="$TMP/fake-bin:/usr/bin:/bin"
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$TMP/fake-bin"
+
+mkdir -p \
+    "$HOME/.local/bin" \
+    "$XDG_CONFIG_HOME" \
+    "$XDG_DATA_HOME" \
+    "$XDG_STATE_HOME" \
+    "$XDG_CACHE_HOME" \
+    "$TMP/fake-bin"
 
 SYSTEMCTL_LOG="$TMP/systemctl.log"
 export MAHO_TEST_SYSTEMCTL_LOG="$SYSTEMCTL_LOG"
-cat > "$TMP/fake-bin/systemctl" <<'EOF_SYSTEMCTL'
+
+cat >"$TMP/fake-bin/systemctl" <<'EOF_SYSTEMCTL'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >> "$MAHO_TEST_SYSTEMCTL_LOG"
+printf '%s\n' "$*" >>"$MAHO_TEST_SYSTEMCTL_LOG"
+
 case "$*" in
-    '--user show-environment') exit 0 ;;
-    '--user is-active --quiet maho-wallpaper.service') exit 0 ;;
-    '--user is-active --quiet maho-observe.service') exit 0 ;;
-    '--user is-active --quiet maho-security.service') exit 0 ;;
-    '--user is-active --quiet maho-shell.service') exit 0 ;;
-    '--user is-active --quiet maho-notify.service') exit 1 ;;
-    '--user is-active --quiet maho-hyprland-session.target') exit 0 ;;
-    *) exit 0 ;;
+    '--user show-environment')
+        exit 0
+        ;;
+    '--user daemon-reload')
+        [ "${MAHO_TEST_FAIL_DAEMON_RELOAD:-0}" = 1 ] && exit 1
+        exit 0
+        ;;
+    '--user is-active --quiet graphical-session.target'|\
+    '--user is-active --quiet maho-observe.service'|\
+    '--user is-active --quiet maho-security.service'|\
+    '--user is-active --quiet maho-awww-daemon.service'|\
+    '--user is-active --quiet maho-wallpaper.service'|\
+    '--user is-active --quiet maho-shell.service'|\
+    '--user is-active --quiet maho-notify.service')
+        exit 0
+        ;;
+    *)
+        exit 0
+        ;;
 esac
 EOF_SYSTEMCTL
 chmod +x "$TMP/fake-bin/systemctl"
 
-cat > "$TMP/fake-bin/quickshell" <<'EOF_QUICKSHELL'
+cat >"$TMP/fake-bin/quickshell" <<'EOF_QUICKSHELL'
 #!/usr/bin/env bash
 exit 0
 EOF_QUICKSHELL
 chmod +x "$TMP/fake-bin/quickshell"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
 
-COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-launcher maho-session maho-setup)
-UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service maho-notify.service maho-hyprland-session.target)
+COMMANDS=(
+    mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
+    maho-adapt maho-provenance maho-security maho-security-monitor maho-guard
+    maho-contain maho-shell maho-notify maho-link maho-launcher maho-session
+    maho-setup
+)
 
-echo "=== preflight ==="
-bash "$ROOT/bin/maho-setup" preflight >/dev/null
-echo "PASS"
+CORE_UNITS=(maho-observe.service maho-security.service)
+SESSION_UNITS=(
+    maho-awww-daemon.service
+    maho-wallpaper.service
+    maho-shell.service
+    maho-notify.service
+)
+UNITS=("${CORE_UNITS[@]}" "${SESSION_UNITS[@]}" maho-hyprland-session.target)
 
-echo "=== legacy Hyprland session migration ==="
-HYPR_SESSION_TARGET="$XDG_CONFIG_HOME/hypr/maho/core/session.lua"
-mkdir -p "$(dirname "$HYPR_SESSION_TARGET")"
-cat > "$HYPR_SESSION_TARGET" <<'EOF_LEGACY_SESSION'
+RUNTIME_ROOT="$XDG_DATA_HOME/maho/runtime"
+RELEASES="$RUNTIME_ROOT/releases"
+CURRENT="$RUNTIME_ROOT/current"
+PREVIOUS="$RUNTIME_ROOT/previous"
+OLD_RELEASE="$RELEASES/known-good-live"
+UNIT_DIR="$XDG_CONFIG_HOME/systemd/user"
+HYPR_SESSION="$XDG_CONFIG_HOME/hypr/maho/core/session.lua"
+SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
+NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
+
+mkdir -p \
+    "$OLD_RELEASE/bin" \
+    "$OLD_RELEASE/config/quickshell/maho-shell" \
+    "$OLD_RELEASE/config/hypr/maho/core" \
+    "$OLD_RELEASE/systemd/user" \
+    "$UNIT_DIR/default.target.wants" \
+    "$UNIT_DIR/graphical-session.target.wants" \
+    "$(dirname "$HYPR_SESSION")"
+
+ln -s "$OLD_RELEASE" "$CURRENT"
+
+write_live_v2_wrapper() {
+    local name="$1"
+    cat >"$HOME/.local/bin/$name" <<EOF_WRAPPER
+#!/usr/bin/env bash
+# managed-by: maho-setup v2
+MAHO_ROOT="\${XDG_DATA_HOME:-\$HOME/.local/share}/maho/runtime/current"
+export MAHO_ROOT
+exec bash "\$MAHO_ROOT/bin/$name" "\$@"
+EOF_WRAPPER
+    chmod +x "$HOME/.local/bin/$name"
+}
+
+for name in "${COMMANDS[@]}"; do
+    [ "$name" = "maho-launcher" ] && continue
+    write_live_v2_wrapper "$name"
+done
+
+cat >"$HOME/.local/bin/maho-launcher" <<'EOF_PREVIEW'
+#!/usr/bin/env bash
+RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-launcher-preview"
+exec bash "$RUNTIME/bin/maho-launcher" "$@"
+EOF_PREVIEW
+chmod +x "$HOME/.local/bin/maho-launcher"
+
+for unit in "${UNITS[@]}"; do
+    ln -s "$CURRENT/systemd/user/$unit" "$UNIT_DIR/$unit"
+done
+
+ln -s "$CURRENT/config/quickshell/maho-shell" "$SHELL_TARGET"
+
+mkdir -p "$NOTIFY_TARGET"
+printf '%s\n' 'live-notify-owner' >"$NOTIFY_TARGET/owner.txt"
+printf '%s\n' '// live notification config stays untouched in M0.1' >"$NOTIFY_TARGET/shell.qml"
+
+cat >"$HYPR_SESSION" <<'EOF_LEGACY_SESSION'
 -- Own graphical Maho services only while this Hyprland session is alive.
+
 hl.on("hyprland.start", function()
     hl.exec_cmd([["$HOME/.local/bin/maho-session" start]])
     hl.exec_cmd("waybar")
 end)
+
 hl.on("hyprland.shutdown", function()
     hl.exec_cmd([["$HOME/.local/bin/maho-session" stop]])
 end)
 EOF_LEGACY_SESSION
 
-echo "=== install ==="
-bash "$ROOT/bin/maho-setup" install >/dev/null
-for name in "${COMMANDS[@]}"; do
-    path="$HOME/.local/bin/$name"
-    [ -x "$path" ] || fail "launcher not executable: $name"
-    grep -Fq '# managed-by: maho-setup v1' "$path" || fail "launcher missing ownership marker: $name"
+for unit in "${CORE_UNITS[@]}"; do
+    ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/default.target.wants/$unit"
 done
 
-LAUNCHER="$HOME/.local/bin/maho-launcher"
-grep -Fq 'bin/maho-launcher' "$LAUNCHER" || fail "managed launcher does not route to the native launcher wrapper"
-if grep -Fq 'maho-launcher-preview' "$LAUNCHER"; then
-    fail "managed launcher still routes to maho-launcher-preview"
+for unit in "${SESSION_UNITS[@]}"; do
+    ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/graphical-session.target.wants/$unit"
+done
+
+describe_path() {
+    local path="$1"
+
+    if [ -L "$path" ]; then
+        printf 'L\t%s\t%s\n' "$path" "$(readlink "$path")"
+    elif [ -f "$path" ]; then
+        printf 'F\t%s\t%s\n' "$path" "$(sha256sum "$path" | awk '{print $1}')"
+    elif [ -d "$path" ]; then
+        printf 'D\t%s\t%s\n' "$path" "$(
+            find "$path" -type f -print0 2>/dev/null |
+                sort -z |
+                xargs -0 -r sha256sum |
+                sha256sum |
+                awk '{print $1}'
+        )"
+    else
+        printf 'M\t%s\n' "$path"
+    fi
+}
+
+capture_live_state() {
+    local out="$1" name unit
+    : >"$out"
+
+    describe_path "$CURRENT" >>"$out"
+    describe_path "$PREVIOUS" >>"$out"
+
+    for name in "${COMMANDS[@]}"; do
+        describe_path "$HOME/.local/bin/$name" >>"$out"
+    done
+
+    describe_path "$SHELL_TARGET" >>"$out"
+    describe_path "$NOTIFY_TARGET" >>"$out"
+    describe_path "$HYPR_SESSION" >>"$out"
+
+    for unit in "${UNITS[@]}"; do
+        describe_path "$UNIT_DIR/$unit" >>"$out"
+    done
+
+    for unit in "${CORE_UNITS[@]}" "${SESSION_UNITS[@]}"; do
+        describe_path "$UNIT_DIR/default.target.wants/$unit" >>"$out"
+        describe_path "$UNIT_DIR/graphical-session.target.wants/$unit" >>"$out"
+    done
+}
+
+echo "=== preflight ==="
+bash "$ROOT/bin/maho-setup" preflight >/dev/null
+echo "PASS"
+
+echo "=== validation failure is non-mutating ==="
+cp "$HOME/.local/bin/maho-security" "$TMP/maho-security.v2"
+printf '%s\n' '#!/usr/bin/env bash' 'echo external-security-owner' >"$HOME/.local/bin/maho-security"
+chmod +x "$HOME/.local/bin/maho-security"
+
+capture_live_state "$TMP/before-validation-failure"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "installer accepted an unmanaged command"
 fi
-if grep -Fq 'maho-launcher-preview' "$ROOT/bin/maho-launcher"; then
-    fail "canonical launcher wrapper references maho-launcher-preview"
+capture_live_state "$TMP/after-validation-failure"
+
+cmp -s "$TMP/before-validation-failure" "$TMP/after-validation-failure" ||
+    fail "validation failure mutated live wiring"
+
+cp "$TMP/maho-security.v2" "$HOME/.local/bin/maho-security"
+chmod +x "$HOME/.local/bin/maho-security"
+echo "PASS"
+
+echo "=== post-switch failure rolls back exact live wiring ==="
+capture_live_state "$TMP/before-post-switch-failure"
+
+export MAHO_TEST_FAIL_DAEMON_RELOAD=1
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
+    fail "simulated daemon-reload failure unexpectedly succeeded"
+fi
+unset MAHO_TEST_FAIL_DAEMON_RELOAD
+
+capture_live_state "$TMP/after-post-switch-failure"
+cmp -s "$TMP/before-post-switch-failure" "$TMP/after-post-switch-failure" ||
+    fail "post-switch failure did not restore exact pre-install wiring"
+echo "PASS"
+
+echo "=== successful durable install ==="
+bash "$ROOT/bin/maho-setup" install >/dev/null
+
+NEW_RELEASE="$(readlink -f "$CURRENT")"
+[ -n "$NEW_RELEASE" ] || fail "runtime/current did not resolve"
+[ "$NEW_RELEASE" != "$OLD_RELEASE" ] || fail "runtime/current did not switch"
+[ -f "$NEW_RELEASE/manifest.json" ] || fail "immutable release manifest missing"
+[ "$(readlink -f "$PREVIOUS")" = "$OLD_RELEASE" ] ||
+    fail "previous runtime was not retained"
+
+for name in "${COMMANDS[@]}"; do
+    path="$HOME/.local/bin/$name"
+    [ -x "$path" ] || fail "managed command missing: $name"
+    grep -Fq '# managed-by: maho-setup v2' "$path" ||
+        fail "managed command lost v2 ownership marker: $name"
+    grep -Fq 'maho/runtime/current' "$path" ||
+        fail "managed command does not route through runtime/current: $name"
+done
+
+grep -Fq 'bin/maho-launcher' "$HOME/.local/bin/maho-launcher" ||
+    fail "launcher wrapper does not route to native launcher"
+if grep -Fq 'maho-launcher-preview' "$HOME/.local/bin/maho-launcher"; then
+    fail "launcher wrapper still references preview runtime"
+fi
+if grep -Fq 'maho-launcher-preview' "$NEW_RELEASE/bin/maho-launcher"; then
+    fail "canonical native launcher references preview runtime"
 fi
 
-SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
-[ -L "$SHELL_TARGET" ] || fail "Maho Shell configuration is not a symlink"
-[ "$(readlink -f "$SHELL_TARGET")" = "$ROOT/config/quickshell/maho-shell" ] || fail "Maho Shell targets wrong runtime"
-[ -r "$SHELL_TARGET/shell.qml" ] || fail "Maho Shell entrypoint missing after install"
+raw="$(readlink "$SHELL_TARGET")"
+[ "$raw" = "$CURRENT/config/quickshell/maho-shell" ] ||
+    fail "Maho Shell does not route through runtime/current"
 
-NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
-[ -L "$NOTIFY_TARGET" ] || fail "Maho Notify configuration is not a symlink"
-[ "$(readlink -f "$NOTIFY_TARGET")" = "$ROOT/config/quickshell/maho-notify" ] || fail "Maho Notify targets wrong runtime"
-[ -r "$NOTIFY_TARGET/shell.qml" ] || fail "Maho Notify entrypoint missing after install"
+[ -d "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] ||
+    fail "live-owned Maho Notify directory was replaced"
+grep -Fq 'live-notify-owner' "$NOTIFY_TARGET/owner.txt" ||
+    fail "live-owned Maho Notify directory was modified"
 
-[ -L "$HYPR_SESSION_TARGET" ] || fail "Maho Hyprland session hook is not managed after migration"
-[ "$(readlink -f "$HYPR_SESSION_TARGET")" = "$ROOT/config/hypr/maho/core/session.lua" ] || fail "Maho Hyprland session hook targets wrong runtime"
-if grep -Fq 'waybar' "$HYPR_SESSION_TARGET"; then
-    fail "migrated normal startup hook still invokes Waybar"
+[ -L "$HYPR_SESSION" ] ||
+    fail "legacy Hyprland session hook was not migrated"
+[ "$(readlink "$HYPR_SESSION")" = "$CURRENT/config/hypr/maho/core/session.lua" ] ||
+    fail "Hyprland session hook does not route through runtime/current"
+if grep -Fq 'waybar' "$HYPR_SESSION"; then
+    fail "normal Hyprland startup still invokes Waybar"
 fi
 
 for unit in "${UNITS[@]}"; do
-    target="$XDG_CONFIG_HOME/systemd/user/$unit"
-    [ -L "$target" ] || fail "user unit is not a symlink: $unit"
-    [ "$(readlink -f "$target")" = "$ROOT/systemd/user/$unit" ] || fail "user unit targets wrong runtime: $unit"
-    if [ "$unit" = "maho-notify.service" ]; then
-        if grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG"; then
-            fail "Maho Notify activation policy changed during setup"
-        fi
-    elif [ "$unit" = "maho-hyprland-session.target" ]; then
-        if grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG"; then
-            fail "Hyprland session target was globally enabled instead of session-owned"
-        fi
-    else
-        grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not enabled: $unit"
-    fi
+    target="$UNIT_DIR/$unit"
+    [ -L "$target" ] || fail "unit is not runtime-managed: $unit"
+    [ "$(readlink "$target")" = "$CURRENT/systemd/user/$unit" ] ||
+        fail "unit does not route through runtime/current: $unit"
 done
 
-grep -q 'maho-security-monitor watch' "$ROOT/systemd/user/maho-security.service" || fail "security service does not use stateful monitor"
-grep -q 'maho-shell run' "$ROOT/systemd/user/maho-shell.service" || fail "shell service does not use managed runtime"
-grep -q 'maho-notify run' "$ROOT/systemd/user/maho-notify.service" || fail "notify service does not use managed runtime"
-"$HOME/.local/bin/maho-adapt" validate-registry | grep -q '^PASS$'
-"$HOME/.local/bin/maho-guard" doctor | grep -q 'automatic system mutation: none'
-echo "PASS"
+for unit in "${CORE_UNITS[@]}"; do
+    [ -L "$UNIT_DIR/default.target.wants/$unit" ] ||
+        fail "core unit not owned by default.target: $unit"
+    [ ! -e "$UNIT_DIR/graphical-session.target.wants/$unit" ] &&
+        [ ! -L "$UNIT_DIR/graphical-session.target.wants/$unit" ] ||
+        fail "core unit incorrectly owned by graphical-session.target: $unit"
+done
 
-echo "=== status ==="
+for unit in "${SESSION_UNITS[@]}"; do
+    [ -L "$UNIT_DIR/graphical-session.target.wants/$unit" ] ||
+        fail "graphical unit not owned by graphical-session.target: $unit"
+    [ ! -e "$UNIT_DIR/default.target.wants/$unit" ] &&
+        [ ! -L "$UNIT_DIR/default.target.wants/$unit" ] ||
+        fail "graphical unit regressed to default.target: $unit"
+done
+
+if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG"; then
+    fail "durable install restarted live services"
+fi
+
 "$HOME/.local/bin/maho-setup" status >/dev/null
 echo "PASS"
 
-echo "=== unmanaged command protected ==="
-printf '%s\n' '#!/usr/bin/env bash' 'echo external' > "$HOME/.local/bin/maho-security"
-chmod +x "$HOME/.local/bin/maho-security"
+echo "=== unrelated Hyprland hook remains protected ==="
+rm -f "$HYPR_SESSION"
+printf '%s\n' '-- external Hyprland owner' >"$HYPR_SESSION"
+capture_live_state "$TMP/before-unrelated-hypr"
 if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote an unmanaged command"
+    fail "installer overwrote an unrelated Hyprland session hook"
 fi
-grep -q '^echo external$' "$HOME/.local/bin/maho-security" || fail "unmanaged command was modified"
-rm -f "$HOME/.local/bin/maho-security"
-bash "$ROOT/bin/maho-setup" install >/dev/null
+capture_live_state "$TMP/after-unrelated-hypr"
+cmp -s "$TMP/before-unrelated-hypr" "$TMP/after-unrelated-hypr" ||
+    fail "failed Hyprland validation mutated live wiring"
+grep -Fq -- '-- external Hyprland owner' "$HYPR_SESSION" ||
+    fail "unrelated Hyprland hook content changed"
 echo "PASS"
 
-echo "=== unmanaged unit protected ==="
-TARGET="$XDG_CONFIG_HOME/systemd/user/maho-observe.service"
-rm -f "$TARGET"
-printf '%s\n' '[Unit]' 'Description=External observer' > "$TARGET"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote an unmanaged user unit"
-fi
-grep -q 'External observer' "$TARGET" || fail "unmanaged unit was modified"
-rm -f "$TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-echo "PASS"
-
-echo "=== unmanaged Hyprland hook protected ==="
-rm -f "$HYPR_SESSION_TARGET"
-printf '%s\n' '-- external Hyprland owner' > "$HYPR_SESSION_TARGET"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote an unrelated Hyprland session hook"
-fi
-grep -q '^-- external Hyprland owner$' "$HYPR_SESSION_TARGET" || fail "unmanaged Hyprland session hook was modified"
-rm -f "$HYPR_SESSION_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$HYPR_SESSION_TARGET" ] || fail "managed Hyprland session hook was not restored"
-echo "PASS"
-
-echo "=== unmanaged shell protected ==="
-rm -f "$SHELL_TARGET"
-mkdir -p "$SHELL_TARGET"
-printf '%s\n' 'external-shell' > "$SHELL_TARGET/owner.txt"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote unmanaged Quickshell configuration"
-fi
-grep -q '^external-shell$' "$SHELL_TARGET/owner.txt" || fail "unmanaged Quickshell configuration was modified"
-rm -rf "$SHELL_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$SHELL_TARGET" ] || fail "managed shell was not restored after unmanaged protection test"
-echo "PASS"
-
-echo "=== unmanaged notify protected ==="
-rm -f "$NOTIFY_TARGET"
-mkdir -p "$NOTIFY_TARGET"
-printf '%s\n' 'external-notify' > "$NOTIFY_TARGET/owner.txt"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote unmanaged Maho Notify configuration"
-fi
-grep -q '^external-notify$' "$NOTIFY_TARGET/owner.txt" || fail "unmanaged Maho Notify configuration was modified"
-rm -rf "$NOTIFY_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify was not restored after unmanaged protection test"
-echo "PASS"
-
-echo "=== uninstall ==="
-"$HOME/.local/bin/maho-setup" uninstall >/dev/null
-for name in "${COMMANDS[@]}"; do
-    [ ! -e "$HOME/.local/bin/$name" ] || fail "managed launcher survived uninstall: $name"
-done
-for unit in "${UNITS[@]}"; do
-    [ ! -e "$XDG_CONFIG_HOME/systemd/user/$unit" ] || fail "managed unit survived uninstall: $unit"
-    if [ "$unit" != "maho-hyprland-session.target" ]; then
-        grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not disabled: $unit"
-    fi
-done
-[ ! -e "$HYPR_SESSION_TARGET" ] && [ ! -L "$HYPR_SESSION_TARGET" ] || fail "managed Hyprland session hook survived uninstall"
-[ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail "managed shell configuration survived uninstall"
-[ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify configuration survived uninstall"
-echo "PASS"
-
-echo "=== Maho Notify packaging contracts ==="
-bash "$ROOT/tests/notify-contracts.sh" >/dev/null
-echo "PASS"
-
-echo "=== graphical session contracts ==="
+echo "=== session contracts ==="
 bash "$ROOT/tests/session-contracts.sh" >/dev/null
 echo "PASS"
 
-echo "ALL V1 SETUP CONTRACTS PASS"
+echo "ALL DURABLE SETUP CONTRACTS PASS"
