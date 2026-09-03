@@ -14,8 +14,6 @@ Item {
     readonly property bool hasQuality:
         device && String(device.quality || "") !== ""
 
-    // Match the main Bluetooth surface exactly: neutral frosted material first,
-    // wallpaper accent only as a restrained state cue.
     readonly property color glassLow: chrome.theme.alpha(
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64),
         0.42
@@ -335,13 +333,21 @@ Item {
                         radius: 15
                         antialiasing: true
                         scale: connectHover.pressed ? 0.996 : 1
-                        color: connectHover.pressed
-                            ? chrome.theme.alpha(chrome.theme.foreground, 0.052)
-                            : connectHover.containsMouse
-                                ? chrome.theme.alpha(chrome.theme.foreground, 0.028)
-                                : "transparent"
-                        Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                        color: "transparent"
                         Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
+
+                        Rectangle {
+                            id: connectHoverPlane
+                            anchors.fill: parent
+                            radius: parent.radius
+                            antialiasing: true
+                            color: chrome.theme.alpha(chrome.theme.foreground, 0.032)
+                            opacity: connectHover.containsMouse ? 1 : 0
+
+                            Behavior on opacity {
+                                NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -412,13 +418,21 @@ Item {
                         radius: 15
                         antialiasing: true
                         scale: forgetHover.pressed ? 0.996 : 1
-                        color: forgetHover.pressed
-                            ? chrome.theme.alpha(chrome.theme.error, 0.075)
-                            : forgetHover.containsMouse
-                                ? chrome.theme.alpha(chrome.theme.error, 0.050)
-                                : "transparent"
-                        Behavior on color { ColorAnimation { duration: 125; easing.type: Easing.OutCubic } }
+                        color: "transparent"
                         Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
+
+                        Rectangle {
+                            id: forgetHoverPlane
+                            anchors.fill: parent
+                            radius: parent.radius
+                            antialiasing: true
+                            color: chrome.theme.alpha(chrome.theme.error, 0.055)
+                            opacity: forgetHover.containsMouse ? 1 : 0
+
+                            Behavior on opacity {
+                                NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
+                            }
+                        }
                     }
 
                     Rectangle {
