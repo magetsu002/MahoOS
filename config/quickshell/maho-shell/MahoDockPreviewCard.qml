@@ -13,11 +13,16 @@ Item {
     property string appIconPath: ""
     property bool active: false
     property bool hovered: hoverHandler.hovered
+    property real cardWidth: 198
+    property real cardHeight: 138
 
     signal activated(var windowData)
 
-    width: 198
-    height: 132
+    width: cardWidth
+    height: cardHeight
+
+    readonly property bool windowFocused:
+        root.windowData ? Boolean(root.windowData.activated) : false
 
     readonly property var captureHandle: {
         if (!root.windowData || !root.windowData.toplevel)
@@ -29,16 +34,17 @@ Item {
     Rectangle {
         id: frame
         anchors.fill: parent
-        radius: 16
+        radius: Math.min(20, Math.max(14, root.height * 0.10))
         antialiasing: true
         color: root.theme.alpha(
-            root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticBackground, 0.56),
-            root.hovered ? 0.64 : 0.52
+            root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticBackground, 0.48),
+            root.hovered ? 0.58 : 0.48
         )
         border.width: 1
         border.color: root.theme.alpha(
-            root.hovered ? root.accent : root.theme.semanticForeground,
-            root.hovered ? 0.25 : 0.12
+            root.windowFocused ? root.accent
+                : (root.hovered ? root.theme.semanticForeground : root.theme.semanticForeground),
+            root.windowFocused ? 0.42 : (root.hovered ? 0.20 : 0.11)
         )
         clip: true
 
@@ -52,115 +58,145 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: frame.radius
-            color: root.theme.alpha(root.theme.semanticShadow, 0.20)
+            color: root.theme.alpha(root.theme.semanticShadow, 0.16)
         }
 
-        ScreencopyView {
-            id: capture
-            anchors.fill: parent
-            anchors.margins: 1
-            captureSource: root.captureHandle
-            live: root.active && captureSource !== null
-            paintCursor: false
-            constraintSize: Qt.size(width, height)
-            opacity: hasContent ? 1 : 0
+        Rectangle {
+            id: previewViewport
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: titleRail.top
+            anchors.margins: 4
+            anchors.bottomMargin: 3
+            radius: Math.max(10, frame.radius - 5)
+            color: root.theme.alpha(root.theme.semanticShadow, 0.24)
+            clip: true
 
-            Behavior on opacity {
-                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+            ScreencopyView {
+                id: capture
+                anchors.fill: parent
+                captureSource: root.captureHandle
+                live: root.active && captureSource !== null
+                paintCursor: false
+                constraintSize: Qt.size(width, height)
+                opacity: hasContent ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                }
             }
-        }
 
-        // Capture protocols are compositor/runtime capabilities. Never present
-        // an empty black rectangle as though a live preview succeeded.
-        Item {
-            anchors.fill: parent
-            visible: !capture.hasContent
-            opacity: capture.hasContent ? 0 : 1
+            Item {
+                anchors.fill: parent
+                visible: !capture.hasContent
+                opacity: capture.hasContent ? 0 : 1
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: previewViewport.radius
+                    color: root.theme.alpha(
+                        root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticShadow, 0.36),
+                        0.78
+                    )
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: previewViewport.radius
+                    color: "transparent"
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0.0
+                            color: root.theme.alpha(root.theme.semanticForeground, 0.060)
+                        }
+                        GradientStop { position: 0.45; color: "transparent" }
+                        GradientStop {
+                            position: 1.0
+                            color: root.theme.alpha(root.theme.semanticShadow, 0.18)
+                        }
+                    }
+                }
+
+                MahoDockAppIcon {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: -8
+                    width: Math.min(52, Math.max(38, root.height * 0.25))
+                    height: width
+                    name: root.appName
+                    entryId: root.appEntryId
+                    icon: root.appIcon
+                    iconPath: root.appIconPath
+                    opacity: 0.92
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    text: "Preview unavailable"
+                    color: root.theme.semanticForegroundMuted
+                    opacity: 0.60
+                    font.pixelSize: 9
+                    font.weight: Font.Medium
+                }
+            }
 
             Rectangle {
                 anchors.fill: parent
-                radius: frame.radius
-                color: root.theme.alpha(
-                    root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticShadow, 0.42),
-                    0.78
-                )
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                radius: frame.radius
+                radius: previewViewport.radius
                 color: "transparent"
                 gradient: Gradient {
                     GradientStop {
                         position: 0.0
-                        color: root.theme.alpha(root.theme.semanticForeground, 0.055)
+                        color: root.theme.alpha(root.theme.semanticForeground, 0.045)
                     }
-                    GradientStop { position: 0.45; color: "transparent" }
+                    GradientStop { position: 0.28; color: "transparent" }
                     GradientStop {
                         position: 1.0
-                        color: root.theme.alpha(root.theme.semanticShadow, 0.18)
+                        color: root.theme.alpha(root.theme.semanticShadow, 0.085)
                     }
                 }
             }
 
-            MahoDockAppIcon {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: -9
-                width: 42
-                height: 42
-                name: root.appName
-                entryId: root.appEntryId
-                icon: root.appIcon
-                iconPath: root.appIconPath
-                opacity: 0.92
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 38
-                text: "Preview unavailable"
-                color: root.theme.semanticForegroundMuted
-                opacity: 0.62
-                font.pixelSize: 9
-                font.weight: Font.Medium
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                height: 1
+                color: root.theme.alpha(root.theme.semanticForeground, 0.13)
             }
         }
 
         Rectangle {
-            anchors.fill: parent
-            radius: frame.radius
-            color: "transparent"
-            gradient: Gradient {
-                GradientStop {
-                    position: 0.0
-                    color: root.theme.alpha(root.theme.semanticForeground, 0.050)
-                }
-                GradientStop { position: 0.30; color: "transparent" }
-                GradientStop {
-                    position: 1.0
-                    color: root.theme.alpha(root.theme.semanticShadow, 0.15)
-                }
-            }
-        }
-
-        Rectangle {
+            id: titleRail
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 34
-            color: root.theme.alpha(root.theme.semanticShadow, capture.hasContent ? 0.50 : 0.34)
+            anchors.leftMargin: 4
+            anchors.rightMargin: 4
+            anchors.bottomMargin: 4
+            height: Math.min(36, Math.max(30, root.height * 0.19))
+            radius: Math.max(9, frame.radius - 6)
+            color: root.theme.alpha(
+                root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticShadow, 0.34),
+                capture.hasContent ? 0.76 : 0.62
+            )
+            border.width: 1
+            border.color: root.theme.alpha(root.theme.semanticForeground, 0.050)
 
             Text {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: 10
-                anchors.rightMargin: 10
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
                 text: root.windowData ? String(root.windowData.title || "Window") : "Window"
                 color: root.theme.semanticForeground
-                font.pixelSize: 11
+                font.pixelSize: root.width > 300 ? 11 : 10
                 font.weight: Font.Medium
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter
@@ -168,13 +204,13 @@ Item {
         }
 
         Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            height: 1
-            color: root.theme.alpha(root.theme.semanticForeground, 0.15)
+            visible: root.windowFocused
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            width: Math.min(38, parent.width * 0.18)
+            height: 2
+            radius: 1
+            color: root.theme.alpha(root.accent, 0.88)
         }
     }
 
@@ -188,8 +224,8 @@ Item {
         onTapped: root.activated(root.windowData)
     }
 
-    scale: root.hovered ? 1.012 : 1
-    y: root.hovered ? -2 : 0
+    scale: root.hovered ? 1.006 : 1
+    y: root.hovered ? -1 : 0
 
     Behavior on scale {
         NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
