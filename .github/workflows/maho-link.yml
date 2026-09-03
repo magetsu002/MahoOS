@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'feat/**'
+      - 'fix/**'
   pull_request:
 
 permissions:
@@ -21,7 +22,8 @@ jobs:
           bash -n \
             bin/maho-link \
             tests/maho-link-contracts.sh \
-            tests/maho-link-drag-startup-contracts.sh
+            tests/maho-link-drag-startup-contracts.sh \
+            tests/maho-link-bluetooth-session-contracts.sh
 
       - name: Python syntax
         run: |
@@ -39,3 +41,8 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/maho-link-drag-startup-contracts.sh
+
+      - name: Bluetooth discovery-session contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-link-bluetooth-session-contracts.sh
