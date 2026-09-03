@@ -36,7 +36,8 @@ reject_text "$DOCK" 'left: true' "Dock unexpectedly spans the left edge"
 reject_text "$DOCK" 'right: true' "Dock unexpectedly spans the right edge"
 require_text "$DOCK" 'bottom: 2' "Dock optical bottom margin drifted away from the screen edge"
 require_text "$DOCK" 'implicitWidth: 720' "Dock no longer uses the stable preview carrier"
-require_text "$DOCK" 'implicitHeight: 326' "Dock no longer uses the stable preview carrier"
+require_text "$DOCK" 'implicitHeight: 438' "Dock carrier no longer has room for the adaptive preview stage"
+require_text "$DOCK" 'previewHeight: 324' "Dock preview stage regressed to the cramped layout"
 require_text "$DOCK" 'restingDockWidth: Math.max(320, dockRow.implicitWidth + 46)' "resting Dock is not icon-count driven"
 require_text "$DOCK" 'item: root.previewOpen || root.previewProgress > 0.02 ? materialBounds : dockShell' "Dock input is not bounded to visible material state"
 require_text "$DOCK" 'exclusionMode: ExclusionMode.Ignore' "Dock reserves compositor space"
@@ -69,14 +70,23 @@ reject_text "$DOCK" 'property bool dockHovering' "stale dockHovering bookkeeping
 reject_text "$DOCK" 'SpringAnimation' "Dock reintroduced bouncy motion"
 echo PASS
 
-echo "=== native window preview population ==="
+echo "=== native adaptive window preview ==="
 require_text "$PREVIEW" 'ScreencopyView {' "Dock preview does not use native screencopy"
 require_text "$PREVIEW" 'top.handle || top.wayland || null' "Dock preview does not prefer an exported toplevel handle"
 require_text "$PREVIEW" 'visible: !capture.hasContent' "Dock preview has no capture readiness fallback"
 require_text "$PREVIEW" 'Preview unavailable' "capture failure still renders as unexplained blank content"
 require_text "$DOCK" 'if (!previewItem || !previewItem.windows)' "Dock preview still relies on brittle Array.isArray gating"
 require_text "$DOCK" 'windows.slice(0, 3)' "Dock preview does not bound selected app windows"
-require_text "$DOCK" 'MahoDockPreviewCard {' "Dock does not render window cards"
+require_text "$DOCK" 'previewTargetWidth' "preview shell does not adapt to window count"
+require_text "$DOCK" 'previewCardWidth' "window cards do not adapt to group size"
+require_text "$DOCK" 'previewCardHeight' "window cards do not adapt to group size"
+require_text "$DOCK" 'id: previewStage' "preview cards have no dedicated collision-free stage"
+require_text "$DOCK" 'anchors.bottom: previewActions.top' "preview stage can collide with the footer"
+require_text "$DOCK" 'cardWidth: root.previewCardWidth' "adaptive card width is not applied"
+require_text "$DOCK" 'cardHeight: root.previewCardHeight' "adaptive card height is not applied"
+require_text "$PREVIEW" 'id: previewViewport' "window capture has no dedicated viewport"
+require_text "$PREVIEW" 'id: titleRail' "window title still overlays the live capture"
+reject_text "$PREVIEW" 'width: 198' "preview card is still hardcoded to postage-stamp size"
 echo PASS
 
 echo "=== user pinning contract ==="
@@ -120,4 +130,4 @@ require_text "$MODEL" 'Hyprland.dispatch("focuswindow address:" + address)' "Doc
 reject_text "$MODEL" 'repeat: true' "Dock introduced continuous window polling"
 echo PASS
 
-echo "ALL MAHO DOCK M1.9 CONTRACTS PASS"
+echo "ALL MAHO DOCK M1.10 CONTRACTS PASS"
