@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !startsWith(github.event.head_commit.message, 'fix(link): stabilize discovery chrome') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +18,12 @@ jobs:
 
       - name: Apply narrow QML patch
         run: |
+          set -euo pipefail
+          if [ "$(git log -1 --pretty=%s)" = "fix(link): stabilize discovery chrome" ]; then
+            echo "Patch commit already applied."
+            exit 0
+          fi
+
           python - <<'PY'
           from pathlib import Path
 
@@ -38,7 +43,7 @@ jobs:
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 7
 '''
-              row_new = f'''            Row {{
+              row_new = '''            Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 height: 18
@@ -72,22 +77,21 @@ jobs:
               assert text.count(dot_old) == 1, (path, 'dot', text.count(dot_old))
               text = text.replace(dot_old, dot_new, 1)
 
-              anim_end = '''                    }
+              pos = text.index(f'id: {status_id}')
+              tail = text[pos:]
+              close_old = '''                    }
                 }
 
                 Text {
 '''
-              anim_end_new = '''                    }
+              close_new = '''                    }
                     }
                 }
 
                 Text {
 '''
-              # The first matching animation close after the new status lane belongs to its dot.
-              pos = text.index(f'id: {status_id}')
-              tail = text[pos:]
-              assert anim_end in tail, (path, 'dot-close')
-              tail = tail.replace(anim_end, anim_end_new, 1)
+              assert close_old in tail, (path, 'dot-close')
+              tail = tail.replace(close_old, close_new, 1)
               text = text[:pos] + tail
 
               label_old = f'''                Text {{
@@ -118,8 +122,6 @@ jobs:
           )
           PY
 
-      - name: Commit patch
-        run: |
           git config user.name 'Magetsu!!'
           git config user.email '148205878+magetsu002@users.noreply.github.com'
           git add config/quickshell/maho-link/BluetoothState.qml \
