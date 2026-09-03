@@ -34,31 +34,33 @@ PanelWindow {
     readonly property color accent: stableAccent(theme.semanticAccent)
     readonly property bool brightBackdrop: theme.semanticBackground.hslLightness > 0.52
 
-    readonly property real darkGlassLift: brightBackdrop ? 0.020 : 0.085
+    // Accepted optical-glass recipe. The material stays neutral and highly
+    // transmissive so compositor blur and the real wallpaper provide color.
+    readonly property real darkGlassLift: brightBackdrop ? 0.038 : 0.120
     readonly property color smokedNeutral:
-        theme.mix(theme.semanticSurfaceElevated, theme.semanticShadow, brightBackdrop ? 0.40 : 0.34)
+        theme.mix(theme.semanticSurfaceElevated, theme.semanticForeground, brightBackdrop ? 0.012 : 0.042)
     readonly property color liftedNeutral:
         theme.mix(smokedNeutral, theme.semanticForeground, darkGlassLift)
     readonly property color shellMaterial:
-        theme.mix(liftedNeutral, accent, 0.005)
+        theme.mix(liftedNeutral, accent, 0.002)
     readonly property color shellFill:
-        theme.alpha(shellMaterial, brightBackdrop ? 0.56 : 0.50)
+        theme.alpha(shellMaterial, brightBackdrop ? 0.32 : 0.29)
     readonly property color shellFillRaised:
-        theme.alpha(theme.mix(shellMaterial, theme.semanticSurfaceElevated, 0.13), brightBackdrop ? 0.67 : 0.58)
+        theme.alpha(theme.mix(shellMaterial, theme.semanticSurfaceElevated, 0.055), brightBackdrop ? 0.46 : 0.41)
     readonly property color shellRim:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.29 : 0.26)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.24 : 0.26)
     readonly property color shellOuterRim:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.090 : 0.078)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.085 : 0.105)
     readonly property color shellInnerRim:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.12 : 0.11)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.070 : 0.082)
     readonly property color shellSpecular:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.23 : 0.22)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.31 : 0.35)
     readonly property color shellReflection:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.095 : 0.105)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.105 : 0.125)
     readonly property color shellLowlight:
-        theme.alpha(theme.semanticShadow, brightBackdrop ? 0.17 : 0.22)
+        theme.alpha(theme.semanticShadow, brightBackdrop ? 0.065 : 0.075)
     readonly property color shellWell:
-        theme.alpha(theme.mix(theme.semanticSurfaceElevated, theme.semanticForeground, brightBackdrop ? 0.01 : 0.045), brightBackdrop ? 0.16 : 0.18)
+        theme.alpha(theme.mix(theme.semanticSurfaceElevated, theme.semanticForeground, brightBackdrop ? 0.020 : 0.050), brightBackdrop ? 0.045 : 0.058)
 
     readonly property int dockHeight: 84
     readonly property int retractedHeight: 12
@@ -245,6 +247,20 @@ PanelWindow {
         previewClear.restart()
     }
 
+    function closeWindowRecord(windowData) {
+        if (!windowData || !windowData.toplevel)
+            return
+
+        const top = windowData.toplevel
+        const handle = top.handle || top.wayland || null
+        if (handle && handle.close) {
+            handle.close()
+            return
+        }
+        if (top.wayland && top.wayland.close)
+            top.wayland.close()
+    }
+
     function activateDockItem(item, newWindow) {
         closePreview()
         dockModel.activateItem(item, newWindow)
@@ -386,8 +402,8 @@ PanelWindow {
         width: previewShell.width + 5
         height: previewShell.height + 4
         radius: previewShell.radius + 3
-        color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.22 : 0.18)
-        opacity: root.previewProgress * 0.72
+        color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.14 : 0.10)
+        opacity: root.previewProgress * 0.48
     }
 
     Rectangle {
@@ -414,28 +430,30 @@ PanelWindow {
             antialiasing: true
             color: "transparent"
             gradient: Gradient {
-                GradientStop { position: 0.00; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.10 : 0.13) }
-                GradientStop { position: 0.14; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.030 : 0.046) }
-                GradientStop { position: 0.34; color: root.theme.alpha(root.accent, 0.006) }
+                GradientStop { position: 0.00; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.13 : 0.17) }
+                GradientStop { position: 0.14; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.034 : 0.050) }
+                GradientStop { position: 0.34; color: root.theme.alpha(root.accent, 0.004) }
                 GradientStop { position: 0.66; color: "transparent" }
-                GradientStop { position: 1.00; color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.18 : 0.14) }
+                GradientStop { position: 1.00; color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.075 : 0.060) }
             }
         }
 
+        // Full-width reflected-light field. It is intentionally not rounded;
+        // previewShell.clip gives it the exact optical silhouette, eliminating
+        // the visible circular cap produced by a separate rounded highlight.
         Rectangle {
+            id: previewReflectionField
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.leftMargin: 18
-            anchors.rightMargin: 18
-            height: 21
-            radius: 10
+            height: 24
             color: "transparent"
             gradient: Gradient {
                 GradientStop { position: 0.0; color: root.shellReflection }
+                GradientStop { position: 0.38; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.026 : 0.040) }
                 GradientStop { position: 1.0; color: "transparent" }
             }
-            opacity: 0.82
+            opacity: 0.74
         }
 
         Rectangle {
@@ -456,6 +474,62 @@ PanelWindow {
             height: 1
             radius: 1
             color: root.shellSpecular
+        }
+
+        Rectangle {
+            id: previewCloseAction
+            z: 30
+            visible: root.previewCount === 1 && root.previewOpen
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.topMargin: 14
+            anchors.rightMargin: 14
+            width: 36
+            height: 36
+            radius: 18
+            antialiasing: true
+            color: root.theme.alpha(
+                root.theme.mix(root.theme.semanticSurfaceElevated, root.theme.semanticForeground, 0.035),
+                previewCloseHover.hovered ? 0.62 : 0.40
+            )
+            border.width: 1
+            border.color: root.theme.alpha(
+                root.theme.semanticForeground,
+                previewCloseHover.hovered ? 0.22 : 0.11
+            )
+            opacity: root.previewProgress
+
+            Text {
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: -1
+                text: "×"
+                color: root.theme.semanticForeground
+                opacity: previewCloseHover.hovered ? 0.98 : 0.76
+                font.pixelSize: 23
+                font.weight: Font.Light
+            }
+
+            HoverHandler {
+                id: previewCloseHover
+                cursorShape: Qt.PointingHandCursor
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onTapped: {
+                    if (root.previewWindows.length > 0) {
+                        root.closeWindowRecord(root.previewWindows[0])
+                        root.closePreview()
+                    }
+                }
+            }
+
+            Behavior on color {
+                ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
+            }
+            Behavior on border.color {
+                ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
+            }
         }
 
         Item {
@@ -520,6 +594,7 @@ PanelWindow {
                             appIconPath: root.previewItem ? String(root.previewItem.iconPath || "") : ""
                             cardWidth: root.previewCardWidth
                             cardHeight: root.previewCardHeight
+                            showCloseButton: root.previewCount > 1
                             active: root.previewOpen && root.previewProgress > 0.62
                             onActivated: function(windowData) {
                                 root.closePreview()
@@ -543,9 +618,9 @@ PanelWindow {
                     width: 128
                     height: 30
                     radius: 15
-                    color: root.theme.alpha(root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.015), newWindowHover.hovered ? 0.54 : 0.38)
+                    color: root.theme.alpha(root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.015), newWindowHover.hovered ? 0.48 : 0.31)
                     border.width: 1
-                    border.color: root.theme.alpha(newWindowHover.hovered ? root.accent : root.theme.semanticForeground, newWindowHover.hovered ? 0.17 : 0.060)
+                    border.color: root.theme.alpha(newWindowHover.hovered ? root.accent : root.theme.semanticForeground, newWindowHover.hovered ? 0.15 : 0.055)
 
                     Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                     Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -602,7 +677,7 @@ PanelWindow {
         color: "transparent"
         border.width: 1
         border.color: root.shellOuterRim
-        opacity: 0.28 + 0.40 * root.dockRevealProgress
+        opacity: 0.18 + 0.22 * root.dockRevealProgress
     }
 
     Rectangle {
@@ -613,8 +688,8 @@ PanelWindow {
         width: dockShell.width + 6
         height: dockShell.height + 5
         radius: dockShell.radius + 3
-        color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.24 : 0.17)
-        opacity: 0.48 + 0.30 * root.dockRevealProgress
+        color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.13 : 0.075)
+        opacity: 0.22 + 0.16 * root.dockRevealProgress
     }
 
     Rectangle {
@@ -626,7 +701,7 @@ PanelWindow {
         radius: 6 + 25 * root.dockRevealProgress
         antialiasing: true
         color: root.previewOpen
-            ? root.theme.alpha(root.shellMaterial, root.brightBackdrop ? 0.60 : 0.53)
+            ? root.theme.alpha(root.shellMaterial, root.brightBackdrop ? 0.37 : 0.34)
             : root.shellFill
         border.width: 1
         border.color: root.shellRim
@@ -640,11 +715,11 @@ PanelWindow {
             antialiasing: true
             color: "transparent"
             gradient: Gradient {
-                GradientStop { position: 0.00; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.125 : 0.160) }
-                GradientStop { position: 0.11; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.044 : 0.065) }
-                GradientStop { position: 0.30; color: root.theme.alpha(root.accent, 0.005) }
+                GradientStop { position: 0.00; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.145 : 0.190) }
+                GradientStop { position: 0.11; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.038 : 0.055) }
+                GradientStop { position: 0.30; color: root.theme.alpha(root.accent, 0.003) }
                 GradientStop { position: 0.60; color: "transparent" }
-                GradientStop { position: 1.00; color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.22 : 0.15) }
+                GradientStop { position: 1.00; color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.065 : 0.055) }
             }
         }
 
@@ -655,25 +730,26 @@ PanelWindow {
             radius: Math.max(3, dockShell.radius - 6)
             color: root.shellWell
             border.width: 1
-            border.color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.038 : 0.055)
+            border.color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.012 : 0.018)
             opacity: root.dockRevealProgress
         }
 
+        // One continuous reflection field, clipped by the shell itself. There
+        // are no rounded reflection sub-shapes, so the white shade cannot end
+        // in a visible circular cap or tube-like artifact.
         Rectangle {
+            id: dockReflectionField
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.leftMargin: 11
-            anchors.rightMargin: 11
-            height: Math.max(2, 26 * root.dockRevealProgress)
-            radius: 13
+            height: Math.max(2, 21 * root.dockRevealProgress)
             color: "transparent"
             gradient: Gradient {
                 GradientStop { position: 0.0; color: root.shellReflection }
-                GradientStop { position: 0.42; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.016 : 0.030) }
+                GradientStop { position: 0.36; color: root.theme.alpha(root.theme.semanticForeground, brightBackdrop ? 0.026 : 0.040) }
                 GradientStop { position: 1.0; color: "transparent" }
             }
-            opacity: 0.90
+            opacity: 0.72 * root.dockRevealProgress
         }
 
         Rectangle {
@@ -732,10 +808,10 @@ PanelWindow {
             radius: 22
             color: root.theme.alpha(
                 root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, root.hoverLensFocused ? 0.020 : 0.012),
-                root.hoverLensFocused ? 0.10 : 0.16
+                root.hoverLensFocused ? 0.052 : 0.078
             )
             border.width: 1
-            border.color: root.theme.alpha(root.theme.semanticForeground, root.hoverLensFocused ? 0.040 : 0.060)
+            border.color: root.theme.alpha(root.theme.semanticForeground, root.hoverLensFocused ? 0.019 : 0.028)
             opacity: root.hoverLensVisible && root.dockRevealProgress > 0.82 ? 1 : 0
 
             Rectangle {
@@ -745,7 +821,7 @@ PanelWindow {
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
                 height: 1
-                color: root.theme.alpha(root.theme.semanticForeground, 0.060)
+                color: root.theme.alpha(root.theme.semanticForeground, 0.036)
             }
 
             Behavior on x { NumberAnimation { duration: 185; easing.type: Easing.OutCubic } }
@@ -784,7 +860,7 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 1
                         height: 36
-                        color: root.theme.alpha(root.theme.semanticForeground, 0.080)
+                        color: root.theme.alpha(root.theme.semanticForeground, 0.055)
                     }
 
                     Item {
@@ -802,9 +878,9 @@ PanelWindow {
                             height: 68
                             radius: 23
                             antialiasing: true
-                            color: root.theme.alpha(root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.045), brightBackdrop ? 0.22 : 0.19)
+                            color: root.theme.alpha(root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.020), brightBackdrop ? 0.085 : 0.078)
                             border.width: 1
-                            border.color: root.theme.alpha(root.accent, 0.095)
+                            border.color: root.theme.alpha(root.accent, 0.034)
                             opacity: modelData.focused ? 1 : 0
 
                             Rectangle {
@@ -814,7 +890,7 @@ PanelWindow {
                                 anchors.leftMargin: 13
                                 anchors.rightMargin: 13
                                 height: 1
-                                color: root.theme.alpha(root.theme.semanticForeground, 0.075)
+                                color: root.theme.alpha(root.theme.semanticForeground, 0.032)
                             }
 
                             Behavior on opacity { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
