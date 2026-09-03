@@ -14,12 +14,14 @@ PanelWindow {
         bottom: true
     }
 
+    // Optical bottom anchor. The previous 28px margin made the Dock read as a
+    // floating widget rather than a system surface attached to the display.
     margins {
-        bottom: 28
+        bottom: 8
     }
 
-    // Stable Wayland carrier: all visual motion happens inside this surface so
-    // the compositor never has to chase a resizing layer-shell window.
+    // Keep layer-shell geometry stable. All reveal/preview motion stays inside
+    // this carrier so Hyprland never has to chase a resizing surface.
     implicitWidth: 720
     implicitHeight: 326
     color: "transparent"
@@ -34,30 +36,34 @@ PanelWindow {
     readonly property color accent: stableAccent(theme.semanticAccent)
     readonly property bool brightBackdrop: theme.semanticBackground.hslLightness > 0.52
     readonly property color smokedNeutral:
-        theme.mix(theme.semanticSurfaceElevated, theme.semanticShadow, brightBackdrop ? 0.40 : 0.56)
+        theme.mix(theme.semanticSurfaceElevated, theme.semanticShadow, brightBackdrop ? 0.44 : 0.60)
     readonly property color shellMaterial:
-        theme.mix(smokedNeutral, accent, 0.008)
+        theme.mix(smokedNeutral, accent, 0.006)
     readonly property color shellFill:
-        theme.alpha(shellMaterial, brightBackdrop ? 0.60 : 0.48)
+        theme.alpha(shellMaterial, brightBackdrop ? 0.57 : 0.43)
     readonly property color shellFillRaised:
-        theme.alpha(theme.mix(shellMaterial, theme.semanticSurfaceElevated, 0.12), brightBackdrop ? 0.68 : 0.55)
+        theme.alpha(theme.mix(shellMaterial, theme.semanticSurfaceElevated, 0.15), brightBackdrop ? 0.68 : 0.54)
     readonly property color shellRim:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.27 : 0.21)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.30 : 0.23)
+    readonly property color shellOuterRim:
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.095 : 0.060)
     readonly property color shellInnerRim:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.12 : 0.085)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.13 : 0.092)
     readonly property color shellSpecular:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.22 : 0.17)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.24 : 0.19)
     readonly property color shellReflection:
-        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.075 : 0.052)
+        theme.alpha(theme.semanticForeground, brightBackdrop ? 0.105 : 0.073)
     readonly property color shellLowlight:
-        theme.alpha(theme.semanticShadow, brightBackdrop ? 0.15 : 0.28)
+        theme.alpha(theme.semanticShadow, brightBackdrop ? 0.18 : 0.31)
+    readonly property color shellWell:
+        theme.alpha(theme.mix(theme.semanticSurfaceElevated, theme.semanticShadow, 0.22), brightBackdrop ? 0.18 : 0.13)
 
-    readonly property int dockHeight: 88
-    readonly property int retractedHeight: 12
-    readonly property int retractedWidth: 94
+    readonly property int dockHeight: 86
+    readonly property int retractedHeight: 14
+    readonly property int retractedWidth: 108
     readonly property int previewHeight: 220
     readonly property int previewWidth: 694
-    readonly property int restingDockWidth: Math.max(300, dockRow.implicitWidth + 38)
+    readonly property int restingDockWidth: Math.max(320, dockRow.implicitWidth + 46)
     readonly property var previewWindows:
         previewItem && Array.isArray(previewItem.windows)
             ? previewItem.windows.slice(0, 3)
@@ -73,8 +79,8 @@ PanelWindow {
             return true
         if (Number(activeIpc.fullscreen || 0) > 0)
             return true
-        // Hyprland tiled clients consume the bottom work area. Floating clients
-        // are left alone so a small dialog does not unnecessarily hide the Dock.
+        // A tiled client reaches the bottom work area. Floating dialogs do not
+        // force retreat because they normally leave the Dock footprint free.
         return activeIpc.floating === false
     }
 
@@ -229,18 +235,18 @@ PanelWindow {
         anchors.horizontalCenter: previewShell.horizontalCenter
         anchors.top: previewShell.top
         anchors.topMargin: 5
-        width: previewShell.width + 4
-        height: previewShell.height + 3
-        radius: previewShell.radius + 2
-        color: root.theme.alpha(root.theme.semanticShadow, 0.24)
-        opacity: root.previewProgress * 0.74
+        width: previewShell.width + 5
+        height: previewShell.height + 4
+        radius: previewShell.radius + 3
+        color: root.theme.alpha(root.theme.semanticShadow, 0.27)
+        opacity: root.previewProgress * 0.76
     }
 
     Rectangle {
         id: previewShell
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: dockShell.top
-        anchors.bottomMargin: 12
+        anchors.bottomMargin: 10
         width: root.restingDockWidth
             + (root.previewWidth - root.restingDockWidth) * root.previewProgress
         height: root.previewHeight * root.previewProgress
@@ -262,20 +268,20 @@ PanelWindow {
             gradient: Gradient {
                 GradientStop {
                     position: 0.00
-                    color: root.theme.alpha(root.theme.semanticForeground, 0.105)
+                    color: root.theme.alpha(root.theme.semanticForeground, 0.115)
                 }
                 GradientStop {
                     position: 0.12
-                    color: root.theme.alpha(root.theme.semanticForeground, 0.032)
+                    color: root.theme.alpha(root.theme.semanticForeground, 0.034)
                 }
                 GradientStop {
-                    position: 0.27
-                    color: root.theme.alpha(root.accent, 0.010)
+                    position: 0.28
+                    color: root.theme.alpha(root.accent, 0.009)
                 }
-                GradientStop { position: 0.62; color: "transparent" }
+                GradientStop { position: 0.63; color: "transparent" }
                 GradientStop {
                     position: 1.00
-                    color: root.theme.alpha(root.theme.semanticShadow, 0.20)
+                    color: root.theme.alpha(root.theme.semanticShadow, 0.22)
                 }
             }
         }
@@ -286,14 +292,14 @@ PanelWindow {
             anchors.top: parent.top
             anchors.leftMargin: 18
             anchors.rightMargin: 18
-            height: 18
-            radius: 9
+            height: 20
+            radius: 10
             color: "transparent"
             gradient: Gradient {
                 GradientStop { position: 0.0; color: root.shellReflection }
                 GradientStop { position: 1.0; color: "transparent" }
             }
-            opacity: 0.76
+            opacity: 0.80
         }
 
         Rectangle {
@@ -323,7 +329,7 @@ PanelWindow {
             anchors.topMargin: 34
             anchors.bottomMargin: 34
             width: 1
-            color: root.theme.alpha(root.theme.semanticForeground, 0.045)
+            color: root.theme.alpha(root.theme.semanticForeground, 0.046)
         }
 
         Rectangle {
@@ -333,7 +339,7 @@ PanelWindow {
             anchors.topMargin: 34
             anchors.bottomMargin: 34
             width: 1
-            color: root.theme.alpha(root.theme.semanticForeground, 0.034)
+            color: root.theme.alpha(root.theme.semanticForeground, 0.036)
         }
 
         Item {
@@ -479,16 +485,31 @@ PanelWindow {
         }
     }
 
+    // Separate optical planes make the resting Dock feel like a piece of glass
+    // rather than a single translucent rounded rectangle.
+    Rectangle {
+        id: dockHalo
+        anchors.horizontalCenter: dockShell.horizontalCenter
+        anchors.verticalCenter: dockShell.verticalCenter
+        width: dockShell.width + 12
+        height: dockShell.height + 12
+        radius: dockShell.radius + 6
+        color: "transparent"
+        border.width: 1
+        border.color: root.shellOuterRim
+        opacity: 0.32 + 0.44 * root.dockRevealProgress
+    }
+
     Rectangle {
         id: dockDepth
         anchors.horizontalCenter: dockShell.horizontalCenter
         anchors.bottom: dockShell.bottom
-        anchors.bottomMargin: -4
-        width: dockShell.width + 6
-        height: dockShell.height + 5
-        radius: dockShell.radius + 3
-        color: root.theme.alpha(root.theme.semanticShadow, 0.28)
-        opacity: 0.46 + 0.38 * root.dockRevealProgress
+        anchors.bottomMargin: -5
+        width: dockShell.width + 7
+        height: dockShell.height + 7
+        radius: dockShell.radius + 4
+        color: root.theme.alpha(root.theme.semanticShadow, 0.34)
+        opacity: 0.52 + 0.36 * root.dockRevealProgress
     }
 
     Rectangle {
@@ -499,10 +520,10 @@ PanelWindow {
             + (root.restingDockWidth - root.retractedWidth) * root.dockRevealProgress
         height: root.retractedHeight
             + (root.dockHeight - root.retractedHeight) * root.dockRevealProgress
-        radius: 6 + 26 * root.dockRevealProgress
+        radius: 7 + 25 * root.dockRevealProgress
         antialiasing: true
         color: root.previewOpen
-            ? root.theme.alpha(root.shellMaterial, root.brightBackdrop ? 0.63 : 0.51)
+            ? root.theme.alpha(root.shellMaterial, root.brightBackdrop ? 0.62 : 0.50)
             : root.shellFill
         border.width: 1
         border.color: root.shellRim
@@ -512,6 +533,7 @@ PanelWindow {
             ColorAnimation { duration: 320; easing.type: Easing.OutCubic }
         }
 
+        // Main transmitted-light layer.
         Rectangle {
             anchors.fill: parent
             radius: dockShell.radius
@@ -520,38 +542,56 @@ PanelWindow {
             gradient: Gradient {
                 GradientStop {
                     position: 0.00
-                    color: root.theme.alpha(root.theme.semanticForeground, 0.125)
+                    color: root.theme.alpha(root.theme.semanticForeground, 0.145)
                 }
                 GradientStop {
-                    position: 0.11
-                    color: root.theme.alpha(root.theme.semanticForeground, 0.048)
+                    position: 0.10
+                    color: root.theme.alpha(root.theme.semanticForeground, 0.052)
                 }
                 GradientStop {
                     position: 0.25
-                    color: root.theme.alpha(root.accent, 0.009)
+                    color: root.theme.alpha(root.accent, 0.008)
                 }
-                GradientStop { position: 0.58; color: "transparent" }
+                GradientStop { position: 0.56; color: "transparent" }
                 GradientStop {
                     position: 1.00
-                    color: root.theme.alpha(root.theme.semanticShadow, 0.25)
+                    color: root.theme.alpha(root.theme.semanticShadow, 0.28)
                 }
             }
         }
 
+        // Inner glass well gives the icons a separate optical plane without
+        // introducing a visible tile/background per application.
+        Rectangle {
+            id: dockInnerWell
+            anchors.fill: parent
+            anchors.margins: 6
+            radius: Math.max(3, dockShell.radius - 6)
+            color: root.shellWell
+            border.width: 1
+            border.color: root.theme.alpha(root.theme.semanticForeground, 0.040)
+            opacity: root.dockRevealProgress
+        }
+
+        // Broad reflection ribbon, intentionally wider than a one-pixel rim.
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            height: Math.max(2, 20 * root.dockRevealProgress)
-            radius: 10
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            height: Math.max(2, 25 * root.dockRevealProgress)
+            radius: 12
             color: "transparent"
             gradient: Gradient {
                 GradientStop { position: 0.0; color: root.shellReflection }
+                GradientStop {
+                    position: 0.45
+                    color: root.theme.alpha(root.theme.semanticForeground, 0.020)
+                }
                 GradientStop { position: 1.0; color: "transparent" }
             }
-            opacity: 0.84
+            opacity: 0.92
         }
 
         Rectangle {
@@ -567,8 +607,8 @@ PanelWindow {
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: 18 + 12 * root.dockRevealProgress
-            anchors.rightMargin: 18 + 12 * root.dockRevealProgress
+            anchors.leftMargin: 16 + 13 * root.dockRevealProgress
+            anchors.rightMargin: 16 + 13 * root.dockRevealProgress
             anchors.top: parent.top
             height: 1
             radius: 1
@@ -579,8 +619,8 @@ PanelWindow {
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: 28
-            anchors.rightMargin: 28
+            anchors.leftMargin: 26
+            anchors.rightMargin: 26
             anchors.bottom: parent.bottom
             height: 1
             radius: 1
@@ -589,26 +629,39 @@ PanelWindow {
             opacity: root.dockRevealProgress
         }
 
-        // The tiny shelf is intentionally visible over tiled windows: it is a
-        // reveal affordance, not a full UI overlay and reserves zero work area.
         Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.verticalCenter: parent.verticalCenter
-            width: 42 + 8 * root.dockRevealProgress
-            height: 2
-            radius: 1
-            color: root.theme.alpha(root.semanticFocus !== undefined ? root.semanticFocus : root.accent, 0.0)
-            visible: false
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.topMargin: 19
+            anchors.bottomMargin: 19
+            width: 1
+            color: root.theme.alpha(root.theme.semanticForeground, 0.050)
+            opacity: root.dockRevealProgress
         }
 
+        Rectangle {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.topMargin: 19
+            anchors.bottomMargin: 19
+            width: 1
+            color: root.theme.alpha(root.theme.semanticForeground, 0.036)
+            opacity: root.dockRevealProgress
+        }
+
+        // Minimal reveal affordance when a tiled/fullscreen window occupies the
+        // Dock footprint. It stays at the physical bottom edge and reserves no
+        // workspace space.
         Rectangle {
             id: retreatCue
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
-            width: 44
+            width: 48
             height: 2
             radius: 1
-            color: root.theme.alpha(root.theme.semanticForeground, 0.56)
+            color: root.theme.alpha(root.theme.semanticForeground, 0.62)
             opacity: 1 - root.dockRevealProgress
         }
 
@@ -617,22 +670,40 @@ PanelWindow {
             x: root.hoverLensX
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: -1
-            width: 70
-            height: 70
-            radius: 23
+            width: 72
+            height: 72
+            radius: 24
             color: root.theme.alpha(
-                root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.028),
-                0.32
+                root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.024),
+                0.24
             )
             border.width: 1
-            border.color: root.theme.alpha(root.theme.semanticForeground, 0.065)
+            border.color: root.theme.alpha(root.theme.semanticForeground, 0.078)
             opacity: root.hoverLensVisible && root.dockRevealProgress > 0.82 ? 1 : 0
 
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: 1
+                radius: hoverLens.radius - 1
+                color: "transparent"
+                gradient: Gradient {
+                    GradientStop {
+                        position: 0.0
+                        color: root.theme.alpha(root.theme.semanticForeground, 0.055)
+                    }
+                    GradientStop { position: 0.55; color: "transparent" }
+                    GradientStop {
+                        position: 1.0
+                        color: root.theme.alpha(root.theme.semanticShadow, 0.080)
+                    }
+                }
+            }
+
             Behavior on x {
-                NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: 205; easing.type: Easing.OutCubic }
             }
             Behavior on opacity {
-                NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: 155; easing.type: Easing.OutCubic }
             }
         }
 
@@ -642,7 +713,7 @@ PanelWindow {
             spacing: 0
             opacity: root.dockRevealProgress
             scale: 0.965 + 0.035 * root.dockRevealProgress
-            y: (parent.height - height) / 2 + 5 * (1 - root.dockRevealProgress)
+            y: (parent.height - height) / 2 + 4 * (1 - root.dockRevealProgress)
 
             Repeater {
                 model: root.dockModel.items
@@ -652,7 +723,7 @@ PanelWindow {
                     required property var modelData
                     required property int index
 
-                    width: 78 + (modelData.breakBefore ? 14 : 0)
+                    width: 80 + (modelData.breakBefore ? 14 : 0)
                     height: 76
 
                     property real hoverProgress: appMouse.containsMouse ? 1 : 0
@@ -671,31 +742,41 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 1
                         height: 38
-                        color: root.theme.alpha(root.theme.semanticForeground, 0.09)
+                        color: root.theme.alpha(root.theme.semanticForeground, 0.085)
                     }
 
                     Item {
                         id: appTarget
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 78
+                        width: 80
                         height: 76
 
                         Rectangle {
                             id: focusMaterial
                             anchors.centerIn: parent
                             anchors.verticalCenterOffset: -2
-                            width: 68
-                            height: 68
-                            radius: 23
+                            width: 70
+                            height: 70
+                            radius: 24
                             antialiasing: true
                             color: root.theme.alpha(
-                                root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.070),
-                                0.30
+                                root.theme.mix(root.theme.semanticSurfaceElevated, root.accent, 0.060),
+                                0.26
                             )
                             border.width: 1
-                            border.color: root.theme.alpha(root.accent, 0.105)
+                            border.color: root.theme.alpha(root.accent, 0.11)
                             opacity: modelData.focused ? 1 : 0
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.leftMargin: 13
+                                anchors.rightMargin: 13
+                                height: 1
+                                color: root.theme.alpha(root.theme.semanticForeground, 0.085)
+                            }
 
                             Behavior on opacity {
                                 NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
@@ -705,9 +786,9 @@ PanelWindow {
                         Item {
                             id: iconLift
                             anchors.horizontalCenter: parent.horizontalCenter
-                            y: 9 - appCell.hoverProgress * 3 + appCell.pressProgress * 1.5
-                            width: 52
-                            height: 52
+                            y: 8 - appCell.hoverProgress * 3 + appCell.pressProgress * 1.5
+                            width: 54
+                            height: 54
                             scale: 1 + appCell.hoverProgress * 0.026 - appCell.pressProgress * 0.045
 
                             MahoDockAppIcon {
@@ -724,15 +805,15 @@ PanelWindow {
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.bottom: parent.bottom
                             anchors.bottomMargin: 4
-                            width: modelData.focused ? 30
+                            width: modelData.focused ? 31
                                 : modelData.running ? (modelData.windowCount > 1 ? 13 : 8)
                                 : modelData.launching ? 9 : 0
                             height: modelData.focused ? 3 : 2
                             radius: 2
                             antialiasing: true
                             color: modelData.focused
-                                ? root.theme.alpha(root.accent, 0.90)
-                                : root.theme.alpha(root.theme.semanticForeground, modelData.onOtherWorkspace ? 0.32 : 0.60)
+                                ? root.theme.alpha(root.accent, 0.92)
+                                : root.theme.alpha(root.theme.semanticForeground, modelData.onOtherWorkspace ? 0.32 : 0.61)
                             opacity: modelData.running || modelData.focused ? 1 : (modelData.launching ? 0.72 : 0)
 
                             Behavior on width {
