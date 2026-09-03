@@ -17,7 +17,12 @@ import subprocess
 import sys
 from typing import Iterable
 
-from maho_app_model import discover_apps, launch_app
+from maho_app_model import (
+    discover_apps as shared_discover_apps,
+    find_desktop_file,
+    launch_app,
+    resolve_icon_paths as shared_resolve_icon_paths,
+)
 
 
 EXCLUDED_DIRS = {
@@ -31,6 +36,16 @@ EXCLUDED_DIRS = {
     "target",
     "__pycache__",
 }
+
+
+def discover_apps() -> list[dict[str, object]]:
+    """Compatibility wrapper around the shared Maho application model."""
+    return shared_discover_apps()
+
+
+def resolve_icon_paths(entries: list[dict[str, object]]) -> None:
+    """Compatibility wrapper; icon resolution authority lives in maho_app_model."""
+    shared_resolve_icon_paths(entries)
 
 
 def list_apps() -> int:
