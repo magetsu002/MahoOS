@@ -71,10 +71,18 @@ PanelWindow {
     readonly property int previewHeight: 220
     readonly property int previewWidth: 694
     readonly property int restingDockWidth: Math.max(320, dockRow.implicitWidth + 46)
-    readonly property var previewWindows:
-        previewItem && Array.isArray(previewItem.windows)
-            ? previewItem.windows.slice(0, 3)
-            : []
+    readonly property var previewWindows: {
+        if (!previewItem || !previewItem.windows)
+            return []
+        const windows = previewItem.windows
+        if (windows.slice)
+            return windows.slice(0, 3)
+        const output = []
+        const count = Math.min(3, Number(windows.length || 0))
+        for (let index = 0; index < count; ++index)
+            output.push(windows[index])
+        return output
+    }
 
     readonly property var activeTop: Hyprland.activeToplevel
     readonly property var activeIpc:
@@ -92,16 +100,19 @@ PanelWindow {
     property var hoverCandidate: null
     property var previewItem: null
     property bool previewOpen: false
-    property bool dockHovering: false
     property real previewProgress: previewOpen ? 1 : 0
 
     property bool hoverLensVisible: false
     property real hoverLensX: 0
     property bool hoverLensFocused: false
+    property string pinFeedbackText: ""
+
+    readonly property bool pointerInsideMaterial:
+        dockSurfaceHover.hovered || previewHover.hovered
 
     readonly property bool retreatRequested:
         activeWindowOccupiesDock
-        && !dockSurfaceHover.hovered
+        && !pointerInsideMaterial
         && !previewOpen
         && previewProgress < 0.02
     property real dockRevealProgress: retreatRequested ? 0 : 1
@@ -134,14 +145,11 @@ PanelWindow {
     }
 
     function armPreview(item) {
-        root.dockHovering = true
         previewDismiss.stop()
 
         if (!item || !item.running || !item.windows || item.windows.length === 0) {
             hoverCandidate = null
             hoverIntent.stop()
-            if (previewOpen)
-                previewDismiss.restart()
             return
         }
 
@@ -152,9 +160,9 @@ PanelWindow {
     }
 
     function leaveDockItem() {
-        root.dockHovering = false
         hoverIntent.stop()
-        previewDismiss.restart()
+        if (!root.pointerInsideMaterial)
+            previewDismiss.restart()
     }
 
     function openPreview(item) {
@@ -166,6 +174,7 @@ PanelWindow {
     }
 
     function closePreview() {
+        hoverIntent.stop()
         if (!previewOpen)
             return
         previewOpen = false
@@ -175,6 +184,24 @@ PanelWindow {
     function activateDockItem(item, newWindow) {
         closePreview()
         dockModel.activateItem(item, newWindow)
+    }
+
+    function togglePin(item) {
+        closePreview()
+        if (!item || item.temporary) {
+            pinFeedbackText = "This window has no pinnable app identity"
+            pinFeedbackTimer.restart()
+            return
+        }
+
+        const wasPinned = Boolean(item.pinned)
+        if (wasPinned)
+            dockModel.unpinItem(item)
+        else
+            dockModel.pinItem(item)
+
+        pinFeedbackText = (wasPinned ? "Unpinned " : "Pinned ") + String(item.name || "Application")
+        pinFeedbackTimer.restart()
     }
 
     function showHoverLens(target, focused) {
@@ -207,10 +234,10 @@ PanelWindow {
 
     Timer {
         id: previewDismiss
-        interval: 260
+        interval: 210
         repeat: false
         onTriggered: {
-            if (!previewHover.hovered && !root.dockHovering)
+            if (!root.pointerInsideMaterial)
                 root.closePreview()
         }
     }
@@ -225,6 +252,13 @@ PanelWindow {
         }
     }
 
+    Timer {
+        id: pinFeedbackTimer
+        interval: 1200
+        repeat: false
+        onTriggered: root.pinFeedbackText = ""
+    }
+
     mask: Region {
         item: root.previewOpen || root.previewProgress > 0.02 ? materialBounds : dockShell
     }
@@ -235,6 +269,34 @@ PanelWindow {
         anchors.bottom: parent.bottom
         width: root.previewWidth
         height: root.previewHeight + root.dockHeight + 10
+    }
+
+    Rectangle {
+        id: pinFeedback
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: dockShell.top
+        anchors.bottomMargin: 8
+        width: Math.max(126, pinFeedbackLabel.implicitWidth + 28)
+        height: 30
+        radius: 15
+        visible: root.pinFeedbackText.length > 0 && !root.previewOpen
+        opacity: visible ? 1 : 0
+        color: root.theme.alpha(root.shellMaterial, root.brightBackdrop ? 0.78 : 0.72)
+        border.width: 1
+        border.color: root.theme.alpha(root.theme.semanticForeground, 0.12)
+
+        Text {
+            id: pinFeedbackLabel
+            anchors.centerIn: parent
+            text: root.pinFeedbackText
+            color: root.theme.semanticForeground
+            font.pixelSize: 10
+            font.weight: Font.Medium
+        }
+
+        Behavior on opacity {
+            NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+        }
     }
 
     Rectangle {
@@ -440,7 +502,7 @@ PanelWindow {
             onHoveredChanged: {
                 if (hovered)
                     previewDismiss.stop()
-                else if (!root.dockHovering)
+                else if (!dockSurfaceHover.hovered)
                     previewDismiss.restart()
             }
         }
@@ -744,7 +806,7 @@ PanelWindow {
                             id: appMouse
                             anchors.fill: parent
                             hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
                             enabled: root.dockRevealProgress > 0.82
                             onEntered: {
@@ -756,6 +818,10 @@ PanelWindow {
                                 root.leaveDockItem()
                             }
                             onClicked: function(mouse) {
+                                if (mouse.button === Qt.RightButton) {
+                                    root.togglePin(modelData)
+                                    return
+                                }
                                 root.activateDockItem(modelData, mouse.button === Qt.MiddleButton)
                             }
                         }
@@ -768,8 +834,13 @@ PanelWindow {
             id: dockSurfaceHover
             cursorShape: root.dockRevealProgress < 0.82 ? Qt.PointingHandCursor : Qt.ArrowCursor
             onHoveredChanged: {
-                if (!hovered && !root.dockHovering)
+                if (hovered) {
+                    previewDismiss.stop()
+                } else {
                     root.hideHoverLensSoon()
+                    if (!previewHover.hovered)
+                        previewDismiss.restart()
+                }
             }
         }
     }
