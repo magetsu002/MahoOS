@@ -1,0 +1,41 @@
+name: notify
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-notify tests/notify-contracts.sh tests/glass-contracts.sh
+
+      - name: Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile config/quickshell/maho-notify/state.py
+
+      - name: Notify behavior contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/notify-contracts.sh
+
+      - name: Notify glass contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/glass-contracts.sh
