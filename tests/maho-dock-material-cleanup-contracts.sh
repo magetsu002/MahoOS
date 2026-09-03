@@ -23,12 +23,16 @@ require_text "$DOCK" 'brightBackdrop ? 0.045 : 0.058' "inner glass well is too o
 require_text "$DOCK" 'color: root.theme.alpha(root.theme.semanticShadow, brightBackdrop ? 0.13 : 0.075)' "Dock depth became too heavy"
 echo PASS
 
-echo "=== continuous physical reflection ==="
+echo "=== radius-matched continuous reflection ==="
 require_text "$DOCK" 'id: dockReflectionField' "Dock lost its continuous reflection field"
-require_text "$DOCK" 'height: Math.max(2, 21 * root.dockRevealProgress)' "Dock reflection field geometry drifted"
+require_text "$DOCK" 'radius: dockShell.radius' "Dock reflection can leak through rounded shell corners"
 require_text "$DOCK" 'opacity: 0.72 * root.dockRevealProgress' "Dock reflection field intensity drifted"
 require_text "$DOCK" 'id: previewReflectionField' "preview lost the continuous reflection field"
-require_text "$DOCK" 'previewShell.clip gives it the exact optical silhouette' "preview reflection is no longer shaped by the material mask"
+require_text "$DOCK" 'radius: previewShell.radius' "preview reflection can leak through rounded shell corners"
+require_text "$DOCK" 'anchors.fill: parent' "reflection fields are no longer full-shell layers"
+require_text "$DOCK" 'Qt Quick' "rounded reflection rationale disappeared"
+reject_text "$DOCK" 'height: Math.max(2, 21 * root.dockRevealProgress)' "legacy short Dock reflection strip returned"
+reject_text "$DOCK" 'previewShell.clip gives it the exact optical silhouette' "preview reflection incorrectly relies on rectangular clip semantics"
 reject_text "$DOCK" 'experimentalRightGlint' "legacy side-glint artifact returned"
 reject_text "$DOCK" 'experimentalGlassBloom' "legacy local rounded bloom returned"
 echo PASS
