@@ -224,6 +224,9 @@ ShellRoot {
     Connections {
         target: Hyprland
 
+        // Hyprland socket2 is the animation authority. workspacev2 is emitted
+        // for every user-requested workspace change, so every event receives a
+        // new serial even while the previous workspace feedback is still live.
         function onRawEvent(event) {
             if (event.name !== "workspacev2")
                 return
@@ -237,6 +240,8 @@ ShellRoot {
             Hyprland.refreshWorkspaces()
         }
 
+        // Keep a fallback for startup/reconnect paths where the raw event was
+        // not observed. The visual workspace check prevents duplicate pulses.
         function onFocusedWorkspaceChanged() {
             const current = Hyprland.focusedWorkspace
                 ? Hyprland.focusedWorkspace.id
@@ -260,6 +265,9 @@ ShellRoot {
             if (!root.closing)
                 return
 
+            // Horizontal docks fold height first while staying wide. Side docks
+            // fold width first while staying tall. Only after that primary fold
+            // finishes do we collapse the second axis into the resting Maho Edge.
             root.expanded = false
             closeSecondaryTimer.restart()
         }
@@ -305,6 +313,8 @@ ShellRoot {
     PanelWindow {
         id: panel
 
+        // Full-screen geometry lets Maho Edge follow the pointer while the
+        // input mask keeps every pixel outside the visible surface click-through.
         anchors {
             top: true
             bottom: true
@@ -603,20 +613,8 @@ ShellRoot {
                     onVolumeRequested: function(value) { audio.setVolume(value) }
                     onBrightnessRequested: function(value) { brightness.setValue(value) }
 
-                    onWifiRequested: {
-                        root.closePanel()
-                        Quickshell.execDetached([
-                            Quickshell.env("HOME") + "/.local/bin/maho-link",
-                            "wifi"
-                        ])
-                    }
-                    onBluetoothRequested: {
-                        root.closePanel()
-                        Quickshell.execDetached([
-                            Quickshell.env("HOME") + "/.local/bin/maho-link",
-                            "bluetooth"
-                        ])
-                    }
+                    onWifiRequested: { root.closePanel(); Quickshell.execDetached(["bash", Quickshell.env("HOME") + "/.local/bin/maho-link"]) }
+                    onBluetoothRequested: root.runShell("command -v bluetoothctl >/dev/null && kitty -e bluetoothctl")
 
                     onWallpaperRequested: {
                         root.closePanel()
@@ -643,6 +641,8 @@ ShellRoot {
                 }
             }
 
+            // Runtime-proven drag contract. Do not fold click semantics or
+            // compositor reservation into this handler.
             DragHandler {
                 id: dockDrag
                 enabled: !root.expanded && !root.closing
@@ -666,6 +666,9 @@ ShellRoot {
         }
     }
 
+    // Maho Edge owns a small piece of compositor layout at its resting edge.
+    // During drag dock.edge is intentionally unchanged, so windows reflow only
+    // once when the snapped edge is committed on release.
     DockReservation {
         dock: dock
         screen: panel.screen
