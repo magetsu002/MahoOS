@@ -52,10 +52,13 @@ require_text "$DOCK" 'shellInnerRim' "Dock lost layered rim depth"
 require_text "$DOCK" 'shellSpecular' "Dock lost the optical top reflection"
 require_text "$DOCK" 'shellReflection' "Dock lost the broad reflective layer"
 require_text "$DOCK" 'id: dockInnerWell' "Dock icons no longer sit in a nested glass well"
+require_text "$DOCK" 'id: dockReflectionField' "Dock lost the accepted continuous reflection field"
+require_text "$DOCK" 'id: previewReflectionField' "preview lost the accepted continuous reflection field"
 require_text "$DECORATIONS" 'match = { namespace = "maho-dock" }' "Dock compositor blur is not namespace scoped"
 require_text "$DECORATIONS" 'blur = true' "Dock compositor blur is missing"
 require_text "$DECORATIONS" 'xray = false' "Dock blur ignores the real background stack"
 reject_text "$DOCK" '#ff0000' "Dock hardcodes target-wallpaper red"
+reject_text "$DOCK" 'experimentalRightGlint' "legacy white side-glint artifact returned"
 echo PASS
 
 echo "=== coordinated motion and deterministic hover preview ==="
@@ -99,6 +102,20 @@ require_text "$PREVIEW" 'height: cardHeight' "preview card height is not driven 
 require_text "$DOCK" 'MahoDockPreviewCard {' "Dock does not render window cards"
 echo PASS
 
+echo "=== exact window close controls ==="
+require_text "$DOCK" 'id: previewCloseAction' "single-window preview has no shell-level close control"
+require_text "$DOCK" 'root.previewCount === 1 && root.previewOpen' "single-window close control is not scoped correctly"
+require_text "$DOCK" 'root.closeWindowRecord(root.previewWindows[0])' "single-window close control does not target the exact window"
+require_text "$DOCK" 'showCloseButton: root.previewCount > 1' "multi-window cards do not expose per-window close controls"
+require_text "$PREVIEW" 'property bool showCloseButton: true' "preview card cannot scope its close affordance"
+require_text "$PREVIEW" 'function closeWindow()' "preview card has no exact close action"
+require_text "$PREVIEW" 'const handle = top.handle || top.wayland || null' "preview close does not resolve the real Wayland toplevel"
+require_text "$PREVIEW" 'handle.close()' "preview close does not issue a native toplevel close request"
+require_text "$PREVIEW" 'enabled: !closeMouse.containsMouse' "close click can leak into normal preview activation"
+reject_text "$PREVIEW" 'pkill' "preview close kills processes instead of closing the selected window"
+reject_text "$PREVIEW" 'killactive' "preview close can kill the wrong active window"
+echo PASS
+
 echo "=== user pinning contract ==="
 require_text "$DOCK" 'Qt.RightButton' "Dock has no direct pin/unpin interaction"
 require_text "$DOCK" 'function togglePin(item)' "Dock has no pin toggle action"
@@ -140,4 +157,4 @@ require_text "$MODEL" 'Hyprland.dispatch("focuswindow address:" + address)' "Doc
 reject_text "$MODEL" 'repeat: true' "Dock introduced continuous window polling"
 echo PASS
 
-echo "ALL MAHO DOCK M1.12 CONTRACTS PASS"
+echo "ALL MAHO DOCK TARGET CONTRACTS PASS"
