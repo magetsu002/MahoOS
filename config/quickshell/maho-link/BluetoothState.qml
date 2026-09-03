@@ -132,6 +132,10 @@ Scope {
                     if (payload.ok) {
                         state.errorText = ""
                         state.actionMessage = String(payload.message || "")
+                        if (action === "scan-start")
+                            state.discovering = true
+                        else if (action === "scan-stop")
+                            state.discovering = false
                         if (state.actionMessage !== "")
                             clearStatus.restart()
                         state.actionSucceeded(action, devicePath)
@@ -189,6 +193,20 @@ Scope {
     Timer {
         id: refreshSoon
         interval: 260
+        onTriggered: state.refresh()
+    }
+
+    // BlueZ discovery is asynchronous. InterfacesAdded signals remain the fast
+    // path, but some adapters/drivers do not surface every discovery update to
+    // the monitor process promptly. While discovery is active, sample the
+    // authoritative ObjectManager snapshot at a short bounded cadence so newly
+    // found devices become visible in the panel within about a second instead
+    // of waiting for the 12-second reconnect fallback.
+    Timer {
+        id: discoveryRefresh
+        interval: 900
+        repeat: true
+        running: state.bluetoothEnabled && state.discovering
         onTriggered: state.refresh()
     }
 
