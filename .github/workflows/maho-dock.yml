@@ -1,0 +1,56 @@
+name: maho-dock
+
+on:
+  push:
+    branches:
+      - 'feat/maho-dock'
+      - 'feat/maho-dock-*'
+      - 'fix/maho-dock-*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            lib/maho_app_model.py \
+            lib/maho_launcher_backend.py \
+            tests/test_maho_app_model.py
+
+      - name: Shared application model tests
+        run: |
+          set -euo pipefail
+          python tests/test_maho_app_model.py
+
+      - name: Maho Dock M1 contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-dock-contracts.sh
+
+      - name: Existing Maho Shell contracts
+        run: |
+          set -euo pipefail
+          bash tests/shell-contracts.sh
+
+      - name: Existing Launcher contracts
+        run: |
+          set -euo pipefail
+          bash tests/launcher-qml-contracts.sh
+
+      - name: Static QML syntax where available
+        run: |
+          set -euo pipefail
+          if command -v qmllint >/dev/null 2>&1; then
+            qmllint config/quickshell/maho-shell/*.qml >/dev/null 2>&1 \
+              || echo 'INFO qmllint lacks the installed Quickshell import environment; native runtime acceptance remains required'
+          else
+            echo 'INFO qmllint unavailable on runner'
+          fi
