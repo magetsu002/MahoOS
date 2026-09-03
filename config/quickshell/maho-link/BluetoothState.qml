@@ -17,6 +17,9 @@ Scope {
     property string activeAction: ""
     property string activeDevicePath: ""
     property bool snapshotReady: false
+    property bool discoveryStopping: false
+    property real discoveryStartedAt: 0
+    readonly property bool discoveryOwned: discoverySession.running
     readonly property bool busy: snapshotProcess.running || actionProcess.running || cancelProcess.running
 
     signal actionSucceeded(string action, string devicePath)
@@ -46,19 +49,57 @@ Scope {
     function setBluetoothEnabled(enabled) {
         if (adapterPath === "")
             return false
+        if (!enabled && discoverySession.running)
+            stopDiscovery()
         return runAction(["toggle", adapterPath, enabled ? "on" : "off"], "toggle", "")
     }
 
+    // BlueZ discovery is a per-D-Bus-client session. A one-shot `busctl call`
+    // returns success but immediately drops the client that acquired the
+    // discovery session, which lets BlueZ stop scanning again. Keep one
+    // bluetoothctl process alive solely as the session owner. Device identity,
+    // metadata and results still come only from the structured ObjectManager
+    // snapshot below; bluetoothctl output is never used as data authority.
     function startDiscovery() {
         if (adapterPath === "" || !bluetoothEnabled)
             return false
-        return runAction(["scan-start", adapterPath], "scan-start", "")
+        if (discoverySession.running)
+            return true
+
+        clearStatus.stop()
+        state.errorText = ""
+        state.actionMessage = "Looking for nearby devices…"
+        state.discoveryStopping = false
+        state.discoveryStartedAt = Date.now()
+        state.discovering = true
+        discoverySession.running = true
+        discoverySessionTimeout.restart()
+        refreshSoon.restart()
+        return true
     }
 
     function stopDiscovery() {
-        if (adapterPath === "")
-            return false
-        return runAction(["scan-stop", adapterPath], "scan-stop", "")
+        discoverySessionTimeout.stop()
+
+        if (discoverySession.running) {
+            state.discoveryStopping = true
+            // Ask bluetoothctl to release its own session before quitting. The
+            // fallback timer below terminates it if the command does not exit.
+            discoverySession.write("scan off\nquit\n")
+            discoveryStopFallback.restart()
+            state.discovering = false
+            state.actionMessage = "Discovery stopped."
+            clearStatus.restart()
+            refreshSoon.restart()
+            return true
+        }
+
+        // Never call Adapter1.StopDiscovery from a fresh one-shot D-Bus client:
+        // that client does not own the session and must not interfere with a
+        // discovery session held by another application.
+        state.discovering = false
+        refreshSoon.restart()
+        return true
     }
 
     function connectDevice(device) {
@@ -105,7 +146,10 @@ Scope {
                     const payload = JSON.parse(this.text)
                     state.available = Boolean(payload.available)
                     state.bluetoothEnabled = Boolean(payload.enabled)
-                    state.discovering = Boolean(payload.discovering)
+                    // If Maho owns a discovery session, keep the UI in the
+                    // discovering state during the few milliseconds before
+                    // BlueZ's Discovering property catches up.
+                    state.discovering = Boolean(payload.discovering) || discoverySession.running
                     state.adapterPath = String(payload.adapterPath || "")
                     state.pairedDevices = payload.paired || []
                     state.availableDevices = payload.availableDevices || []
@@ -132,10 +176,6 @@ Scope {
                     if (payload.ok) {
                         state.errorText = ""
                         state.actionMessage = String(payload.message || "")
-                        if (action === "scan-start")
-                            state.discovering = true
-                        else if (action === "scan-stop")
-                            state.discovering = false
                         if (state.actionMessage !== "")
                             clearStatus.restart()
                         state.actionSucceeded(action, devicePath)
@@ -163,6 +203,39 @@ Scope {
         id: cancelProcess
         stdout: StdioCollector {
             onStreamFinished: refreshSoon.restart()
+        }
+    }
+
+    // Persistent BlueZ discovery-session owner. The stdin pipe deliberately
+    // stays open until Maho stops discovery, the 20-second bounded scan expires,
+    // or the Maho Link shell closes. Quickshell owns the child process lifetime.
+    Process {
+        id: discoverySession
+        command: ["bluetoothctl"]
+        stdinEnabled: true
+
+        onStarted: {
+            discoverySession.write("scan on\n")
+            discoveryStartVerify.restart()
+        }
+
+        onRunningChanged: {
+            if (!running) {
+                const elapsed = Date.now() - state.discoveryStartedAt
+                const failedEarly = state.discoveryStartedAt > 0
+                    && elapsed < 1600
+                    && !state.discoveryStopping
+
+                discoveryStopFallback.stop()
+                discoverySessionTimeout.stop()
+                state.discovering = false
+
+                if (failedEarly)
+                    state.errorText = "Bluetooth discovery could not stay active."
+
+                state.discoveryStopping = false
+                refreshSoon.restart()
+            }
         }
     }
 
@@ -196,17 +269,38 @@ Scope {
         onTriggered: state.refresh()
     }
 
-    // BlueZ discovery is asynchronous. InterfacesAdded signals remain the fast
-    // path, but some adapters/drivers do not surface every discovery update to
-    // the monitor process promptly. While discovery is active, sample the
-    // authoritative ObjectManager snapshot at a short bounded cadence so newly
-    // found devices become visible in the panel within about a second instead
-    // of waiting for the 12-second reconnect fallback.
+    Timer {
+        id: discoveryStartVerify
+        interval: 650
+        onTriggered: state.refresh()
+    }
+
+    // Discovery is intentionally bounded. Twenty seconds is long enough for
+    // normal LE/BR-EDR discovery while avoiding a forgotten battery-draining
+    // scan if the panel is left open.
+    Timer {
+        id: discoverySessionTimeout
+        interval: 20000
+        onTriggered: state.stopDiscovery()
+    }
+
+    Timer {
+        id: discoveryStopFallback
+        interval: 700
+        onTriggered: {
+            if (discoverySession.running)
+                discoverySession.running = false
+        }
+    }
+
+    // InterfacesAdded signals remain the fast path. While Maho owns the scan,
+    // also sample ObjectManager at a short bounded cadence so adapters/drivers
+    // that delay monitor output still surface devices within about one second.
     Timer {
         id: discoveryRefresh
         interval: 900
         repeat: true
-        running: state.bluetoothEnabled && state.discovering
+        running: discoverySession.running
         onTriggered: state.refresh()
     }
 
