@@ -25,6 +25,11 @@ grep -Fq 'id: interactionPlate' "$ICON" || fail "whole-control hover plate missi
 grep -Fq 'width: root.interactionWidth' "$ICON" || fail "MouseArea does not use semantic hit width"
 grep -Fq 'height: root.interactionHeight' "$ICON" || fail "MouseArea does not use semantic hit height"
 grep -Fq 'z: 200' "$ICON" || fail "status hit target can fall behind sibling labels"
-grep -Fq 'root.statusInteractive ? 1.075 : 1' "$ICON" || fail "status icons lost larger resting optical scale"
+grep -Fq 'visualNudgeX' "$ICON" || fail "status cluster optical spacing nudge missing"
+grep -Fq 'return -3' "$ICON" || fail "Wi-Fi is no longer optically separated from battery"
+grep -Fq 'return 3' "$ICON" || fail "keyboard is no longer optically separated from battery"
+grep -Fq 'root.statusInteractive ? 1.10 : 1' "$ICON" || fail "interactive status glyphs lost larger resting scale"
+grep -Fq 'root.statusInteractive ? 1.16 : 1.075' "$ICON" || fail "interactive status hover scale drifted"
+grep -Fq 'to: 0.82' "$ICON" || fail "charging pulse is too strong or missing"
 
-pass "top-right status controls expose full icon+label hit targets"
+pass "top-right status controls expose full targets with calm optical spacing"
