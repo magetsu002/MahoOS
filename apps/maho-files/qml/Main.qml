@@ -27,6 +27,7 @@ ApplicationWindow {
     property string viewMode: "grid"
     property bool searchVisible: false
     property int selectedIndex: -1
+    property real sidebarWidth: 228
 
     function alpha(color, amount) {
         return Qt.rgba(color.r, color.g, color.b, amount)
@@ -66,9 +67,103 @@ ApplicationWindow {
     readonly property color quietRim: alpha(foreground, lightMode ? 0.13 : 0.095)
     readonly property color divider: alpha(foreground, lightMode ? 0.10 : 0.065)
 
+    component ToolbarGlyph: Canvas {
+        id: glyphCanvas
+        required property string symbol
+        property color strokeColor: root.foreground
+
+        implicitWidth: 20
+        implicitHeight: 20
+        width: implicitWidth
+        height: implicitHeight
+        antialiasing: true
+
+        onStrokeColorChanged: requestPaint()
+        onSymbolChanged: requestPaint()
+
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.reset()
+            ctx.strokeStyle = strokeColor
+            ctx.fillStyle = strokeColor
+            ctx.lineWidth = 1.8
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+
+            if (symbol === "back") {
+                ctx.beginPath()
+                ctx.moveTo(12.5, 4.5)
+                ctx.lineTo(6.5, 10)
+                ctx.lineTo(12.5, 15.5)
+                ctx.stroke()
+            } else if (symbol === "forward") {
+                ctx.beginPath()
+                ctx.moveTo(7.5, 4.5)
+                ctx.lineTo(13.5, 10)
+                ctx.lineTo(7.5, 15.5)
+                ctx.stroke()
+            } else if (symbol === "up") {
+                ctx.beginPath()
+                ctx.moveTo(5, 12.5)
+                ctx.lineTo(10, 7)
+                ctx.lineTo(15, 12.5)
+                ctx.stroke()
+            } else if (symbol === "home") {
+                ctx.beginPath()
+                ctx.moveTo(4.5, 9.5)
+                ctx.lineTo(10, 4.8)
+                ctx.lineTo(15.5, 9.5)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(6.2, 8.4)
+                ctx.lineTo(6.2, 15.3)
+                ctx.lineTo(13.8, 15.3)
+                ctx.lineTo(13.8, 8.4)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(9, 15.2)
+                ctx.lineTo(9, 11.6)
+                ctx.lineTo(11, 11.6)
+                ctx.lineTo(11, 15.2)
+                ctx.stroke()
+            } else if (symbol === "search") {
+                ctx.beginPath()
+                ctx.arc(8.4, 8.4, 4.5, 0, Math.PI * 2)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(11.8, 11.8)
+                ctx.lineTo(16, 16)
+                ctx.stroke()
+            } else if (symbol === "list") {
+                for (let y of [5.5, 10, 14.5]) {
+                    ctx.beginPath()
+                    ctx.arc(4.7, y, 0.9, 0, Math.PI * 2)
+                    ctx.fill()
+                    ctx.beginPath()
+                    ctx.moveTo(7.5, y)
+                    ctx.lineTo(15.5, y)
+                    ctx.stroke()
+                }
+            } else if (symbol === "grid") {
+                ctx.lineWidth = 1.6
+                ctx.strokeRect(4.2, 4.2, 4.5, 4.5)
+                ctx.strokeRect(11.3, 4.2, 4.5, 4.5)
+                ctx.strokeRect(4.2, 11.3, 4.5, 4.5)
+                ctx.strokeRect(11.3, 11.3, 4.5, 4.5)
+            } else if (symbol === "more") {
+                for (let x of [5.2, 10, 14.8]) {
+                    ctx.beginPath()
+                    ctx.arc(x, 10, 1.25, 0, Math.PI * 2)
+                    ctx.fill()
+                }
+            }
+        }
+    }
+
     component IconButton: Rectangle {
         id: button
-        required property string iconName
+        property string iconName: ""
+        property string glyph: ""
         property bool enabledState: true
         property bool activeState: false
         property string tooltip: ""
@@ -90,12 +185,20 @@ ApplicationWindow {
         Behavior on color { ColorAnimation { duration: 145 } }
         Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
 
+        ToolbarGlyph {
+            anchors.centerIn: parent
+            symbol: button.glyph
+            visible: button.glyph.length > 0
+            opacity: button.enabledState ? 0.96 : 0.48
+        }
+
         Image {
             anchors.centerIn: parent
             width: 18
             height: 18
+            visible: button.glyph.length === 0 && button.iconName.length > 0
             sourceSize: Qt.size(36, 36)
-            source: root.icon(button.iconName)
+            source: visible ? root.icon(button.iconName) : ""
             opacity: button.enabledState ? 0.92 : 0.48
             smooth: true
             mipmap: true
@@ -528,24 +631,24 @@ ApplicationWindow {
                     spacing: 6
 
                     IconButton {
-                        iconName: "go-previous"
+                        glyph: "back"
                         tooltip: "Back"
                         enabledState: directoryModel.canGoBack
                         onTriggered: directoryModel.goBack()
                     }
                     IconButton {
-                        iconName: "go-next"
+                        glyph: "forward"
                         tooltip: "Forward"
                         enabledState: directoryModel.canGoForward
                         onTriggered: directoryModel.goForward()
                     }
                     IconButton {
-                        iconName: "go-up"
+                        glyph: "up"
                         tooltip: "Up one folder"
                         onTriggered: directoryModel.goUp()
                     }
                     IconButton {
-                        iconName: "go-home"
+                        glyph: "home"
                         tooltip: "Home"
                         onTriggered: directoryModel.goHome()
                     }
@@ -597,7 +700,7 @@ ApplicationWindow {
                     }
 
                     IconButton {
-                        iconName: "edit-find"
+                        glyph: "search"
                         tooltip: "Search"
                         activeState: root.searchVisible
                         onTriggered: {
@@ -611,14 +714,14 @@ ApplicationWindow {
                     }
 
                     IconButton {
-                        iconName: root.viewMode === "grid" ? "view-list-details" : "view-grid"
+                        glyph: root.viewMode === "grid" ? "list" : "grid"
                         tooltip: root.viewMode === "grid" ? "List view" : "Grid view"
                         onTriggered: root.viewMode = root.viewMode === "grid" ? "list" : "grid"
                     }
 
                     IconButton {
                         id: moreButton
-                        iconName: "application-menu"
+                        glyph: "more"
                         tooltip: "More"
                         onTriggered: morePopup.openBelow(moreButton)
                     }
@@ -689,17 +792,9 @@ ApplicationWindow {
                 spacing: 0
 
                 Rectangle {
-                    Layout.preferredWidth: 228
+                    Layout.preferredWidth: root.sidebarWidth
                     Layout.fillHeight: true
                     color: root.sidebarFill
-
-                    Rectangle {
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        anchors.right: parent.right
-                        width: 1
-                        color: root.divider
-                    }
 
                     ListView {
                         id: placesView
@@ -830,6 +925,50 @@ ApplicationWindow {
                                 onTapped: placesController.activate(placeDelegate.index)
                             }
                         }
+                    }
+                }
+
+                Item {
+                    id: sidebarSplitter
+                    Layout.preferredWidth: 7
+                    Layout.fillHeight: true
+                    property real dragStartWidth: root.sidebarWidth
+
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: splitterHover.hovered || splitterDrag.active ? 2 : 1
+                        color: splitterHover.hovered || splitterDrag.active
+                            ? root.alpha(root.accent, 0.48)
+                            : root.divider
+
+                        Behavior on width { NumberAnimation { duration: 100 } }
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                    }
+
+                    HoverHandler {
+                        id: splitterHover
+                        cursorShape: Qt.SizeHorCursor
+                    }
+
+                    DragHandler {
+                        id: splitterDrag
+                        target: null
+                        acceptedButtons: Qt.LeftButton
+                        onActiveChanged: {
+                            if (active)
+                                sidebarSplitter.dragStartWidth = root.sidebarWidth
+                        }
+                        onTranslationChanged: {
+                            if (active)
+                                root.sidebarWidth = Math.max(180, Math.min(420, sidebarSplitter.dragStartWidth + translation.x))
+                        }
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        onDoubleTapped: root.sidebarWidth = 228
                     }
                 }
 
