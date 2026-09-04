@@ -6,6 +6,7 @@
 #include <QCommandLineParser>
 #include <QFileInfo>
 #include <QIcon>
+#include <QPainter>
 #include <QPixmap>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -18,8 +19,9 @@
 class ThemeIconProvider final : public QQuickImageProvider
 {
 public:
-    ThemeIconProvider()
+    explicit ThemeIconProvider(MahoPalette *palette)
         : QQuickImageProvider(QQuickImageProvider::Pixmap)
+        , m_palette(palette)
     {
     }
 
@@ -42,11 +44,54 @@ public:
         if (target.height() <= 0)
             target.setHeight(64);
 
-        const QPixmap pixmap = icon.pixmap(target);
+        QPixmap pixmap = icon.pixmap(target);
+        if (m_palette && shouldTintUiIcon(decoded) && !pixmap.isNull()) {
+            QPixmap tinted(pixmap.size());
+            tinted.fill(Qt::transparent);
+
+            QPainter painter(&tinted);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.drawPixmap(0, 0, pixmap);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+
+            QColor tint = m_palette->foreground();
+            tint.setAlphaF(0.94);
+            painter.fillRect(tinted.rect(), tint);
+            painter.end();
+
+            pixmap = tinted;
+        }
+
         if (size)
             *size = pixmap.size();
         return pixmap;
     }
+
+private:
+    static bool shouldTintUiIcon(const QString &name)
+    {
+        if (name.startsWith(QStringLiteral("go-"))
+            || name.startsWith(QStringLiteral("edit-"))
+            || name.startsWith(QStringLiteral("view-"))) {
+            return true;
+        }
+
+        if (name.contains(QStringLiteral("recent"), Qt::CaseInsensitive)
+            || name.contains(QStringLiteral("timeline"), Qt::CaseInsensitive)
+            || name.contains(QStringLiteral("calendar"), Qt::CaseInsensitive)) {
+            return true;
+        }
+
+        return name == QStringLiteral("application-menu")
+            || name == QStringLiteral("folder-new")
+            || name == QStringLiteral("folder-open")
+            || name == QStringLiteral("document-open")
+            || name == QStringLiteral("user-trash")
+            || name == QStringLiteral("media-eject")
+            || name == QStringLiteral("dialog-error");
+    }
+
+    MahoPalette *m_palette = nullptr;
 };
 
 int main(int argc, char *argv[])
@@ -76,7 +121,7 @@ int main(int argc, char *argv[])
         directoryModel.openLocation(positional.constFirst());
 
     QQmlApplicationEngine engine;
-    engine.addImageProvider(QStringLiteral("mahoicons"), new ThemeIconProvider);
+    engine.addImageProvider(QStringLiteral("mahoicons"), new ThemeIconProvider(&palette));
     engine.rootContext()->setContextProperty(QStringLiteral("directoryModel"), &directoryModel);
     engine.rootContext()->setContextProperty(QStringLiteral("placesModel"), &placesModel);
     engine.rootContext()->setContextProperty(QStringLiteral("placesController"), &placesController);
