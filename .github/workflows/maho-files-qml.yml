@@ -1,0 +1,52 @@
+name: maho-files-qml
+
+on:
+  push:
+    branches:
+      - 'feat/maho-files-qml'
+      - 'feat/maho-files-qml-*'
+      - 'fix/maho-files-qml-*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-and-build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+      - name: Install Arch build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            base-devel \
+            cmake \
+            ninja \
+            qt6-base \
+            qt6-declarative \
+            kio
+
+      - uses: actions/checkout@v4
+
+      - name: Architecture contracts
+        run: |
+          bash tests/maho-files-qml-contracts.sh
+
+      - name: Configure native app
+        run: |
+          cmake \
+            -S apps/maho-files \
+            -B build/maho-files \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile native app and QML cache
+        run: |
+          cmake --build build/maho-files --parallel 2
+
+      - name: Binary proof
+        run: |
+          test -x build/maho-files/maho-files
+          build/maho-files/maho-files --version
