@@ -39,9 +39,20 @@ Item {
     readonly property bool statusInteractive:
         name === "wifi" || name === "battery" || name === "keyboard"
 
-    // The visible icon stays restrained, but the whole status control receives
-    // a desktop-sized hit target. Battery/keyboard targets intentionally extend
-    // over their sibling text labels so "100%" and "US" are clickable too.
+    // Keep the compact target composition, but optically spread the outer
+    // Wi-Fi/keyboard controls so the three status groups do not read as one
+    // cramped icon cluster. Battery stays centered with its percentage label.
+    readonly property real visualNudgeX: {
+        if (name === "wifi")
+            return -3
+        if (name === "keyboard")
+            return 3
+        return 0
+    }
+
+    // Desktop-sized semantic hit targets. Battery/keyboard deliberately extend
+    // over the sibling text rendered by the parent Row, so 100% and US are not
+    // dead zones even though the visible glyph remains restrained.
     readonly property real interactionWidth: {
         if (name === "battery")
             return 69
@@ -51,7 +62,7 @@ Item {
             return 40
         return width
     }
-    readonly property real interactionHeight: statusInteractive ? 42 : height
+    readonly property real interactionHeight: statusInteractive ? 44 : height
     readonly property real interactionLeft: statusInteractive ? -9 : 0
     readonly property real interactionTop:
         statusInteractive ? (height - interactionHeight) / 2 : 0
@@ -96,12 +107,13 @@ Item {
 
         if (name === "keyboard") {
             showStatus("Keyboard", "Switching to next layout…")
-            if (!keyboardSwitch.running)
+            if (!keyboardSwitch.running) {
                 keyboardSwitch.exec([
                     "python",
                     Quickshell.shellPath("state.py"),
                     "--switch-layout",
                 ])
+            }
             return
         }
 
@@ -128,24 +140,21 @@ Item {
             chargingPulse = 1
     }
 
-    // One quiet hover plate covers the complete semantic control, including the
-    // adjacent percentage/layout text rendered by the parent Row.
     Rectangle {
         id: interactionPlate
-        x: root.interactionLeft
+        x: root.interactionLeft + root.visualNudgeX
         y: root.interactionTop
         width: root.interactionWidth
         height: root.interactionHeight
         radius: height / 2
         visible: root.statusInteractive
         color: root.pressed
-            ? Qt.rgba(1, 1, 1, 0.125)
+            ? Qt.rgba(1, 1, 1, 0.115)
             : (root.hovered || root.statusOpen
-                ? Qt.rgba(1, 1, 1, 0.070)
+                ? Qt.rgba(1, 1, 1, 0.062)
                 : "transparent")
         border.width: root.statusOpen ? 1 : 0
-        border.color: Qt.rgba(1, 1, 1, 0.105)
-        opacity: root.statusInteractive ? 1 : 0
+        border.color: Qt.rgba(1, 1, 1, 0.10)
 
         Behavior on color {
             ColorAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -158,11 +167,12 @@ Item {
     Item {
         id: iconVisual
         anchors.fill: parent
+        transform: Translate { x: root.visualNudgeX }
         scale: root.pressed
-            ? 0.94
+            ? 0.95
             : (root.hovered || root.statusOpen
-                ? (root.statusInteractive ? 1.14 : 1.075)
-                : (root.statusInteractive ? 1.075 : 1))
+                ? (root.statusInteractive ? 1.16 : 1.075)
+                : (root.statusInteractive ? 1.10 : 1))
 
         Behavior on scale {
             NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
@@ -178,8 +188,8 @@ Item {
             smooth: true
             mipmap: true
             asynchronous: false
-            sourceSize.width: Math.max(32, Math.ceil(width * 2.5))
-            sourceSize.height: Math.max(32, Math.ceil(height * 2.5))
+            sourceSize.width: Math.max(40, Math.ceil(width * 2.5))
+            sourceSize.height: Math.max(40, Math.ceil(height * 2.5))
         }
     }
 
@@ -190,15 +200,15 @@ Item {
         NumberAnimation {
             target: root
             property: "chargingPulse"
-            to: 0.70
-            duration: 720
+            to: 0.82
+            duration: 760
             easing.type: Easing.InOutSine
         }
         NumberAnimation {
             target: root
             property: "chargingPulse"
             to: 1
-            duration: 720
+            duration: 760
             easing.type: Easing.InOutSine
         }
     }
@@ -207,11 +217,11 @@ Item {
         id: statusBubble
         z: 1000
         anchors.top: parent.bottom
-        anchors.topMargin: 15
+        anchors.topMargin: 16
         anchors.right: parent.right
-        width: 246
-        height: 76
-        radius: 21
+        width: 250
+        height: 78
+        radius: 22
         visible: root.statusOpen || opacity > 0.001
         opacity: root.statusOpen ? 1 : 0
         scale: root.statusOpen ? 1 : 0.965
@@ -238,32 +248,32 @@ Item {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: 14
-            width: 38
-            height: 38
-            radius: 19
-            color: Qt.rgba(1, 1, 1, 0.075)
+            width: 40
+            height: 40
+            radius: 20
+            color: Qt.rgba(1, 1, 1, 0.072)
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.09)
 
             Image {
                 anchors.centerIn: parent
-                width: 20
-                height: 20
+                width: 21
+                height: 21
                 source: Quickshell.shellPath("icons/" + root.resolvedName + ".svg")
                 opacity: 0.93
                 fillMode: Image.PreserveAspectFit
                 smooth: true
                 mipmap: true
-                sourceSize.width: 50
-                sourceSize.height: 50
+                sourceSize.width: 52
+                sourceSize.height: 52
             }
         }
 
         Text {
             anchors.left: parent.left
-            anchors.leftMargin: 63
+            anchors.leftMargin: 66
             anchors.top: parent.top
-            anchors.topMargin: 16
+            anchors.topMargin: 17
             anchors.right: parent.right
             anchors.rightMargin: 14
             text: root.statusTitle
@@ -275,9 +285,9 @@ Item {
 
         Text {
             anchors.left: parent.left
-            anchors.leftMargin: 63
+            anchors.leftMargin: 66
             anchors.top: parent.top
-            anchors.topMargin: 40
+            anchors.topMargin: 42
             anchors.right: parent.right
             anchors.rightMargin: 14
             text: root.statusDetail
@@ -290,7 +300,7 @@ Item {
     MouseArea {
         id: pointer
         z: 200
-        x: root.interactionLeft
+        x: root.interactionLeft + root.visualNudgeX
         y: root.interactionTop
         width: root.interactionWidth
         height: root.interactionHeight
