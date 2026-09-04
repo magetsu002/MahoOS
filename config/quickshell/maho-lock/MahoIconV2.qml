@@ -8,8 +8,6 @@ Item {
 
     property string name: "lock"
     property real iconOpacity: 0.82
-    property string statusLabel: ""
-    property real statusIconSize: Math.min(width, height)
     property bool statusOpen: false
     property string statusTitle: ""
     property string statusDetail: ""
@@ -40,6 +38,63 @@ Item {
 
     readonly property bool statusInteractive:
         name === "wifi" || name === "battery" || name === "keyboard"
+
+    // The visible glyphs move apart slightly, but layout remains anchored to
+    // the accepted compact target composition.
+    readonly property real visualNudgeX: {
+        if (name === "wifi")
+            return -2
+        if (name === "keyboard")
+            return 2
+        return 0
+    }
+
+    // Hit geometry and hover geometry are deliberately separate. The pointer
+    // stays large enough to include the adjacent 100% / layout text, but each
+    // semantic target stops before its neighbor so two controls can never be
+    // hovered at once. The visible hover capsule is smaller again, preserving
+    // clear negative space between Wi-Fi, battery and keyboard.
+    readonly property real interactionWidth: {
+        if (name === "battery")
+            return 64
+        if (name === "keyboard")
+            return 52
+        if (name === "wifi")
+            return 34
+        return width
+    }
+    readonly property real interactionHeight: statusInteractive ? 42 : height
+    readonly property real interactionLeft: {
+        if (name === "keyboard")
+            return -6
+        if (statusInteractive)
+            return -7
+        return 0
+    }
+    readonly property real interactionTop:
+        statusInteractive ? (height - interactionHeight) / 2 : 0
+
+    readonly property real hoverWidth: {
+        if (name === "battery")
+            return 58
+        if (name === "keyboard")
+            return 46
+        if (name === "wifi")
+            return 30
+        return width
+    }
+    readonly property real hoverHeight: statusInteractive ? 34 : height
+    readonly property real hoverLeft: {
+        if (name === "battery")
+            return -4
+        if (name === "keyboard")
+            return -3
+        if (name === "wifi")
+            return -5
+        return 0
+    }
+    readonly property real hoverTop:
+        statusInteractive ? (height - hoverHeight) / 2 : 0
 
     readonly property string resolvedName: {
         if (name !== "battery")
@@ -114,21 +169,21 @@ Item {
             chargingPulse = 1
     }
 
-    // A status control owns its complete rectangular cell. The hover plate and
-    // pointer never extend into a neighboring control, so semantic hit targets
-    // stay generous without producing overlapping hover capsules.
     Rectangle {
         id: interactionPlate
-        anchors.fill: parent
-        visible: root.statusInteractive
+        x: root.hoverLeft + root.visualNudgeX
+        y: root.hoverTop
+        width: root.hoverWidth
+        height: root.hoverHeight
         radius: height / 2
+        visible: root.statusInteractive
         color: root.pressed
-            ? Qt.rgba(1, 1, 1, 0.115)
+            ? Qt.rgba(1, 1, 1, 0.105)
             : (root.hovered || root.statusOpen
-                ? Qt.rgba(1, 1, 1, 0.062)
+                ? Qt.rgba(1, 1, 1, 0.056)
                 : "transparent")
         border.width: root.statusOpen ? 1 : 0
-        border.color: Qt.rgba(1, 1, 1, 0.10)
+        border.color: Qt.rgba(1, 1, 1, 0.095)
 
         Behavior on color {
             ColorAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -138,65 +193,32 @@ Item {
         }
     }
 
-    // Ordinary glyph mode for lock/edit/eye/etc. Interactive top-right status
-    // controls use statusContent below so icon + wording are one real control.
     Item {
+        id: iconVisual
         anchors.fill: parent
-        visible: !root.statusInteractive
-        scale: root.pressed ? 0.95 : (root.hovered ? 1.075 : 1)
-
-        Behavior on scale {
-            NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
-        }
-
-        Image {
-            anchors.fill: parent
-            source: Quickshell.shellPath("icons/" + root.resolvedName + ".svg")
-            opacity: root.iconOpacity
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            mipmap: true
-            asynchronous: false
-            sourceSize.width: Math.max(40, Math.ceil(width * 2.5))
-            sourceSize.height: Math.max(40, Math.ceil(height * 2.5))
-        }
-    }
-
-    Row {
-        id: statusContent
-        anchors.centerIn: parent
-        visible: root.statusInteractive
-        spacing: root.statusLabel.length > 0 ? 6 : 0
+        transform: Translate { x: root.visualNudgeX }
         scale: root.pressed
             ? 0.955
-            : (root.hovered || root.statusOpen ? 1.055 : 1)
+            : (root.hovered || root.statusOpen
+                ? (root.statusInteractive ? 1.12 : 1.075)
+                : (root.statusInteractive ? 1.075 : 1))
 
         Behavior on scale {
             NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
         }
 
         Image {
-            width: root.statusIconSize
-            height: root.statusIconSize
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.centerIn: parent
+            width: parent.width
+            height: parent.height
             source: Quickshell.shellPath("icons/" + root.resolvedName + ".svg")
             opacity: root.iconOpacity * root.chargingPulse
             fillMode: Image.PreserveAspectFit
             smooth: true
             mipmap: true
             asynchronous: false
-            sourceSize.width: Math.max(48, Math.ceil(width * 2.75))
-            sourceSize.height: Math.max(48, Math.ceil(height * 2.75))
-        }
-
-        Text {
-            visible: root.statusLabel.length > 0
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.statusLabel
-            color: Qt.rgba(1, 1, 1, 0.96)
-            font.pixelSize: 13
-            font.weight: Font.Normal
-            renderType: Text.NativeRendering
+            sourceSize.width: Math.max(40, Math.ceil(width * 2.5))
+            sourceSize.height: Math.max(40, Math.ceil(height * 2.5))
         }
     }
 
@@ -207,15 +229,15 @@ Item {
         NumberAnimation {
             target: root
             property: "chargingPulse"
-            to: 0.82
-            duration: 760
+            to: 0.84
+            duration: 820
             easing.type: Easing.InOutSine
         }
         NumberAnimation {
             target: root
             property: "chargingPulse"
             to: 1
-            duration: 760
+            duration: 820
             easing.type: Easing.InOutSine
         }
     }
@@ -307,7 +329,10 @@ Item {
     MouseArea {
         id: pointer
         z: 200
-        anchors.fill: parent
+        x: root.interactionLeft + root.visualNudgeX
+        y: root.interactionTop
+        width: root.interactionWidth
+        height: root.interactionHeight
         enabled: root.statusInteractive
         hoverEnabled: true
         cursorShape: root.statusInteractive
