@@ -181,7 +181,7 @@ ApplicationWindow {
                         Layout.preferredHeight: 44
                         radius: 16
                         color: root.alpha(root.mix(root.surfaceElevated, root.background, 0.58), root.lightMode ? 0.48 : 0.40)
-                        border.width: pathField.activeFocus ? 1 : 1
+                        border.width: 1
                         border.color: pathField.activeFocus
                             ? root.alpha(root.accent, 0.28)
                             : root.alpha(root.foreground, 0.07)
@@ -191,7 +191,7 @@ ApplicationWindow {
                             anchors.fill: parent
                             anchors.leftMargin: 14
                             anchors.rightMargin: 14
-                            text: activeFocus ? text : directoryModel.displayPath
+                            text: directoryModel.displayPath
                             color: root.foreground
                             placeholderText: "Location"
                             placeholderTextColor: root.alpha(root.muted, 0.65)
@@ -200,10 +200,8 @@ ApplicationWindow {
                             background: Item {}
 
                             onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    text = directoryModel.displayPath
+                                if (activeFocus)
                                     selectAll()
-                                }
                             }
                             onAccepted: {
                                 directoryModel.openLocation(text)
