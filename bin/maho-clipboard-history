@@ -23,10 +23,19 @@ require_command() {
 }
 
 serve() {
+    require_command flock || return 1
     require_command wl-paste || return 1
     require_command cliphist || return 1
 
-    local text_pid image_pid status
+    local runtime_dir lock_file text_pid image_pid status
+    runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+    lock_file="$runtime_dir/maho-clipboard-history.lock"
+
+    exec 9>"$lock_file" || return 1
+    if ! flock -n 9; then
+        echo "maho-clipboard-history: capture owner already running" >&2
+        return 0
+    fi
 
     wl-paste --type text --watch cliphist store &
     text_pid=$!
