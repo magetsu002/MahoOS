@@ -65,9 +65,10 @@ grep -Fq 'MAHO_LOCK_WALLPAPER_FILE' "$PROBE" || fail "explicit wallpaper overrid
 grep -Fq 'random.SystemRandom().choice' "$PROBE" || fail "wallpaper randomization missing"
 grep -Fq -- '--pick-wallpaper' "$PROBE" || fail "wallpaper picker CLI missing"
 grep -Fq 'source: root.lockState.lockWallpaperUrl' "$BASE_VIEW" || fail "active view ignores lock wallpaper"
+grep -Fq 'root.lockState.chooseLockWallpaper()' "$VIEW" || fail "preview personalization cannot shuffle wallpaper"
 pass "random local lock wallpaper authority"
 
-# Battery icon now represents charge level and charging state.
+# Battery icon represents charge level and charging state, with calm charging motion.
 for name in battery battery-25 battery-50 battery-75 battery-full battery-charging; do
     [ -s "$LOCK_DIR/icons/$name.svg" ] || fail "missing battery asset: $name"
 done
@@ -77,18 +78,26 @@ grep -Fq 'batteryFull' "$ICON" || fail "full battery state missing"
 grep -Fq 'battery-25' "$ICON" || fail "low battery icon state missing"
 grep -Fq 'battery-full' "$ICON" || fail "full battery icon asset not selected"
 grep -Fq 'battery-charging' "$ICON" || fail "charging asset not selected"
+grep -Fq 'chargingPulse' "$ICON" || fail "charging state has no visual motion"
+grep -Fq 'Easing.InOutSine' "$ICON" || fail "charging pulse is not calm"
 grep -Fq 'Number.isFinite' "$STATE" || fail "battery percentage is not finite checked"
 grep -Fq 'batteryStatusText' "$STATE" || fail "battery semantic status missing"
-pass "semantic battery state"
+pass "semantic animated battery state"
 
-# Top-right chrome is no longer decorative-only.
+# Top-right chrome is interactive, animated, and bounded to lock-safe actions.
 grep -Fq 'statusInteractive' "$ICON" || fail "status icon interaction missing"
 grep -Fq 'name === "wifi"' "$ICON" || fail "Wi-Fi status interaction missing"
 grep -Fq 'name === "battery"' "$ICON" || fail "battery status interaction missing"
 grep -Fq 'name === "keyboard"' "$ICON" || fail "keyboard status interaction missing"
 grep -Fq 'statusBubble' "$ICON" || fail "status feedback bubble missing"
-grep -Fq 'switchxkblayout' "$ICON" || fail "keyboard icon does not switch layouts"
-pass "interactive status chrome"
+grep -Fq 'iconVisual' "$ICON" || fail "status hover/press animation missing"
+grep -Fq 'Manage in Maho Link after unlock' "$ICON" || fail "Wi-Fi interaction lacks safe routing"
+grep -Fq -- '--switch-layout' "$ICON" || fail "keyboard icon does not use bounded layout switch helper"
+grep -Fq 'Active layout' "$ICON" || fail "keyboard interaction lacks state feedback"
+if grep -Eq 'nmcli.*(radio|connection).*down|rfkill|ip link.*down' "$ICON"; then
+    fail "lock screen can destructively change network state"
+fi
+pass "animated lock-safe status chrome"
 
 # Password visibility has explicit eye-open and eye-slashed states.
 [ -s "$LOCK_DIR/icons/eye.svg" ] || fail "eye-open asset missing"
@@ -98,18 +107,23 @@ grep -Fq 'name: "eye-off"' "$BASE_VIEW" || fail "eye-slashed state missing"
 grep -Fq 'root.passwordVisible' "$BASE_VIEW" || fail "eye state is not visibility-driven"
 pass "password visibility glyph states"
 
-# Profile-photo editing is available only in non-locking preview mode.
+# Profile-photo editing is available only in non-locking preview mode and its
+# panel actually animates both open and closed instead of disappearing instantly.
 [ -s "$LOCK_DIR/icons/edit.svg" ] || fail "profile edit icon missing"
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V6 no longer preserves accepted V5 hierarchy"
 grep -Fq 'root.previewMode' "$VIEW" || fail "profile editor is not preview-gated"
+grep -Fq 'profileProgress' "$VIEW" || fail "profile panel transition state missing"
+grep -Fq 'root.profileOpen || root.profileProgress > 0.001' "$VIEW" || fail "profile panel cannot animate closed"
+grep -Fq 'avatarReveal' "$VIEW" || fail "profile photo entrance motion missing"
 grep -Fq 'refreshAvatarCandidates' "$VIEW" || fail "profile candidate UI missing"
 grep -Fq 'setAvatar' "$VIEW" || fail "profile selection action missing"
 grep -Fq 'clearAvatar' "$VIEW" || fail "initials reset action missing"
+grep -Fq 'New wallpaper' "$VIEW" || fail "personalization panel lacks wallpaper action"
 grep -Fq -- '--avatar-candidates' "$PROBE" || fail "avatar candidate CLI missing"
 grep -Fq -- '--set-avatar' "$PROBE" || fail "avatar persistence CLI missing"
 grep -Fq 'profile_state_path' "$PROBE" || fail "avatar persistence state missing"
 grep -Fq 'avatarPath' "$STATE" || fail "lock state does not expose avatar"
-pass "preview-only profile photo editor"
+pass "animated preview-only personalization editor"
 
 # Preview remains safe and renders the production view.
 grep -Fq 'PanelWindow {' "$PREVIEW" || fail "safe preview window missing"
@@ -147,4 +161,4 @@ if grep -Eq 'shell=True|os\.system|subprocess\.(run|Popen)\([^\n]*shell[[:space:
 fi
 pass "runtime ownership/security contract"
 
-printf 'PASS  Maho Lock V6 contracts\n'
+printf 'PASS  Maho Lock preinstall contracts\n'
