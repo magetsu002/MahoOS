@@ -4,11 +4,9 @@ import Quickshell
 Item {
     id: root
 
-    // These names intentionally differ from the window ids. Older builds used
-    // `theme: theme` / `backend: backend`, which could self-bind inside the
-    // delegate and leave row colors/model access undefined at runtime.
+    // The explicit theme role avoids the old self-binding ambiguity while the
+    // delegate emits only an index for authoritative parent-side activation.
     required property var theme
-    required property var backend
     required property int index
     required property string entryId
     required property string name
@@ -27,19 +25,6 @@ Item {
     readonly property var palette: root.theme || fallbackPalette
     readonly property bool pointerHovered: hover.hovered
     readonly property bool pressed: tap.pressed
-
-    // Preserve every activation role published by LauncherBackend. Keyboard
-    // and pointer activation both feed this stable payload to backend.activate.
-    property var modelData: ({
-        "entryId": root.entryId,
-        "id": root.entryId,
-        "name": root.name,
-        "description": root.description,
-        "icon": root.icon,
-        "iconPath": root.iconPath,
-        "path": root.path,
-        "kind": root.kind
-    })
 
     height: 58
     x: root.pointerHovered && !root.selected ? 2 : 0
@@ -175,7 +160,7 @@ Item {
         gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: {
             root.hovered(root.index)
-            root.backend.activate(root.modelData)
+            root.activated(root.index)
         }
     }
 }

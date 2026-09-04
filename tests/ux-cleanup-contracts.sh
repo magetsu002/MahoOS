@@ -79,18 +79,19 @@ PY
 printf '%s\n' 'PASS  Clipboard short/multiline/leading-newline/whitespace previews'
 
 printf '%s\n' '=== Launcher canonical activation contract ==='
-# backend.activate(item) is the one action authority. Keyboard feeds the
-# current row into it; the same single left-click gesture feeds the clicked
-# delegate payload into it directly, with no second click/Enter dependency.
-require_text "$LAUNCHER_WINDOW" 'backend.activate(resultList.currentItem.modelData)' 'Enter no longer reaches canonical backend activation'
-require_text "$LAUNCHER_ROW" 'root.backend.activate(root.modelData)' 'single left click does not reach canonical backend activation'
+# activateItem(index) performs the authoritative backend lookup. Both Enter
+# and a single left click feed only an index into that same path.
+require_text "$LAUNCHER_WINDOW" 'function activateItem(index)' 'Launcher has no canonical activation entry point'
+require_text "$LAUNCHER_WINDOW" 'const authoritativeRow = backend.itemAt(index)' 'activation does not resolve the current authoritative row'
+require_text "$LAUNCHER_WINDOW" 'backend.activate(authoritativeRow)' 'canonical activation does not reach the backend'
+require_text "$LAUNCHER_WINDOW" 'activateItem(resultList.currentIndex)' 'Enter no longer reaches canonical activation'
+require_text "$LAUNCHER_WINDOW" 'root.activateItem(rowIndex)' 'single left click does not reach canonical activation'
 require_text "$LAUNCHER_ROW" 'acceptedButtons: Qt.LeftButton' 'result row does not explicitly own left click'
 require_text "$LAUNCHER_ROW" 'gesturePolicy: TapHandler.ReleaseWithinBounds' 'result click gesture contract drifted'
-require_text "$LAUNCHER_ROW" '"path": root.path' 'Files activation payload loses its path role'
-require_text "$LAUNCHER_ROW" '"kind": root.kind' 'activation payload loses its kind role'
 require_text "$LAUNCHER_ROW" 'root.hovered(root.index)' 'click does not update visual selection before activation'
-reject_text "$LAUNCHER_ROW" 'onTapped: root.activated(root.index)' 'mouse click still only emits and depends on a second parent-side activation path'
-printf '%s\n' 'PASS  keyboard and mouse converge on backend.activate'
+require_text "$LAUNCHER_ROW" 'root.activated(root.index)' 'row does not publish its clicked index'
+reject_text "$LAUNCHER_ROW" 'modelData' 'delegate-local model data can still bypass authoritative lookup'
+printf '%s\n' 'PASS  keyboard and mouse converge on authoritative activateItem'
 
 printf '%s\n' '=== Launcher full-output blur contract ==='
 for edge in 'top: true' 'bottom: true' 'left: true' 'right: true'; do

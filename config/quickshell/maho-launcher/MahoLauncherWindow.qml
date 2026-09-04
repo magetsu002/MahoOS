@@ -142,11 +142,17 @@ PanelWindow {
         resultList.positionViewAtIndex(next, ListView.Contain)
     }
 
-    function activateSelected() {
+    function activateItem(index) {
         quickActionsOpen = false
-        if (resultList.currentIndex < 0 || !resultList.currentItem)
+        const authoritativeRow = backend.itemAt(index)
+        if (!authoritativeRow)
             return
-        backend.activate(resultList.currentItem.modelData)
+        resultList.currentIndex = index
+        backend.activate(authoritativeRow)
+    }
+
+    function activateSelected() {
+        activateItem(resultList.currentIndex)
     }
 
     NumberAnimation {
@@ -633,12 +639,10 @@ PanelWindow {
                             delegate: LauncherResultRow {
                                 width: ListView.view.width
                                 theme: theme
-                                backend: backend
                                 selected: ListView.isCurrentItem
                                 onHovered: function(rowIndex) { resultList.currentIndex = rowIndex }
                                 onActivated: function(rowIndex) {
-                                    resultList.currentIndex = rowIndex
-                                    backend.activate(modelData)
+                                    root.activateItem(rowIndex)
                                 }
                             }
                         }
