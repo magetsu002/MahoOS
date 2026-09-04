@@ -19,6 +19,8 @@ qt_add_executable(maho-files
     src/MahoDirectoryModel.h
     src/MahoPalette.cpp
     src/MahoPalette.h
+    src/MahoPlacesController.cpp
+    src/MahoPlacesController.h
 )
 
 qt_add_qml_module(maho-files
