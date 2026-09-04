@@ -4,13 +4,31 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${MAHO_LOCK_CONFIG:-$ROOT/config/quickshell/maho-lock/shell.qml}"
+PREVIEW_CONFIG="${MAHO_LOCK_PREVIEW_CONFIG:-$ROOT/config/quickshell/maho-lock/preview.qml}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOCK_FILE="$RUNTIME_DIR/maho-lock.lock"
 
-if [ "$#" -ne 0 ]; then
-    echo "maho-lock: no arguments are supported" >&2
-    exit 2
-fi
+mode="secure"
+case "${1:-}" in
+    '') ;;
+    --preview) mode="preview" ;;
+    -h|--help)
+        cat <<'HELP'
+Maho Lock
+
+Usage:
+  maho-lock             Securely lock the Wayland session.
+  maho-lock --preview   Show the exact lock UI without acquiring a session lock.
+
+The preview is for visual/input acceptance only. Press Escape to close it.
+HELP
+        exit 0
+        ;;
+    *)
+        echo "maho-lock: unsupported argument: $1" >&2
+        exit 2
+        ;;
+esac
 
 for dependency in quickshell flock; do
     command -v "$dependency" >/dev/null 2>&1 || {
@@ -18,6 +36,15 @@ for dependency in quickshell flock; do
         exit 1
     }
 done
+
+if [ "$mode" = "preview" ]; then
+    [ -r "$PREVIEW_CONFIG" ] || {
+        echo "maho-lock: preview configuration missing: $PREVIEW_CONFIG" >&2
+        exit 1
+    }
+
+    exec quickshell --no-duplicate -p "$PREVIEW_CONFIG"
+fi
 
 [ -r "$CONFIG" ] || {
     echo "maho-lock: configuration missing: $CONFIG" >&2
