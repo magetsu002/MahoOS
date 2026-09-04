@@ -7,11 +7,13 @@ on:
   pull_request:
     paths:
       - 'bin/maho-lock'
+      - 'bin/maho-lock-install'
       - 'config/quickshell/maho-lock/**'
       - 'config/hypr/maho/core/binds.lua'
       - 'bin/maho-setup'
       - 'tests/maho-lock-contracts.sh'
       - 'tests/maho-lock-status-targets.sh'
+      - 'tests/maho-lock-install-contracts.sh'
       - '.github/workflows/maho-lock.yml'
 
 permissions:
@@ -28,8 +30,10 @@ jobs:
           set -euo pipefail
           bash -n \
             bin/maho-lock \
+            bin/maho-lock-install \
             tests/maho-lock-contracts.sh \
-            tests/maho-lock-status-targets.sh
+            tests/maho-lock-status-targets.sh \
+            tests/maho-lock-install-contracts.sh
           python3 -m py_compile config/quickshell/maho-lock/state.py
 
       - name: Maho Lock contracts
@@ -37,3 +41,4 @@ jobs:
           set -euo pipefail
           bash tests/maho-lock-contracts.sh
           bash tests/maho-lock-status-targets.sh
+          bash tests/maho-lock-install-contracts.sh
