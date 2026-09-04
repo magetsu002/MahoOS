@@ -26,19 +26,3 @@ hl.config({
         },
     },
 })
-
--- Maho Clipboard is a full-screen layer surface with a translucent bottom
--- sheet inside it. Blur only pixels above the low-alpha backdrop threshold so
--- the desktop remains crisp outside the sheet while the sheet receives real
--- compositor blur. QML owns the rise/fall motion, so compositor animation is
--- disabled for this namespace to avoid two animations fighting each other.
-hl.layer_rule({
-    name = "maho-clipboard-glass",
-    match = {
-        namespace = "maho-clipboard",
-    },
-    blur = true,
-    ignore_alpha = 0.16,
-    xray = false,
-    no_anim = true,
-})
