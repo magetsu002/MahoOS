@@ -2,9 +2,9 @@
 #include "MahoPalette.h"
 #include "MahoPlacesController.h"
 
+#include <QApplication>
 #include <QCommandLineParser>
 #include <QFileInfo>
-#include <QGuiApplication>
 #include <QIcon>
 #include <QPixmap>
 #include <QQmlApplicationEngine>
@@ -51,11 +51,11 @@ public:
 
 int main(int argc, char *argv[])
 {
-    QGuiApplication application(argc, argv);
+    QApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("MahoOS"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("maho.local"));
     QCoreApplication::setApplicationName(QStringLiteral("Maho Files"));
-    QGuiApplication::setDesktopFileName(QStringLiteral("io.maho.Files"));
+    QApplication::setDesktopFileName(QStringLiteral("io.maho.Files"));
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
