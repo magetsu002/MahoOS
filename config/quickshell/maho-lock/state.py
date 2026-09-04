@@ -121,6 +121,26 @@ def profile_state_path():
     return state_home() / "maho/lock/profile.json"
 
 
+def load_profile_payload():
+    try:
+        payload = json.loads(profile_state_path().read_text())
+    except (OSError, ValueError, TypeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_profile_payload(payload):
+    profile = profile_state_path()
+    try:
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        tmp = profile.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")))
+        tmp.replace(profile)
+    except OSError:
+        return False
+    return True
+
+
 def resolve_image(raw):
     if not isinstance(raw, str) or not raw:
         return None
@@ -145,6 +165,20 @@ def active_wallpaper():
 
 def explicit_wallpaper_file():
     return resolve_image(os.environ.get("MAHO_LOCK_WALLPAPER_FILE", "").strip())
+
+
+def saved_wallpaper():
+    return resolve_image(load_profile_payload().get("wallpaperPath"))
+
+
+def save_wallpaper(path):
+    target = resolve_image(str(path))
+    if target is None:
+        return None
+
+    payload = load_profile_payload()
+    payload["wallpaperPath"] = str(target)
+    return target if write_profile_payload(payload) else None
 
 
 def wallpaper_roots(active):
@@ -220,10 +254,15 @@ def last_wallpaper_file():
     return runtime / f"maho-lock-last-wallpaper-{os.getuid()}"
 
 
-def choose_lock_wallpaper():
+def choose_lock_wallpaper(use_saved=True):
     explicit = explicit_wallpaper_file()
     if explicit is not None:
         return explicit
+
+    if use_saved:
+        saved = saved_wallpaper()
+        if saved is not None:
+            return saved
 
     candidates = wallpaper_candidates()
     if not candidates:
@@ -318,11 +357,7 @@ def avatar_candidates():
 
 
 def saved_avatar():
-    try:
-        payload = json.loads(profile_state_path().read_text())
-    except (OSError, ValueError, TypeError):
-        return None
-    return resolve_image(payload.get("avatarPath"))
+    return resolve_image(load_profile_payload().get("avatarPath"))
 
 
 def save_avatar(path):
@@ -330,29 +365,28 @@ def save_avatar(path):
     if target is None:
         return False
 
-    profile = profile_state_path()
-    try:
-        profile.parent.mkdir(parents=True, exist_ok=True)
-        tmp = profile.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"avatarPath": str(target)}, separators=(",", ":")))
-        tmp.replace(profile)
-    except OSError:
-        return False
-    return True
+    payload = load_profile_payload()
+    payload["avatarPath"] = str(target)
+    return write_profile_payload(payload)
 
 
 def clear_avatar():
-    try:
-        profile_state_path().unlink(missing_ok=True)
-    except OSError:
-        return False
-    return True
+    payload = load_profile_payload()
+    payload.pop("avatarPath", None)
+    if not payload:
+        try:
+            profile_state_path().unlink(missing_ok=True)
+        except OSError:
+            return False
+        return True
+    return write_profile_payload(payload)
 
 
 def ambient_payload():
     username, display_name = user_identity()
     network_kind, network_name = network_info()
     avatar = saved_avatar()
+    wallpaper = saved_wallpaper()
     return {
         "userName": username,
         "displayName": display_name,
@@ -361,14 +395,25 @@ def ambient_payload():
         "keyboardLayout": keyboard_layout(),
         "switchUserCommand": switch_user_command(),
         "avatarPath": str(avatar) if avatar else "",
+        "savedWallpaperPath": str(wallpaper) if wallpaper else "",
     }
 
 
 def main():
     if len(sys.argv) == 2 and sys.argv[1] == "--pick-wallpaper":
-        selected = choose_lock_wallpaper()
+        selected = choose_lock_wallpaper(use_saved=True)
         print(json.dumps({"path": str(selected) if selected else ""}, separators=(",", ":")))
         return 0
+
+    if len(sys.argv) == 2 and sys.argv[1] == "--shuffle-wallpaper":
+        selected = choose_lock_wallpaper(use_saved=False)
+        print(json.dumps({"path": str(selected) if selected else ""}, separators=(",", ":")))
+        return 0
+
+    if len(sys.argv) == 3 and sys.argv[1] == "--set-wallpaper":
+        selected = save_wallpaper(sys.argv[2])
+        print(json.dumps({"ok": selected is not None, "path": str(selected) if selected else ""}, separators=(",", ":")))
+        return 0 if selected is not None else 1
 
     if len(sys.argv) == 2 and sys.argv[1] == "--avatar-candidates":
         print(json.dumps({"paths": [str(path) for path in avatar_candidates()]}, separators=(",", ":")))
@@ -376,7 +421,8 @@ def main():
 
     if len(sys.argv) == 3 and sys.argv[1] == "--set-avatar":
         ok = save_avatar(sys.argv[2])
-        print(json.dumps({"ok": ok, "path": sys.argv[2] if ok else ""}, separators=(",", ":")))
+        resolved = saved_avatar() if ok else None
+        print(json.dumps({"ok": ok, "path": str(resolved) if resolved else ""}, separators=(",", ":")))
         return 0 if ok else 1
 
     if len(sys.argv) == 2 and sys.argv[1] == "--clear-avatar":
@@ -391,7 +437,7 @@ def main():
 
     if len(sys.argv) != 1:
         print(
-            "usage: state.py [--pick-wallpaper|--avatar-candidates|--set-avatar PATH|--clear-avatar|--switch-layout]",
+            "usage: state.py [--pick-wallpaper|--shuffle-wallpaper|--set-wallpaper PATH|--avatar-candidates|--set-avatar PATH|--clear-avatar|--switch-layout]",
             file=sys.stderr,
         )
         return 2
