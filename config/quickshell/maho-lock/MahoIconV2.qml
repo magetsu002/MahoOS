@@ -38,6 +38,7 @@ Item {
 
     readonly property bool statusInteractive:
         name === "wifi" || name === "battery" || name === "keyboard"
+    readonly property bool statusParticipant: statusInteractive
 
     // The visible glyphs move apart slightly, but layout remains anchored to
     // the accepted compact target composition.
@@ -123,7 +124,33 @@ Item {
         return percent + "% · On battery"
     }
 
+    function rootItem() {
+        let node = root
+        while (node.parent)
+            node = node.parent
+        return node
+    }
+
+    function closePeerStatuses(node) {
+        if (!node || !node.children)
+            return
+
+        const children = node.children
+        for (let index = 0; index < children.length; index++) {
+            const child = children[index]
+            if (child !== root
+                && child.statusParticipant === true
+                && child.statusOpen === true) {
+                child.statusOpen = false
+            }
+            closePeerStatuses(child)
+        }
+    }
+
     function showStatus(title, detail) {
+        // One authority at a time: opening a status surface atomically closes
+        // every peer Wi-Fi / battery / keyboard surface first.
+        closePeerStatuses(rootItem())
         statusTitle = title
         statusDetail = detail
         statusOpen = true
@@ -134,6 +161,12 @@ Item {
         if (!statusInteractive)
             return
 
+        if (statusOpen) {
+            statusOpen = false
+            closeTimer.stop()
+            return
+        }
+
         if (name === "keyboard") {
             showStatus("Keyboard", "Switching to next layout…")
             if (!keyboardSwitch.running) {
@@ -143,12 +176,6 @@ Item {
                     "--switch-layout",
                 ])
             }
-            return
-        }
-
-        if (statusOpen) {
-            statusOpen = false
-            closeTimer.stop()
             return
         }
 
@@ -251,7 +278,9 @@ Item {
         width: 250
         height: 78
         radius: 22
-        visible: root.statusOpen || opacity > 0.001
+        // Previous peers disappear immediately when another status control is
+        // activated. That prevents the stacked-card mess seen in native preview.
+        visible: root.statusOpen
         opacity: root.statusOpen ? 1 : 0
         scale: root.statusOpen ? 1 : 0.965
         color: Qt.rgba(0.070, 0.085, 0.115, 0.90)
