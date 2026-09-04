@@ -12,6 +12,15 @@ hl.bind(
     hl.dsp.exec_cmd([["$HOME/.local/bin/qs-wallpaper-picker"]])
 )
 
+-- Secure session lock. The managed markers are also used by the standalone
+-- Maho Lock installer so the live binding can be upgraded or removed safely.
+-- maho-lock-bind:begin
+hl.bind(
+    mainMod .. " + L",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
+)
+-- maho-lock-bind:end
+
 -- Laptop media keys. On laptops the Fn layer normally reaches Hyprland as
 -- XF86 keysyms rather than as a literal Fn+F-key chord. These bindings mutate
 -- the real system services; Maho Shell observes those service changes and
