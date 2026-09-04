@@ -1,6 +1,7 @@
 #include "MahoDirectoryModel.h"
 
 #include <QClipboard>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QGuiApplication>
@@ -10,6 +11,7 @@
 
 #include <KIO/CopyJob>
 #include <KIO/Job>
+#include <KIO/ListJob>
 #include <KIO/MkdirJob>
 #include <KJob>
 
@@ -58,7 +60,8 @@ MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
     });
 
     connect(&m_lister, &KCoreDirLister::canceled, this, [this]() {
-        setLoading(false);
+        if (!m_recentJob)
+            setLoading(false);
     });
 
     connect(&m_lister, &KCoreDirLister::jobError, this, [this](KIO::Job *job) {
@@ -156,6 +159,17 @@ QUrl MahoDirectoryModel::currentUrl() const
 
 QString MahoDirectoryModel::displayPath() const
 {
+    if (m_currentUrl.scheme() == QStringLiteral("timeline")) {
+        const QDate date = timelineDate(m_currentUrl);
+        if (date == QDate::currentDate())
+            return QStringLiteral("Modified Today");
+        if (date == QDate::currentDate().addDays(-1))
+            return QStringLiteral("Modified Yesterday");
+        if (date.isValid())
+            return QStringLiteral("Modified %1").arg(QLocale().toString(date, QLocale::ShortFormat));
+        return QStringLiteral("Recent Files");
+    }
+
     if (m_currentUrl.isLocalFile())
         return QDir::toNativeSeparators(m_currentUrl.toLocalFile());
     return m_currentUrl.toDisplayString(QUrl::PreferLocalFile);
@@ -203,6 +217,9 @@ QString MahoDirectoryModel::operationMessage() const
 
 bool MahoDirectoryModel::canPaste() const
 {
+    if (!m_currentUrl.isLocalFile())
+        return false;
+
     const QClipboard *clipboard = QGuiApplication::clipboard();
     const QMimeData *mime = clipboard ? clipboard->mimeData() : nullptr;
     return mime && !mime->urls().isEmpty();
@@ -256,6 +273,11 @@ void MahoDirectoryModel::goUp()
 {
     if (!m_currentUrl.isValid())
         return;
+
+    if (m_currentUrl.scheme() == QStringLiteral("timeline")) {
+        goHome();
+        return;
+    }
 
     QUrl parent = m_currentUrl.adjusted(QUrl::StripTrailingSlash);
     parent = parent.adjusted(QUrl::RemoveFilename);
@@ -319,7 +341,7 @@ void MahoDirectoryModel::createFolder(const QString &name)
 
     const QUrl destination = childUrl(trimmed);
     if (!destination.isValid()) {
-        setOperationMessage(QStringLiteral("Could not create that folder here."));
+        setOperationMessage(QStringLiteral("Create a folder from a writable local location."));
         return;
     }
 
@@ -391,8 +413,8 @@ void MahoDirectoryModel::paste()
         return;
     }
 
-    if (!m_currentUrl.isValid() || m_currentUrl.isEmpty()) {
-        setOperationMessage(QStringLiteral("This location cannot accept pasted files."));
+    if (!m_currentUrl.isLocalFile()) {
+        setOperationMessage(QStringLiteral("Paste is available from a writable local folder."));
         return;
     }
 
@@ -413,26 +435,133 @@ void MahoDirectoryModel::navigate(const QUrl &url, bool recordHistory)
         return;
     }
 
-    if (recordHistory) {
-        if (m_historyIndex + 1 < m_history.size())
-            m_history.resize(m_historyIndex + 1);
-
-        if (m_history.isEmpty() || m_history.constLast() != url)
-            m_history.append(url);
-
-        m_historyIndex = m_history.size() - 1;
-        emit historyChanged();
-
-        if (!m_searchQuery.isEmpty()) {
-            m_searchQuery.clear();
-            emit searchQueryChanged();
-        }
+    if (url.scheme() == QStringLiteral("timeline")) {
+        navigateTimeline(url, recordHistory);
+        return;
     }
 
+    cancelRecentJob();
+    recordNavigation(url, recordHistory);
     setCurrentUrl(url);
     setLoading(true);
     setErrorString({});
     m_lister.openUrl(url, KCoreDirLister::Reload);
+}
+
+void MahoDirectoryModel::navigateTimeline(const QUrl &url, bool recordHistory)
+{
+    const QDate targetDate = timelineDate(url);
+    if (!targetDate.isValid()) {
+        setErrorString(QStringLiteral("This recent-files view is not valid."));
+        return;
+    }
+
+    cancelRecentJob();
+    m_lister.stop();
+    recordNavigation(url, recordHistory);
+    setCurrentUrl(url);
+    setErrorString({});
+    setLoading(true);
+
+    beginResetModel();
+    m_sourceItems.clear();
+    m_items.clear();
+    endResetModel();
+
+    m_recentTargetDate = targetDate;
+    const auto listFlags = m_showHidden
+        ? KIO::ListJob::ListFlag::IncludeHidden
+        : KIO::ListJob::ListFlag::ExcludeHidden;
+
+    KIO::ListJob *job = KIO::listRecursive(
+        QUrl::fromLocalFile(QDir::homePath()),
+        KIO::HideProgressInfo,
+        listFlags);
+    job->setUiDelegate(nullptr);
+    m_recentJob = job;
+
+    connect(job, &KIO::ListJob::entries, this,
+            [this, job](KIO::Job *sourceJob, const KIO::UDSEntryList &entries) {
+        if (m_recentJob != job)
+            return;
+
+        auto *listJob = static_cast<KIO::ListJob *>(sourceJob);
+        bool changed = false;
+        for (const KIO::UDSEntry &entry : entries) {
+            if (m_sourceItems.size() >= 500)
+                break;
+
+            KFileItem item(entry, listJob->url(), false, true);
+            if (item.isNull() || item.text() == QStringLiteral(".") || item.text() == QStringLiteral(".."))
+                continue;
+            if (item.time(KFileItem::ModificationTime).date() != m_recentTargetDate)
+                continue;
+
+            m_sourceItems.append(item);
+            changed = true;
+        }
+
+        if (changed) {
+            sortRecentItems(m_sourceItems);
+            rebuildVisibleItems();
+        }
+    });
+
+    connect(job, &KJob::result, this, [this, job](KJob *completed) {
+        if (m_recentJob != job)
+            return;
+
+        m_recentJob.clear();
+        if (completed->error())
+            setErrorString(completed->errorString());
+        sortRecentItems(m_sourceItems);
+        rebuildVisibleItems();
+        setLoading(false);
+    });
+}
+
+void MahoDirectoryModel::recordNavigation(const QUrl &url, bool recordHistory)
+{
+    if (!recordHistory)
+        return;
+
+    if (m_historyIndex + 1 < m_history.size())
+        m_history.resize(m_historyIndex + 1);
+
+    if (m_history.isEmpty() || m_history.constLast() != url)
+        m_history.append(url);
+
+    m_historyIndex = m_history.size() - 1;
+    emit historyChanged();
+
+    if (!m_searchQuery.isEmpty()) {
+        m_searchQuery.clear();
+        emit searchQueryChanged();
+    }
+}
+
+void MahoDirectoryModel::cancelRecentJob()
+{
+    if (!m_recentJob)
+        return;
+
+    KIO::ListJob *job = m_recentJob.data();
+    m_recentJob.clear();
+    job->kill();
+}
+
+QDate MahoDirectoryModel::timelineDate(const QUrl &url) const
+{
+    if (url.scheme() != QStringLiteral("timeline"))
+        return {};
+
+    QString tail = url.path().section(QLatin1Char('/'), -1, -1, QString::SectionSkipEmpty);
+    if (tail == QStringLiteral("today"))
+        return QDate::currentDate();
+    if (tail == QStringLiteral("yesterday"))
+        return QDate::currentDate().addDays(-1);
+
+    return QDate::fromString(tail, Qt::ISODate);
 }
 
 void MahoDirectoryModel::setCurrentUrl(const QUrl &url)
@@ -441,6 +570,7 @@ void MahoDirectoryModel::setCurrentUrl(const QUrl &url)
         return;
     m_currentUrl = url;
     emit currentUrlChanged();
+    emit canPasteChanged();
 }
 
 void MahoDirectoryModel::setLoading(bool loading)
@@ -516,6 +646,17 @@ void MahoDirectoryModel::sortItems(QVector<KFileItem> &items) const
     });
 }
 
+void MahoDirectoryModel::sortRecentItems(QVector<KFileItem> &items) const
+{
+    std::sort(items.begin(), items.end(), [](const KFileItem &left, const KFileItem &right) {
+        const QDateTime leftTime = left.time(KFileItem::ModificationTime);
+        const QDateTime rightTime = right.time(KFileItem::ModificationTime);
+        if (leftTime != rightTime)
+            return leftTime > rightTime;
+        return QString::localeAwareCompare(left.text(), right.text()) < 0;
+    });
+}
+
 void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage)
 {
     if (!job)
@@ -537,7 +678,7 @@ void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage)
 
 QUrl MahoDirectoryModel::childUrl(const QString &name) const
 {
-    if (!m_currentUrl.isValid() || m_currentUrl.isEmpty())
+    if (!m_currentUrl.isLocalFile())
         return {};
 
     QUrl destination = m_currentUrl;
