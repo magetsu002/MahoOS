@@ -6,6 +6,7 @@
 #include <QCommandLineParser>
 #include <QFileInfo>
 #include <QIcon>
+#include <QImage>
 #include <QPainter>
 #include <QPixmap>
 #include <QQmlApplicationEngine>
@@ -44,23 +45,11 @@ public:
         if (target.height() <= 0)
             target.setHeight(64);
 
-        QPixmap pixmap = icon.pixmap(target);
-        if (m_palette && shouldTintUiIcon(decoded) && !pixmap.isNull()) {
-            QPixmap tinted(pixmap.size());
-            tinted.fill(Qt::transparent);
-
-            QPainter painter(&tinted);
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            painter.drawPixmap(0, 0, pixmap);
-            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-
-            QColor tint = m_palette->foreground();
-            tint.setAlphaF(0.94);
-            painter.fillRect(tinted.rect(), tint);
-            painter.end();
-
-            pixmap = tinted;
-        }
+        QPixmap pixmap;
+        if (m_palette && shouldTintUiIcon(decoded))
+            pixmap = renderUiIcon(icon, target, m_palette->foreground());
+        else
+            pixmap = renderArtwork(icon, target);
 
         if (size)
             *size = pixmap.size();
@@ -68,6 +57,123 @@ public:
     }
 
 private:
+    static QSize multipliedSize(const QSize &size, int factor)
+    {
+        return QSize(qMax(1, size.width() * factor),
+                     qMax(1, size.height() * factor));
+    }
+
+    static QPixmap renderArtwork(const QIcon &icon, const QSize &target)
+    {
+        // Ask the icon engine for a larger source first. SVG themes render at the
+        // larger size directly, while raster themes can select a denser asset.
+        // The explicit high-quality downsample is sharper than letting several
+        // layers independently stretch a small pixmap.
+        const QSize sourceSize = multipliedSize(target, 2);
+        const QPixmap source = icon.pixmap(sourceSize);
+        if (source.isNull())
+            return {};
+
+        if (source.size() == target)
+            return source;
+
+        return source.scaled(target,
+                             Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation);
+    }
+
+    static QRect visibleAlphaBounds(const QImage &image)
+    {
+        if (image.isNull())
+            return {};
+
+        int left = image.width();
+        int top = image.height();
+        int right = -1;
+        int bottom = -1;
+
+        for (int y = 0; y < image.height(); ++y) {
+            const auto *scanline = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+            for (int x = 0; x < image.width(); ++x) {
+                // Ignore tiny antialiasing dust at the outer SVG viewport edge.
+                if (qAlpha(scanline[x]) <= 10)
+                    continue;
+
+                left = qMin(left, x);
+                top = qMin(top, y);
+                right = qMax(right, x);
+                bottom = qMax(bottom, y);
+            }
+        }
+
+        if (right < left || bottom < top)
+            return {};
+
+        return QRect(QPoint(left, top), QPoint(right, bottom));
+    }
+
+    static QPixmap renderUiIcon(const QIcon &icon,
+                                const QSize &target,
+                                const QColor &foreground)
+    {
+        // UI icons need stronger optical normalization than file artwork. Theme
+        // SVGs often contain large transparent viewBox padding which made a
+        // nominal 17 px menu icon look like a 6–8 px speck. Render large, tint,
+        // crop the transparent bounds, then place the unchanged shape into a
+        // consistent optical box.
+        const QSize sourceSize = multipliedSize(target, 4);
+        QPixmap source = icon.pixmap(sourceSize);
+        if (source.isNull())
+            return {};
+
+        QPixmap tinted(source.size());
+        tinted.fill(Qt::transparent);
+
+        {
+            QPainter painter(&tinted);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            painter.drawPixmap(0, 0, source);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+
+            QColor tint = foreground;
+            tint.setAlphaF(0.96);
+            painter.fillRect(tinted.rect(), tint);
+        }
+
+        const QImage image = tinted.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        const QRect bounds = visibleAlphaBounds(image);
+        if (bounds.isEmpty())
+            return tinted.scaled(target,
+                                 Qt::KeepAspectRatio,
+                                 Qt::SmoothTransformation);
+
+        const QPixmap cropped = QPixmap::fromImage(image.copy(bounds));
+
+        // Leave a small, consistent optical inset. This keeps menu/sidebar
+        // actions visually equal to the 20 px Maho toolbar glyphs without
+        // changing the original icon silhouette.
+        const QSize opticalBox(qMax(1, qRound(target.width() * 0.92)),
+                               qMax(1, qRound(target.height() * 0.92)));
+        const QPixmap scaled = cropped.scaled(opticalBox,
+                                              Qt::KeepAspectRatio,
+                                              Qt::SmoothTransformation);
+
+        QPixmap normalized(target);
+        normalized.fill(Qt::transparent);
+
+        {
+            QPainter painter(&normalized);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            const QPoint origin((target.width() - scaled.width()) / 2,
+                                (target.height() - scaled.height()) / 2);
+            painter.drawPixmap(origin, scaled);
+        }
+
+        return normalized;
+    }
+
     static bool shouldTintUiIcon(const QString &name)
     {
         if (name.startsWith(QStringLiteral("go-"))
