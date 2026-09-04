@@ -15,6 +15,10 @@ ShellRoot {
     property bool presented: true
     property bool overlayOpen: false
     property bool dragging: false
+    property bool placementReady: false
+    property bool placementValid: false
+    property real requestedPlacementX: -1
+    property real requestedPlacementY: -1
     readonly property real surfaceMarginX: 24
     readonly property real surfaceMarginY: 20
     readonly property string initialMode:
@@ -29,7 +33,12 @@ ShellRoot {
     // Placement belongs to Maho Link as a product, not to whichever
     // Quickshell runtime copy happened to launch Wi-Fi or Bluetooth.
     // Keep one explicit XDG state file so both modes always converge.
-    readonly property string linkPlacementPath: stateBase + "/maho-link-position.json"
+    readonly property string linkPlacementPath: stateBase + "/maho/link-position.json"
+    readonly property string legacyProductPlacementPath: stateBase + "/maho-link-position.json"
+    readonly property string legacyShellPlacementPath:
+        stateBase + "/quickshell/by-shell/maho-link/link-position.json"
+    readonly property string positionHelperPath: Quickshell.env("MAHO_LINK_POSITION_HELPER")
+    readonly property string geometryReportPath: Quickshell.env("MAHO_LINK_GEOMETRY_REPORT")
     readonly property string dockEdge:
         dockState.edge === "left" || dockState.edge === "right"
             || dockState.edge === "top" || dockState.edge === "bottom"
@@ -64,61 +73,26 @@ ShellRoot {
         return Math.max(surfaceMarginY, overlay.height - linkSurface.height - surfaceMarginY)
     }
 
-    function placementSpanX() {
-        return Math.max(1, overlay.width - surfaceMarginX * 2)
-    }
-
-    function placementSpanY() {
-        return Math.max(1, overlay.height - surfaceMarginY * 2)
-    }
-
-    function canRestoreExactPixels() {
-        const savedX = Number(linkPlacement.pixelX)
-        const savedY = Number(linkPlacement.pixelY)
-        const savedWidth = Number(linkPlacement.monitorWidth)
-        const savedHeight = Number(linkPlacement.monitorHeight)
-        return linkPlacement.version >= 2
-            && isFinite(savedX) && isFinite(savedY)
-            && isFinite(savedWidth) && isFinite(savedHeight)
-            && Math.abs(savedWidth - overlay.width) < 1
-            && Math.abs(savedHeight - overlay.height) < 1
+    function monitorName() {
+        return overlay.screen && overlay.screen.name ? String(overlay.screen.name) : ""
     }
 
     function applyPlacement() {
         const maxX = maximumSurfaceX()
         const maxY = maximumSurfaceY()
 
-        if (linkPlacement.valid) {
-            let targetX
-            let targetY
-
-            // On the same monitor geometry, restore the exact top-left pixel
-            // anchor last chosen by the user. This makes Wi-Fi and Bluetooth
-            // open at the same physical location even though their panel sizes
-            // differ. Only the unavoidable fit clamp may move a larger panel.
-            if (canRestoreExactPixels()) {
-                targetX = Number(linkPlacement.pixelX)
-                targetY = Number(linkPlacement.pixelY)
-            } else {
-                // Older v1 state and changed monitor geometry fall back to the
-                // resolution-adaptive normalized anchor, then upgrade on drag.
-                targetX = surfaceMarginX
-                    + placementSpanX() * clamp(Number(linkPlacement.normalizedX), 0, 1)
-                targetY = surfaceMarginY
-                    + placementSpanY() * clamp(Number(linkPlacement.normalizedY), 0, 1)
-            }
-
-            linkSurface.x = clamp(targetX, surfaceMarginX, maxX)
-            linkSurface.y = clamp(targetY, surfaceMarginY, maxY)
-            return
+        if (placementValid) {
+            linkSurface.x = clamp(requestedPlacementX, surfaceMarginX, maxX)
+            linkSurface.y = clamp(requestedPlacementY, surfaceMarginY, maxY)
+        } else {
+            linkSurface.x = clamp(
+                surfaceX(overlay.width, linkSurface.width, surfaceMarginX),
+                surfaceMarginX,
+                maxX
+            )
+            linkSurface.y = clamp(20, surfaceMarginY, maxY)
         }
-
-        linkSurface.x = clamp(
-            surfaceX(overlay.width, linkSurface.width, surfaceMarginX),
-            surfaceMarginX,
-            maxX
-        )
-        linkSurface.y = clamp(20, surfaceMarginY, maxY)
+        reportAppliedGeometry()
     }
 
     function persistPlacement() {
@@ -127,17 +101,72 @@ ShellRoot {
         linkSurface.x = clamp(linkSurface.x, surfaceMarginX, maxX)
         linkSurface.y = clamp(linkSurface.y, surfaceMarginY, maxY)
 
-        // Exact pixels are authoritative while the monitor geometry is stable.
-        // Normalized coordinates remain alongside them for resolution/output
-        // changes, so the state is both cross-mode exact and resolution-safe.
-        linkPlacement.version = 2
-        linkPlacement.pixelX = linkSurface.x
-        linkPlacement.pixelY = linkSurface.y
-        linkPlacement.monitorWidth = overlay.width
-        linkPlacement.monitorHeight = overlay.height
-        linkPlacement.normalizedX = (linkSurface.x - surfaceMarginX) / placementSpanX()
-        linkPlacement.normalizedY = (linkSurface.y - surfaceMarginY) / placementSpanY()
-        linkPlacement.valid = true
+        requestedPlacementX = linkSurface.x
+        requestedPlacementY = linkSurface.y
+        placementValid = true
+
+        Quickshell.execDetached([
+            "python3", positionHelperPath, "save",
+            "--path", linkPlacementPath,
+            "--mode", initialMode,
+            "--x", String(requestedPlacementX),
+            "--y", String(requestedPlacementY),
+            "--monitor", monitorName(),
+            "--monitor-width", String(overlay.width),
+            "--monitor-height", String(overlay.height)
+        ])
+        reportAppliedGeometry()
+    }
+
+    function requestPlacementLoad() {
+        placementReady = false
+        placementValid = false
+        placementLoad.command = [
+            "python3", positionHelperPath, "load",
+            "--path", linkPlacementPath,
+            "--legacy", legacyProductPlacementPath,
+            "--legacy", legacyShellPlacementPath,
+            "--mode", initialMode,
+            "--monitor", monitorName(),
+            "--monitor-width", String(overlay.width),
+            "--monitor-height", String(overlay.height),
+            "--surface-width", String(linkSurface.width),
+            "--surface-height", String(linkSurface.height),
+            "--margin-x", String(surfaceMarginX),
+            "--margin-y", String(surfaceMarginY)
+        ]
+        placementLoad.running = true
+    }
+
+    function placementLoaded(text) {
+        try {
+            const payload = JSON.parse(text || "{}")
+            placementValid = Boolean(payload.valid)
+            if (placementValid) {
+                requestedPlacementX = Number(payload.requested_x)
+                requestedPlacementY = Number(payload.requested_y)
+            }
+        } catch (error) {
+            placementValid = false
+        }
+        placementReady = true
+        revealSurfaceWhenReady()
+    }
+
+    function reportAppliedGeometry() {
+        if (!geometryReportPath || String(geometryReportPath) === "" || !placementValid)
+            return
+        Quickshell.execDetached([
+            "python3", positionHelperPath, "report",
+            "--path", geometryReportPath,
+            "--mode", initialMode,
+            "--requested-x", String(requestedPlacementX),
+            "--requested-y", String(requestedPlacementY),
+            "--x", String(linkSurface.x),
+            "--y", String(linkSurface.y),
+            "--width", String(linkSurface.width),
+            "--height", String(linkSurface.height)
+        ])
     }
 
     FileView {
@@ -146,7 +175,7 @@ ShellRoot {
         blockLoading: true
         onFileChanged: {
             reload()
-            if (!linkPlacement.valid && root.overlayOpen)
+            if (!root.placementValid && root.overlayOpen)
                 Qt.callLater(root.applyPlacement)
         }
 
@@ -158,26 +187,18 @@ ShellRoot {
         }
     }
 
-    FileView {
-        path: root.linkPlacementPath
-        blockLoading: true
-        onAdapterUpdated: writeAdapter()
-
-        JsonAdapter {
-            id: linkPlacement
-            property int version: 2
-            property bool valid: false
-            property real pixelX: -1
-            property real pixelY: -1
-            property real monitorWidth: -1
-            property real monitorHeight: -1
-            property real normalizedX: 0.5
-            property real normalizedY: 0.5
+    Process {
+        id: placementLoad
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: root.placementLoaded(text)
         }
     }
 
-    function revealWifiSurface() {
-        if (!overlayOpen || initialMode !== "wifi" || !wifi.statusReady || linkSurface.shown)
+    function revealSurfaceWhenReady() {
+        if (!overlayOpen || !placementReady || linkSurface.shown)
+            return
+        if (initialMode === "wifi" && !wifi.statusReady)
             return
         applyPlacement()
         linkSurface.shown = true
@@ -191,17 +212,15 @@ ShellRoot {
         linkSurface.section = root.initialMode
         linkSurface.page = "main"
         linkSurface.shown = false
-        applyPlacement()
+        requestPlacementLoad()
 
         if (root.initialMode === "bluetooth") {
-            linkSurface.shown = true
-            linkSurface.forceActiveFocus()
             bluetooth.refresh()
         } else {
             // Do not paint default/offline placeholders as truth. Status is a
             // fast NetworkManager query; nearby-network discovery is independent.
             wifi.refresh()
-            revealWifiSurface()
+            revealSurfaceWhenReady()
         }
     }
 
@@ -215,7 +234,7 @@ ShellRoot {
 
     Connections {
         target: wifi
-        function onStatusReadyChanged() { root.revealWifiSurface() }
+        function onStatusReadyChanged() { root.revealSurfaceWhenReady() }
     }
 
     Component.onCompleted: openDelay.restart()
@@ -277,8 +296,8 @@ ShellRoot {
 
         MahoLink {
             id: linkSurface
-            x: root.surfaceX(overlay.width, width, 24)
-            y: 20
+            x: 0
+            y: 0
             theme: theme
             wifi: wifi
             bluetooth: bluetooth

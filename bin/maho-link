@@ -45,4 +45,5 @@ if ! flock -n 9; then
 fi
 
 export MAHO_LINK_MODE="$MODE"
+export MAHO_LINK_POSITION_HELPER="$ROOT/config/quickshell/maho-link/position.py"
 exec quickshell -p "$CONFIG" >>"$LOG" 2>&1
