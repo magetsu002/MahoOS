@@ -76,7 +76,7 @@ Scope {
             wallpaperPicker.exec([
                 "python",
                 Quickshell.shellPath("state.py"),
-                "--pick-wallpaper",
+                "--pick-wallpaper"
             ])
     }
 
