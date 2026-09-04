@@ -8,8 +8,8 @@ ApplicationWindow {
 
     width: 1180
     height: 760
-    minimumWidth: 820
-    minimumHeight: 560
+    minimumWidth: 320
+    minimumHeight: 240
     visible: true
     title: "Maho Files"
     color: "transparent"
@@ -28,6 +28,13 @@ ApplicationWindow {
     property bool searchVisible: false
     property int selectedIndex: -1
     property real sidebarWidth: 228
+
+    readonly property bool narrowWindow: width < 700
+    readonly property bool compactToolbar: width < 760
+    readonly property bool tinyToolbar: width < 560
+    readonly property real effectiveSidebarWidth: narrowWindow
+        ? 0
+        : Math.min(sidebarWidth, Math.max(180, width * 0.34))
 
     function alpha(color, amount) {
         return Qt.rgba(color.r, color.g, color.b, amount)
@@ -314,6 +321,23 @@ ApplicationWindow {
         }
     }
 
+    component WindowResizeHandle: Item {
+        id: resizeHandle
+        required property int edges
+        required property int resizeCursor
+        z: 1000
+
+        HoverHandler { cursorShape: resizeHandle.resizeCursor }
+        DragHandler {
+            target: null
+            acceptedButtons: Qt.LeftButton
+            onActiveChanged: {
+                if (active)
+                    root.startSystemResize(resizeHandle.edges)
+            }
+        }
+    }
+
     Shortcut { sequence: "Alt+Left"; onActivated: directoryModel.goBack() }
     Shortcut { sequence: "Alt+Right"; onActivated: directoryModel.goForward() }
     Shortcut { sequence: "Alt+Up"; onActivated: directoryModel.goUp() }
@@ -345,7 +369,7 @@ ApplicationWindow {
         id: morePopup
         parent: Overlay.overlay
         padding: 8
-        width: 242
+        width: Math.min(242, Math.max(220, root.width - 24))
         modal: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -378,7 +402,7 @@ ApplicationWindow {
                 enabledState: directoryModel.canPaste
                 onTriggered: { morePopup.close(); directoryModel.paste() }
             }
-            Rectangle { width: 226; height: 1; color: root.divider }
+            Rectangle { width: Math.min(226, morePopup.width - 16); height: 1; color: root.divider }
             MenuAction {
                 label: root.searchVisible ? "Hide Search" : "Search This Folder"
                 iconName: "edit-find"
@@ -407,7 +431,7 @@ ApplicationWindow {
                     root.viewMode = root.viewMode === "grid" ? "list" : "grid"
                 }
             }
-            Rectangle { width: 226; height: 1; color: root.divider }
+            Rectangle { width: Math.min(226, morePopup.width - 16); height: 1; color: root.divider }
             MenuAction {
                 label: "Reload"
                 iconName: "view-refresh"
@@ -420,7 +444,7 @@ ApplicationWindow {
         id: contextPopup
         parent: Overlay.overlay
         padding: 8
-        width: 242
+        width: Math.min(242, Math.max(220, root.width - 24))
         modal: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -455,7 +479,7 @@ ApplicationWindow {
                 iconName: "edit-rename"
                 onTriggered: { const row = contextPopup.targetIndex; contextPopup.close(); namePopup.beginRename(row) }
             }
-            Rectangle { width: 226; height: 1; color: root.divider }
+            Rectangle { width: Math.min(226, contextPopup.width - 16); height: 1; color: root.divider }
             MenuAction {
                 label: "Copy"
                 iconName: "edit-copy"
@@ -472,7 +496,7 @@ ApplicationWindow {
                 enabledState: directoryModel.canPaste
                 onTriggered: { contextPopup.close(); directoryModel.paste() }
             }
-            Rectangle { width: 226; height: 1; color: root.divider }
+            Rectangle { width: Math.min(226, contextPopup.width - 16); height: 1; color: root.divider }
             MenuAction {
                 label: "Move to Trash"
                 iconName: "user-trash"
@@ -488,7 +512,7 @@ ApplicationWindow {
         modal: true
         focus: true
         padding: 18
-        width: 380
+        width: Math.min(380, Math.max(280, root.width - 24))
         height: 178
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -579,7 +603,7 @@ ApplicationWindow {
         id: shell
         anchors.fill: parent
         anchors.margins: 1
-        radius: 28
+        radius: Math.min(28, Math.max(18, Math.min(root.width, root.height) * 0.06))
         color: root.shellFill
         border.width: 1
         border.color: root.quietRim
@@ -604,7 +628,7 @@ ApplicationWindow {
             Rectangle {
                 id: toolbar
                 Layout.fillWidth: true
-                Layout.preferredHeight: 72
+                Layout.preferredHeight: root.height < 360 ? 58 : 72
                 color: root.toolbarFill
 
                 DragHandler {
@@ -626,9 +650,9 @@ ApplicationWindow {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 16
-                    spacing: 6
+                    anchors.leftMargin: root.tinyToolbar ? 8 : 16
+                    anchors.rightMargin: root.tinyToolbar ? 8 : 16
+                    spacing: root.tinyToolbar ? 2 : 6
 
                     IconButton {
                         glyph: "back"
@@ -645,18 +669,21 @@ ApplicationWindow {
                     IconButton {
                         glyph: "up"
                         tooltip: "Up one folder"
+                        visible: !root.tinyToolbar
                         onTriggered: directoryModel.goUp()
                     }
                     IconButton {
                         glyph: "home"
                         tooltip: "Home"
+                        visible: !root.tinyToolbar
                         onTriggered: directoryModel.goHome()
                     }
 
                     Rectangle {
-                        Layout.leftMargin: 7
+                        Layout.leftMargin: root.tinyToolbar ? 2 : 7
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 44
+                        Layout.minimumWidth: 64
+                        Layout.preferredHeight: root.height < 360 ? 38 : 44
                         radius: 16
                         color: root.alpha(root.mix(root.surfaceElevated, root.baseBackground, 0.58), root.lightMode ? 0.48 : 0.40)
                         border.width: 1
@@ -673,13 +700,14 @@ ApplicationWindow {
                             sourceSize: Qt.size(34, 34)
                             source: root.icon("folder-open")
                             opacity: 0.72
+                            visible: parent.width >= 90
                         }
 
                         TextField {
                             id: pathField
                             anchors.fill: parent
-                            anchors.leftMargin: 38
-                            anchors.rightMargin: 12
+                            anchors.leftMargin: parent.width >= 90 ? 38 : 10
+                            anchors.rightMargin: 10
                             color: root.foreground
                             placeholderText: "Location"
                             placeholderTextColor: root.alpha(root.muted, 0.65)
@@ -716,6 +744,7 @@ ApplicationWindow {
                     IconButton {
                         glyph: root.viewMode === "grid" ? "list" : "grid"
                         tooltip: root.viewMode === "grid" ? "List view" : "Grid view"
+                        visible: !root.tinyToolbar
                         onTriggered: root.viewMode = root.viewMode === "grid" ? "list" : "grid"
                     }
 
@@ -730,7 +759,7 @@ ApplicationWindow {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: root.searchVisible ? 54 : 0
+                Layout.preferredHeight: root.searchVisible ? Math.min(54, Math.max(42, root.height * 0.13)) : 0
                 visible: root.searchVisible
                 color: root.alpha(root.mix(root.surfaceElevated, root.baseBackground, 0.54), root.lightMode ? 0.30 : 0.24)
                 clip: true
@@ -749,8 +778,8 @@ ApplicationWindow {
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: Math.min(parent.width - 36, 620)
-                    height: 38
+                    width: Math.max(180, Math.min(parent.width - 24, 620))
+                    height: Math.min(38, parent.height - 8)
                     radius: 14
                     color: root.alpha(root.surfaceElevated, root.lightMode ? 0.42 : 0.32)
                     border.width: 1
@@ -792,8 +821,9 @@ ApplicationWindow {
                 spacing: 0
 
                 Rectangle {
-                    Layout.preferredWidth: root.sidebarWidth
+                    Layout.preferredWidth: root.effectiveSidebarWidth
                     Layout.fillHeight: true
+                    visible: !root.narrowWindow
                     color: root.sidebarFill
 
                     ListView {
@@ -932,6 +962,7 @@ ApplicationWindow {
                     id: sidebarSplitter
                     Layout.preferredWidth: 7
                     Layout.fillHeight: true
+                    visible: !root.narrowWindow
                     property real dragStartWidth: root.sidebarWidth
 
                     Rectangle {
@@ -982,9 +1013,9 @@ ApplicationWindow {
                     GridView {
                         id: grid
                         anchors.fill: parent
-                        anchors.margins: 18
-                        cellWidth: 138
-                        cellHeight: 124
+                        anchors.margins: root.width < 560 ? 10 : 18
+                        cellWidth: root.width < 560 ? 112 : root.width < 820 ? 124 : 138
+                        cellHeight: root.width < 560 ? 116 : root.width < 820 ? 120 : 124
                         clip: true
                         visible: root.viewMode === "grid"
                         model: directoryModel
@@ -1030,8 +1061,8 @@ ApplicationWindow {
 
                                 Item {
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    width: 70
-                                    height: 70
+                                    width: root.width < 560 ? 62 : 70
+                                    height: width
 
                                     Rectangle {
                                         anchors.fill: parent
@@ -1052,8 +1083,8 @@ ApplicationWindow {
 
                                     Image {
                                         anchors.centerIn: parent
-                                        width: 62
-                                        height: 62
+                                        width: root.width < 560 ? 54 : 62
+                                        height: width
                                         visible: String(fileDelegate.previewUrl).length === 0
                                         sourceSize: Qt.size(124, 124)
                                         source: root.icon(fileDelegate.iconName)
@@ -1069,7 +1100,7 @@ ApplicationWindow {
                                     color: root.foreground
                                     horizontalAlignment: Text.AlignHCenter
                                     font.pixelSize: 12
-                                    maximumLineCount: 2
+                                    maximumLineCount: root.height < 330 ? 1 : 2
                                     wrapMode: Text.Wrap
                                     elide: Text.ElideRight
                                 }
@@ -1100,7 +1131,7 @@ ApplicationWindow {
                     Item {
                         id: listPanel
                         anchors.fill: parent
-                        anchors.margins: 16
+                        anchors.margins: root.width < 560 ? 8 : 16
                         visible: root.viewMode === "list"
 
                         Rectangle {
@@ -1119,9 +1150,9 @@ ApplicationWindow {
                                 spacing: 12
 
                                 Text { Layout.fillWidth: true; text: "Name"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
-                                Text { Layout.preferredWidth: 100; text: "Size"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
-                                Text { Layout.preferredWidth: 150; text: "Type"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
-                                Text { Layout.preferredWidth: 180; text: "Modified"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
+                                Text { visible: contentArea.width >= 520; Layout.preferredWidth: 100; text: "Size"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
+                                Text { visible: contentArea.width >= 700; Layout.preferredWidth: 150; text: "Type"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
+                                Text { visible: contentArea.width >= 880; Layout.preferredWidth: 180; text: "Modified"; color: root.alpha(root.muted, 0.72); font.pixelSize: 11 }
                             }
                         }
 
@@ -1194,9 +1225,9 @@ ApplicationWindow {
                                         }
                                     }
 
-                                    Text { Layout.preferredWidth: 100; text: listDelegate.sizeText; color: root.alpha(root.muted, 0.82); font.pixelSize: 11; elide: Text.ElideRight }
-                                    Text { Layout.preferredWidth: 150; text: listDelegate.mimeComment; color: root.alpha(root.muted, 0.82); font.pixelSize: 11; elide: Text.ElideRight }
-                                    Text { Layout.preferredWidth: 180; text: listDelegate.modifiedText; color: root.alpha(root.muted, 0.82); font.pixelSize: 11; elide: Text.ElideRight }
+                                    Text { visible: contentArea.width >= 520; Layout.preferredWidth: 100; text: listDelegate.sizeText; color: root.alpha(root.muted, 0.82); font.pixelSize: 11; elide: Text.ElideRight }
+                                    Text { visible: contentArea.width >= 700; Layout.preferredWidth: 150; text: listDelegate.mimeComment; color: root.alpha(root.muted, 0.82); font.pixelSize: 11; elide: Text.ElideRight }
+                                    Text { visible: contentArea.width >= 880; Layout.preferredWidth: 180; text: listDelegate.modifiedText; color: root.alpha(root.muted, 0.82); font.pixelSize: 11; elide: Text.ElideRight }
                                 }
 
                                 HoverHandler { id: listHover }
@@ -1230,7 +1261,7 @@ ApplicationWindow {
 
                     Column {
                         anchors.centerIn: parent
-                        width: Math.min(parent.width - 80, 460)
+                        width: Math.max(180, Math.min(parent.width - 40, 460))
                         spacing: 10
                         visible: directoryModel.errorString.length > 0 || placesController.errorString.length > 0
 
@@ -1245,7 +1276,7 @@ ApplicationWindow {
                             width: parent.width
                             text: "Couldn’t open this location"
                             color: root.foreground
-                            font.pixelSize: 18
+                            font.pixelSize: root.width < 480 ? 15 : 18
                             font.weight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                         }
@@ -1263,7 +1294,7 @@ ApplicationWindow {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 40
+                Layout.preferredHeight: root.height < 320 ? 32 : 40
                 color: root.alpha(root.mix(root.surfaceElevated, root.baseBackground, 0.55), root.lightMode ? 0.32 : 0.26)
 
                 Rectangle {
@@ -1276,8 +1307,8 @@ ApplicationWindow {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
+                    anchors.leftMargin: root.tinyToolbar ? 10 : 20
+                    anchors.rightMargin: root.tinyToolbar ? 10 : 20
 
                     Text {
                         text: grid.count + (grid.count === 1 ? " item" : " items")
@@ -1288,7 +1319,7 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
 
                     Text {
-                        visible: directoryModel.operationMessage.length > 0
+                        visible: directoryModel.operationMessage.length > 0 && root.width >= 520
                         text: directoryModel.operationMessage
                         color: root.alpha(root.foreground, 0.72)
                         font.pixelSize: 11
@@ -1303,7 +1334,7 @@ ApplicationWindow {
                     }
 
                     Text {
-                        visible: directoryModel.showHidden
+                        visible: directoryModel.showHidden && root.width >= 600
                         text: "Hidden visible"
                         color: root.alpha(root.accent, 0.82)
                         font.pixelSize: 11
@@ -1313,18 +1344,69 @@ ApplicationWindow {
         }
     }
 
-    Item {
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 7
+        edges: Qt.LeftEdge
+        resizeCursor: Qt.SizeHorCursor
+    }
+    WindowResizeHandle {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 7
+        edges: Qt.RightEdge
+        resizeCursor: Qt.SizeHorCursor
+    }
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 7
+        edges: Qt.TopEdge
+        resizeCursor: Qt.SizeVerCursor
+    }
+    WindowResizeHandle {
+        anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        width: 14
-        height: 14
-        HoverHandler { cursorShape: Qt.SizeFDiagCursor }
-        DragHandler {
-            target: null
-            onActiveChanged: {
-                if (active)
-                    root.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
-            }
-        }
+        height: 7
+        edges: Qt.BottomEdge
+        resizeCursor: Qt.SizeVerCursor
+    }
+
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        width: 13
+        height: 13
+        edges: Qt.LeftEdge | Qt.TopEdge
+        resizeCursor: Qt.SizeFDiagCursor
+    }
+    WindowResizeHandle {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        width: 13
+        height: 13
+        edges: Qt.RightEdge | Qt.TopEdge
+        resizeCursor: Qt.SizeBDiagCursor
+    }
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        width: 13
+        height: 13
+        edges: Qt.LeftEdge | Qt.BottomEdge
+        resizeCursor: Qt.SizeBDiagCursor
+    }
+    WindowResizeHandle {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: 13
+        height: 13
+        edges: Qt.RightEdge | Qt.BottomEdge
+        resizeCursor: Qt.SizeFDiagCursor
     }
 }
