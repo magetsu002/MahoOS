@@ -3,9 +3,15 @@
 import json
 import os
 import pwd
+import random
 import re
 import shutil
 import subprocess
+import sys
+from pathlib import Path
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".bmp"}
+MAX_WALLPAPER_CANDIDATES = 800
 
 
 def run(args):
@@ -89,17 +95,180 @@ def switch_user_command():
     return []
 
 
-username, display_name = user_identity()
+def wallpaper_state_path():
+    state_home = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    return state_home / "maho/wallpaper/current.json"
 
-print(
-    json.dumps(
-        {
-            "userName": username,
-            "displayName": display_name,
-            "networkKind": network_kind(),
-            "keyboardLayout": keyboard_layout(),
-            "switchUserCommand": switch_user_command(),
-        },
-        separators=(",", ":"),
+
+def active_wallpaper():
+    try:
+        payload = json.loads(wallpaper_state_path().read_text())
+    except (OSError, ValueError, TypeError):
+        return None
+
+    if payload.get("kind") != "image":
+        return None
+
+    raw = payload.get("path")
+    if not isinstance(raw, str) or not raw:
+        return None
+
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve(strict=True)
+    except OSError:
+        return None
+
+    return path if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS else None
+
+
+def explicit_wallpaper_file():
+    raw = os.environ.get("MAHO_LOCK_WALLPAPER_FILE", "").strip()
+    if not raw:
+        return None
+
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve(strict=True)
+    except OSError:
+        return None
+
+    return path if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS else None
+
+
+def wallpaper_roots(active):
+    roots = []
+
+    configured = os.environ.get("MAHO_LOCK_WALLPAPER_DIR", "").strip()
+    if configured:
+        roots.extend(Path(value).expanduser() for value in configured.split(os.pathsep) if value)
+
+    home = Path.home()
+    roots.extend(
+        [
+            home / "Pictures/Wallpapers",
+            home / "Pictures/wallpapers",
+            home / "Wallpapers",
+            home / "wallpapers",
+        ]
     )
-)
+
+    if active is not None:
+        parent_name = active.parent.name.lower()
+        if any(token in parent_name for token in ("wallpaper", "background", "walls")):
+            roots.append(active.parent)
+
+    unique = []
+    seen = set()
+    for root in roots:
+        try:
+            resolved = root.resolve(strict=True)
+        except OSError:
+            continue
+        if not resolved.is_dir() or resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+    return unique
+
+
+def wallpaper_candidates():
+    active = active_wallpaper()
+    candidates = []
+    seen = set()
+
+    def add(path):
+        if path is None or path in seen:
+            return
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+            seen.add(path)
+            candidates.append(path)
+
+    add(active)
+
+    for root in wallpaper_roots(active):
+        try:
+            iterator = root.rglob("*")
+            for path in iterator:
+                if len(candidates) >= MAX_WALLPAPER_CANDIDATES:
+                    break
+                if path.name.startswith("."):
+                    continue
+                try:
+                    if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
+                        continue
+                    add(path.resolve(strict=True))
+                except OSError:
+                    continue
+        except OSError:
+            continue
+
+        if len(candidates) >= MAX_WALLPAPER_CANDIDATES:
+            break
+
+    return candidates
+
+
+def last_wallpaper_file():
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
+    return runtime / f"maho-lock-last-wallpaper-{os.getuid()}"
+
+
+def choose_lock_wallpaper():
+    explicit = explicit_wallpaper_file()
+    if explicit is not None:
+        return explicit
+
+    candidates = wallpaper_candidates()
+    if not candidates:
+        return None
+
+    last = None
+    try:
+        raw = last_wallpaper_file().read_text().strip()
+        if raw:
+            last = Path(raw)
+    except OSError:
+        pass
+
+    pool = [path for path in candidates if path != last]
+    if not pool:
+        pool = candidates
+
+    choice = random.SystemRandom().choice(pool)
+
+    try:
+        last_wallpaper_file().write_text(str(choice))
+    except OSError:
+        pass
+
+    return choice
+
+
+def ambient_payload():
+    username, display_name = user_identity()
+    return {
+        "userName": username,
+        "displayName": display_name,
+        "networkKind": network_kind(),
+        "keyboardLayout": keyboard_layout(),
+        "switchUserCommand": switch_user_command(),
+    }
+
+
+def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "--pick-wallpaper":
+        selected = choose_lock_wallpaper()
+        print(json.dumps({"path": str(selected) if selected else ""}, separators=(",", ":")))
+        return 0
+
+    if len(sys.argv) != 1:
+        print("usage: state.py [--pick-wallpaper]", file=sys.stderr)
+        return 2
+
+    print(json.dumps(ambient_payload(), separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
