@@ -19,8 +19,17 @@ require_text() {
     grep -Fq -- "$needle" "$file" || fail "$message"
 }
 
+reject_text() {
+    local file="$1" needle="$2" message="$3"
+    if grep -Fq -- "$needle" "$file"; then
+        fail "$message"
+    fi
+}
+
 echo "=== persistent draggable Maho Link ==="
-require_text "$SHELL" 'Quickshell.statePath("link-position.json")' "drag placement is not persisted under Quickshell user state"
+require_text "$SHELL" 'readonly property string linkPlacementPath: stateBase + "/maho-link-position.json"' "Wi-Fi and Bluetooth do not share one product-global placement file"
+require_text "$SHELL" 'path: root.linkPlacementPath' "shared Link placement file is not the active FileView source"
+reject_text "$SHELL" 'Quickshell.statePath("link-position.json")' "placement is still scoped to a Quickshell runtime instead of Maho Link"
 require_text "$SHELL" 'property real normalizedX: 0.5' "horizontal placement is not resolution-adaptive"
 require_text "$SHELL" 'property real normalizedY: 0.5' "vertical placement is not resolution-adaptive"
 require_text "$SHELL" 'function persistPlacement()' "drag completion does not persist placement"
