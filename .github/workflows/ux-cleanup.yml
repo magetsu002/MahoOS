@@ -1,0 +1,57 @@
+name: ux-cleanup
+
+on:
+  push:
+    branches:
+      - 'fix/ux-cleanup-launcher-clipboard'
+  pull_request:
+    paths:
+      - 'bin/maho-launcher'
+      - 'bin/maho-clipboard'
+      - 'lib/maho_launcher_backend.py'
+      - 'config/quickshell/maho-launcher/**'
+      - 'config/quickshell/maho-clipboard/**'
+      - 'config/hypr/maho/appearance/decorations.lua'
+      - 'config/hypr/maho/core/binds.lua'
+      - 'tests/launcher-qml-contracts.sh'
+      - 'tests/clipboard-contracts.sh'
+      - 'tests/ux-cleanup-contracts.sh'
+      - '.github/workflows/ux-cleanup.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-launcher bin/maho-clipboard \
+            tests/launcher-qml-contracts.sh tests/clipboard-contracts.sh \
+            tests/ux-cleanup-contracts.sh
+
+      - name: Python syntax
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            lib/maho_launcher_backend.py \
+            config/quickshell/maho-clipboard/clipboard.py
+
+      - name: Clipboard contracts
+        run: |
+          set -euo pipefail
+          bash tests/clipboard-contracts.sh
+
+      - name: Launcher contracts
+        run: |
+          set -euo pipefail
+          bash tests/launcher-qml-contracts.sh
+
+      - name: UX cleanup regression contracts
+        run: |
+          set -euo pipefail
+          bash tests/ux-cleanup-contracts.sh
