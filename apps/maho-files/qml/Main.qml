@@ -15,7 +15,7 @@ ApplicationWindow {
     color: "transparent"
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    property color background: mahoPalette.background
+    property color baseBackground: mahoPalette.background
     property color surface: mahoPalette.surface
     property color surfaceElevated: mahoPalette.surfaceElevated
     property color foreground: mahoPalette.foreground
@@ -38,11 +38,11 @@ ApplicationWindow {
         )
     }
 
-    readonly property color familyShell: mix(surfaceElevated, background, lightMode ? 0.28 : 0.48)
+    readonly property color familyShell: mix(surfaceElevated, baseBackground, lightMode ? 0.28 : 0.48)
     readonly property color shellFill: alpha(familyShell, lightMode ? 0.72 : 0.60)
-    readonly property color sidebarFill: alpha(mix(surfaceElevated, background, 0.55), lightMode ? 0.48 : 0.42)
-    readonly property color toolbarFill: alpha(mix(surfaceElevated, background, 0.44), lightMode ? 0.38 : 0.30)
-    readonly property color contentFill: alpha(mix(surface, background, 0.62), lightMode ? 0.26 : 0.18)
+    readonly property color sidebarFill: alpha(mix(surfaceElevated, baseBackground, 0.55), lightMode ? 0.48 : 0.42)
+    readonly property color toolbarFill: alpha(mix(surfaceElevated, baseBackground, 0.44), lightMode ? 0.38 : 0.30)
+    readonly property color contentFill: alpha(mix(surface, baseBackground, 0.62), lightMode ? 0.26 : 0.18)
     readonly property color hoverFill: alpha(foreground, lightMode ? 0.075 : 0.055)
     readonly property color selectedFill: alpha(mix(surfaceElevated, accent, 0.22), lightMode ? 0.54 : 0.48)
     readonly property color selectedRim: alpha(accent, 0.20)
@@ -79,8 +79,8 @@ ApplicationWindow {
         width: 38
         height: 38
         radius: 14
-        color: pointer.containsMouse && enabledState ? root.hoverFill : "transparent"
-        border.width: pointer.containsMouse && enabledState ? 1 : 0
+        color: pointer.hovered && enabledState ? root.hoverFill : "transparent"
+        border.width: pointer.hovered && enabledState ? 1 : 0
         border.color: root.alpha(root.foreground, 0.08)
         opacity: enabledState ? 1 : 0.34
 
@@ -119,7 +119,7 @@ ApplicationWindow {
                 GradientStop { position: 0.00; color: root.alpha(root.foreground, root.lightMode ? 0.13 : 0.105) }
                 GradientStop { position: 0.055; color: root.alpha(root.foreground, root.lightMode ? 0.035 : 0.026) }
                 GradientStop { position: 0.18; color: "transparent" }
-                GradientStop { position: 1.00; color: root.alpha(root.background, root.lightMode ? 0.015 : 0.045) }
+                GradientStop { position: 1.00; color: root.alpha(root.baseBackground, root.lightMode ? 0.015 : 0.045) }
             }
         }
 
@@ -180,7 +180,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 44
                         radius: 16
-                        color: root.alpha(root.mix(root.surfaceElevated, root.background, 0.58), root.lightMode ? 0.48 : 0.40)
+                        color: root.alpha(root.mix(root.surfaceElevated, root.baseBackground, 0.58), root.lightMode ? 0.48 : 0.40)
                         border.width: 1
                         border.color: pathField.activeFocus
                             ? root.alpha(root.accent, 0.28)
@@ -526,7 +526,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
-                color: root.alpha(root.mix(root.surfaceElevated, root.background, 0.55), root.lightMode ? 0.32 : 0.26)
+                color: root.alpha(root.mix(root.surfaceElevated, root.baseBackground, 0.55), root.lightMode ? 0.32 : 0.26)
 
                 Rectangle {
                     anchors.left: parent.left
