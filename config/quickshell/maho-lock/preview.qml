@@ -47,9 +47,11 @@ ShellRoot {
         aboveWindows: true
         focusable: true
         exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "maho-lock-preview"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-        MahoLockView {
+        MahoLockViewV2 {
             anchors.fill: parent
             theme: theme
             state: state
