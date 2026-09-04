@@ -8,11 +8,11 @@ WlSessionLockSurface {
     required property var state
     required property var auth
 
-    // Keep the secure session-lock surface opaque. All wallpaper treatment is
-    // rendered inside the shared lock view; the live desktop is never exposed.
+    // Secure session-lock surface remains opaque. The chosen lock wallpaper and
+    // all material are rendered inside the shared production view.
     color: theme.background
 
-    MahoLockViewV3 {
+    MahoLockViewV4 {
         anchors.fill: parent
         theme: root.theme
         state: root.state

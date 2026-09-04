@@ -51,7 +51,7 @@ ShellRoot {
         WlrLayershell.namespace: "maho-lock-preview"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-        MahoLockViewV3 {
+        MahoLockViewV4 {
             anchors.fill: parent
             theme: theme
             state: state

@@ -45,12 +45,20 @@ Scope {
         || batteryDevice.state === UPowerDeviceState.FullyCharged
     )
 
-    readonly property string wallpaperKind: wallpaper.kind || ""
-    readonly property string wallpaperPath: wallpaper.path || ""
-    readonly property bool wallpaperIsImage:
-        wallpaperKind === "image" && wallpaperPath.length > 0
-    readonly property string wallpaperUrl:
-        wallpaperIsImage ? encodeURI("file://" + wallpaperPath) : ""
+    // Current desktop wallpaper remains observable for future user-selectable
+    // lock wallpaper policy, but Maho Lock v1 deliberately uses a dedicated,
+    // pre-softened lock background for deterministic fidelity.
+    readonly property string activeWallpaperKind: wallpaper.kind || ""
+    readonly property string activeWallpaperPath: wallpaper.path || ""
+    readonly property bool activeWallpaperIsImage:
+        activeWallpaperKind === "image" && activeWallpaperPath.length > 0
+    readonly property string activeWallpaperUrl:
+        activeWallpaperIsImage
+            ? encodeURI("file://" + activeWallpaperPath)
+            : ""
+
+    readonly property string lockWallpaperUrl:
+        encodeURI("file://" + Quickshell.shellPath("assets/maho-lock-dusk.jpg"))
 
     function refreshAmbientState() {
         if (!probe.running)
