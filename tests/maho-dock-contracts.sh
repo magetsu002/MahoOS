@@ -29,6 +29,15 @@ reject_text "$WRAPPER" "pkill -f 'quickshell.*maho-shell/shell.qml'" "Dock stop 
 require_text "$WRAPPER" 'maho-dock.lock' "Dock has no independent singleton lock"
 echo PASS
 
+echo "=== desktop-only resting policy ==="
+require_text "$DOCK_ENTRY" 'import Quickshell.Hyprland' "Dock entrypoint cannot observe active application windows"
+require_text "$DOCK_ENTRY" 'const top = Hyprland.activeToplevel' "Dock resting policy is not driven by the active toplevel"
+require_text "$DOCK_ENTRY" 'const hasActiveAppWindow = Boolean(top && top.activated)' "Dock does not distinguish an empty desktop from an active app window"
+require_text "$DOCK_ENTRY" '&& !dock.pointerInsideMaterial' "intentional pointer approach cannot reveal a retracted Dock"
+require_text "$DOCK_ENTRY" '&& !dock.previewOpen' "open previews cannot keep the Dock revealed"
+require_text "$DOCK_ENTRY" 'return shouldRetreat ? 0 : 1' "Dock does not retract for every active app window"
+echo PASS
+
 echo "=== bounded stable carrier ==="
 require_text "$DOCK" 'bottom: true' "Dock is not bottom anchored"
 reject_text "$DOCK" 'top: true' "Dock unexpectedly spans the top edge"
