@@ -52,3 +52,24 @@ jobs:
         run: |
           test -x build/maho-files/maho-files
           build/maho-files/maho-files --version
+
+      - name: QML startup proof
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set +e
+          timeout 3s build/maho-files/maho-files "$HOME" > qml-smoke.log 2>&1
+          status=$?
+          set -e
+
+          cat qml-smoke.log
+
+          if [ "$status" -ne 124 ]; then
+            echo "Maho Files exited before the smoke timeout (status=$status)" >&2
+            exit "$status"
+          fi
+
+          if grep -Eq 'QQmlApplicationEngine failed to load component|Cannot override FINAL property' qml-smoke.log; then
+            echo "Maho Files QML failed during startup smoke" >&2
+            exit 1
+          fi
