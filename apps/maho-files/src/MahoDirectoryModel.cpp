@@ -4,7 +4,6 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QGuiApplication>
-#include <QJob>
 #include <QLocale>
 #include <QMimeData>
 #include <QUrl>
@@ -12,8 +11,10 @@
 #include <KIO/CopyJob>
 #include <KIO/Job>
 #include <KIO/MkdirJob>
+#include <KJob>
 
 #include <algorithm>
+#include <utility>
 
 MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -316,7 +317,7 @@ void MahoDirectoryModel::createFolder(const QString &name)
         return;
     }
 
-    QUrl destination = childUrl(trimmed);
+    const QUrl destination = childUrl(trimmed);
     if (!destination.isValid()) {
         setOperationMessage(QStringLiteral("Could not create that folder here."));
         return;
@@ -421,17 +422,16 @@ void MahoDirectoryModel::navigate(const QUrl &url, bool recordHistory)
 
         m_historyIndex = m_history.size() - 1;
         emit historyChanged();
-    }
 
-    if (!m_searchQuery.isEmpty()) {
-        m_searchQuery.clear();
-        emit searchQueryChanged();
+        if (!m_searchQuery.isEmpty()) {
+            m_searchQuery.clear();
+            emit searchQueryChanged();
+        }
     }
 
     setCurrentUrl(url);
     setLoading(true);
     setErrorString({});
-    setOperationMessage({});
     m_lister.openUrl(url, KCoreDirLister::Reload);
 }
 
