@@ -21,9 +21,12 @@ Scope {
         return source.charAt(0).toUpperCase() + source.slice(1)
     }
     property string networkKind: "none"
+    property string networkName: ""
     property string keyboardLayout: "US"
     property var switchUserCommand: []
     property string selectedLockWallpaperPath: ""
+    property string avatarPath: ""
+    property var avatarCandidates: []
 
     readonly property var batteryDevice: UPower.displayDevice
     readonly property bool batteryAvailable:
@@ -43,8 +46,20 @@ Scope {
     readonly property bool batteryCharging: batteryAvailable && (
         batteryDevice.state === UPowerDeviceState.Charging
         || batteryDevice.state === UPowerDeviceState.PendingCharge
-        || batteryDevice.state === UPowerDeviceState.FullyCharged
     )
+    readonly property bool batteryFull: batteryAvailable && (
+        batteryDevice.state === UPowerDeviceState.FullyCharged
+        || batteryFraction >= 0.995
+    )
+    readonly property string batteryStatusText: {
+        if (!batteryPercentageValid)
+            return "Battery status unavailable"
+        if (batteryFull)
+            return batteryPercentage + "% · Fully charged"
+        if (batteryCharging)
+            return batteryPercentage + "% · Charging"
+        return batteryPercentage + "% · On battery"
+    }
 
     readonly property string activeWallpaperKind: wallpaper.kind || ""
     readonly property string activeWallpaperPath: wallpaper.path || ""
@@ -66,6 +81,9 @@ Scope {
             ? encodeURI("file://" + lockWallpaperPath)
             : ""
 
+    readonly property string avatarUrl:
+        avatarPath.length > 0 ? encodeURI("file://" + avatarPath) : ""
+
     function refreshAmbientState() {
         if (!probe.running)
             probe.exec(["python", Quickshell.shellPath("state.py")])
@@ -73,11 +91,27 @@ Scope {
 
     function chooseLockWallpaper() {
         if (!wallpaperPicker.running)
-            wallpaperPicker.exec([
-                "python",
-                Quickshell.shellPath("state.py"),
-                "--pick-wallpaper"
-            ])
+            wallpaperPicker.exec(["python", Quickshell.shellPath("state.py"), "--pick-wallpaper"])
+    }
+
+    function refreshAvatarCandidates() {
+        if (!avatarListProcess.running)
+            avatarListProcess.exec(["python", Quickshell.shellPath("state.py"), "--avatar-candidates"])
+    }
+
+    function setAvatar(path) {
+        if (!avatarWriteProcess.running)
+            avatarWriteProcess.exec(["python", Quickshell.shellPath("state.py"), "--set-avatar", String(path)])
+    }
+
+    function clearAvatar() {
+        if (!avatarWriteProcess.running)
+            avatarWriteProcess.exec(["python", Quickshell.shellPath("state.py"), "--clear-avatar"])
+    }
+
+    function switchKeyboardLayout() {
+        if (!layoutSwitchProcess.running)
+            layoutSwitchProcess.exec(["python", Quickshell.shellPath("state.py"), "--switch-layout"])
     }
 
     function suspend() {
@@ -115,8 +149,10 @@ Scope {
                     state.userName = String(payload.userName || state.userName)
                     state.displayName = String(payload.displayName || state.displayName)
                     state.networkKind = String(payload.networkKind || "none")
+                    state.networkName = String(payload.networkName || "")
                     state.keyboardLayout = String(payload.keyboardLayout || "US")
                     state.switchUserCommand = payload.switchUserCommand || []
+                    state.avatarPath = String(payload.avatarPath || "")
                 } catch (error) {
                     // Optional ambient probes must never block locking.
                 }
@@ -135,7 +171,45 @@ Scope {
                     if (path.length > 0)
                         state.selectedLockWallpaperPath = path
                 } catch (error) {
-                    // Fall back to the current desktop or bundled lock image.
+                    // Fall back to current desktop or bundled lock image.
+                }
+            }
+        }
+    }
+
+    Process {
+        id: avatarListProcess
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const payload = JSON.parse(this.text)
+                    state.avatarCandidates = payload.paths || []
+                } catch (error) {
+                    state.avatarCandidates = []
+                }
+            }
+        }
+    }
+
+    Process {
+        id: avatarWriteProcess
+
+        stdout: StdioCollector {
+            onStreamFinished: state.refreshAmbientState()
+        }
+    }
+
+    Process {
+        id: layoutSwitchProcess
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const payload = JSON.parse(this.text)
+                    state.keyboardLayout = String(payload.keyboardLayout || state.keyboardLayout)
+                } catch (error) {
+                    state.refreshAmbientState()
                 }
             }
         }
