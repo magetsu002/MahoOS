@@ -7,7 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
-find_package(KF6 REQUIRED COMPONENTS KIO)
+# Arch's kio package installs /usr/lib/cmake/KF6KIO/KF6KIOConfig.cmake.
+# Consume that package directly instead of depending on ECM's umbrella FindKF6.
+find_package(KF6KIO CONFIG REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
