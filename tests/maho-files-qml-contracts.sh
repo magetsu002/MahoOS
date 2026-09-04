@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+APP="$ROOT/apps/maho-files"
+CMAKE="$APP/CMakeLists.txt"
+MODEL_H="$APP/src/MahoDirectoryModel.h"
+MODEL_CPP="$APP/src/MahoDirectoryModel.cpp"
+PALETTE_CPP="$APP/src/MahoPalette.cpp"
+MAIN_CPP="$APP/src/main.cpp"
+QML="$APP/qml/Main.qml"
+WRAPPER="$ROOT/bin/maho-files"
+
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+
+require_text() {
+    local file="$1"
+    local text="$2"
+    local message="$3"
+    grep -Fq -- "$text" "$file" || fail "$message"
+}
+
+reject_text() {
+    local file="$1"
+    local text="$2"
+    local message="$3"
+    if grep -Fq -- "$text" "$file"; then
+        fail "$message"
+    fi
+}
+
+for file in "$CMAKE" "$MODEL_H" "$MODEL_CPP" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER"; do
+    [ -f "$file" ] || fail "missing Maho Files file: $file"
+done
+
+echo "=== native backend boundary ==="
+require_text "$CMAKE" 'find_package(KF6 REQUIRED COMPONENTS KIO)' "KIO is not a first-class build dependency"
+require_text "$CMAKE" 'KF6::KIOCore' "directory/file semantics are not linked to KIOCore"
+require_text "$CMAKE" 'KF6::KIOFileWidgets' "places/devices model is not linked to KIOFileWidgets"
+require_text "$MODEL_H" '#include <KCoreDirLister>' "directory model does not use KCoreDirLister"
+require_text "$MODEL_CPP" 'm_lister.openUrl' "directory navigation is not driven by KCoreDirLister"
+require_text "$MAIN_CPP" 'KFilePlacesModel placesModel' "sidebar is not backed by KFilePlacesModel"
+reject_text "$MODEL_H" 'QFileSystemModel' "Maho Files reimplemented directory authority with QFileSystemModel"
+reject_text "$MODEL_CPP" 'std::filesystem' "Maho Files reimplemented filesystem traversal"
+reject_text "$MAIN_CPP" 'thunar' "native frontend still depends on Thunar"
+reject_text "$QML" 'thunar' "visible frontend still depends on Thunar"
+echo PASS
+
+echo "=== no premature file-engine reinvention ==="
+for token in 'KIO::copy(' 'KIO::move(' 'KIO::trash(' 'QProcess::execute("rm"' 'unlink(' 'rename('; do
+    reject_text "$MODEL_CPP" "$token" "M0 unexpectedly owns destructive file operations: $token"
+done
+echo PASS
+
+echo "=== Maho presentation ownership ==="
+require_text "$QML" 'Qt.FramelessWindowHint' "Maho does not own the native window chrome"
+require_text "$QML" 'id: closeButton' "premium Maho close control is missing"
+require_text "$QML" 'root.startSystemMove()' "frameless window cannot use compositor-native move"
+require_text "$QML" 'root.startSystemResize' "frameless window cannot use compositor-native resize"
+require_text "$QML" 'model: placesModel' "native places sidebar is not rendered in QML"
+require_text "$QML" 'model: directoryModel' "KIO directory items are not rendered in QML"
+require_text "$QML" 'image://mahoicons/' "real themed icon artwork is not used"
+echo PASS
+
+echo "=== Palette V2 bridge ==="
+require_text "$PALETTE_CPP" 'maho/theme/active.json' "Maho Files does not consume the canonical active palette"
+require_text "$PALETTE_CPP" 'surface_elevated' "semantic Palette V2 roles are not consumed"
+require_text "$PALETTE_CPP" 'surface_container_high' "legacy palette compatibility is missing"
+require_text "$PALETTE_CPP" 'QFileSystemWatcher' "palette changes cannot be observed while the app is running"
+echo PASS
+
+echo "=== wrapper safety ==="
+bash -n "$WRAPPER"
+require_text "$WRAPPER" 'MAHO_FILES_BUILD_DIR' "isolated build override is missing"
+require_text "$WRAPPER" 'cmake --build' "wrapper cannot build the native app"
+reject_text "$WRAPPER" 'sudo pacman' "wrapper must never mutate packages automatically"
+reject_text "$WRAPPER" 'thunar --quit' "native Maho Files must not manage Thunar lifecycle"
+reject_text "$WRAPPER" 'gtk-3.0' "native Maho Files must not mutate GTK configuration"
+echo PASS
+
+echo "ALL MAHO FILES QML CONTRACTS PASS"
