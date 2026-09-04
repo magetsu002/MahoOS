@@ -38,7 +38,8 @@ for file in "$CMAKE" "$MODEL_H" "$MODEL_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_
 done
 
 echo "=== native backend boundary ==="
-require_text "$CMAKE" 'find_package(KF6 REQUIRED COMPONENTS KIO)' "KIO is not a first-class build dependency"
+require_text "$CMAKE" 'find_package(KF6KIO CONFIG REQUIRED)' "KIO direct CMake package is not a first-class build dependency"
+reject_text "$CMAKE" 'find_package(KF6 REQUIRED COMPONENTS KIO)' "Maho Files must not depend on ECM umbrella FindKF6 just to discover KIO"
 require_text "$CMAKE" 'KF6::KIOCore' "directory/file semantics are not linked to KIOCore"
 require_text "$CMAKE" 'KF6::KIOFileWidgets' "places/devices model is not linked to KIOFileWidgets"
 require_text "$MODEL_H" '#include <KCoreDirLister>' "directory model does not use KCoreDirLister"
