@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QFileSystemWatcher>
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
 
