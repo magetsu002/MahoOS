@@ -29,8 +29,7 @@ Item {
     readonly property bool pressed: tap.pressed
 
     // Preserve every activation role published by LauncherBackend. Keyboard
-    // activation reads this object from currentItem, while pointer activation
-    // resolves the same authoritative row through backend.itemAt(index).
+    // and pointer activation both feed this stable payload to backend.activate.
     property var modelData: ({
         "entryId": root.entryId,
         "id": root.entryId,
@@ -175,11 +174,8 @@ Item {
         acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: {
-            // Single click activates immediately through the exact same backend
-            // activation function used by Enter. Resolve the authoritative model
-            // row rather than depending on a delegate-local signal payload.
             root.hovered(root.index)
-            root.backend.activate(root.backend.itemAt(root.index))
+            root.backend.activate(root.modelData)
         }
     }
 }
