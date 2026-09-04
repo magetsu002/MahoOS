@@ -12,10 +12,10 @@ WlSessionLockSurface {
     // all material are rendered inside the shared production view.
     color: theme.background
 
-    MahoLockViewV4 {
+    MahoLockViewV5 {
         anchors.fill: parent
         theme: root.theme
-        state: root.state
+        lockState: root.state
         auth: root.auth
         previewMode: false
     }
