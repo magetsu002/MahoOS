@@ -94,6 +94,22 @@ Scope {
             wallpaperPicker.exec(["python", Quickshell.shellPath("state.py"), "--pick-wallpaper"])
     }
 
+    function shuffleLockWallpaper() {
+        if (!wallpaperPicker.running)
+            wallpaperPicker.exec(["python", Quickshell.shellPath("state.py"), "--shuffle-wallpaper"])
+    }
+
+    function setLockWallpaper(path) {
+        if (!wallpaperWriteProcess.running) {
+            wallpaperWriteProcess.exec([
+                "python",
+                Quickshell.shellPath("state.py"),
+                "--set-wallpaper",
+                String(path),
+            ])
+        }
+    }
+
     function refreshAvatarCandidates() {
         if (!avatarListProcess.running)
             avatarListProcess.exec(["python", Quickshell.shellPath("state.py"), "--avatar-candidates"])
@@ -153,6 +169,9 @@ Scope {
                     state.keyboardLayout = String(payload.keyboardLayout || "US")
                     state.switchUserCommand = payload.switchUserCommand || []
                     state.avatarPath = String(payload.avatarPath || "")
+                    const savedWallpaper = String(payload.savedWallpaperPath || "")
+                    if (savedWallpaper.length > 0 && state.selectedLockWallpaperPath.length === 0)
+                        state.selectedLockWallpaperPath = savedWallpaper
                 } catch (error) {
                     // Optional ambient probes must never block locking.
                 }
@@ -172,6 +191,23 @@ Scope {
                         state.selectedLockWallpaperPath = path
                 } catch (error) {
                     // Fall back to current desktop or bundled lock image.
+                }
+            }
+        }
+    }
+
+    Process {
+        id: wallpaperWriteProcess
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const payload = JSON.parse(this.text)
+                    const path = String(payload.path || "")
+                    if (payload.ok === true && path.length > 0)
+                        state.selectedLockWallpaperPath = path
+                } catch (error) {
+                    // Keep the current wallpaper if selection persistence fails.
                 }
             }
         }
