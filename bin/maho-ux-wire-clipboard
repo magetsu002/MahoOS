@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_ROOT="${MAHO_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/maho-ux-cleanup-current}"
+SOURCE="$SOURCE_ROOT/config/hypr/maho/integrations/clipboard.lua"
+HYPR_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
+MAIN="$HYPR_ROOT/hyprland.lua"
+TARGET="$HYPR_ROOT/maho/integrations/clipboard.lua"
+COMMAND="$HOME/.local/bin/maho-clipboard"
+STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/maho/ux-cleanup"
+REQUIRE_LINE='pcall(require, "maho.integrations.clipboard")'
+
+bind_live() {
+    command -v hyprctl >/dev/null 2>&1 || return 1
+    hyprctl binds 2>/dev/null | grep -Fq 'maho-clipboard'
+}
+
+status() {
+    local failed=0
+
+    if [ -x "$COMMAND" ]; then
+        echo "PASS  command       $COMMAND"
+    else
+        echo "FAIL  command       $COMMAND missing"
+        failed=1
+    fi
+
+    if [ -r "$TARGET" ]; then
+        echo "PASS  drop-in       $TARGET"
+    else
+        echo "FAIL  drop-in       not installed"
+        failed=1
+    fi
+
+    if [ -r "$MAIN" ] && grep -Fqx "$REQUIRE_LINE" "$MAIN"; then
+        echo "PASS  loader        guarded require present"
+    else
+        echo "FAIL  loader        guarded require missing"
+        failed=1
+    fi
+
+    if bind_live; then
+        echo "PASS  live bind     SUPER+V -> maho-clipboard"
+    else
+        echo "FAIL  live bind     maho-clipboard not registered"
+        failed=1
+    fi
+
+    return "$failed"
+}
+
+install_wire() {
+    [ -r "$SOURCE" ] || {
+        echo "maho-ux-wire-clipboard: source integration missing: $SOURCE" >&2
+        exit 1
+    }
+    [ -x "$COMMAND" ] || {
+        echo "maho-ux-wire-clipboard: permanent command missing: $COMMAND" >&2
+        exit 1
+    }
+    [ -r "$MAIN" ] || {
+        echo "maho-ux-wire-clipboard: live Hyprland Lua entrypoint missing: $MAIN" >&2
+        exit 1
+    }
+
+    local stamp backup target_existed=0
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$STATE_ROOT/clipboard-wire-$stamp"
+    mkdir -p "$backup" "$(dirname "$TARGET")"
+    chmod 0700 "$STATE_ROOT" "$backup" 2>/dev/null || true
+
+    cp -a "$MAIN" "$backup/hyprland.lua"
+    if [ -e "$TARGET" ]; then
+        target_existed=1
+        cp -a "$TARGET" "$backup/clipboard.lua"
+    fi
+
+    rollback() {
+        cp -a "$backup/hyprland.lua" "$MAIN"
+        if [ "$target_existed" -eq 1 ]; then
+            cp -a "$backup/clipboard.lua" "$TARGET"
+        else
+            rm -f "$TARGET"
+        fi
+        if command -v hyprctl >/dev/null 2>&1; then
+            hyprctl reload >/dev/null 2>&1 || true
+        fi
+    }
+
+    # Never overwrite the user's dirty general binds file. The component gets
+    # its own product integration drop-in instead.
+    install -m 0644 "$SOURCE" "$TARGET"
+
+    if ! grep -Fqx "$REQUIRE_LINE" "$MAIN"; then
+        {
+            printf '\n%s\n' '-- Maho component integrations (local additive wiring).' 
+            printf '%s\n' "$REQUIRE_LINE"
+        } >> "$MAIN"
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        if ! hyprctl reload >/dev/null 2>&1; then
+            echo "maho-ux-wire-clipboard: Hyprland rejected the integration; restoring backup" >&2
+            rollback
+            exit 1
+        fi
+
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if bind_live; then
+                echo "PASS  live bind     SUPER+V -> maho-clipboard"
+                echo "PASS  backup        $backup"
+                return 0
+            fi
+            sleep 0.05
+        done
+
+        echo "maho-ux-wire-clipboard: reload succeeded but clipboard bind is absent; restoring backup" >&2
+        rollback
+        exit 1
+    fi
+
+    echo "INFO  Hyprland is not currently reachable; integration installed for next session."
+    echo "PASS  backup        $backup"
+}
+
+case "${1:-install}" in
+    install) install_wire ;;
+    status) status ;;
+    *)
+        echo "usage: maho-ux-wire-clipboard [install|status]" >&2
+        exit 2
+        ;;
+esac
