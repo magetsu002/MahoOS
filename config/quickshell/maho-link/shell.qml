@@ -26,6 +26,10 @@ ShellRoot {
             ? String(configured)
             : Quickshell.env("HOME") + "/.local/state"
     }
+    // Placement belongs to Maho Link as a product, not to whichever
+    // Quickshell runtime copy happened to launch Wi-Fi or Bluetooth.
+    // Keep one explicit XDG state file so both modes always converge.
+    readonly property string linkPlacementPath: stateBase + "/maho-link-position.json"
     readonly property string dockEdge:
         dockState.edge === "left" || dockState.edge === "right"
             || dockState.edge === "top" || dockState.edge === "bottom"
@@ -112,7 +116,7 @@ ShellRoot {
     }
 
     FileView {
-        path: Quickshell.statePath("link-position.json")
+        path: root.linkPlacementPath
         blockLoading: true
         onAdapterUpdated: writeAdapter()
 
