@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="${MAHO_CLIPBOARD_CONFIG:-$ROOT/config/quickshell/maho-clipboard/shell.qml}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOCK="$RUNTIME_DIR/maho-clipboard.lock"
+
+if [ "$#" -ne 0 ]; then
+    echo "maho-clipboard: no arguments are supported" >&2
+    exit 2
+fi
+
+for dependency in quickshell flock cliphist wl-copy; do
+    command -v "$dependency" >/dev/null 2>&1 || {
+        echo "maho-clipboard: $dependency is unavailable" >&2
+        exit 1
+    }
+done
+
+[ -r "$CONFIG" ] || {
+    echo "maho-clipboard: configuration missing: $CONFIG" >&2
+    exit 1
+}
+
+mkdir -p "$RUNTIME_DIR"
+exec 9>"$LOCK"
+
+# The first invocation owns the lock and starts the surface. A later invocation
+# talks to that exact Quickshell config instead of spawning another process or
+# killing it, so SUPER+V is a true open/close toggle and the exit animation is
+# allowed to finish normally.
+if ! flock -n 9; then
+    for _ in 1 2 3 4; do
+        if quickshell -p "$CONFIG" ipc call clipboard toggle >/dev/null 2>&1; then
+            exit 0
+        fi
+        sleep 0.025
+    done
+
+    echo "maho-clipboard: existing instance did not accept toggle IPC" >&2
+    exit 1
+fi
+
+# Development runs use the repository QML directly while the live Hyprland
+# config may still point at an older Maho release. Register the same narrowly
+# scoped layer rule in the running compositor so the preview receives real
+# background blur immediately. The rule only matches the maho-clipboard
+# namespace and disappears on compositor restart/reload; failure is non-fatal.
+if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl eval 'if _G.maho_clipboard_glass_rule == nil then _G.maho_clipboard_glass_rule = hl.layer_rule({ name = "maho-clipboard-runtime-glass", match = { namespace = "maho-clipboard" }, blur = true, ignore_alpha = 0.16, xray = false, no_anim = true }) end' \
+        >/dev/null 2>&1 || true
+fi
+
+exec quickshell -p "$CONFIG" >/dev/null 2>&1
