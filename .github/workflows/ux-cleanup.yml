@@ -8,14 +8,9 @@ on:
     paths:
       - 'bin/maho-launcher'
       - 'bin/maho-clipboard'
-      - 'bin/maho-ux-wire-clipboard'
       - 'lib/maho_launcher_backend.py'
       - 'config/quickshell/maho-launcher/**'
       - 'config/quickshell/maho-clipboard/**'
-      - 'config/hypr/hyprland.lua'
-      - 'config/hypr/maho/appearance/decorations.lua'
-      - 'config/hypr/maho/core/binds.lua'
-      - 'config/hypr/maho/integrations/**'
       - 'tests/launcher-qml-contracts.sh'
       - 'tests/clipboard-contracts.sh'
       - 'tests/ux-cleanup-contracts.sh'
@@ -33,7 +28,7 @@ jobs:
       - name: Shell syntax
         run: |
           set -euo pipefail
-          bash -n bin/maho-launcher bin/maho-clipboard bin/maho-ux-wire-clipboard \
+          bash -n bin/maho-launcher bin/maho-clipboard \
             tests/launcher-qml-contracts.sh tests/clipboard-contracts.sh \
             tests/ux-cleanup-contracts.sh
 
