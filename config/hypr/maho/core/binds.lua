@@ -12,13 +12,6 @@ hl.bind(
     hl.dsp.exec_cmd([["$HOME/.local/bin/qs-wallpaper-picker"]])
 )
 
--- Native Maho surfaces. Keep this as a direct command to the launcher that is
--- being validated on this checkout; no shell pipeline or guessed runtime path.
-hl.bind(
-    mainMod .. " + V",
-    hl.dsp.exec_cmd([["$HOME/Projects/Maho-OS/bin/maho-clipboard"]])
-)
-
 -- Laptop media keys. On laptops the Fn layer normally reaches Hyprland as
 -- XF86 keysyms rather than as a literal Fn+F-key chord. These bindings mutate
 -- the real system services; Maho Shell observes those service changes and
