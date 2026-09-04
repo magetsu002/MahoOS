@@ -14,6 +14,7 @@ on:
       - 'tests/maho-lock-contracts.sh'
       - 'tests/maho-lock-status-targets.sh'
       - 'tests/maho-lock-install-contracts.sh'
+      - 'tests/maho-lock-personalization-contracts.sh'
       - '.github/workflows/maho-lock.yml'
 
 permissions:
@@ -33,7 +34,8 @@ jobs:
             bin/maho-lock-install \
             tests/maho-lock-contracts.sh \
             tests/maho-lock-status-targets.sh \
-            tests/maho-lock-install-contracts.sh
+            tests/maho-lock-install-contracts.sh \
+            tests/maho-lock-personalization-contracts.sh
           python3 -m py_compile config/quickshell/maho-lock/state.py
 
       - name: Maho Lock contracts
@@ -42,3 +44,4 @@ jobs:
           bash tests/maho-lock-contracts.sh
           bash tests/maho-lock-status-targets.sh
           bash tests/maho-lock-install-contracts.sh
+          bash tests/maho-lock-personalization-contracts.sh
