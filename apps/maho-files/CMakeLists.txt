@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(MahoFiles VERSION 0.1.0 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -43,5 +45,9 @@ target_link_libraries(maho-files PRIVATE
 )
 
 install(TARGETS maho-files
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(FILES io.maho.Files.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
