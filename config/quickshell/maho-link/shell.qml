@@ -65,10 +65,6 @@ ShellRoot {
     }
 
     function placementSpanX() {
-        // The saved coordinate system must not depend on whichever Link mode is
-        // currently open. Wi-Fi and Bluetooth can have different heights, so
-        // normalizing against maximumSurfaceX/Y would remap one shared value to
-        // different pixels. Use the monitor's margin-to-margin space instead.
         return Math.max(1, overlay.width - surfaceMarginX * 2)
     }
 
@@ -76,15 +72,42 @@ ShellRoot {
         return Math.max(1, overlay.height - surfaceMarginY * 2)
     }
 
+    function canRestoreExactPixels() {
+        const savedX = Number(linkPlacement.pixelX)
+        const savedY = Number(linkPlacement.pixelY)
+        const savedWidth = Number(linkPlacement.monitorWidth)
+        const savedHeight = Number(linkPlacement.monitorHeight)
+        return linkPlacement.version >= 2
+            && isFinite(savedX) && isFinite(savedY)
+            && isFinite(savedWidth) && isFinite(savedHeight)
+            && Math.abs(savedWidth - overlay.width) < 1
+            && Math.abs(savedHeight - overlay.height) < 1
+    }
+
     function applyPlacement() {
         const maxX = maximumSurfaceX()
         const maxY = maximumSurfaceY()
 
         if (linkPlacement.valid) {
-            const targetX = surfaceMarginX
-                + placementSpanX() * clamp(Number(linkPlacement.normalizedX), 0, 1)
-            const targetY = surfaceMarginY
-                + placementSpanY() * clamp(Number(linkPlacement.normalizedY), 0, 1)
+            let targetX
+            let targetY
+
+            // On the same monitor geometry, restore the exact top-left pixel
+            // anchor last chosen by the user. This makes Wi-Fi and Bluetooth
+            // open at the same physical location even though their panel sizes
+            // differ. Only the unavoidable fit clamp may move a larger panel.
+            if (canRestoreExactPixels()) {
+                targetX = Number(linkPlacement.pixelX)
+                targetY = Number(linkPlacement.pixelY)
+            } else {
+                // Older v1 state and changed monitor geometry fall back to the
+                // resolution-adaptive normalized anchor, then upgrade on drag.
+                targetX = surfaceMarginX
+                    + placementSpanX() * clamp(Number(linkPlacement.normalizedX), 0, 1)
+                targetY = surfaceMarginY
+                    + placementSpanY() * clamp(Number(linkPlacement.normalizedY), 0, 1)
+            }
+
             linkSurface.x = clamp(targetX, surfaceMarginX, maxX)
             linkSurface.y = clamp(targetY, surfaceMarginY, maxY)
             return
@@ -104,9 +127,14 @@ ShellRoot {
         linkSurface.x = clamp(linkSurface.x, surfaceMarginX, maxX)
         linkSurface.y = clamp(linkSurface.y, surfaceMarginY, maxY)
 
-        // Persist one mode-independent top-left anchor. Both Wi-Fi and
-        // Bluetooth therefore target the same pixel location on the same
-        // output; only the final fit clamp may move a larger panel inward.
+        // Exact pixels are authoritative while the monitor geometry is stable.
+        // Normalized coordinates remain alongside them for resolution/output
+        // changes, so the state is both cross-mode exact and resolution-safe.
+        linkPlacement.version = 2
+        linkPlacement.pixelX = linkSurface.x
+        linkPlacement.pixelY = linkSurface.y
+        linkPlacement.monitorWidth = overlay.width
+        linkPlacement.monitorHeight = overlay.height
         linkPlacement.normalizedX = (linkSurface.x - surfaceMarginX) / placementSpanX()
         linkPlacement.normalizedY = (linkSurface.y - surfaceMarginY) / placementSpanY()
         linkPlacement.valid = true
@@ -137,8 +165,12 @@ ShellRoot {
 
         JsonAdapter {
             id: linkPlacement
-            property int version: 1
+            property int version: 2
             property bool valid: false
+            property real pixelX: -1
+            property real pixelY: -1
+            property real monitorWidth: -1
+            property real monitorHeight: -1
             property real normalizedX: 0.5
             property real normalizedY: 0.5
         }
