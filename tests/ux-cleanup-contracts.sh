@@ -98,6 +98,8 @@ for edge in 'top: true' 'bottom: true' 'left: true' 'right: true'; do
     require_text "$LAUNCHER_BACKDROP" "$edge" "Launcher blur carrier does not cover full output: $edge"
 done
 require_text "$LAUNCHER_BACKDROP" 'exclusionMode: ExclusionMode.Ignore' 'Edge reservation can still shrink the blur carrier'
+require_text "$LAUNCHER_WINDOW" 'exclusionMode: ExclusionMode.Ignore' 'Edge reservation can still shrink or offset the Launcher interaction plane'
+reject_text "$LAUNCHER_WINDOW" 'exclusiveZone:' 'explicit Launcher exclusiveZone can reset Ignore semantics and reintroduce the top reservation seam'
 require_text "$LAUNCHER_BACKDROP" 'WlrLayershell.layer: WlrLayer.Top' 'blur carrier no longer sits below sharp Overlay surfaces'
 require_text "$LAUNCHER_BACKDROP" 'mask: Region {}' 'blur carrier can intercept pointer input'
 require_text "$LAUNCHER_BACKDROP" 'WlrLayershell.namespace: "maho-launcher-backdrop"' 'backdrop namespace drifted'
@@ -105,6 +107,6 @@ require_text "$LAUNCHER_SHELL" 'LauncherBackdrop {' 'launcher shell no longer ow
 require_text "$LAUNCHER_BIN" 'match = { namespace = "maho-launcher-backdrop" }' 'Hyprland blur is not scoped to the dedicated carrier'
 require_text "$LAUNCHER_BIN" 'ignore_alpha = 0.001' 'carrier falls below compositor blur threshold'
 reject_text "$LAUNCHER_BIN" 'match = { namespace = "maho-launcher" }' 'sharp interactive Launcher surface is being blurred'
-printf '%s\n' 'PASS  full-output backdrop is independent, inputless, and scoped below Edge'
+printf '%s\n' 'PASS  full-output backdrop and interaction plane both ignore Edge reservation'
 
 printf '%s\n' 'ALL UX CLEANUP CONTRACTS PASS'
