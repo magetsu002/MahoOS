@@ -9,11 +9,10 @@ WlSessionLockSurface {
     required property var auth
 
     // Keep the secure session-lock surface opaque. All wallpaper treatment is
-    // rendered inside MahoLockView; the live desktop is never exposed through
-    // transparency.
+    // rendered inside the shared lock view; the live desktop is never exposed.
     color: theme.background
 
-    MahoLockView {
+    MahoLockViewV2 {
         anchors.fill: parent
         theme: root.theme
         state: root.state
