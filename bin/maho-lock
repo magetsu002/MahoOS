@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="${MAHO_LOCK_CONFIG:-$ROOT/config/quickshell/maho-lock/shell.qml}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+LOCK_FILE="$RUNTIME_DIR/maho-lock.lock"
+
+if [ "$#" -ne 0 ]; then
+    echo "maho-lock: no arguments are supported" >&2
+    exit 2
+fi
+
+for dependency in quickshell flock; do
+    command -v "$dependency" >/dev/null 2>&1 || {
+        echo "maho-lock: $dependency is unavailable" >&2
+        exit 1
+    }
+done
+
+[ -r "$CONFIG" ] || {
+    echo "maho-lock: configuration missing: $CONFIG" >&2
+    exit 1
+}
+
+mkdir -p "$RUNTIME_DIR"
+exec 9>"$LOCK_FILE"
+
+# A session lock is a singleton security authority. If Maho Lock already owns
+# the runtime lock, a second key press must not spawn another WlSessionLock.
+if ! flock -n 9; then
+    exit 0
+fi
+
+exec quickshell --no-duplicate -p "$CONFIG"

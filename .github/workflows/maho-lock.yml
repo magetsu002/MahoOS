@@ -1,0 +1,34 @@
+name: maho-lock
+
+on:
+  push:
+    branches:
+      - 'feat/maho-lock'
+  pull_request:
+    paths:
+      - 'bin/maho-lock'
+      - 'config/quickshell/maho-lock/**'
+      - 'config/hypr/maho/core/binds.lua'
+      - 'bin/maho-setup'
+      - 'tests/maho-lock-contracts.sh'
+      - '.github/workflows/maho-lock.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-lock tests/maho-lock-contracts.sh
+          python3 -m py_compile config/quickshell/maho-lock/state.py
+
+      - name: Maho Lock contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-lock-contracts.sh
