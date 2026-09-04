@@ -51,10 +51,10 @@ ShellRoot {
         WlrLayershell.namespace: "maho-lock-preview"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-        MahoLockViewV4 {
+        MahoLockViewV5 {
             anchors.fill: parent
             theme: theme
-            state: state
+            lockState: state
             auth: previewAuth
             previewMode: true
         }
