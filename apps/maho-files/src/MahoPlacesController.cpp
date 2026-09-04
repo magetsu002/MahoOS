@@ -20,7 +20,7 @@ MahoPlacesController::MahoPlacesController(KFilePlacesModel *placesModel,
             return;
 
         const QPersistentModelIndex pending = m_pendingSetup;
-        m_pendingSetup = {};
+        m_pendingSetup = QPersistentModelIndex();
         setBusyRow(-1);
 
         if (!success) {
