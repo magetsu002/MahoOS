@@ -8,11 +8,14 @@ on:
     paths:
       - 'bin/maho-launcher'
       - 'bin/maho-clipboard'
+      - 'bin/maho-clipboard-history'
+      - 'systemd/user/maho-clipboard-history.service'
       - 'lib/maho_launcher_backend.py'
       - 'config/quickshell/maho-launcher/**'
       - 'config/quickshell/maho-clipboard/**'
       - 'tests/launcher-qml-contracts.sh'
       - 'tests/clipboard-contracts.sh'
+      - 'tests/clipboard-history-contracts.sh'
       - 'tests/ux-cleanup-contracts.sh'
       - '.github/workflows/ux-cleanup.yml'
 
@@ -28,9 +31,9 @@ jobs:
       - name: Shell syntax
         run: |
           set -euo pipefail
-          bash -n bin/maho-launcher bin/maho-clipboard \
+          bash -n bin/maho-launcher bin/maho-clipboard bin/maho-clipboard-history \
             tests/launcher-qml-contracts.sh tests/clipboard-contracts.sh \
-            tests/ux-cleanup-contracts.sh
+            tests/clipboard-history-contracts.sh tests/ux-cleanup-contracts.sh
 
       - name: Python syntax
         run: |
@@ -43,6 +46,11 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/clipboard-contracts.sh
+
+      - name: Clipboard history contracts
+        run: |
+          set -euo pipefail
+          bash tests/clipboard-history-contracts.sh
 
       - name: Launcher contracts
         run: |
