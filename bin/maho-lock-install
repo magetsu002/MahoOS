@@ -128,8 +128,8 @@ append_bind_block() {
 
     cat >> "$target" <<'EOF_BIND'
 
--- Secure Maho session lock.
 -- maho-lock-bind:begin
+-- Secure Maho session lock.
 hl.bind(
     mainMod .. " + L",
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
@@ -250,48 +250,60 @@ install() {
 
     cp -a "$LIVE_BINDS" "$backup/binds.lua"
 
-    cleanup_stage() {
+    rollback_install() {
+        say "Rolling back Maho Lock installation..."
+        cp -a "$backup/binds.lua" "$LIVE_BINDS"
+
+        rm -rf "$DEPLOY_ROOT"
+        if [ "$had_runtime" -eq 1 ]; then
+            cp -a "$backup/runtime" "$DEPLOY_ROOT"
+        fi
+
+        rm -f "$BIN_TARGET"
+        if [ "$had_wrapper" -eq 1 ]; then
+            cp -a "$backup/maho-lock" "$BIN_TARGET"
+        fi
+
         rm -rf "$stage" "$bind_work"
+        hyprctl reload >/dev/null 2>&1 || true
     }
-    trap cleanup_stage RETURN
 
     say
     say "Staging runtime..."
-    stage_runtime "$stage"
+    if ! stage_runtime "$stage"; then
+        rollback_install
+        fail "runtime staging failed; inspect $backup"
+        return 1
+    fi
 
     rm -rf "$DEPLOY_ROOT"
     mv "$stage" "$DEPLOY_ROOT"
     say "PASS  runtime $DEPLOY_ROOT"
 
-    write_wrapper
+    if ! write_wrapper; then
+        rollback_install
+        fail "command installation failed; inspect $backup"
+        return 1
+    fi
     say "PASS  command $BIN_TARGET"
 
-    install_bind "$bind_work"
+    if ! install_bind "$bind_work"; then
+        rollback_install
+        fail "binding installation failed; inspect $backup"
+        return 1
+    fi
     say "PASS  SUPER+L binding staged"
 
     if verify_live; then
+        rm -rf "$stage" "$bind_work"
         say "PASS  Hyprland reload and config verification"
         say "PASS  permanent Maho Lock installation ready"
         say "Backup: $backup"
         return 0
     fi
 
-    say "FAIL  live verification; rolling back"
-
-    cp -a "$backup/binds.lua" "$LIVE_BINDS"
-
-    rm -rf "$DEPLOY_ROOT"
-    if [ "$had_runtime" -eq 1 ]; then
-        cp -a "$backup/runtime" "$DEPLOY_ROOT"
-    fi
-
-    rm -f "$BIN_TARGET"
-    if [ "$had_wrapper" -eq 1 ]; then
-        cp -a "$backup/maho-lock" "$BIN_TARGET"
-    fi
-
-    hyprctl reload >/dev/null 2>&1 || true
-    fail "installation rolled back; inspect $backup"
+    rollback_install
+    fail "live verification failed; installation rolled back; inspect $backup"
 }
 
 status() {
