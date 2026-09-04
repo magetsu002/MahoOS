@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -u
+
+usage() {
+    cat <<'HELP'
+Maho Clipboard history capture owner
+
+Usage:
+  maho-clipboard-history serve
+
+The serve command owns the persistent wl-paste -> cliphist capture processes.
+It is intended to run under maho-clipboard-history.service, independently of
+the Clipboard UI process.
+HELP
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || {
+        echo "maho-clipboard-history: missing command: $1" >&2
+        return 1
+    }
+}
+
+serve() {
+    require_command wl-paste || return 1
+    require_command cliphist || return 1
+
+    local text_pid image_pid status
+
+    wl-paste --type text --watch cliphist store &
+    text_pid=$!
+
+    wl-paste --type image --watch cliphist store &
+    image_pid=$!
+
+    cleanup() {
+        trap - EXIT INT TERM
+        kill "$text_pid" "$image_pid" >/dev/null 2>&1 || true
+        wait "$text_pid" "$image_pid" >/dev/null 2>&1 || true
+    }
+
+    trap cleanup EXIT INT TERM
+
+    wait -n "$text_pid" "$image_pid"
+    status=$?
+
+    # Either watcher exiting means the capture owner is unhealthy. Stop the
+    # sibling as one unit; systemd restarts the owner and recreates both.
+    return "$status"
+}
+
+case "${1:-}" in
+    serve) serve ;;
+    -h|--help|help|'') usage ;;
+    *)
+        echo "maho-clipboard-history: unknown command: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
