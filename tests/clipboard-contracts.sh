@@ -8,7 +8,6 @@ PANEL="$ROOT/config/quickshell/maho-clipboard/ClipboardPanel.qml"
 THEME="$ROOT/config/quickshell/maho-clipboard/ClipboardTheme.qml"
 STATE="$ROOT/config/quickshell/maho-clipboard/ClipboardState.qml"
 SHELL="$ROOT/config/quickshell/maho-clipboard/shell.qml"
-DECORATIONS="$ROOT/config/hypr/maho/appearance/decorations.lua"
 LAUNCHER="$ROOT/bin/maho-clipboard"
 
 fail() {
@@ -20,7 +19,7 @@ pass() {
     printf 'PASS  %s\n' "$*"
 }
 
-for file in "$BACKEND" "$PANEL" "$THEME" "$STATE" "$SHELL" "$DECORATIONS" "$LAUNCHER"; do
+for file in "$BACKEND" "$PANEL" "$THEME" "$STATE" "$SHELL" "$LAUNCHER"; do
     [ -r "$file" ] || fail "missing ${file#$ROOT/}"
 done
 pass "clipboard files present"
@@ -109,18 +108,16 @@ if grep -Fq 'height: Math.min(240, parent.height * 0.20)' "$SHELL"; then
 fi
 pass "bottom-sheet motion contract"
 
-# The QML material is translucent by design; Hyprland provides the actual scene
-# blur behind it. ignore_alpha keeps the low-alpha full-screen backdrop from
-# blurring the whole desktop. The launcher mirrors the scoped rule for direct
-# repository previews where installed compositor config may be older.
-grep -Fq 'hl.layer_rule({' "$DECORATIONS" || fail "clipboard compositor layer rule missing"
-grep -Fq 'namespace = "maho-clipboard"' "$DECORATIONS" || fail "clipboard blur namespace missing"
-grep -Fq 'blur = true' "$DECORATIONS" || fail "clipboard compositor blur disabled"
-grep -Fq 'ignore_alpha = 0.16' "$DECORATIONS" || fail "clipboard blur alpha gate missing"
-grep -Fq 'xray = false' "$DECORATIONS" || fail "clipboard blur xray override missing"
-grep -Fq 'no_anim = true' "$DECORATIONS" || fail "compositor animation can fight QML sheet animation"
-grep -Fq 'maho_clipboard_glass_rule' "$LAUNCHER" || fail "repository-direct live blur preview missing"
-grep -Fq 'hyprctl eval' "$LAUNCHER" || fail "live blur rule is not applied through current Hyprland Lua runtime"
+# Repository/direct deployments install the narrowly scoped runtime blur rule
+# from the Clipboard launcher itself. Do not require or mutate global Hyprland
+# decoration config just to make this component participate in compositor blur.
+grep -Fq 'maho_clipboard_glass_rule' "$LAUNCHER" || fail "clipboard runtime glass rule missing"
+grep -Fq 'namespace = "maho-clipboard"' "$LAUNCHER" || fail "clipboard runtime blur namespace missing"
+grep -Fq 'blur = true' "$LAUNCHER" || fail "clipboard runtime blur disabled"
+grep -Fq 'ignore_alpha = 0.16' "$LAUNCHER" || fail "clipboard runtime blur alpha gate missing"
+grep -Fq 'xray = false' "$LAUNCHER" || fail "clipboard runtime blur xray override missing"
+grep -Fq 'no_anim = true' "$LAUNCHER" || fail "compositor animation can fight QML sheet animation"
+grep -Fq 'hyprctl eval' "$LAUNCHER" || fail "runtime blur rule is not applied through current Hyprland Lua runtime"
 pass "compositor glass contract"
 
 if grep -Eq 'wl-paste[[:space:]].*--watch|cliphist[[:space:]]+store|sqlite|CREATE TABLE' "$BACKEND" "$PANEL" "$THEME" "$STATE" "$SHELL" "$LAUNCHER"; then
