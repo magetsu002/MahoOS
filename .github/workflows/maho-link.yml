@@ -23,6 +23,7 @@ jobs:
             bin/maho-link \
             tests/maho-link-contracts.sh \
             tests/maho-link-drag-startup-contracts.sh \
+            tests/maho-link-shared-position-contracts.sh \
             tests/maho-link-bluetooth-session-contracts.sh \
             tests/maho-link-single-hover-contracts.sh
 
@@ -42,6 +43,11 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/maho-link-drag-startup-contracts.sh
+
+      - name: Shared Wi-Fi/Bluetooth placement contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-link-shared-position-contracts.sh
 
       - name: Bluetooth discovery-session contracts
         run: |
