@@ -49,6 +49,17 @@ if grep -Eq 'PanelWindow|FloatingWindow' "$SHELL" "$SURFACE"; then
 fi
 pass "secure Wayland lock boundary"
 
+# Random local wallpaper authority stays user-controlled and bounded.
+grep -Fq 'MAHO_LOCK_WALLPAPER_DIR' "$PROBE" || fail "wallpaper directory override missing"
+grep -Fq 'MAHO_LOCK_WALLPAPER_FILE' "$PROBE" || fail "explicit wallpaper override missing"
+grep -Fq 'random.SystemRandom().choice' "$PROBE" || fail "wallpaper randomization missing"
+grep -Fq -- '--pick-wallpaper' "$PROBE" || fail "wallpaper picker CLI missing"
+grep -Fq -- '--shuffle-wallpaper' "$PROBE" || fail "wallpaper shuffle CLI missing"
+grep -Fq 'source: root.lockState.lockWallpaperUrl' "$BASE_VIEW" || fail "active view ignores lock wallpaper"
+grep -Fq 'root.lockState.shuffleLockWallpaper()' "$VIEW" || fail "preview personalization cannot shuffle wallpaper"
+grep -Fq 'root.lockState.setLockWallpaper(path)' "$VIEW" || fail "preview cannot persist an explicitly chosen wallpaper"
+pass "random and explicit local lock wallpaper authority"
+
 # PAM remains the only unlock authority.
 grep -Fq 'PamContext {' "$AUTH" || fail "PAM authentication missing"
 grep -Fq 'config: "login"' "$AUTH" || fail "PAM login stack missing"
@@ -58,15 +69,6 @@ if grep -Fq 'locked = false' "$SURFACE" "$BASE_VIEW" "$VIEW"; then
     fail "visual path can release session lock"
 fi
 pass "PAM-only unlock authority"
-
-# Random local wallpaper authority stays user-controlled and bounded.
-grep -Fq 'MAHO_LOCK_WALLPAPER_DIR' "$PROBE" || fail "wallpaper directory override missing"
-grep -Fq 'MAHO_LOCK_WALLPAPER_FILE' "$PROBE" || fail "explicit wallpaper override missing"
-grep -Fq 'random.SystemRandom().choice' "$PROBE" || fail "wallpaper randomization missing"
-grep -Fq -- '--pick-wallpaper' "$PROBE" || fail "wallpaper picker CLI missing"
-grep -Fq 'source: root.lockState.lockWallpaperUrl' "$BASE_VIEW" || fail "active view ignores lock wallpaper"
-grep -Fq 'root.lockState.chooseLockWallpaper()' "$VIEW" || fail "preview personalization cannot shuffle wallpaper"
-pass "random local lock wallpaper authority"
 
 # Battery icon represents charge level and charging state, with calm charging motion.
 for name in battery battery-25 battery-50 battery-75 battery-full battery-charging; do
@@ -84,12 +86,14 @@ grep -Fq 'Number.isFinite' "$STATE" || fail "battery percentage is not finite ch
 grep -Fq 'batteryStatusText' "$STATE" || fail "battery semantic status missing"
 pass "semantic animated battery state"
 
-# Top-right chrome is interactive, animated, and bounded to lock-safe actions.
+# Top-right chrome is interactive, animated, bounded, and single-authority.
 grep -Fq 'statusInteractive' "$ICON" || fail "status icon interaction missing"
 grep -Fq 'name === "wifi"' "$ICON" || fail "Wi-Fi status interaction missing"
 grep -Fq 'name === "battery"' "$ICON" || fail "battery status interaction missing"
 grep -Fq 'name === "keyboard"' "$ICON" || fail "keyboard status interaction missing"
 grep -Fq 'statusBubble' "$ICON" || fail "status feedback bubble missing"
+grep -Fq 'closePeerStatuses(rootItem())' "$ICON" || fail "multiple top-right status cards can remain open"
+grep -Fq 'visible: root.statusOpen' "$ICON" || fail "closed status card can linger under a new card"
 grep -Fq 'iconVisual' "$ICON" || fail "status hover/press animation missing"
 grep -Fq 'Manage in Maho Link after unlock' "$ICON" || fail "Wi-Fi interaction lacks safe routing"
 grep -Fq -- '--switch-layout' "$ICON" || fail "keyboard icon does not use bounded layout switch helper"
@@ -97,7 +101,7 @@ grep -Fq 'Active layout' "$ICON" || fail "keyboard interaction lacks state feedb
 if grep -Eq 'nmcli.*(radio|connection).*down|rfkill|ip link.*down' "$ICON"; then
     fail "lock screen can destructively change network state"
 fi
-pass "animated lock-safe status chrome"
+pass "single-authority animated lock-safe status chrome"
 
 # Password visibility has explicit eye-open and eye-slashed states.
 [ -s "$LOCK_DIR/icons/eye.svg" ] || fail "eye-open asset missing"
@@ -118,12 +122,14 @@ grep -Fq 'avatarReveal' "$VIEW" || fail "profile photo entrance motion missing"
 grep -Fq 'refreshAvatarCandidates' "$VIEW" || fail "profile candidate UI missing"
 grep -Fq 'setAvatar' "$VIEW" || fail "profile selection action missing"
 grep -Fq 'clearAvatar' "$VIEW" || fail "initials reset action missing"
-grep -Fq 'New wallpaper' "$VIEW" || fail "personalization panel lacks wallpaper action"
+grep -Fq 'Choose photo…' "$VIEW" || fail "personalization panel lacks direct photo file chooser"
+grep -Fq 'Choose wallpaper…' "$VIEW" || fail "personalization panel lacks direct wallpaper file chooser"
 grep -Fq -- '--avatar-candidates' "$PROBE" || fail "avatar candidate CLI missing"
 grep -Fq -- '--set-avatar' "$PROBE" || fail "avatar persistence CLI missing"
-grep -Fq 'profile_state_path' "$PROBE" || fail "avatar persistence state missing"
+grep -Fq -- '--set-wallpaper' "$PROBE" || fail "wallpaper persistence CLI missing"
+grep -Fq 'profile_state_path' "$PROBE" || fail "personalization persistence state missing"
 grep -Fq 'avatarPath' "$STATE" || fail "lock state does not expose avatar"
-pass "animated preview-only personalization editor"
+pass "animated preview-only file personalization editor"
 
 # Preview remains safe and renders the production view.
 grep -Fq 'PanelWindow {' "$PREVIEW" || fail "safe preview window missing"
