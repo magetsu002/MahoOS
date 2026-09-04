@@ -9,6 +9,8 @@ Item {
     required property var auth
     property bool previewMode: false
     property bool profileOpen: false
+    property real profileProgress: profileOpen ? 1 : 0
+    property real avatarReveal: 0
 
     readonly property real uiScale: Math.max(
         0.78,
@@ -19,6 +21,23 @@ Item {
     readonly property real avatarX: (width - avatarSize) / 2
     readonly property real avatarY: mainY + 322 * uiScale
 
+    Component.onCompleted: avatarRevealTimer.start()
+
+    Behavior on profileProgress {
+        NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+    }
+
+    Behavior on avatarReveal {
+        NumberAnimation { duration: 430; easing.type: Easing.OutCubic }
+    }
+
+    Timer {
+        id: avatarRevealTimer
+        interval: 240
+        repeat: false
+        onTriggered: root.avatarReveal = 1
+    }
+
     MahoLockViewV5 {
         anchors.fill: parent
         theme: root.theme
@@ -27,9 +46,9 @@ Item {
         previewMode: root.previewMode
     }
 
-    // Profile-photo overlay deliberately lives above the accepted V5 layout so
-    // the lock hierarchy stays stable. Editing is available only in safe preview
-    // mode; unauthenticated users cannot mutate profile state from a real lock.
+    // The profile-photo layer is additive so the accepted V5 lock composition
+    // remains unchanged. Editing is preview-only; the real lock never exposes
+    // unauthenticated appearance mutation.
     Item {
         id: avatarOverlay
         x: root.avatarX
@@ -37,6 +56,13 @@ Item {
         width: root.avatarSize
         height: root.avatarSize
         z: 40
+        opacity: root.avatarReveal
+        scale: (root.previewMode && avatarPointer.containsMouse ? 1.035 : 1)
+            * (0.96 + root.avatarReveal * 0.04)
+
+        Behavior on scale {
+            NumberAnimation { duration: 155; easing.type: Easing.OutCubic }
+        }
 
         Image {
             id: avatarRaw
@@ -78,15 +104,19 @@ Item {
             radius: width / 2
             color: "transparent"
             border.width: Math.max(1, root.uiScale)
-            border.color: Qt.rgba(1, 1, 1, root.previewMode && avatarPointer.containsMouse ? 0.32 : 0.18)
+            border.color: Qt.rgba(
+                1, 1, 1,
+                root.previewMode && avatarPointer.containsMouse ? 0.34 : 0.18
+            )
             visible: root.lockState.avatarPath.length > 0
 
             Behavior on border.color {
-                ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                ColorAnimation { duration: 135; easing.type: Easing.OutCubic }
             }
         }
 
         Rectangle {
+            id: editBadge
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: 1 * root.uiScale
@@ -94,21 +124,26 @@ Item {
             width: 30 * root.uiScale
             height: width
             radius: width / 2
-            visible: root.previewMode && (avatarPointer.containsMouse || root.profileOpen)
-            color: Qt.rgba(0.08, 0.10, 0.14, 0.86)
+            visible: opacity > 0.001
+            opacity: root.previewMode && (avatarPointer.containsMouse || root.profileOpen) ? 1 : 0
+            color: Qt.rgba(0.08, 0.10, 0.14, 0.88)
             border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.17)
-            scale: avatarPointer.pressed ? 0.90 : 1
+            border.color: Qt.rgba(1, 1, 1, 0.18)
+            scale: avatarPointer.pressed ? 0.88 : 1
 
-            Behavior on opacity { NumberAnimation { duration: 130 } }
-            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+            Behavior on opacity {
+                NumberAnimation { duration: 135; easing.type: Easing.OutCubic }
+            }
+            Behavior on scale {
+                NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+            }
 
             MahoIconV2 {
                 anchors.centerIn: parent
                 width: 15 * root.uiScale
                 height: 15 * root.uiScale
                 name: "edit"
-                iconOpacity: 0.92
+                iconOpacity: 0.93
             }
         }
 
@@ -129,7 +164,7 @@ Item {
     MouseArea {
         anchors.fill: parent
         z: 48
-        visible: root.profileOpen
+        visible: root.profileOpen || root.profileProgress > 0.001
         enabled: visible
         onClicked: root.profileOpen = false
     }
@@ -137,27 +172,23 @@ Item {
     Rectangle {
         id: profilePanel
         z: 50
-        visible: root.profileOpen
-        width: 430 * root.uiScale
-        height: 350 * root.uiScale
-        radius: 27 * root.uiScale
+        visible: root.profileOpen || root.profileProgress > 0.001
+        width: 452 * root.uiScale
+        height: 366 * root.uiScale
+        radius: 28 * root.uiScale
         x: Math.min(
             root.width - width - 34 * root.uiScale,
             root.width / 2 + 175 * root.uiScale
         )
-        y: Math.max(88 * root.uiScale, root.avatarY - 96 * root.uiScale)
-        color: Qt.rgba(0.075, 0.090, 0.120, 0.84)
+        y: Math.max(88 * root.uiScale, root.avatarY - 104 * root.uiScale)
+        color: Qt.rgba(0.072, 0.087, 0.118, 0.88)
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.16)
-        opacity: root.profileOpen ? 1 : 0
-        scale: root.profileOpen ? 1 : 0.97
+        border.color: Qt.rgba(1, 1, 1, 0.17)
+        opacity: root.profileProgress
+        scale: 0.965 + root.profileProgress * 0.035
 
-        Behavior on opacity {
-            NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
-        }
-
-        Behavior on scale {
-            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        transform: Translate {
+            y: (1 - root.profileProgress) * 10 * root.uiScale
         }
 
         MouseArea {
@@ -170,8 +201,8 @@ Item {
             anchors.top: parent.top
             anchors.leftMargin: 24 * root.uiScale
             anchors.topMargin: 22 * root.uiScale
-            text: "Profile picture"
-            color: Qt.rgba(1, 1, 1, 0.96)
+            text: "Personalize"
+            color: Qt.rgba(1, 1, 1, 0.97)
             font.pixelSize: 18 * root.uiScale
             font.weight: Font.DemiBold
         }
@@ -182,8 +213,8 @@ Item {
             anchors.leftMargin: 24 * root.uiScale
             anchors.topMargin: 52 * root.uiScale
             text: root.lockState.avatarCandidates.length > 0
-                ? "Choose a local image for Maho Lock"
-                : "Add images to ~/Pictures/Avatars or ~/Pictures/Profile"
+                ? "Choose a profile photo or shuffle the lock wallpaper"
+                : "Add photos to ~/Pictures/Avatars or ~/Pictures/Profile"
             color: Qt.rgba(1, 1, 1, 0.62)
             font.pixelSize: 12 * root.uiScale
         }
@@ -203,18 +234,31 @@ Item {
 
                 Item {
                     required property int index
-                    width: 82 * root.uiScale
+                    width: 86 * root.uiScale
                     height: width
                     property string path: String(root.lockState.avatarCandidates[index] || "")
+                    property bool selected: path.length > 0 && path === root.lockState.avatarPath
+                    scale: candidatePointer.pressed
+                        ? 0.94
+                        : (candidatePointer.containsMouse ? 1.035 : 1)
+
+                    Behavior on scale {
+                        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                    }
 
                     Rectangle {
                         anchors.fill: parent
-                        radius: 18 * root.uiScale
-                        color: Qt.rgba(1, 1, 1, candidatePointer.containsMouse ? 0.13 : 0.075)
-                        border.width: 1
-                        border.color: candidatePointer.containsMouse
-                            ? Qt.rgba(1, 1, 1, 0.27)
-                            : Qt.rgba(1, 1, 1, 0.10)
+                        radius: 19 * root.uiScale
+                        color: Qt.rgba(
+                            1, 1, 1,
+                            parent.selected ? 0.145 : (candidatePointer.containsMouse ? 0.12 : 0.070)
+                        )
+                        border.width: parent.selected ? 2 : 1
+                        border.color: parent.selected
+                            ? Qt.rgba(1, 1, 1, 0.42)
+                            : (candidatePointer.containsMouse
+                                ? Qt.rgba(1, 1, 1, 0.27)
+                                : Qt.rgba(1, 1, 1, 0.10))
 
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -222,8 +266,10 @@ Item {
 
                     Image {
                         anchors.fill: parent
-                        anchors.margins: 4 * root.uiScale
-                        source: parent.path.length > 0 ? encodeURI("file://" + parent.path) : ""
+                        anchors.margins: 5 * root.uiScale
+                        source: parent.path.length > 0
+                            ? encodeURI("file://" + parent.path)
+                            : ""
                         fillMode: Image.PreserveAspectCrop
                         smooth: true
                         mipmap: true
@@ -250,22 +296,29 @@ Item {
             anchors.bottom: parent.bottom
             anchors.leftMargin: 24 * root.uiScale
             anchors.bottomMargin: 20 * root.uiScale
-            spacing: 10 * root.uiScale
+            spacing: 9 * root.uiScale
 
             Rectangle {
-                width: 118 * root.uiScale
-                height: 38 * root.uiScale
+                width: 112 * root.uiScale
+                height: 39 * root.uiScale
                 radius: height / 2
-                color: initialsPointer.containsMouse
-                    ? Qt.rgba(1, 1, 1, 0.15)
-                    : Qt.rgba(1, 1, 1, 0.095)
+                color: initialsPointer.pressed
+                    ? Qt.rgba(1, 1, 1, 0.17)
+                    : (initialsPointer.containsMouse
+                        ? Qt.rgba(1, 1, 1, 0.14)
+                        : Qt.rgba(1, 1, 1, 0.09))
                 border.width: 1
                 border.color: Qt.rgba(1, 1, 1, 0.13)
+                scale: initialsPointer.pressed ? 0.97 : 1
+
+                Behavior on scale {
+                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                }
 
                 Text {
                     anchors.centerIn: parent
                     text: "Use initials"
-                    color: Qt.rgba(1, 1, 1, 0.91)
+                    color: Qt.rgba(1, 1, 1, 0.92)
                     font.pixelSize: 12 * root.uiScale
                 }
 
@@ -282,19 +335,59 @@ Item {
             }
 
             Rectangle {
-                width: 100 * root.uiScale
-                height: 38 * root.uiScale
+                width: 128 * root.uiScale
+                height: 39 * root.uiScale
                 radius: height / 2
-                color: refreshPointer.containsMouse
-                    ? Qt.rgba(1, 1, 1, 0.15)
-                    : Qt.rgba(1, 1, 1, 0.095)
+                color: wallpaperPointer.pressed
+                    ? Qt.rgba(1, 1, 1, 0.17)
+                    : (wallpaperPointer.containsMouse
+                        ? Qt.rgba(1, 1, 1, 0.14)
+                        : Qt.rgba(1, 1, 1, 0.09))
                 border.width: 1
                 border.color: Qt.rgba(1, 1, 1, 0.13)
+                scale: wallpaperPointer.pressed ? 0.97 : 1
+
+                Behavior on scale {
+                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "New wallpaper"
+                    color: Qt.rgba(1, 1, 1, 0.92)
+                    font.pixelSize: 12 * root.uiScale
+                }
+
+                MouseArea {
+                    id: wallpaperPointer
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.lockState.chooseLockWallpaper()
+                }
+            }
+
+            Rectangle {
+                width: 96 * root.uiScale
+                height: 39 * root.uiScale
+                radius: height / 2
+                color: refreshPointer.pressed
+                    ? Qt.rgba(1, 1, 1, 0.17)
+                    : (refreshPointer.containsMouse
+                        ? Qt.rgba(1, 1, 1, 0.14)
+                        : Qt.rgba(1, 1, 1, 0.09))
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.13)
+                scale: refreshPointer.pressed ? 0.97 : 1
+
+                Behavior on scale {
+                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                }
 
                 Text {
                     anchors.centerIn: parent
                     text: "Refresh"
-                    color: Qt.rgba(1, 1, 1, 0.91)
+                    color: Qt.rgba(1, 1, 1, 0.92)
                     font.pixelSize: 12 * root.uiScale
                 }
 
@@ -306,16 +399,6 @@ Item {
                     onClicked: root.lockState.refreshAvatarCandidates()
                 }
             }
-        }
-
-        Text {
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.rightMargin: 24 * root.uiScale
-            anchors.bottomMargin: 31 * root.uiScale
-            text: "Preview only"
-            color: Qt.rgba(1, 1, 1, 0.42)
-            font.pixelSize: 11 * root.uiScale
         }
     }
 }
