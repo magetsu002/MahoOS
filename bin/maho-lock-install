@@ -45,7 +45,8 @@ managed_wrapper() {
 
 bind_block_present() {
     [ -f "$LIVE_BINDS" ] || return 1
-    grep -Fq "$BIND_BEGIN" "$LIVE_BINDS" && grep -Fq "$BIND_END" "$LIVE_BINDS"
+    grep -Fq -- "$BIND_BEGIN" "$LIVE_BINDS" \
+        && grep -Fq -- "$BIND_END" "$LIVE_BINDS"
 }
 
 preflight() {
@@ -101,8 +102,8 @@ preflight() {
         failed=1
     }
 
-    if grep -Fq "$BIND_BEGIN" "$SOURCE_BINDS" \
-        && grep -Fq "$BIND_END" "$SOURCE_BINDS" \
+    if grep -Fq -- "$BIND_BEGIN" "$SOURCE_BINDS" \
+        && grep -Fq -- "$BIND_END" "$SOURCE_BINDS" \
         && grep -Fq 'mainMod .. " + L"' "$SOURCE_BINDS"; then
         say "PASS  canonical SUPER+L binding"
     else
