@@ -1,0 +1,45 @@
+name: maho-files
+
+on:
+  push:
+    branches:
+      - 'feat/maho-files'
+      - 'feat/maho-files-*'
+      - 'fix/maho-files-*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            lib/maho_files_theme.py \
+            tests/test_maho_files_theme.py
+
+      - name: Palette-to-GTK renderer tests
+        run: |
+          set -euo pipefail
+          python tests/test_maho_files_theme.py
+
+      - name: Maho Files bounded integration contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-files-contracts.sh
+
+      - name: Existing Dock contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-dock-contracts.sh
+
+      - name: Existing Launcher contracts
+        run: |
+          set -euo pipefail
+          bash tests/launcher-qml-contracts.sh
