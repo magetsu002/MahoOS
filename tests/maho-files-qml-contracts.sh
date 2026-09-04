@@ -65,6 +65,9 @@ require_text "$QML" 'root.startSystemResize' "frameless window cannot use compos
 require_text "$QML" 'model: placesModel' "native places sidebar is not rendered in QML"
 require_text "$QML" 'model: directoryModel' "KIO directory items are not rendered in QML"
 require_text "$QML" 'image://mahoicons/' "real themed icon artwork is not used"
+require_text "$QML" 'property color baseBackground: mahoPalette.background' "Maho palette background alias is missing"
+reject_text "$QML" 'property color background:' "ApplicationWindow final background property must not be overridden"
+reject_text "$QML" 'pointer.containsMouse' "HoverHandler must use hovered rather than containsMouse"
 echo PASS
 
 echo "=== Palette V2 bridge ==="
