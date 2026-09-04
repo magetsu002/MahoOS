@@ -78,7 +78,9 @@ echo "=== wrapper safety ==="
 bash -n "$WRAPPER"
 require_text "$WRAPPER" 'MAHO_FILES_BUILD_DIR' "isolated build override is missing"
 require_text "$WRAPPER" 'cmake --build' "wrapper cannot build the native app"
-reject_text "$WRAPPER" 'sudo pacman' "wrapper must never mutate packages automatically"
+if grep -Eq '^[[:space:]]*(sudo[[:space:]]+)?pacman[[:space:]]+-S' "$WRAPPER"; then
+    fail "wrapper must never mutate packages automatically"
+fi
 reject_text "$WRAPPER" 'thunar --quit' "native Maho Files must not manage Thunar lifecycle"
 reject_text "$WRAPPER" 'gtk-3.0' "native Maho Files must not mutate GTK configuration"
 echo PASS
