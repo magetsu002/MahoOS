@@ -115,6 +115,27 @@ reject_text "$QML" 'property color background:' "ApplicationWindow final backgro
 reject_text "$QML" 'pointer.containsMouse' "HoverHandler must use hovered rather than containsMouse"
 echo PASS
 
+echo "=== responsive native resize contract ==="
+require_text "$QML" 'minimumWidth: 320' "Maho Files reintroduced an oversized minimum width"
+require_text "$QML" 'minimumHeight: 240' "Maho Files reintroduced an oversized minimum height"
+reject_text "$QML" 'minimumWidth: 820' "legacy wide-only minimum width returned"
+reject_text "$QML" 'minimumHeight: 560' "legacy tall-only minimum height returned"
+require_text "$QML" 'readonly property bool narrowWindow: width < 700' "narrow responsive breakpoint is missing"
+require_text "$QML" 'visible: !root.narrowWindow' "sidebar/splitter do not collapse on narrow windows"
+require_text "$QML" 'Layout.minimumWidth: 64' "toolbar path field cannot yield enough space when narrow"
+require_text "$QML" 'contentArea.width >= 520' "list size column does not collapse responsively"
+require_text "$QML" 'contentArea.width >= 700' "list type column does not collapse responsively"
+require_text "$QML" 'contentArea.width >= 880' "list modified column does not collapse responsively"
+require_text "$QML" 'component WindowResizeHandle: Item' "frameless shell does not expose reusable resize edges"
+for edge in 'Qt.LeftEdge' 'Qt.RightEdge' 'Qt.TopEdge' 'Qt.BottomEdge'; do
+    require_text "$QML" "edges: $edge" "missing native resize edge: $edge"
+done
+require_text "$QML" 'Qt.LeftEdge | Qt.TopEdge' "top-left resize corner is missing"
+require_text "$QML" 'Qt.RightEdge | Qt.TopEdge' "top-right resize corner is missing"
+require_text "$QML" 'Qt.LeftEdge | Qt.BottomEdge' "bottom-left resize corner is missing"
+require_text "$QML" 'Qt.RightEdge | Qt.BottomEdge' "bottom-right resize corner is missing"
+echo PASS
+
 echo "=== keyboard parity ==="
 for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X' 'Ctrl+V'; do
     require_text "$QML" "sequence: \"$shortcut\"" "missing file-manager shortcut: $shortcut"
