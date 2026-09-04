@@ -11,6 +11,7 @@ on:
       - 'config/hypr/maho/core/binds.lua'
       - 'bin/maho-setup'
       - 'tests/maho-lock-contracts.sh'
+      - 'tests/maho-lock-status-targets.sh'
       - '.github/workflows/maho-lock.yml'
 
 permissions:
@@ -25,10 +26,14 @@ jobs:
       - name: Syntax
         run: |
           set -euo pipefail
-          bash -n bin/maho-lock tests/maho-lock-contracts.sh
+          bash -n \
+            bin/maho-lock \
+            tests/maho-lock-contracts.sh \
+            tests/maho-lock-status-targets.sh
           python3 -m py_compile config/quickshell/maho-lock/state.py
 
       - name: Maho Lock contracts
         run: |
           set -euo pipefail
           bash tests/maho-lock-contracts.sh
+          bash tests/maho-lock-status-targets.sh
