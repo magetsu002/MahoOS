@@ -23,7 +23,7 @@ ShellRoot {
     property real requestedPlacementY: -1
     readonly property real surfaceMarginX: 24
     readonly property real surfaceMarginY: 20
-    readonly property string initialMode:
+    property string activeMode:
         String(Quickshell.env("MAHO_LINK_MODE")) === "bluetooth" ? "bluetooth" : "wifi"
 
     readonly property string stateBase: {
@@ -111,7 +111,7 @@ ShellRoot {
         placementSave.command = [
             "python3", positionHelperPath, "save",
             "--path", linkPlacementPath,
-            "--mode", initialMode,
+            "--mode", activeMode,
             "--x", String(requestedPlacementX),
             "--y", String(requestedPlacementY),
             "--monitor", monitorName(),
@@ -130,7 +130,7 @@ ShellRoot {
             "--path", linkPlacementPath,
             "--legacy", legacyProductPlacementPath,
             "--legacy", legacyShellPlacementPath,
-            "--mode", initialMode,
+            "--mode", activeMode,
             "--monitor", monitorName(),
             "--monitor-width", String(overlay.width),
             "--monitor-height", String(overlay.height),
@@ -163,7 +163,7 @@ ShellRoot {
         Quickshell.execDetached([
             "python3", positionHelperPath, "report",
             "--path", geometryReportPath,
-            "--mode", initialMode,
+            "--mode", activeMode,
             "--requested-x", String(requestedPlacementX),
             "--requested-y", String(requestedPlacementY),
             "--x", String(linkSurface.x),
@@ -217,23 +217,28 @@ ShellRoot {
     function revealSurfaceWhenReady() {
         if (!overlayOpen || !placementReady || linkSurface.shown)
             return
-        if (initialMode === "wifi" && !wifi.statusReady)
+        if (activeMode === "wifi" && !wifi.statusReady)
             return
         applyPlacement()
         linkSurface.shown = true
         linkSurface.forceActiveFocus()
     }
 
-    function showOverlay() {
+    function showMode(mode, reloadPlacement) {
+        const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
+        closeAfterPlacementSave = false
         presented = true
         overlayOpen = true
-        linkSurface.section = root.initialMode
+        activeMode = requestedMode
         linkSurface.page = "main"
         linkSurface.shown = false
-        requestPlacementLoad()
+        if (reloadPlacement || !placementReady)
+            requestPlacementLoad()
+        else
+            Qt.callLater(root.revealSurfaceWhenReady)
 
-        if (root.initialMode === "bluetooth") {
+        if (root.activeMode === "bluetooth") {
             bluetooth.refresh()
         } else {
             // Do not paint default/offline placeholders as truth. Status is a
@@ -241,6 +246,11 @@ ShellRoot {
             wifi.refresh()
             revealSurfaceWhenReady()
         }
+        return true
+    }
+
+    function showOverlay() {
+        showMode(activeMode, true)
     }
 
     function closeOverlay() {
@@ -258,6 +268,14 @@ ShellRoot {
     Connections {
         target: wifi
         function onStatusReadyChanged() { root.revealSurfaceWhenReady() }
+    }
+
+    IpcHandler {
+        target: "link"
+
+        function showMode(mode: string): bool {
+            return root.showMode(mode, false)
+        }
     }
 
     Component.onCompleted: openDelay.restart()
@@ -325,7 +343,7 @@ ShellRoot {
             wifi: wifi
             bluetooth: bluetooth
             availableHeight: overlay.height
-            section: root.initialMode
+            section: root.activeMode
             shown: false
             onHeightChanged: {
                 if (root.overlayOpen && !root.dragging)

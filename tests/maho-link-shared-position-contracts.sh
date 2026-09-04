@@ -36,6 +36,18 @@ if grep -Fq 'onAdapterUpdated: writeAdapter()' "$SHELL_QML"; then
     fail 'multi-property asynchronous state writes can corrupt a coordinate snapshot'
 fi
 
+grep -Fq 'target: "link"' "$SHELL_QML" \
+    || fail 'running Link process has no IPC mode authority'
+grep -Fq 'function showMode(mode: string): bool' "$SHELL_QML" \
+    || fail 'Edge cannot switch the running Link process between modes'
+grep -Fq 'return root.showMode(mode, false)' "$SHELL_QML" \
+    || fail 'IPC mode switch does not preserve the active placement'
+grep -Fq 'ipc call link showMode "$MODE"' "$ROOT/bin/maho-link" \
+    || fail 'singleton wrapper still discards a second Edge mode request'
+if grep -Fq 'maho-link: already running' "$ROOT/bin/maho-link"; then
+    fail 'singleton wrapper still reports success after dropping a mode request'
+fi
+
 python3 "$ROOT/tests/maho-link-position-tests.py"
 
 printf 'PASS  executable Maho Link shared-position roundtrip and geometry contracts\n'
