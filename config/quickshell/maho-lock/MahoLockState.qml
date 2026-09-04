@@ -23,6 +23,7 @@ Scope {
     property string networkKind: "none"
     property string keyboardLayout: "US"
     property var switchUserCommand: []
+    property string selectedLockWallpaperPath: ""
 
     readonly property var batteryDevice: UPower.displayDevice
     readonly property bool batteryAvailable:
@@ -45,24 +46,38 @@ Scope {
         || batteryDevice.state === UPowerDeviceState.FullyCharged
     )
 
-    // Current desktop wallpaper remains observable for future user-selectable
-    // lock wallpaper policy, but Maho Lock v1 deliberately uses a dedicated,
-    // pre-softened lock background for deterministic fidelity.
     readonly property string activeWallpaperKind: wallpaper.kind || ""
     readonly property string activeWallpaperPath: wallpaper.path || ""
     readonly property bool activeWallpaperIsImage:
         activeWallpaperKind === "image" && activeWallpaperPath.length > 0
-    readonly property string activeWallpaperUrl:
-        activeWallpaperIsImage
-            ? encodeURI("file://" + activeWallpaperPath)
-            : ""
+
+    readonly property string fallbackLockWallpaperPath:
+        Quickshell.shellPath("assets/maho-lock-dusk.jpg")
+
+    readonly property string lockWallpaperPath:
+        selectedLockWallpaperPath.length > 0
+            ? selectedLockWallpaperPath
+            : (activeWallpaperIsImage
+                ? activeWallpaperPath
+                : fallbackLockWallpaperPath)
 
     readonly property string lockWallpaperUrl:
-        encodeURI("file://" + Quickshell.shellPath("assets/maho-lock-dusk.jpg"))
+        lockWallpaperPath.length > 0
+            ? encodeURI("file://" + lockWallpaperPath)
+            : ""
 
     function refreshAmbientState() {
         if (!probe.running)
             probe.exec(["python", Quickshell.shellPath("state.py")])
+    }
+
+    function chooseLockWallpaper() {
+        if (!wallpaperPicker.running)
+            wallpaperPicker.exec([
+                "python",
+                Quickshell.shellPath("state.py"),
+                "--pick-wallpaper",
+            ])
     }
 
     function suspend() {
@@ -103,8 +118,24 @@ Scope {
                     state.keyboardLayout = String(payload.keyboardLayout || "US")
                     state.switchUserCommand = payload.switchUserCommand || []
                 } catch (error) {
-                    // Keep the last known ambient state. Locking must never
-                    // depend on optional network/layout probes succeeding.
+                    // Optional ambient probes must never block locking.
+                }
+            }
+        }
+    }
+
+    Process {
+        id: wallpaperPicker
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const payload = JSON.parse(this.text)
+                    const path = String(payload.path || "")
+                    if (path.length > 0)
+                        state.selectedLockWallpaperPath = path
+                } catch (error) {
+                    // Fall back to the current desktop or bundled lock image.
                 }
             }
         }
@@ -112,6 +143,13 @@ Scope {
 
     Process { id: suspendProcess }
     Process { id: switchUserProcess }
+
+    Timer {
+        interval: 1
+        repeat: false
+        running: true
+        onTriggered: state.chooseLockWallpaper()
+    }
 
     Timer {
         interval: 2000
