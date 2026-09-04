@@ -1,5 +1,6 @@
 #include "MahoDirectoryModel.h"
 #include "MahoPalette.h"
+#include "MahoPlacesController.h"
 
 #include <QCommandLineParser>
 #include <QFileInfo>
@@ -68,6 +69,7 @@ int main(int argc, char *argv[])
     MahoDirectoryModel directoryModel;
     MahoPalette palette;
     KFilePlacesModel placesModel;
+    MahoPlacesController placesController(&placesModel, &directoryModel);
 
     const QStringList positional = parser.positionalArguments();
     if (!positional.isEmpty())
@@ -77,6 +79,7 @@ int main(int argc, char *argv[])
     engine.addImageProvider(QStringLiteral("mahoicons"), new ThemeIconProvider);
     engine.rootContext()->setContextProperty(QStringLiteral("directoryModel"), &directoryModel);
     engine.rootContext()->setContextProperty(QStringLiteral("placesModel"), &placesModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("placesController"), &placesController);
     engine.rootContext()->setContextProperty(QStringLiteral("mahoPalette"), &palette);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
