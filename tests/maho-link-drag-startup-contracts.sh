@@ -27,8 +27,8 @@ reject_text() {
 }
 
 echo "=== persistent draggable Maho Link ==="
-require_text "$SHELL" 'readonly property string linkPlacementPath: stateBase + "/maho/link-position.json"' "Wi-Fi and Bluetooth do not share one product-global placement file"
-require_text "$SHELL" '"python3", positionHelperPath, "load"' "shared Link placement file is not loaded by the runtime authority"
+require_text "$SHELL" 'readonly property string linkPlacementPath: stateBase + "/maho/link-position.json"' "Link does not use one atomic product placement file"
+require_text "$SHELL" '"python3", positionHelperPath, "load"' "mode-keyed Link placement file is not loaded by the runtime authority"
 reject_text "$SHELL" 'Quickshell.statePath("link-position.json")' "placement is still scoped to a Quickshell runtime instead of Maho Link"
 require_text "$SHELL" 'function persistPlacement()' "drag completion does not persist placement"
 require_text "$SHELL" 'drag.target: linkSurface' "shared Wi-Fi/Bluetooth surface is not the drag target"

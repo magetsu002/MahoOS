@@ -19,6 +19,7 @@ ShellRoot {
     property bool placementValid: false
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
+    property string modeAfterPlacementSave: ""
     property real requestedPlacementX: -1
     property real requestedPlacementY: -1
     readonly property real surfaceMarginX: 24
@@ -32,9 +33,8 @@ ShellRoot {
             ? String(configured)
             : Quickshell.env("HOME") + "/.local/state"
     }
-    // Placement belongs to Maho Link as a product, not to whichever
-    // Quickshell runtime copy happened to launch Wi-Fi or Bluetooth.
-    // Keep one explicit XDG state file so both modes always converge.
+    // One product-scoped file owns two independent coordinates: dragging Wi-Fi
+    // never moves Bluetooth, and dragging Bluetooth never moves Wi-Fi.
     readonly property string linkPlacementPath: stateBase + "/maho/link-position.json"
     readonly property string legacyProductPlacementPath: stateBase + "/maho-link-position.json"
     readonly property string legacyShellPlacementPath:
@@ -145,6 +145,12 @@ ShellRoot {
     function placementLoaded(text) {
         try {
             const payload = JSON.parse(text || "{}")
+            if (String(payload.mode) !== activeMode) {
+                placementValid = false
+                placementReady = false
+                Qt.callLater(root.requestPlacementLoad)
+                return
+            }
             placementValid = Boolean(payload.valid)
             if (placementValid) {
                 requestedPlacementX = Number(payload.requested_x)
@@ -210,6 +216,10 @@ ShellRoot {
             if (root.closeAfterPlacementSave) {
                 root.closeAfterPlacementSave = false
                 closeTimer.restart()
+            } else if (root.modeAfterPlacementSave !== "") {
+                const nextMode = root.modeAfterPlacementSave
+                root.modeAfterPlacementSave = ""
+                root.showMode(nextMode, true)
             }
         }
     }
@@ -230,10 +240,15 @@ ShellRoot {
         closeAfterPlacementSave = false
         presented = true
         overlayOpen = true
+        if (placementSave.running || placementSavePending) {
+            modeAfterPlacementSave = requestedMode !== activeMode ? requestedMode : ""
+            return true
+        }
+        const modeChanged = requestedMode !== activeMode
         activeMode = requestedMode
         linkSurface.page = "main"
         linkSurface.shown = false
-        if (reloadPlacement || !placementReady)
+        if (reloadPlacement || modeChanged || !placementReady)
             requestPlacementLoad()
         else
             Qt.callLater(root.revealSurfaceWhenReady)
@@ -256,6 +271,7 @@ ShellRoot {
     function closeOverlay() {
         if (!overlayOpen)
             return
+        modeAfterPlacementSave = ""
         overlayOpen = false
         linkSurface.shown = false
         if (placementSave.running || placementSavePending) {

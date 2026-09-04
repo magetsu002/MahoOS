@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single, atomic position authority for every Maho Link mode."""
+"""Atomic, per-mode position authority for Maho Link."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-VERSION = 3
+VERSION = 4
 
 
 def finite(value: Any) -> float | None:
@@ -51,11 +51,17 @@ def read_json(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def v3_position(payload: dict[str, Any]) -> tuple[float, float] | None:
+def v4_position(payload: dict[str, Any], mode: str) -> tuple[float, float] | None:
     if payload.get("version") != VERSION:
         return None
-    x = finite(payload.get("x"))
-    y = finite(payload.get("y"))
+    positions = payload.get("positions")
+    if not isinstance(positions, dict):
+        return None
+    entry = positions.get(mode)
+    if not isinstance(entry, dict):
+        return None
+    x = finite(entry.get("x"))
+    y = finite(entry.get("y"))
     return (x, y) if x is not None and y is not None else None
 
 
@@ -63,11 +69,17 @@ def migrated_position(
     payload: dict[str, Any], monitor_width: float, monitor_height: float,
     margin_x: float, margin_y: float,
 ) -> tuple[float, float] | None:
-    """Read legacy v1/v2 coordinates without ever preferring them to v3."""
+    """Read the old shared v1/v2/v3 coordinate."""
     if payload.get("valid") is False:
         return None
 
     version = payload.get("version")
+    if version == 3:
+        x = finite(payload.get("x"))
+        y = finite(payload.get("y"))
+        if x is not None and y is not None:
+            return x, y
+
     if version == 2:
         x = finite(payload.get("pixelX"))
         y = finite(payload.get("pixelY"))
@@ -99,11 +111,10 @@ def clamp_position(
     )
 
 
-def make_state(
+def make_entry(
     x: float, y: float, monitor: str, monitor_width: float, monitor_height: float,
 ) -> dict[str, Any]:
-    state: dict[str, Any] = {
-        "version": VERSION,
+    entry: dict[str, Any] = {
         "x": x,
         "y": y,
         "monitor_width": monitor_width,
@@ -111,17 +122,57 @@ def make_state(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if monitor:
-        state["monitor"] = monitor
-    return state
+        entry["monitor"] = monitor
+    return entry
+
+
+def make_migrated_state(
+    x: float, y: float, monitor: str, monitor_width: float, monitor_height: float,
+) -> dict[str, Any]:
+    """Seed both independent modes once when upgrading the old shared state."""
+    return {
+        "version": VERSION,
+        "positions": {
+            "wifi": make_entry(x, y, monitor, monitor_width, monitor_height),
+            "bluetooth": make_entry(x, y, monitor, monitor_width, monitor_height),
+        },
+    }
+
+
+def save_position(args: argparse.Namespace) -> None:
+    path = Path(args.path)
+    payload = read_json(path) if path.exists() else None
+    positions: dict[str, Any] = {}
+
+    if payload is not None and payload.get("version") == VERSION:
+        existing = payload.get("positions")
+        if isinstance(existing, dict):
+            positions = dict(existing)
+    elif payload is not None:
+        legacy = migrated_position(
+            payload, args.monitor_width, args.monitor_height, 24, 20,
+        )
+        if legacy is not None:
+            positions = make_migrated_state(
+                legacy[0], legacy[1], args.monitor,
+                args.monitor_width, args.monitor_height,
+            )["positions"]
+
+    positions[args.mode] = make_entry(
+        args.x, args.y, args.monitor, args.monitor_width, args.monitor_height,
+    )
+    atomic_json_write(path, {"version": VERSION, "positions": positions})
 
 
 def load_position(args: argparse.Namespace) -> dict[str, Any]:
     path = Path(args.path)
     payload = read_json(path) if path.exists() else None
-    requested = v3_position(payload) if payload is not None else None
-    source = "v3"
+    requested = v4_position(payload, args.mode) if payload is not None else None
+    source = "v4"
 
     if path.exists() and requested is None:
+        if payload is not None and payload.get("version") == VERSION:
+            return {"valid": False, "mode": args.mode, "source": "missing-mode"}
         legacy = migrated_position(
             payload or {}, args.monitor_width, args.monitor_height,
             args.margin_x, args.margin_y,
@@ -129,8 +180,8 @@ def load_position(args: argparse.Namespace) -> dict[str, Any]:
         if legacy is None:
             return {"valid": False, "mode": args.mode, "source": "invalid"}
         requested = legacy
-        source = "migrated-target"
-        atomic_json_write(path, make_state(
+        source = f"migrated-target-v{(payload or {}).get('version', 'unknown')}"
+        atomic_json_write(path, make_migrated_state(
             requested[0], requested[1], args.monitor,
             args.monitor_width, args.monitor_height,
         ))
@@ -148,7 +199,7 @@ def load_position(args: argparse.Namespace) -> dict[str, Any]:
             if requested is None:
                 continue
             source = f"migrated:{legacy_path}"
-            atomic_json_write(path, make_state(
+            atomic_json_write(path, make_migrated_state(
                 requested[0], requested[1], args.monitor,
                 args.monitor_width, args.monitor_height,
             ))
@@ -221,9 +272,7 @@ def main() -> int:
         print(json.dumps(load_position(args), ensure_ascii=False))
         return 0
     if args.command == "save":
-        atomic_json_write(Path(args.path), make_state(
-            args.x, args.y, args.monitor, args.monitor_width, args.monitor_height,
-        ))
+        save_position(args)
         return 0
     if args.command == "report":
         atomic_json_write(Path(args.path), {
