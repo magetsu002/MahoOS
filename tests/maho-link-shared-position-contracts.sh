@@ -15,6 +15,16 @@ grep -Fq '"python3", positionHelperPath, "load"' "$SHELL_QML" \
     || fail 'runtime does not load through the shared position authority'
 grep -Fq '"python3", positionHelperPath, "save"' "$SHELL_QML" \
     || fail 'runtime does not save through the shared position authority'
+grep -Fq 'id: placementSave' "$SHELL_QML" \
+    || fail 'save lifetime is not owned by the Link process'
+grep -Fq 'if (placementSave.running || placementSavePending)' "$SHELL_QML" \
+    || fail 'Link can exit before its latest position is durable'
+grep -Fq 'closeAfterPlacementSave = true' "$SHELL_QML" \
+    || fail 'rapid Wi-Fi to Bluetooth handoff is not serialized behind save completion'
+if grep -Fq 'Quickshell.execDetached([' "$SHELL_QML" \
+    && grep -A2 -F 'Quickshell.execDetached([' "$SHELL_QML" | grep -Fq 'positionHelperPath, "save"'; then
+    fail 'position save is detached and can race the next mode load'
+fi
 grep -Fq 'x: 0' "$SHELL_QML" \
     || fail 'a startup x binding can still overwrite restored placement'
 grep -Fq 'y: 0' "$SHELL_QML" \

@@ -17,6 +17,8 @@ ShellRoot {
     property bool dragging: false
     property bool placementReady: false
     property bool placementValid: false
+    property bool placementSavePending: false
+    property bool closeAfterPlacementSave: false
     property real requestedPlacementX: -1
     property real requestedPlacementY: -1
     readonly property real surfaceMarginX: 24
@@ -105,7 +107,8 @@ ShellRoot {
         requestedPlacementY = linkSurface.y
         placementValid = true
 
-        Quickshell.execDetached([
+        placementSavePending = true
+        placementSave.command = [
             "python3", positionHelperPath, "save",
             "--path", linkPlacementPath,
             "--mode", initialMode,
@@ -114,7 +117,8 @@ ShellRoot {
             "--monitor", monitorName(),
             "--monitor-width", String(overlay.width),
             "--monitor-height", String(overlay.height)
-        ])
+        ]
+        placementSave.running = true
         reportAppliedGeometry()
     }
 
@@ -195,6 +199,21 @@ ShellRoot {
         }
     }
 
+    Process {
+        id: placementSave
+        running: false
+
+        onRunningChanged: {
+            if (running || !root.placementSavePending)
+                return
+            root.placementSavePending = false
+            if (root.closeAfterPlacementSave) {
+                root.closeAfterPlacementSave = false
+                closeTimer.restart()
+            }
+        }
+    }
+
     function revealSurfaceWhenReady() {
         if (!overlayOpen || !placementReady || linkSurface.shown)
             return
@@ -229,6 +248,10 @@ ShellRoot {
             return
         overlayOpen = false
         linkSurface.shown = false
+        if (placementSave.running || placementSavePending) {
+            closeAfterPlacementSave = true
+            return
+        }
         closeTimer.restart()
     }
 
