@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_CONFIG="$ROOT/config/quickshell/maho-lock"
+SOURCE_LAUNCHER="$ROOT/bin/maho-lock"
+SOURCE_BINDS="$ROOT/config/hypr/maho/core/binds.lua"
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+DEPLOY_PARENT="$DATA_HOME/maho-lock"
+DEPLOY_ROOT="$DEPLOY_PARENT/current"
+BIN_DIR="$HOME/.local/bin"
+BIN_TARGET="$BIN_DIR/maho-lock"
+LIVE_BINDS="$CONFIG_HOME/hypr/maho/core/binds.lua"
+STATE_DIR="$STATE_HOME/maho/lock-install"
+BACKUP_DIR="$STATE_DIR/backups"
+
+RUNTIME_MARKER="managed-by-maho-lock-install-v1"
+WRAPPER_MARKER="# managed-by: maho-lock-install v1"
+BIND_BEGIN="-- maho-lock-bind:begin"
+BIND_END="-- maho-lock-bind:end"
+
+say() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    say "maho-lock-install: $*" >&2
+    return 1
+}
+
+managed_runtime() {
+    [ -f "$DEPLOY_ROOT/.managed-by-maho-lock-install" ] || return 1
+    grep -Fxq "$RUNTIME_MARKER" "$DEPLOY_ROOT/.managed-by-maho-lock-install" 2>/dev/null
+}
+
+managed_wrapper() {
+    [ -f "$BIN_TARGET" ] || return 1
+    grep -Fq "$WRAPPER_MARKER" "$BIN_TARGET" 2>/dev/null
+}
+
+bind_block_present() {
+    [ -f "$LIVE_BINDS" ] || return 1
+    grep -Fq "$BIND_BEGIN" "$LIVE_BINDS" && grep -Fq "$BIND_END" "$LIVE_BINDS"
+}
+
+preflight() {
+    local failed=0 dep
+
+    for dep in quickshell flock python hyprctl awk; do
+        if command -v "$dep" >/dev/null 2>&1; then
+            printf 'PASS  dependency %-12s %s\n' "$dep" "$(command -v "$dep")"
+        else
+            printf 'FAIL  dependency %-12s missing\n' "$dep"
+            failed=1
+        fi
+    done
+
+    [ -x "$SOURCE_LAUNCHER" ] \
+        && say "PASS  source launcher" \
+        || { say "FAIL  source launcher missing"; failed=1; }
+
+    [ -r "$SOURCE_CONFIG/shell.qml" ] \
+        && say "PASS  secure QML source" \
+        || { say "FAIL  secure QML source missing"; failed=1; }
+
+    [ -r "$SOURCE_CONFIG/preview.qml" ] \
+        && say "PASS  preview QML source" \
+        || { say "FAIL  preview QML source missing"; failed=1; }
+
+    [ -r "$SOURCE_CONFIG/state.py" ] \
+        && say "PASS  state probe source" \
+        || { say "FAIL  state probe source missing"; failed=1; }
+
+    [ -r "$SOURCE_BINDS" ] \
+        && say "PASS  canonical bind source" \
+        || { say "FAIL  canonical bind source missing"; failed=1; }
+
+    [ -r /etc/pam.d/login ] \
+        && say "PASS  PAM login stack" \
+        || { say "FAIL  /etc/pam.d/login missing"; failed=1; }
+
+    if [ -r "$LIVE_BINDS" ]; then
+        say "PASS  live Maho binds source"
+    else
+        say "FAIL  live Maho binds missing: $LIVE_BINDS"
+        failed=1
+    fi
+
+    bash -n "$SOURCE_LAUNCHER" || {
+        say "FAIL  launcher syntax"
+        failed=1
+    }
+
+    python -m py_compile "$SOURCE_CONFIG/state.py" || {
+        say "FAIL  state probe syntax"
+        failed=1
+    }
+
+    if grep -Fq "$BIND_BEGIN" "$SOURCE_BINDS" \
+        && grep -Fq "$BIND_END" "$SOURCE_BINDS" \
+        && grep -Fq 'mainMod .. " + L"' "$SOURCE_BINDS"; then
+        say "PASS  canonical SUPER+L binding"
+    else
+        say "FAIL  canonical SUPER+L binding missing"
+        failed=1
+    fi
+
+    return "$failed"
+}
+
+remove_managed_bind_block() {
+    local source="$1" target="$2"
+
+    awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+        $0 == begin { skipping = 1; next }
+        $0 == end   { skipping = 0; next }
+        !skipping   { print }
+    ' "$source" > "$target"
+}
+
+append_bind_block() {
+    local target="$1"
+
+    cat >> "$target" <<'EOF_BIND'
+
+-- Secure Maho session lock.
+-- maho-lock-bind:begin
+hl.bind(
+    mainMod .. " + L",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
+)
+-- maho-lock-bind:end
+EOF_BIND
+}
+
+write_wrapper() {
+    local tmp="$BIN_DIR/.maho-lock.$$"
+
+    mkdir -p "$BIN_DIR"
+
+    if { [ -e "$BIN_TARGET" ] || [ -L "$BIN_TARGET" ]; } && ! managed_wrapper; then
+        fail "refusing to replace unmanaged command: $BIN_TARGET"
+        return 1
+    fi
+
+    cat > "$tmp" <<EOF_WRAPPER
+#!/usr/bin/env bash
+$WRAPPER_MARKER
+exec "$DEPLOY_ROOT/bin/maho-lock" "\$@"
+EOF_WRAPPER
+
+    chmod 0755 "$tmp"
+    mv -f "$tmp" "$BIN_TARGET"
+}
+
+stage_runtime() {
+    local stage="$1"
+
+    rm -rf "$stage"
+    mkdir -p "$stage/bin" "$stage/config/quickshell"
+
+    cp -a "$SOURCE_LAUNCHER" "$stage/bin/maho-lock"
+    cp -a "$SOURCE_CONFIG" "$stage/config/quickshell/maho-lock"
+
+    chmod 0755 "$stage/bin/maho-lock"
+    printf '%s\n' "$RUNTIME_MARKER" > "$stage/.managed-by-maho-lock-install"
+
+    bash -n "$stage/bin/maho-lock"
+    python -m py_compile "$stage/config/quickshell/maho-lock/state.py"
+}
+
+install_bind() {
+    local working="$1"
+
+    [ -r "$LIVE_BINDS" ] || {
+        fail "live Maho bind file missing: $LIVE_BINDS"
+        return 1
+    }
+
+    # Do not silently steal SUPER+L from an existing user binding.
+    if grep -Fq 'mainMod .. " + L"' "$LIVE_BINDS" && ! bind_block_present; then
+        fail "SUPER+L already exists outside the Maho Lock managed block"
+        return 1
+    fi
+
+    remove_managed_bind_block "$LIVE_BINDS" "$working"
+    append_bind_block "$working"
+    mv -f "$working" "$LIVE_BINDS"
+}
+
+verify_live() {
+    local errors
+
+    hyprctl reload >/dev/null 2>&1 || return 1
+    sleep 0.6
+
+    errors="$(hyprctl configerrors 2>&1 || true)"
+    [ -z "$errors" ] || {
+        printf '%s\n' "$errors" >&2
+        return 1
+    }
+
+    bind_block_present || return 1
+    managed_wrapper || return 1
+    managed_runtime || return 1
+    return 0
+}
+
+install() {
+    local stamp backup stage bind_work
+    local had_runtime=0 had_wrapper=0
+
+    say "Maho Lock permanent installation"
+    say
+    preflight || return 1
+
+    mkdir -p "$DEPLOY_PARENT" "$BACKUP_DIR"
+
+    if [ -e "$DEPLOY_ROOT" ] && ! managed_runtime; then
+        fail "refusing to replace unmanaged runtime: $DEPLOY_ROOT"
+        return 1
+    fi
+
+    if { [ -e "$BIN_TARGET" ] || [ -L "$BIN_TARGET" ]; } && ! managed_wrapper; then
+        fail "refusing to replace unmanaged command: $BIN_TARGET"
+        return 1
+    fi
+
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUP_DIR/$stamp"
+    stage="$DEPLOY_PARENT/.stage.$$"
+    bind_work="$DEPLOY_PARENT/.binds.$$"
+
+    mkdir -p "$backup"
+
+    if managed_runtime; then
+        cp -a "$DEPLOY_ROOT" "$backup/runtime"
+        had_runtime=1
+    fi
+
+    if managed_wrapper; then
+        cp -a "$BIN_TARGET" "$backup/maho-lock"
+        had_wrapper=1
+    fi
+
+    cp -a "$LIVE_BINDS" "$backup/binds.lua"
+
+    cleanup_stage() {
+        rm -rf "$stage" "$bind_work"
+    }
+    trap cleanup_stage RETURN
+
+    say
+    say "Staging runtime..."
+    stage_runtime "$stage"
+
+    rm -rf "$DEPLOY_ROOT"
+    mv "$stage" "$DEPLOY_ROOT"
+    say "PASS  runtime $DEPLOY_ROOT"
+
+    write_wrapper
+    say "PASS  command $BIN_TARGET"
+
+    install_bind "$bind_work"
+    say "PASS  SUPER+L binding staged"
+
+    if verify_live; then
+        say "PASS  Hyprland reload and config verification"
+        say "PASS  permanent Maho Lock installation ready"
+        say "Backup: $backup"
+        return 0
+    fi
+
+    say "FAIL  live verification; rolling back"
+
+    cp -a "$backup/binds.lua" "$LIVE_BINDS"
+
+    rm -rf "$DEPLOY_ROOT"
+    if [ "$had_runtime" -eq 1 ]; then
+        cp -a "$backup/runtime" "$DEPLOY_ROOT"
+    fi
+
+    rm -f "$BIN_TARGET"
+    if [ "$had_wrapper" -eq 1 ]; then
+        cp -a "$backup/maho-lock" "$BIN_TARGET"
+    fi
+
+    hyprctl reload >/dev/null 2>&1 || true
+    fail "installation rolled back; inspect $backup"
+}
+
+status() {
+    local failed=0
+
+    say "Maho Lock installation status"
+    say
+
+    if managed_runtime; then
+        say "PASS  runtime $DEPLOY_ROOT"
+    else
+        say "INFO  runtime not managed"
+        failed=1
+    fi
+
+    if managed_wrapper; then
+        say "PASS  command $BIN_TARGET"
+    else
+        say "INFO  command not managed"
+        failed=1
+    fi
+
+    if bind_block_present; then
+        say "PASS  SUPER+L managed binding"
+    else
+        say "INFO  SUPER+L managed binding missing"
+        failed=1
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        local errors
+        errors="$(hyprctl configerrors 2>&1 || true)"
+        if [ -z "$errors" ]; then
+            say "PASS  Hyprland config errors: none"
+        else
+            say "FAIL  Hyprland config errors present"
+            failed=1
+        fi
+    fi
+
+    return "$failed"
+}
+
+uninstall() {
+    local tmp="$DEPLOY_PARENT/.unbind.$$"
+
+    say "Maho Lock uninstall"
+
+    if bind_block_present; then
+        remove_managed_bind_block "$LIVE_BINDS" "$tmp"
+        mv -f "$tmp" "$LIVE_BINDS"
+        say "REMOVED  managed SUPER+L binding"
+    fi
+
+    if managed_wrapper; then
+        rm -f "$BIN_TARGET"
+        say "REMOVED  $BIN_TARGET"
+    elif [ -e "$BIN_TARGET" ] || [ -L "$BIN_TARGET" ]; then
+        say "KEPT     unmanaged command $BIN_TARGET"
+    fi
+
+    if managed_runtime; then
+        rm -rf "$DEPLOY_ROOT"
+        say "REMOVED  $DEPLOY_ROOT"
+    elif [ -e "$DEPLOY_ROOT" ]; then
+        say "KEPT     unmanaged runtime $DEPLOY_ROOT"
+    fi
+
+    hyprctl reload >/dev/null 2>&1 || true
+    say "PASS  Maho Lock managed installation removed"
+    say "KEPT  user personalization state under $STATE_HOME/maho/lock"
+}
+
+case "${1:-}" in
+    install) install ;;
+    status) status ;;
+    uninstall) uninstall ;;
+    preflight) preflight ;;
+    *)
+        cat <<'EOF_HELP'
+Maho Lock permanent installer
+
+Usage:
+  bash bin/maho-lock-install preflight
+  bash bin/maho-lock-install install
+  bash bin/maho-lock-install status
+  bash bin/maho-lock-install uninstall
+
+The installer is user-scoped and requires no root access. It deploys an
+immutable Maho Lock runtime under ~/.local/share, installs ~/.local/bin/maho-lock,
+and wires the managed SUPER+L Hyprland binding with backup + rollback.
+
+Existing unmanaged commands, runtimes, and SUPER+L bindings are never replaced.
+Profile/wallpaper personalization state is preserved during uninstall.
+EOF_HELP
+        exit 2
+        ;;
+esac
