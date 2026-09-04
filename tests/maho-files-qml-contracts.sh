@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/apps/maho-files"
 CMAKE="$APP/CMakeLists.txt"
+DESKTOP="$APP/io.maho.Files.desktop"
 MODEL_H="$APP/src/MahoDirectoryModel.h"
 MODEL_CPP="$APP/src/MahoDirectoryModel.cpp"
 PLACES_H="$APP/src/MahoPlacesController.h"
@@ -13,6 +14,7 @@ PALETTE_CPP="$APP/src/MahoPalette.cpp"
 MAIN_CPP="$APP/src/main.cpp"
 QML="$APP/qml/Main.qml"
 WRAPPER="$ROOT/bin/maho-files"
+LAUNCHER_BACKEND="$ROOT/lib/maho_launcher_backend.py"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -35,7 +37,7 @@ reject_text() {
     fi
 }
 
-for file in "$CMAKE" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER"; do
+for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER" "$LAUNCHER_BACKEND"; do
     [ -f "$file" ] || fail "missing Maho Files file: $file"
 done
 
@@ -98,6 +100,26 @@ echo "=== keyboard parity ==="
 for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X' 'Ctrl+V'; do
     require_text "$QML" "sequence: \"$shortcut\"" "missing file-manager shortcut: $shortcut"
 done
+echo PASS
+
+echo "=== canonical desktop identity ==="
+require_text "$MAIN_CPP" 'setDesktopFileName(QStringLiteral("io.maho.Files"))' "Wayland desktop identity drifted from io.maho.Files"
+require_text "$DESKTOP" 'Name=Maho Files' "desktop entry is not branded as Maho Files"
+require_text "$DESKTOP" 'Exec=maho-files run %U' "desktop entry does not route through the bounded wrapper"
+require_text "$DESKTOP" 'MimeType=inode/directory;' "desktop entry does not advertise directory capability"
+require_text "$CMAKE" 'io.maho.Files.desktop' "desktop identity is not installed with the native app"
+require_text "$CMAKE" '${CMAKE_INSTALL_DATADIR}/applications' "desktop entry install target is not XDG applications"
+reject_text "$WRAPPER" 'xdg-mime default' "preview/install wrapper must not silently change the user's default file manager"
+echo PASS
+
+echo "=== Launcher integration ==="
+require_text "$LAUNCHER_BACKEND" 'maho_files = shutil.which("maho-files")' "Launcher does not discover Maho Files safely"
+require_text "$LAUNCHER_BACKEND" 'if path.is_dir() and maho_files:' "Launcher directory results do not prefer Maho Files"
+require_text "$LAUNCHER_BACKEND" 'return detached([maho_files, "run", str(path)])' "Launcher directory launch does not use bounded Maho Files CLI"
+require_text "$LAUNCHER_BACKEND" 'return detached([maho_files, "run", str(Path.home())])' "Launcher Files quick action does not prefer Maho Files"
+require_text "$LAUNCHER_BACKEND" 'xdg-open' "regular file opening lost standards-aware fallback"
+require_text "$LAUNCHER_BACKEND" 'thunar' "legacy file-manager fallback was removed prematurely"
+reject_text "$LAUNCHER_BACKEND" 'xdg-mime default' "Launcher must not mutate MIME defaults"
 echo PASS
 
 echo "=== Palette V2 bridge ==="
