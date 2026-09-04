@@ -1,11 +1,14 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QDate>
+#include <QPointer>
 #include <QUrl>
 #include <QVector>
 
 #include <KCoreDirLister>
 #include <KFileItem>
+#include <KIO/ListJob>
 
 class KJob;
 
@@ -92,6 +95,10 @@ signals:
 
 private:
     void navigate(const QUrl &url, bool recordHistory);
+    void navigateTimeline(const QUrl &url, bool recordHistory);
+    void recordNavigation(const QUrl &url, bool recordHistory);
+    void cancelRecentJob();
+    QDate timelineDate(const QUrl &url) const;
     void setCurrentUrl(const QUrl &url);
     void setLoading(bool loading);
     void setErrorString(const QString &error);
@@ -100,10 +107,13 @@ private:
     void rebuildFromLister();
     void rebuildVisibleItems();
     void sortItems(QVector<KFileItem> &items) const;
+    void sortRecentItems(QVector<KFileItem> &items) const;
     void watchJob(KJob *job, const QString &successMessage);
     QUrl childUrl(const QString &name) const;
 
     KCoreDirLister m_lister;
+    QPointer<KIO::ListJob> m_recentJob;
+    QDate m_recentTargetDate;
     QVector<KFileItem> m_sourceItems;
     QVector<KFileItem> m_items;
     QUrl m_currentUrl;
