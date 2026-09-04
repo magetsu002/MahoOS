@@ -27,9 +27,18 @@ Scope {
     readonly property var batteryDevice: UPower.displayDevice
     readonly property bool batteryAvailable:
         batteryDevice !== null && batteryDevice.ready
-    readonly property int batteryPercentage: batteryAvailable
-        ? Math.max(0, Math.min(100, Math.round(batteryDevice.percentage * 100)))
-        : 100
+    readonly property real batteryFraction: {
+        if (!batteryAvailable)
+            return -1
+        const raw = Number(batteryDevice.percentage)
+        if (!Number.isFinite(raw))
+            return -1
+        return Math.max(0, Math.min(1, raw))
+    }
+    readonly property bool batteryPercentageValid: batteryFraction >= 0
+    readonly property int batteryPercentage: batteryPercentageValid
+        ? Math.round(batteryFraction * 100)
+        : 0
     readonly property bool batteryCharging: batteryAvailable && (
         batteryDevice.state === UPowerDeviceState.Charging
         || batteryDevice.state === UPowerDeviceState.PendingCharge

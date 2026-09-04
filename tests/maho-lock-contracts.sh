@@ -6,8 +6,9 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCK_DIR="$ROOT/config/quickshell/maho-lock"
 SHELL="$LOCK_DIR/shell.qml"
 SURFACE="$LOCK_DIR/MahoLockSurface.qml"
-VIEW="$LOCK_DIR/MahoLockViewV2.qml"
-GLASS="$LOCK_DIR/MahoGlassCapsule.qml"
+VIEW="$LOCK_DIR/MahoLockViewV3.qml"
+GLASS="$LOCK_DIR/MahoGlassCapsuleV2.qml"
+ICON="$LOCK_DIR/MahoIcon.qml"
 PREVIEW="$LOCK_DIR/preview.qml"
 AUTH="$LOCK_DIR/MahoLockAuth.qml"
 STATE="$LOCK_DIR/MahoLockState.qml"
@@ -24,7 +25,7 @@ pass() {
     printf 'PASS  %s\n' "$*"
 }
 
-for file in "$SHELL" "$SURFACE" "$VIEW" "$GLASS" "$PREVIEW" "$AUTH" "$STATE" "$THEME" "$PROBE" "$LAUNCHER"; do
+for file in "$SHELL" "$SURFACE" "$VIEW" "$GLASS" "$ICON" "$PREVIEW" "$AUTH" "$STATE" "$THEME" "$PROBE" "$LAUNCHER"; do
     [ -r "$file" ] || fail "missing ${file#$ROOT/}"
 done
 pass "Maho Lock source files present"
@@ -34,10 +35,10 @@ python3 -m py_compile "$PROBE"
 pass "launcher/probe syntax"
 
 # Production remains a real ext-session-lock surface. Preview is the only
-# ordinary overlay and must render the exact same active view.
+# ordinary overlay and must render the same active view.
 grep -Fq 'WlSessionLock {' "$SHELL" || fail "secure ext-session-lock authority missing"
 grep -Fq 'WlSessionLockSurface {' "$SURFACE" || fail "session lock surface missing"
-grep -Fq 'MahoLockViewV2 {' "$SURFACE" || fail "secure surface does not render refined shared view"
+grep -Fq 'MahoLockViewV3 {' "$SURFACE" || fail "secure surface does not render current shared view"
 grep -Fq 'Component.onCompleted: locked = true' "$SHELL" || fail "locker does not engage on startup"
 grep -Fq 'color: theme.background' "$SURFACE" || fail "lock surface is not opaque by default"
 if grep -Eq 'PanelWindow|FloatingWindow' "$SHELL" "$SURFACE"; then
@@ -56,29 +57,45 @@ fi
 grep -Fq 'interval: 240' "$AUTH" || fail "unlock transition is not given time to resolve"
 pass "PAM-only unlock authority"
 
-# Wallpaper must stay alive as the MultiEffect source. Hiding the source item
-# made the real preview fall back to near-black on the user's compositor.
+# Capture the wallpaper into a renderable offscreen texture instead of hiding
+# the Image directly or drawing raw+effected wallpaper simultaneously.
 grep -Fq '/.cache/maho/theme/active.json' "$THEME" || fail "lock theme ignores active Maho palette"
 grep -Fq '/maho/wallpaper/current.json' "$STATE" || fail "lock does not consume Maho wallpaper authority"
-grep -Fq 'MultiEffect {' "$VIEW" || fail "target wallpaper softening is missing"
-grep -Fq 'source: wallpaper' "$VIEW" || fail "blur effect is detached from wallpaper"
-grep -Fq 'visible: state.wallpaperIsImage' "$VIEW" || fail "wallpaper source is not kept renderable"
+grep -Fq 'ShaderEffectSource {' "$VIEW" || fail "offscreen wallpaper capture missing"
+grep -Fq 'hideSource: true' "$VIEW" || fail "raw wallpaper is not hidden by capture authority"
+grep -Fq 'source: wallpaperTexture' "$VIEW" || fail "MultiEffect is not fed from captured wallpaper texture"
 grep -Fq 'blurEnabled: true' "$VIEW" || fail "wallpaper blur disabled"
-grep -Fq 'blur: 0.44' "$VIEW" || fail "wallpaper blur strength drifted from refined target"
-grep -Fq 'brightness: -0.045' "$VIEW" || fail "wallpaper atmosphere regressed to crushed black"
-pass "softened wallpaper atmosphere"
+grep -Fq 'blur: 0.31' "$VIEW" || fail "wallpaper blur drifted from restrained target"
+grep -Fq 'brightness: 0.005' "$VIEW" || fail "wallpaper atmosphere regressed toward crushed black"
+pass "single-pass wallpaper atmosphere"
 
-# The active view uses one coherent translucent material family for input and
-# primary action rather than flat dark rectangles.
-grep -Fq 'MahoGlassCapsule {' "$VIEW" || fail "glass capsules are not used by active lock view"
-[ "$(grep -Fc 'MahoGlassCapsule {' "$VIEW")" -ge 2 ] || fail "input and action do not share the glass material"
-grep -Fq 'GradientStop {' "$GLASS" || fail "glass material lacks restrained depth gradient"
-grep -Fq 'Neutral reflected cap' "$GLASS" || fail "glass reflected cap missing"
-grep -Fq 'root.theme.mix(root.theme.surfaceHigh, root.theme.accent' "$GLASS" || fail "glass no longer receives restrained active-palette tint"
-if grep -Eq 'DropShadow|Glow|OuterGlow' "$GLASS" "$VIEW"; then
-    fail "lock material regressed to fake glow effects"
+# Glass is translucent material, not a painted glossy gradient or fake shadow.
+grep -Fq 'MahoGlassCapsuleV2 {' "$VIEW" || fail "current glass material is not used"
+[ "$(grep -Fc 'MahoGlassCapsuleV2 {' "$VIEW")" -ge 2 ] || fail "input and action do not share the same material"
+grep -Fq 'fillAlpha:' "$GLASS" || fail "glass translucency authority missing"
+grep -Fq 'materialTint:' "$GLASS" || fail "glass no longer receives restrained palette tint"
+if grep -Eq 'GradientStop|DropShadow|Glow|OuterGlow' "$GLASS"; then
+    fail "glass material regressed to painted gloss or fake glow"
 fi
-pass "coherent glass material"
+pass "restrained translucent glass material"
+
+# All visible glyphs use one coherent vector-like Canvas component. Reject the
+# placeholder Unicode symbols that looked optically misaligned in native proof.
+grep -Fq 'Canvas {' "$ICON" || fail "professional icon component missing"
+for name in lock eye power users wifi keyboard battery; do
+    grep -Fq "root.icon === \"$name\"" "$ICON" || fail "missing $name glyph"
+done
+if grep -Eq '⏻|◎' "$VIEW"; then
+    fail "placeholder text glyphs returned to lock view"
+fi
+grep -Fq 'MahoIcon {' "$VIEW" || fail "lock view is not using shared glyph language"
+pass "coherent icon language"
+
+# Never stringify an uninitialized UPower value as undefined%.
+grep -Fq 'batteryPercentageValid' "$STATE" || fail "battery validity guard missing"
+grep -Fq 'Number.isFinite' "$STATE" || fail "battery percentage is not finite-checked"
+grep -Fq 'visible: state.batteryPercentageValid' "$VIEW" || fail "invalid battery readout can still render"
+pass "battery readout validity guard"
 
 # Accepted target hierarchy and contrast.
 grep -Fq 'Good morning' "$VIEW" || fail "time-aware greeting missing"
@@ -91,7 +108,7 @@ grep -Fq 'Qt.rgba(1, 1, 1, 0.965)' "$VIEW" || fail "lock foreground is not contr
 if grep -Fq 'font.family: "Inter"' "$VIEW"; then
     fail "lock hardcodes an unverified font family"
 fi
-pass "accepted lock-screen visual hierarchy"
+pass "accepted lock-screen hierarchy"
 
 # Keyboard focus must survive mapping timing on the real session lock.
 grep -Fq 'FocusScope {' "$VIEW" || fail "lock view does not own a focus scope"
@@ -103,10 +120,10 @@ grep -Fq 'Keys.onPressed' "$VIEW" || fail "password keyboard handler missing"
 grep -Fq 'Qt.Key_Return' "$VIEW" || fail "Enter activation missing"
 pass "session-lock keyboard focus contract"
 
-# Preview is non-secure, renders the exact production view, and is raised to the
-# overlay plane so Maho Edge cannot obscure fidelity review.
+# Preview stays non-secure and renders the exact production view above desktop
+# chrome, allowing fidelity work without trapping the session.
 grep -Fq 'PanelWindow {' "$PREVIEW" || fail "non-locking preview surface missing"
-grep -Fq 'MahoLockViewV2 {' "$PREVIEW" || fail "preview does not render exact refined lock view"
+grep -Fq 'MahoLockViewV3 {' "$PREVIEW" || fail "preview does not render current production view"
 grep -Fq 'previewMode: true' "$PREVIEW" || fail "preview mode is not explicit"
 grep -Fq 'WlrLayershell.layer: WlrLayer.Overlay' "$PREVIEW" || fail "preview is not raised above desktop chrome"
 if grep -Eq 'WlSessionLock|PamContext' "$PREVIEW"; then

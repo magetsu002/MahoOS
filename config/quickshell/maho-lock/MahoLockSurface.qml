@@ -12,7 +12,7 @@ WlSessionLockSurface {
     // rendered inside the shared lock view; the live desktop is never exposed.
     color: theme.background
 
-    MahoLockViewV2 {
+    MahoLockViewV3 {
         anchors.fill: parent
         theme: root.theme
         state: root.state
