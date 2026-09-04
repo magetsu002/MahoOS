@@ -116,7 +116,7 @@ require_text "$LINK/shell.qml" '/quickshell/by-shell/maho-shell/dock.json' "Maho
 require_text "$LINK/shell.qml" 'readonly property real dockPosition:' "Maho Link ignores along-edge position"
 require_text "$LINK/shell.qml" 'dockPosition > 0.5' "Maho Link cannot detect a top/bottom Edge on the right half"
 require_text "$LINK/shell.qml" 'if (dockOccupiesRightSide)' "Maho Link does not move opposite the Edge location"
-require_text "$LINK/shell.qml" 'x: root.surfaceX(overlay.width, width, 24)' "Maho Link placement is no longer derived from Edge location"
+require_text "$LINK/shell.qml" 'surfaceX(overlay.width, linkSurface.width, surfaceMarginX)' "Maho Link first-run placement is no longer derived from Edge location"
 require_text "$NOTIFY/shell.qml" '/quickshell/by-shell/maho-shell/dock.json' "Maho Notify does not observe authoritative Edge placement"
 require_text "$NOTIFY/shell.qml" 'readonly property real dockPosition:' "Maho Notify ignores along-edge position"
 require_text "$NOTIFY/shell.qml" 'dockPosition > 0.5' "Maho Notify cannot detect a top/bottom Edge on the right half"

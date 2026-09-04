@@ -32,7 +32,9 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             config/quickshell/maho-link/wifi.py \
-            config/quickshell/maho-link/bluetooth.py
+            config/quickshell/maho-link/bluetooth.py \
+            config/quickshell/maho-link/position.py \
+            tests/maho-link-position-tests.py
 
       - name: Maho Link contracts
         run: |

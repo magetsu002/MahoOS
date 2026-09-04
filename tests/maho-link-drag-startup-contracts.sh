@@ -27,18 +27,16 @@ reject_text() {
 }
 
 echo "=== persistent draggable Maho Link ==="
-require_text "$SHELL" 'readonly property string linkPlacementPath: stateBase + "/maho-link-position.json"' "Wi-Fi and Bluetooth do not share one product-global placement file"
-require_text "$SHELL" 'path: root.linkPlacementPath' "shared Link placement file is not the active FileView source"
+require_text "$SHELL" 'readonly property string linkPlacementPath: stateBase + "/maho/link-position.json"' "Wi-Fi and Bluetooth do not share one product-global placement file"
+require_text "$SHELL" '"python3", positionHelperPath, "load"' "shared Link placement file is not loaded by the runtime authority"
 reject_text "$SHELL" 'Quickshell.statePath("link-position.json")' "placement is still scoped to a Quickshell runtime instead of Maho Link"
-require_text "$SHELL" 'property real normalizedX: 0.5' "horizontal placement is not resolution-adaptive"
-require_text "$SHELL" 'property real normalizedY: 0.5' "vertical placement is not resolution-adaptive"
 require_text "$SHELL" 'function persistPlacement()' "drag completion does not persist placement"
 require_text "$SHELL" 'drag.target: linkSurface' "shared Wi-Fi/Bluetooth surface is not the drag target"
 require_text "$SHELL" 'width: Math.max(80, linkSurface.width - 184)' "drag handle is not constrained to the safe title strip"
 require_text "$SHELL" 'drag.minimumX: root.surfaceMarginX' "dragging is not clamped horizontally"
 require_text "$SHELL" 'drag.maximumY: root.maximumSurfaceY()' "dragging is not clamped vertically"
 require_text "$SHELL" 'onHeightChanged:' "dynamic surface-height placement is not re-clamped"
-require_text "$SHELL" 'if (linkPlacement.valid)' "persisted placement does not override first-run Edge placement"
+require_text "$SHELL" 'if (placementValid)' "persisted placement does not override first-run Edge placement"
 require_text "$SHELL" 'surfaceX(overlay.width, linkSurface.width, surfaceMarginX)' "first-run placement no longer respects Maho Edge"
 echo "PASS"
 
