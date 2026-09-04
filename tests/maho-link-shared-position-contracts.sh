@@ -23,25 +23,59 @@ reject_text() {
 
 require_text 'readonly property string linkPlacementPath: stateBase + "/maho-link-position.json"' \
     'Link modes do not share one product-level placement file'
+reject_text 'Quickshell.statePath("link-position.json")' \
+    'Link placement regressed to runtime-scoped Quickshell state'
+
+# Same-monitor restoration must be exact in physical pixels. Wi-Fi and
+# Bluetooth have different panel dimensions, so normalized-only restoration is
+# not sufficient near monitor edges.
+require_text 'function canRestoreExactPixels()' \
+    'Link has no exact same-monitor restoration path'
+require_text 'property int version: 2' \
+    'Link placement state did not advance to the exact-pixel schema'
+require_text 'property real pixelX: -1' \
+    'shared placement does not persist exact X'
+require_text 'property real pixelY: -1' \
+    'shared placement does not persist exact Y'
+require_text 'property real monitorWidth: -1' \
+    'shared placement does not remember monitor width'
+require_text 'property real monitorHeight: -1' \
+    'shared placement does not remember monitor height'
+require_text 'targetX = Number(linkPlacement.pixelX)' \
+    'Wi-Fi/Bluetooth do not restore the same exact X on unchanged geometry'
+require_text 'targetY = Number(linkPlacement.pixelY)' \
+    'Wi-Fi/Bluetooth do not restore the same exact Y on unchanged geometry'
+require_text 'linkPlacement.pixelX = linkSurface.x' \
+    'drag completion does not save exact X'
+require_text 'linkPlacement.pixelY = linkSurface.y' \
+    'drag completion does not save exact Y'
+require_text 'linkPlacement.monitorWidth = overlay.width' \
+    'exact-pixel state is not scoped to current monitor geometry'
+require_text 'linkPlacement.monitorHeight = overlay.height' \
+    'exact-pixel state is not scoped to current monitor geometry'
+
+# Keep normalized coordinates as a resolution/output fallback. They remain
+# mode-independent because they are normalized against monitor margin space,
+# never against the current panel width/height.
 require_text 'function placementSpanX()' \
-    'shared placement has no mode-independent horizontal coordinate space'
+    'shared placement has no mode-independent horizontal fallback space'
 require_text 'function placementSpanY()' \
-    'shared placement has no mode-independent vertical coordinate space'
+    'shared placement has no mode-independent vertical fallback space'
 require_text 'overlay.width - surfaceMarginX * 2' \
-    'horizontal coordinate space still depends on panel geometry'
+    'horizontal fallback coordinate space depends on panel geometry'
 require_text 'overlay.height - surfaceMarginY * 2' \
-    'vertical coordinate space still depends on panel geometry'
+    'vertical fallback coordinate space depends on panel geometry'
 require_text 'placementSpanX() * clamp(Number(linkPlacement.normalizedX), 0, 1)' \
-    'stored X is not mapped through the shared monitor coordinate space'
+    'resolution fallback X is missing'
 require_text 'placementSpanY() * clamp(Number(linkPlacement.normalizedY), 0, 1)' \
-    'stored Y is not mapped through the shared monitor coordinate space'
+    'resolution fallback Y is missing'
 require_text '(linkSurface.x - surfaceMarginX) / placementSpanX()' \
-    'persisted X is not independent of the current Link panel width'
+    'normalized fallback X is not updated after drag'
 require_text '(linkSurface.y - surfaceMarginY) / placementSpanY()' \
-    'persisted Y is not independent of the current Link panel height'
+    'normalized fallback Y is not updated after drag'
 reject_text 'const spanY = Math.max(0, maxY - surfaceMarginY)' \
     'shared Y still normalizes against a panel-height-dependent maximum'
 reject_text 'const spanX = Math.max(0, maxX - surfaceMarginX)' \
     'shared X still normalizes against a panel-width-dependent maximum'
 
-printf 'PASS  Maho Link Wi-Fi/Bluetooth share one mode-independent top-left position\n'
+printf 'PASS  Maho Link Wi-Fi/Bluetooth share one exact same-monitor top-left position\n'
