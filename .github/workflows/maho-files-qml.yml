@@ -47,6 +47,8 @@ jobs:
           cmake --build build/maho-files --parallel 2
 
       - name: Binary proof
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           test -x build/maho-files/maho-files
           build/maho-files/maho-files --version
