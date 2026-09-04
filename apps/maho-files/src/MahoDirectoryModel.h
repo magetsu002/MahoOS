@@ -7,6 +7,8 @@
 #include <KCoreDirLister>
 #include <KFileItem>
 
+class KJob;
+
 class MahoDirectoryModel final : public QAbstractListModel
 {
     Q_OBJECT
@@ -17,6 +19,10 @@ class MahoDirectoryModel final : public QAbstractListModel
     Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
     Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
+    Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
+    Q_PROPERTY(bool operationBusy READ operationBusy NOTIFY operationBusyChanged)
+    Q_PROPERTY(QString operationMessage READ operationMessage NOTIFY operationMessageChanged)
+    Q_PROPERTY(bool canPaste READ canPaste NOTIFY canPasteChanged)
 
 public:
     enum Role {
@@ -31,6 +37,8 @@ public:
         MimeCommentRole,
         ModifiedRole,
         ModifiedTextRole,
+        LocalRole,
+        PreviewUrlRole,
     };
     Q_ENUM(Role)
 
@@ -47,6 +55,10 @@ public:
     bool canGoBack() const;
     bool canGoForward() const;
     bool showHidden() const;
+    QString searchQuery() const;
+    bool operationBusy() const;
+    QString operationMessage() const;
+    bool canPaste() const;
 
     Q_INVOKABLE void openUrl(const QUrl &url);
     Q_INVOKABLE void openLocation(const QString &location);
@@ -57,6 +69,15 @@ public:
     Q_INVOKABLE void goHome();
     Q_INVOKABLE void reload();
     Q_INVOKABLE void setShowHidden(bool show);
+    Q_INVOKABLE void setSearchQuery(const QString &query);
+
+    Q_INVOKABLE QString nameAt(int row) const;
+    Q_INVOKABLE bool isDirectoryAt(int row) const;
+    Q_INVOKABLE void createFolder(const QString &name);
+    Q_INVOKABLE void renameIndex(int row, const QString &name);
+    Q_INVOKABLE void trashIndex(int row);
+    Q_INVOKABLE void copyIndex(int row, bool cut = false);
+    Q_INVOKABLE void paste();
 
 signals:
     void currentUrlChanged();
@@ -64,16 +85,26 @@ signals:
     void errorStringChanged();
     void historyChanged();
     void showHiddenChanged();
+    void searchQueryChanged();
+    void operationBusyChanged();
+    void operationMessageChanged();
+    void canPasteChanged();
 
 private:
     void navigate(const QUrl &url, bool recordHistory);
     void setCurrentUrl(const QUrl &url);
     void setLoading(bool loading);
     void setErrorString(const QString &error);
+    void setOperationBusy(bool busy);
+    void setOperationMessage(const QString &message);
     void rebuildFromLister();
-    void sortItems();
+    void rebuildVisibleItems();
+    void sortItems(QVector<KFileItem> &items) const;
+    void watchJob(KJob *job, const QString &successMessage);
+    QUrl childUrl(const QString &name) const;
 
     KCoreDirLister m_lister;
+    QVector<KFileItem> m_sourceItems;
     QVector<KFileItem> m_items;
     QUrl m_currentUrl;
     QVector<QUrl> m_history;
@@ -81,4 +112,7 @@ private:
     bool m_loading = false;
     QString m_errorString;
     bool m_showHidden = false;
+    QString m_searchQuery;
+    bool m_operationBusy = false;
+    QString m_operationMessage;
 };
