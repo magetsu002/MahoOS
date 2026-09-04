@@ -6,6 +6,7 @@ APP="$ROOT/apps/maho-files"
 CMAKE="$APP/CMakeLists.txt"
 MODEL_H="$APP/src/MahoDirectoryModel.h"
 MODEL_CPP="$APP/src/MahoDirectoryModel.cpp"
+PALETTE_H="$APP/src/MahoPalette.h"
 PALETTE_CPP="$APP/src/MahoPalette.cpp"
 MAIN_CPP="$APP/src/main.cpp"
 QML="$APP/qml/Main.qml"
@@ -32,7 +33,7 @@ reject_text() {
     fi
 }
 
-for file in "$CMAKE" "$MODEL_H" "$MODEL_CPP" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER"; do
+for file in "$CMAKE" "$MODEL_H" "$MODEL_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER"; do
     [ -f "$file" ] || fail "missing Maho Files file: $file"
 done
 
@@ -69,7 +70,8 @@ echo "=== Palette V2 bridge ==="
 require_text "$PALETTE_CPP" 'maho/theme/active.json' "Maho Files does not consume the canonical active palette"
 require_text "$PALETTE_CPP" 'surface_elevated' "semantic Palette V2 roles are not consumed"
 require_text "$PALETTE_CPP" 'surface_container_high' "legacy palette compatibility is missing"
-require_text "$PALETTE_CPP" 'QFileSystemWatcher' "palette changes cannot be observed while the app is running"
+require_text "$PALETTE_H" '#include <QFileSystemWatcher>' "palette watcher dependency is not declared"
+require_text "$PALETTE_H" 'QFileSystemWatcher m_watcher' "palette changes cannot be observed while the app is running"
 echo PASS
 
 echo "=== wrapper safety ==="
