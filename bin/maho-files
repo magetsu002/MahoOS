@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+THEME_RENDERER="$ROOT/lib/maho_files_theme.py"
+THEME_NAME="MahoFiles"
+THEME_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/themes/$THEME_NAME"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/files"
+LOG="$CACHE_ROOT/maho-files.log"
+
+mkdir -p "$CACHE_ROOT"
+
+die() {
+    echo "maho-files: $*" >&2
+    return 1
+}
+
+has_thunar() {
+    command -v thunar >/dev/null 2>&1
+}
+
+thunar_running() {
+    pgrep -x Thunar >/dev/null 2>&1 || pgrep -x thunar >/dev/null 2>&1
+}
+
+render_theme() {
+    [ -r "$THEME_RENDERER" ] || {
+        die "theme renderer missing: $THEME_RENDERER"
+        return 1
+    }
+
+    python "$THEME_RENDERER" render \
+        --output "$THEME_ROOT" \
+        >>"$LOG" 2>&1
+}
+
+maho_hyprctl() {
+    command -v hyprctl >/dev/null 2>&1 || return 1
+
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        hyprctl "$@"
+        return
+    fi
+
+    local instance
+    instance="$(
+        hyprctl instances -j 2>/dev/null |
+        python -c '
+import json,sys
+try:
+    rows=json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if not rows:
+    raise SystemExit(1)
+value=rows[-1].get("instance") or rows[-1].get("signature")
+if not isinstance(value,str) or not value:
+    raise SystemExit(1)
+print(value)
+'
+    )" || return 1
+
+    hyprctl -i "$instance" "$@"
+}
+
+apply_material_rule() {
+    maho_hyprctl eval '
+        if maho_files_material_rule == nil then
+            maho_files_material_rule = hl.window_rule({
+                name = "maho-files-material",
+                match = { class = "^(Thunar|thunar)$" },
+                rounding = 18,
+                border_size = 1,
+            })
+        else
+            maho_files_material_rule:set_enabled(true)
+        end
+    ' >/dev/null 2>&1 || true
+}
+
+prepare() {
+    has_thunar || {
+        die "Thunar is required"
+        return 1
+    }
+    render_theme
+    apply_material_rule
+}
+
+run_foreground() {
+    prepare
+    export GTK_THEME="$THEME_NAME"
+    export GTK_CSD=1
+    exec thunar "$@"
+}
+
+run_detached() {
+    prepare
+
+    if thunar_running; then
+        printf '%s\n' \
+            "INFO existing Thunar process detected; if it was not started by Maho Files," \
+            "INFO use 'maho-files restart [PATH]' once to guarantee the private theme." \
+            >>"$LOG"
+    fi
+
+    nohup env \
+        GTK_THEME="$THEME_NAME" \
+        GTK_CSD=1 \
+        thunar "$@" \
+        >>"$LOG" 2>&1 &
+}
+
+restart_thunar() {
+    local target=("$@")
+    has_thunar || {
+        die "Thunar is required"
+        return 1
+    }
+
+    # Restart is intentionally explicit because --quit closes every existing
+    # Thunar window. Normal Maho Files launches never terminate user windows.
+    thunar --quit >/dev/null 2>&1 || true
+
+    for _ in $(seq 1 25); do
+        thunar_running || break
+        sleep 0.08
+    done
+
+    run_detached "${target[@]}"
+}
+
+doctor() {
+    local failed=0
+
+    echo "Maho Files doctor"
+    echo
+
+    if has_thunar; then
+        printf 'PASS  %-18s %s\n' "Thunar" "$(command -v thunar)"
+        thunar --version 2>/dev/null | head -1 || true
+    else
+        echo "FAIL  Thunar             missing"
+        failed=1
+    fi
+
+    if command -v python >/dev/null 2>&1; then
+        printf 'PASS  %-18s %s\n' "Python" "$(command -v python)"
+    else
+        echo "FAIL  Python             missing"
+        failed=1
+    fi
+
+    if [ -r "$THEME_RENDERER" ]; then
+        echo "PASS  theme renderer"
+        python "$THEME_RENDERER" doctor --output "$THEME_ROOT" || failed=1
+    else
+        echo "FAIL  theme renderer     missing"
+        failed=1
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        echo "PASS  Hyprland material capability"
+    else
+        echo "INFO  hyprctl unavailable; GTK material still works without compositor blur"
+    fi
+
+    if thunar_running; then
+        echo "INFO  Thunar process currently running"
+    else
+        echo "PASS  no pre-existing Thunar process"
+    fi
+
+    echo
+    echo "Theme path: $THEME_ROOT"
+    echo "Log:        $LOG"
+    return "$failed"
+}
+
+usage() {
+    cat <<'HELP'
+Maho Files — Thunar with an isolated MahoOS presentation layer
+
+Usage:
+  maho-files [PATH|URI ...]        Open Maho Files detached
+  maho-files open [PATH|URI ...]   Same as above
+  maho-files run [PATH|URI ...]    Run in foreground for visual debugging
+  maho-files restart [PATH|URI ...]
+                                  Explicitly restart Thunar under the Maho theme
+  maho-files refresh-theme         Regenerate GTK material from active Maho palette
+  maho-files quit                  Ask the current Thunar instance to exit
+  maho-files doctor                Validate local capabilities and theme rendering
+
+Normal launches never kill existing Thunar windows. The explicit restart action
+is provided only when a pre-existing vanilla Thunar daemon owns the session and
+therefore cannot inherit Maho Files' process-local GTK_THEME.
+HELP
+}
+
+case "${1:-}" in
+    "")
+        run_detached "$HOME"
+        ;;
+    open)
+        shift
+        if [ "$#" -eq 0 ]; then
+            run_detached "$HOME"
+        else
+            run_detached "$@"
+        fi
+        ;;
+    run)
+        shift
+        if [ "$#" -eq 0 ]; then
+            run_foreground "$HOME"
+        else
+            run_foreground "$@"
+        fi
+        ;;
+    restart)
+        shift
+        if [ "$#" -eq 0 ]; then
+            restart_thunar "$HOME"
+        else
+            restart_thunar "$@"
+        fi
+        ;;
+    refresh-theme)
+        render_theme
+        echo "PASS: $THEME_ROOT"
+        ;;
+    quit)
+        has_thunar || exit 0
+        thunar --quit
+        ;;
+    doctor)
+        doctor
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        run_detached "$@"
+        ;;
+esac
