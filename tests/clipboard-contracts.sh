@@ -184,4 +184,6 @@ PY
 [ "$(cat "$CAPTURE")" = 'exact restored bytes' ] || fail "selection bytes were not forwarded to wl-copy"
 pass "selection restore path"
 
+python3 "$ROOT/tests/clipboard-parser-tests.py"
+
 printf 'PASS  clipboard contracts\n'

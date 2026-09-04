@@ -37,7 +37,8 @@ jobs:
           set -euo pipefail
           python3 -m py_compile \
             lib/maho_launcher_backend.py \
-            config/quickshell/maho-clipboard/clipboard.py
+            config/quickshell/maho-clipboard/clipboard.py \
+            tests/clipboard-parser-tests.py
 
       - name: Clipboard contracts
         run: |
