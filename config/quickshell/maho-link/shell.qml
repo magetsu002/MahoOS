@@ -64,15 +64,29 @@ ShellRoot {
         return Math.max(surfaceMarginY, overlay.height - linkSurface.height - surfaceMarginY)
     }
 
+    function placementSpanX() {
+        // The saved coordinate system must not depend on whichever Link mode is
+        // currently open. Wi-Fi and Bluetooth can have different heights, so
+        // normalizing against maximumSurfaceX/Y would remap one shared value to
+        // different pixels. Use the monitor's margin-to-margin space instead.
+        return Math.max(1, overlay.width - surfaceMarginX * 2)
+    }
+
+    function placementSpanY() {
+        return Math.max(1, overlay.height - surfaceMarginY * 2)
+    }
+
     function applyPlacement() {
         const maxX = maximumSurfaceX()
         const maxY = maximumSurfaceY()
 
         if (linkPlacement.valid) {
-            const spanX = Math.max(0, maxX - surfaceMarginX)
-            const spanY = Math.max(0, maxY - surfaceMarginY)
-            linkSurface.x = surfaceMarginX + spanX * clamp(Number(linkPlacement.normalizedX), 0, 1)
-            linkSurface.y = surfaceMarginY + spanY * clamp(Number(linkPlacement.normalizedY), 0, 1)
+            const targetX = surfaceMarginX
+                + placementSpanX() * clamp(Number(linkPlacement.normalizedX), 0, 1)
+            const targetY = surfaceMarginY
+                + placementSpanY() * clamp(Number(linkPlacement.normalizedY), 0, 1)
+            linkSurface.x = clamp(targetX, surfaceMarginX, maxX)
+            linkSurface.y = clamp(targetY, surfaceMarginY, maxY)
             return
         }
 
@@ -90,10 +104,11 @@ ShellRoot {
         linkSurface.x = clamp(linkSurface.x, surfaceMarginX, maxX)
         linkSurface.y = clamp(linkSurface.y, surfaceMarginY, maxY)
 
-        const spanX = Math.max(0, maxX - surfaceMarginX)
-        const spanY = Math.max(0, maxY - surfaceMarginY)
-        linkPlacement.normalizedX = spanX > 0 ? (linkSurface.x - surfaceMarginX) / spanX : 0.5
-        linkPlacement.normalizedY = spanY > 0 ? (linkSurface.y - surfaceMarginY) / spanY : 0.5
+        // Persist one mode-independent top-left anchor. Both Wi-Fi and
+        // Bluetooth therefore target the same pixel location on the same
+        // output; only the final fit clamp may move a larger panel inward.
+        linkPlacement.normalizedX = (linkSurface.x - surfaceMarginX) / placementSpanX()
+        linkPlacement.normalizedY = (linkSurface.y - surfaceMarginY) / placementSpanY()
         linkPlacement.valid = true
     }
 
