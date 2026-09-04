@@ -22,6 +22,7 @@ IMAGE_RE = re.compile(
     r"(?P<dims>\d+x\d+)\s*\]\]$",
     re.IGNORECASE,
 )
+HISTORY_START_RE = re.compile(r"^(?P<id>\d+)\t(?P<preview>.*)$")
 URL_RE = re.compile(r"^(?:https?://|www\.)\S+$", re.IGNORECASE)
 COMMAND_RE = re.compile(
     r"^(?:\$\s+|\.\/|~\/|/)?(?:"
@@ -65,6 +66,38 @@ def classify(preview: str) -> tuple[str, str]:
     return "Text", display
 
 
+def parse_history_records(output: str) -> list[tuple[str, str]]:
+    """Reconstruct cliphist records without discarding multiline text.
+
+    `cliphist list` prefixes each entry with `<id>\t`, but text payloads may span
+    additional physical lines. Treat only a new numeric prefix as a record
+    boundary and attach every continuation line to the current preview. This
+    keeps leading-newline and multiline clipboard entries meaningful without
+    decoding or persisting their full clipboard bytes anywhere else.
+    """
+
+    records: list[tuple[str, str]] = []
+    current_id: str | None = None
+    current_lines: list[str] = []
+
+    for line in output.splitlines():
+        match = HISTORY_START_RE.match(line)
+        if match:
+            if current_id is not None:
+                records.append((current_id, "\n".join(current_lines)))
+            current_id = match.group("id")
+            current_lines = [match.group("preview")]
+            continue
+
+        if current_id is not None:
+            current_lines.append(line)
+
+    if current_id is not None:
+        records.append((current_id, "\n".join(current_lines)))
+
+    return records
+
+
 def list_history() -> int:
     cliphist = shutil.which("cliphist")
     if not cliphist:
@@ -100,13 +133,7 @@ def list_history() -> int:
         })
 
     items: list[dict[str, str]] = []
-    for line in result.stdout.splitlines():
-        if "\t" not in line:
-            continue
-        item_id, preview = line.split("\t", 1)
-        item_id = item_id.strip()
-        if not item_id.isdigit():
-            continue
+    for item_id, preview in parse_history_records(result.stdout):
         item_type, display = classify(preview)
         items.append({
             "id": item_id,
