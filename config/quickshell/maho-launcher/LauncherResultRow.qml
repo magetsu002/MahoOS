@@ -15,6 +15,8 @@ Item {
     required property string description
     required property string icon
     required property string iconPath
+    required property string path
+    required property string kind
     property bool selected: false
 
     signal hovered(int index)
@@ -26,15 +28,18 @@ Item {
     readonly property bool pointerHovered: hover.hovered
     readonly property bool pressed: tap.pressed
 
-    // Activation must remain truthful even if an injected backend binding is
-    // temporarily unavailable. The delegate already owns all published roles.
+    // Preserve every activation role published by LauncherBackend. Keyboard
+    // activation reads this object from currentItem, while pointer activation
+    // resolves the same authoritative row through backend.itemAt(index).
     property var modelData: ({
         "entryId": root.entryId,
         "id": root.entryId,
         "name": root.name,
         "description": root.description,
         "icon": root.icon,
-        "iconPath": root.iconPath
+        "iconPath": root.iconPath,
+        "path": root.path,
+        "kind": root.kind
     })
 
     height: 58
@@ -169,6 +174,12 @@ Item {
         id: tap
         acceptedButtons: Qt.LeftButton
         gesturePolicy: TapHandler.ReleaseWithinBounds
-        onTapped: root.activated(root.index)
+        onTapped: {
+            // Single click activates immediately through the exact same backend
+            // activation function used by Enter. Resolve the authoritative model
+            // row rather than depending on a delegate-local signal payload.
+            root.hovered(root.index)
+            root.backend.activate(root.backend.itemAt(root.index))
+        }
     }
 }
