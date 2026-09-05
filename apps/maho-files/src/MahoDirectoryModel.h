@@ -2,7 +2,10 @@
 
 #include <QAbstractListModel>
 #include <QDate>
+#include <QEvent>
+#include <QPointF>
 #include <QPointer>
+#include <QTimer>
 #include <QUrl>
 #include <QVector>
 
@@ -11,6 +14,8 @@
 #include <KIO/ListJob>
 
 class KJob;
+class QQuickItem;
+class QQuickWindow;
 
 class MahoDirectoryModel final : public QAbstractListModel
 {
@@ -93,11 +98,16 @@ signals:
     void operationMessageChanged();
     void canPasteChanged();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void navigate(const QUrl &url, bool recordHistory);
     void navigateTimeline(const QUrl &url, bool recordHistory);
     void recordNavigation(const QUrl &url, bool recordHistory);
     void cancelRecentJob();
+    void cancelSearchJob();
+    void startSearchJob();
     QDate timelineDate(const QUrl &url) const;
     void setCurrentUrl(const QUrl &url);
     void setLoading(bool loading);
@@ -108,17 +118,29 @@ private:
     void rebuildVisibleItems();
     void sortItems(QVector<KFileItem> &items) const;
     void sortRecentItems(QVector<KFileItem> &items) const;
+    void sortSearchItems(QVector<KFileItem> &items, const QString &query) const;
+    int searchRank(const KFileItem &item, const QString &query) const;
+    QString searchDisplayName(const KFileItem &item) const;
+    void startDragForRow(int row);
+    int fileRowAt(QQuickWindow *window, const QPointF &scenePosition) const;
+    QQuickItem *deepestChildAt(QQuickItem *root, const QPointF &scenePosition) const;
     void watchJob(KJob *job, const QString &successMessage);
     QUrl childUrl(const QString &name) const;
 
     KCoreDirLister m_lister;
     QPointer<KIO::ListJob> m_recentJob;
+    QPointer<KIO::ListJob> m_searchJob;
+    QTimer m_searchDebounce;
     QDate m_recentTargetDate;
     QVector<KFileItem> m_sourceItems;
+    QVector<KFileItem> m_searchItems;
     QVector<KFileItem> m_items;
     QUrl m_currentUrl;
+    QUrl m_searchRootUrl;
     QVector<QUrl> m_history;
     int m_historyIndex = -1;
+    int m_dragCandidateRow = -1;
+    QPointF m_dragStartPosition;
     bool m_loading = false;
     QString m_errorString;
     bool m_showHidden = false;

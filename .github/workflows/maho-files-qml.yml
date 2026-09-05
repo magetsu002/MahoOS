@@ -6,6 +6,7 @@ on:
       - 'feat/maho-files-qml'
       - 'feat/maho-files-qml-*'
       - 'fix/maho-files-qml-*'
+      - 'fix/maho-files-*'
   pull_request:
 
 permissions:
@@ -33,6 +34,7 @@ jobs:
       - name: Architecture contracts
         run: |
           bash tests/maho-files-qml-contracts.sh
+          bash tests/maho-files-dnd-search-contracts.sh
 
       - name: Configure native app
         run: |

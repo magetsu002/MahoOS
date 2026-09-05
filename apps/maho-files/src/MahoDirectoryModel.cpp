@@ -4,9 +4,15 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDrag>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QMimeData>
+#include <QMouseEvent>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QStyleHints>
 #include <QUrl>
 
 #include <KIO/CopyJob>
@@ -16,7 +22,12 @@
 #include <KJob>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
+
+namespace {
+constexpr int kMaximumSearchResults = 2000;
+}
 
 MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -27,14 +38,22 @@ MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
     m_lister.setRequestMimeTypeWhileListing(true);
     m_lister.setShowHiddenFiles(m_showHidden);
 
+    m_searchDebounce.setSingleShot(true);
+    m_searchDebounce.setInterval(180);
+    connect(&m_searchDebounce, &QTimer::timeout, this, &MahoDirectoryModel::startSearchJob);
+
     connect(&m_lister, &KCoreDirLister::started, this, [this](const QUrl &) {
-        setErrorString({});
-        setLoading(true);
+        if (m_searchQuery.isEmpty()) {
+            setErrorString({});
+            setLoading(true);
+        }
     });
 
     connect(&m_lister, &KCoreDirLister::clear, this, [this]() {
-        beginResetModel();
         m_sourceItems.clear();
+        if (!m_searchQuery.isEmpty())
+            return;
+        beginResetModel();
         m_items.clear();
         endResetModel();
     });
@@ -56,15 +75,18 @@ MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
 
     connect(&m_lister, &KCoreDirLister::completed, this, [this]() {
         rebuildFromLister();
-        setLoading(false);
+        if (m_searchQuery.isEmpty())
+            setLoading(false);
     });
 
     connect(&m_lister, &KCoreDirLister::canceled, this, [this]() {
-        if (!m_recentJob)
+        if (!m_recentJob && !m_searchJob)
             setLoading(false);
     });
 
     connect(&m_lister, &KCoreDirLister::jobError, this, [this](KIO::Job *job) {
+        if (!m_searchQuery.isEmpty())
+            return;
         setLoading(false);
         setErrorString(job ? job->errorString() : QStringLiteral("Could not read this location."));
     });
@@ -82,6 +104,9 @@ MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
         connect(QGuiApplication::clipboard(), &QClipboard::dataChanged,
                 this, &MahoDirectoryModel::canPasteChanged);
     }
+
+    if (QGuiApplication::instance())
+        QGuiApplication::instance()->installEventFilter(this);
 
     navigate(QUrl::fromLocalFile(QDir::homePath()), true);
 }
@@ -101,7 +126,7 @@ QVariant MahoDirectoryModel::data(const QModelIndex &index, int role) const
     switch (role) {
     case Qt::DisplayRole:
     case NameRole:
-        return item.text();
+        return searchDisplayName(item);
     case UrlRole:
         return item.url();
     case IconNameRole:
@@ -294,6 +319,13 @@ void MahoDirectoryModel::reload()
 {
     if (!m_currentUrl.isValid())
         return;
+
+    if (!m_searchQuery.isEmpty() && m_currentUrl.isLocalFile()) {
+        m_searchDebounce.stop();
+        startSearchJob();
+        return;
+    }
+
     navigate(m_currentUrl, false);
 }
 
@@ -305,6 +337,12 @@ void MahoDirectoryModel::setShowHidden(bool show)
     m_showHidden = show;
     m_lister.setShowHiddenFiles(show);
     emit showHiddenChanged();
+
+    if (!m_searchQuery.isEmpty() && m_currentUrl.isLocalFile()) {
+        m_searchDebounce.start();
+        return;
+    }
+
     reload();
 }
 
@@ -314,9 +352,33 @@ void MahoDirectoryModel::setSearchQuery(const QString &query)
     if (m_searchQuery == normalized)
         return;
 
+    cancelSearchJob();
+    m_searchDebounce.stop();
     m_searchQuery = normalized;
     emit searchQueryChanged();
-    rebuildVisibleItems();
+
+    if (m_searchQuery.isEmpty()) {
+        m_searchItems.clear();
+        setLoading(false);
+        setErrorString({});
+        setOperationMessage({});
+        rebuildVisibleItems();
+        return;
+    }
+
+    if (!m_currentUrl.isLocalFile()) {
+        rebuildVisibleItems();
+        return;
+    }
+
+    beginResetModel();
+    m_items.clear();
+    endResetModel();
+
+    setLoading(true);
+    setErrorString({});
+    setOperationMessage(QStringLiteral("Searching %1 and subfolders…").arg(displayPath()));
+    m_searchDebounce.start();
 }
 
 QString MahoDirectoryModel::nameAt(int row) const
@@ -428,6 +490,47 @@ void MahoDirectoryModel::paste()
     watchJob(job, cut ? QStringLiteral("Moved here") : QStringLiteral("Pasted here"));
 }
 
+bool MahoDirectoryModel::eventFilter(QObject *watched, QEvent *event)
+{
+    auto *window = qobject_cast<QQuickWindow *>(watched);
+    if (!window)
+        return QAbstractListModel::eventFilter(watched, event);
+
+    switch (event->type()) {
+    case QEvent::MouseButtonPress: {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        if (mouse->button() != Qt::LeftButton)
+            break;
+        m_dragCandidateRow = fileRowAt(window, mouse->position());
+        m_dragStartPosition = mouse->position();
+        break;
+    }
+    case QEvent::MouseMove: {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        if (m_dragCandidateRow < 0 || !(mouse->buttons() & Qt::LeftButton))
+            break;
+
+        const int threshold = QGuiApplication::styleHints()->startDragDistance();
+        const QPointF delta = mouse->position() - m_dragStartPosition;
+        if (std::abs(delta.x()) + std::abs(delta.y()) < threshold)
+            break;
+
+        const int row = m_dragCandidateRow;
+        m_dragCandidateRow = -1;
+        startDragForRow(row);
+        break;
+    }
+    case QEvent::MouseButtonRelease:
+    case QEvent::Leave:
+        m_dragCandidateRow = -1;
+        break;
+    default:
+        break;
+    }
+
+    return QAbstractListModel::eventFilter(watched, event);
+}
+
 void MahoDirectoryModel::navigate(const QUrl &url, bool recordHistory)
 {
     if (!url.isValid() || url.isEmpty()) {
@@ -441,6 +544,7 @@ void MahoDirectoryModel::navigate(const QUrl &url, bool recordHistory)
     }
 
     cancelRecentJob();
+    cancelSearchJob();
     recordNavigation(url, recordHistory);
     setCurrentUrl(url);
     setLoading(true);
@@ -456,6 +560,7 @@ void MahoDirectoryModel::navigateTimeline(const QUrl &url, bool recordHistory)
         return;
     }
 
+    cancelSearchJob();
     cancelRecentJob();
     m_lister.stop();
     recordNavigation(url, recordHistory);
@@ -535,7 +640,11 @@ void MahoDirectoryModel::recordNavigation(const QUrl &url, bool recordHistory)
     emit historyChanged();
 
     if (!m_searchQuery.isEmpty()) {
+        m_searchDebounce.stop();
+        cancelSearchJob();
         m_searchQuery.clear();
+        m_searchItems.clear();
+        setOperationMessage({});
         emit searchQueryChanged();
     }
 }
@@ -548,6 +657,104 @@ void MahoDirectoryModel::cancelRecentJob()
     KIO::ListJob *job = m_recentJob.data();
     m_recentJob.clear();
     job->kill();
+}
+
+void MahoDirectoryModel::cancelSearchJob()
+{
+    if (!m_searchJob)
+        return;
+
+    KIO::ListJob *job = m_searchJob.data();
+    m_searchJob.clear();
+    job->kill();
+}
+
+void MahoDirectoryModel::startSearchJob()
+{
+    cancelSearchJob();
+
+    if (m_searchQuery.isEmpty() || !m_currentUrl.isLocalFile()) {
+        rebuildVisibleItems();
+        return;
+    }
+
+    m_searchRootUrl = m_currentUrl;
+    m_searchItems.clear();
+
+    beginResetModel();
+    m_items.clear();
+    endResetModel();
+
+    setLoading(true);
+    setErrorString({});
+    setOperationMessage(QStringLiteral("Searching %1 and subfolders…").arg(displayPath()));
+
+    const QString query = m_searchQuery;
+    const QUrl rootUrl = m_searchRootUrl;
+    const auto listFlags = m_showHidden
+        ? KIO::ListJob::ListFlag::IncludeHidden
+        : KIO::ListJob::ListFlag::ExcludeHidden;
+
+    KIO::ListJob *job = KIO::listRecursive(rootUrl, KIO::HideProgressInfo, listFlags);
+    job->setUiDelegate(nullptr);
+    m_searchJob = job;
+
+    connect(job, &KIO::ListJob::entries, this,
+            [this, job, query](KIO::Job *sourceJob, const KIO::UDSEntryList &entries) {
+        if (m_searchJob != job || m_searchQuery != query)
+            return;
+
+        auto *listJob = static_cast<KIO::ListJob *>(sourceJob);
+        bool changed = false;
+
+        for (const KIO::UDSEntry &entry : entries) {
+            if (m_searchItems.size() >= kMaximumSearchResults)
+                break;
+
+            KFileItem item(entry, listJob->url(), false, true);
+            if (item.isNull() || item.text() == QStringLiteral(".") || item.text() == QStringLiteral(".."))
+                continue;
+            if (searchRank(item, query) < 0)
+                continue;
+
+            m_searchItems.append(item);
+            changed = true;
+        }
+
+        if (changed) {
+            sortSearchItems(m_searchItems, query);
+            beginResetModel();
+            m_items = m_searchItems;
+            endResetModel();
+        }
+    });
+
+    connect(job, &KJob::result, this, [this, job, query, rootUrl](KJob *completed) {
+        if (m_searchJob != job || m_searchQuery != query || m_searchRootUrl != rootUrl)
+            return;
+
+        m_searchJob.clear();
+
+        if (completed->error())
+            setErrorString(completed->errorString());
+
+        sortSearchItems(m_searchItems, query);
+        beginResetModel();
+        m_items = m_searchItems;
+        endResetModel();
+        setLoading(false);
+
+        const QString scope = rootUrl.toLocalFile() == QDir::homePath()
+            ? QStringLiteral("Home")
+            : QDir::toNativeSeparators(rootUrl.toLocalFile());
+        const QString suffix = m_searchItems.size() >= kMaximumSearchResults
+            ? QStringLiteral(" (first %1)").arg(kMaximumSearchResults)
+            : QString();
+        setOperationMessage(QStringLiteral("%1 result%2 in %3 + subfolders%4")
+            .arg(m_searchItems.size())
+            .arg(m_searchItems.size() == 1 ? QString() : QStringLiteral("s"))
+            .arg(scope, suffix));
+    });
 }
 
 QDate MahoDirectoryModel::timelineDate(const QUrl &url) const
@@ -614,7 +821,9 @@ void MahoDirectoryModel::rebuildFromLister()
     for (const KFileItem &item : listed)
         m_sourceItems.append(item);
     sortItems(m_sourceItems);
-    rebuildVisibleItems();
+
+    if (m_searchQuery.isEmpty())
+        rebuildVisibleItems();
 }
 
 void MahoDirectoryModel::rebuildVisibleItems()
@@ -655,6 +864,131 @@ void MahoDirectoryModel::sortRecentItems(QVector<KFileItem> &items) const
             return leftTime > rightTime;
         return QString::localeAwareCompare(left.text(), right.text()) < 0;
     });
+}
+
+void MahoDirectoryModel::sortSearchItems(QVector<KFileItem> &items, const QString &query) const
+{
+    std::stable_sort(items.begin(), items.end(), [this, &query](const KFileItem &left, const KFileItem &right) {
+        const int leftRank = searchRank(left, query);
+        const int rightRank = searchRank(right, query);
+        if (leftRank != rightRank)
+            return leftRank < rightRank;
+
+        const QString leftPath = left.url().toDisplayString(QUrl::PreferLocalFile);
+        const QString rightPath = right.url().toDisplayString(QUrl::PreferLocalFile);
+        if (leftPath.size() != rightPath.size())
+            return leftPath.size() < rightPath.size();
+
+        return QString::localeAwareCompare(left.text(), right.text()) < 0;
+    });
+}
+
+int MahoDirectoryModel::searchRank(const KFileItem &item, const QString &query) const
+{
+    const QString needle = query.trimmed().toCaseFolded();
+    if (needle.isEmpty())
+        return 0;
+
+    const QString name = item.text().toCaseFolded();
+    if (name == needle)
+        return 0;
+    if (name.startsWith(needle))
+        return 10;
+    if (name.contains(needle))
+        return 20;
+
+    const QString localPath = item.url().isLocalFile()
+        ? item.url().toLocalFile().toCaseFolded()
+        : item.url().toDisplayString(QUrl::PreferLocalFile).toCaseFolded();
+    if (localPath.contains(needle))
+        return 40;
+
+    if (item.mimeComment().toCaseFolded().contains(needle))
+        return 60;
+    if (item.mimetype().toCaseFolded().contains(needle))
+        return 70;
+
+    return -1;
+}
+
+QString MahoDirectoryModel::searchDisplayName(const KFileItem &item) const
+{
+    if (m_searchQuery.isEmpty() || !m_searchRootUrl.isLocalFile() || !item.url().isLocalFile())
+        return item.text();
+
+    const QString rootPath = QDir::cleanPath(m_searchRootUrl.toLocalFile());
+    const QString parentPath = QFileInfo(item.url().toLocalFile()).absolutePath();
+    QString relativeParent = QDir(rootPath).relativeFilePath(parentPath);
+
+    if (relativeParent.isEmpty() || relativeParent == QStringLiteral("."))
+        return item.text();
+
+    if (relativeParent.startsWith(QStringLiteral("../")))
+        relativeParent = QDir::toNativeSeparators(parentPath);
+    else
+        relativeParent = QDir::toNativeSeparators(relativeParent);
+
+    return QStringLiteral("%1  —  %2").arg(item.text(), relativeParent);
+}
+
+void MahoDirectoryModel::startDragForRow(int row)
+{
+    if (row < 0 || row >= m_items.size())
+        return;
+
+    const KFileItem item = m_items.at(row);
+    if (!item.url().isValid())
+        return;
+
+    auto *mime = new QMimeData;
+    mime->setUrls({item.url()});
+    mime->setText(item.url().toDisplayString(QUrl::PreferLocalFile));
+
+    QDrag drag(this);
+    drag.setMimeData(mime);
+    drag.exec(Qt::CopyAction);
+}
+
+int MahoDirectoryModel::fileRowAt(QQuickWindow *window, const QPointF &scenePosition) const
+{
+    if (!window || !window->contentItem())
+        return -1;
+
+    QQuickItem *item = deepestChildAt(window->contentItem(), scenePosition);
+    while (item) {
+        const QVariant rowValue = item->property("index");
+        const bool looksLikeGridFile = item->property("mimeType").isValid();
+        const bool looksLikeListFile = item->property("sizeText").isValid()
+            && item->property("mimeComment").isValid();
+
+        if (rowValue.isValid() && (looksLikeGridFile || looksLikeListFile)) {
+            bool ok = false;
+            const int row = rowValue.toInt(&ok);
+            if (ok && row >= 0 && row < m_items.size())
+                return row;
+        }
+
+        item = item->parentItem();
+    }
+
+    return -1;
+}
+
+QQuickItem *MahoDirectoryModel::deepestChildAt(QQuickItem *root, const QPointF &scenePosition) const
+{
+    if (!root)
+        return nullptr;
+
+    QQuickItem *current = root;
+    while (current) {
+        const QPointF local = current->mapFromScene(scenePosition);
+        QQuickItem *child = current->childAt(local.x(), local.y());
+        if (!child || child == current)
+            break;
+        current = child;
+    }
+
+    return current;
 }
 
 void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage)
