@@ -6,6 +6,15 @@
     "fallback_visibility": "recovery-or-advanced-only",
     "custom_kernel_fork": false
   },
+  "boot": {
+    "manager": "limine",
+    "normal_menu_visibility": "hidden-or-short-timeout",
+    "default_kernel": "linux-cachyos",
+    "recovery_kernel": "linux-cachyos-lts",
+    "snapshot_integration": "limine-snapper-sync",
+    "kernel_update_snapshot_restore_certified": false,
+    "boot_state_transaction_required": true
+  },
   "system_states": {
     "filesystem": "btrfs",
     "root_snapper_config": "root",
