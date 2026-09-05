@@ -49,6 +49,20 @@ grep -Fq 'y: root.badgeCenterY - height / 2' "$AVATAR" || fail "badge y-center f
 grep -Fq 'anchors.centerIn: parent' "$AVATAR" || fail "edit glyph is not centered in badge"
 grep -Fq 'sourceSize.width: root.avatarDecodeSize' "$AVATAR" || fail "high-resolution avatar decode missing"
 grep -Fq 'Math.max(1024, Math.ceil(width * 6))' "$AVATAR" || fail "avatar quality floor missing"
+python3 - <<'PY'
+import math
+avatar_size = 112.0
+badge_size = 30.0
+radius = avatar_size / 2.0
+offset = radius / math.sqrt(2.0)
+badge_cx = avatar_size / 2.0 + offset
+badge_cy = avatar_size / 2.0 + offset
+assert math.isclose(math.hypot(badge_cx - radius, badge_cy - radius), radius, rel_tol=0, abs_tol=1e-12)
+badge_x = badge_cx - badge_size / 2.0
+badge_y = badge_cy - badge_size / 2.0
+assert math.isclose(badge_x + badge_size / 2.0, badge_cx, abs_tol=1e-12)
+assert math.isclose(badge_y + badge_size / 2.0, badge_cy, abs_tol=1e-12)
+PY
 pass "avatar geometry and quality"
 
 grep -Fq 'id: searchInput' "$PICKER" || fail "picker search missing"
