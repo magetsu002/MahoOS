@@ -36,7 +36,9 @@ jobs:
             tests/maho-lock-status-targets.sh \
             tests/maho-lock-install-contracts.sh \
             tests/maho-lock-personalization-contracts.sh
-          python3 -m py_compile config/quickshell/maho-lock/state.py
+          python3 -m py_compile \
+            config/quickshell/maho-lock/state.py \
+            config/quickshell/maho-lock/image_browser.py
 
       - name: Maho Lock contracts
         run: |
