@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Effects
-import QtQuick.Dialogs
 
 Item {
     id: root
@@ -9,8 +8,9 @@ Item {
     required property var lockState
     required property var auth
     property bool previewMode: false
-    property bool profileOpen: false
-    property real profileProgress: profileOpen ? 1 : 0
+    property bool pickerOpen: false
+    property string pickerMode: "avatar"
+    property real pickerProgress: pickerOpen ? 1 : 0
     property real avatarReveal: 0
 
     readonly property real uiScale: Math.max(
@@ -22,16 +22,38 @@ Item {
     readonly property real avatarX: (width - avatarSize) / 2
     readonly property real avatarY: mainY + 322 * uiScale
 
-    function filePath(url) {
-        const raw = String(url || "")
-        if (raw.indexOf("file://") === 0)
-            return decodeURIComponent(raw.substring(7))
-        return decodeURIComponent(raw)
+    function openPicker(mode) {
+        if (!root.previewMode)
+            return
+        root.pickerMode = mode
+        root.pickerOpen = true
+        root.lockState.browseImages("")
+    }
+
+    function selectEntry(entry) {
+        if (!entry)
+            return
+
+        const path = String(entry.path || "")
+        if (path.length === 0)
+            return
+
+        if (entry.isDir === true) {
+            root.lockState.browseImages(path)
+            return
+        }
+
+        if (root.pickerMode === "avatar")
+            root.lockState.setAvatar(path)
+        else
+            root.lockState.setLockWallpaper(path)
+
+        root.pickerOpen = false
     }
 
     Component.onCompleted: avatarRevealTimer.start()
 
-    Behavior on profileProgress {
+    Behavior on pickerProgress {
         NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
     }
 
@@ -46,34 +68,6 @@ Item {
         onTriggered: root.avatarReveal = 1
     }
 
-    FileDialog {
-        id: avatarFileDialog
-        title: "Choose profile photo"
-        fileMode: FileDialog.OpenFile
-        nameFilters: ["Images (*.jpg *.jpeg *.png *.webp *.avif *.bmp)"]
-        onAccepted: {
-            const path = root.filePath(selectedFile)
-            if (path.length > 0) {
-                root.lockState.setAvatar(path)
-                root.profileOpen = false
-            }
-        }
-    }
-
-    FileDialog {
-        id: wallpaperFileDialog
-        title: "Choose lock wallpaper"
-        fileMode: FileDialog.OpenFile
-        nameFilters: ["Images (*.jpg *.jpeg *.png *.webp *.avif *.bmp)"]
-        onAccepted: {
-            const path = root.filePath(selectedFile)
-            if (path.length > 0) {
-                root.lockState.setLockWallpaper(path)
-                root.profileOpen = false
-            }
-        }
-    }
-
     MahoLockViewV5 {
         anchors.fill: parent
         theme: root.theme
@@ -82,9 +76,8 @@ Item {
         previewMode: root.previewMode
     }
 
-    // The profile-photo layer is additive so the accepted V5 lock composition
-    // remains unchanged. Editing is preview-only; the real lock never exposes
-    // unauthenticated appearance mutation.
+    // Clicking the identity edits only the identity. Wallpaper customization has
+    // a separate preview-only control so the two actions never share a menu.
     Item {
         id: avatarOverlay
         x: root.avatarX
@@ -161,7 +154,7 @@ Item {
             height: width
             radius: width / 2
             visible: opacity > 0.001
-            opacity: root.previewMode && (avatarPointer.containsMouse || root.profileOpen) ? 1 : 0
+            opacity: root.previewMode && avatarPointer.containsMouse ? 1 : 0
             color: Qt.rgba(0.08, 0.10, 0.14, 0.88)
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.18)
@@ -186,45 +179,99 @@ Item {
         MouseArea {
             id: avatarPointer
             anchors.fill: parent
-            enabled: root.previewMode
+            enabled: root.previewMode && !root.pickerOpen
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                root.profileOpen = !root.profileOpen
-                if (root.profileOpen)
-                    root.lockState.refreshAvatarCandidates()
-            }
+            onClicked: root.openPicker("avatar")
         }
     }
 
+    // Wallpaper customization is deliberately separate from the profile photo.
+    Rectangle {
+        id: wallpaperButton
+        z: 42
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 30 * root.uiScale
+        width: 142 * root.uiScale
+        height: 42 * root.uiScale
+        radius: height / 2
+        visible: root.previewMode && !root.pickerOpen
+        color: wallpaperPointer.pressed
+            ? Qt.rgba(1, 1, 1, 0.15)
+            : (wallpaperPointer.containsMouse
+                ? Qt.rgba(1, 1, 1, 0.11)
+                : Qt.rgba(0.06, 0.075, 0.10, 0.52))
+        border.width: 1
+        border.color: wallpaperPointer.containsMouse
+            ? Qt.rgba(1, 1, 1, 0.20)
+            : Qt.rgba(1, 1, 1, 0.11)
+        scale: wallpaperPointer.pressed ? 0.975 : 1
+
+        Behavior on color { ColorAnimation { duration: 125 } }
+        Behavior on border.color { ColorAnimation { duration: 125 } }
+        Behavior on scale {
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+        }
+
+        Row {
+            anchors.centerIn: parent
+            spacing: 8 * root.uiScale
+
+            MahoIconV2 {
+                width: 17 * root.uiScale
+                height: 17 * root.uiScale
+                anchors.verticalCenter: parent.verticalCenter
+                name: "wallpaper"
+                iconOpacity: 0.90
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Wallpaper"
+                color: Qt.rgba(1, 1, 1, 0.91)
+                font.pixelSize: 12 * root.uiScale
+                font.weight: Font.Medium
+            }
+        }
+
+        MouseArea {
+            id: wallpaperPointer
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.openPicker("wallpaper")
+        }
+    }
+
+    // Native FileDialog windows can land underneath an Overlay-layer preview,
+    // making the desktop appear frozen. Keep image selection inside the Maho
+    // surface instead: no modal external window, no compositor-layer deadlock.
     MouseArea {
         anchors.fill: parent
-        z: 48
-        visible: root.profileOpen || root.profileProgress > 0.001
+        z: 70
+        visible: root.pickerOpen || root.pickerProgress > 0.001
         enabled: visible
-        onClicked: root.profileOpen = false
+        onClicked: root.pickerOpen = false
     }
 
     Rectangle {
-        id: profilePanel
-        z: 50
-        visible: root.profileOpen || root.profileProgress > 0.001
-        width: 480 * root.uiScale
-        height: 430 * root.uiScale
-        radius: 28 * root.uiScale
-        x: Math.min(
-            root.width - width - 34 * root.uiScale,
-            root.width / 2 + 175 * root.uiScale
-        )
-        y: Math.max(70 * root.uiScale, root.avatarY - 128 * root.uiScale)
-        color: Qt.rgba(0.072, 0.087, 0.118, 0.90)
+        id: pickerPanel
+        z: 71
+        anchors.centerIn: parent
+        width: Math.min(root.width - 72 * root.uiScale, 860 * root.uiScale)
+        height: Math.min(root.height - 92 * root.uiScale, 620 * root.uiScale)
+        radius: 30 * root.uiScale
+        visible: root.pickerOpen || root.pickerProgress > 0.001
+        opacity: root.pickerProgress
+        scale: 0.975 + root.pickerProgress * 0.025
+        color: Qt.rgba(0.055, 0.070, 0.098, 0.94)
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.17)
-        opacity: root.profileProgress
-        scale: 0.965 + root.profileProgress * 0.035
+        border.color: Qt.rgba(1, 1, 1, 0.16)
+        clip: true
 
         transform: Translate {
-            y: (1 - root.profileProgress) * 10 * root.uiScale
+            y: (1 - root.pickerProgress) * 12 * root.uiScale
         }
 
         MouseArea {
@@ -235,74 +282,163 @@ Item {
         Text {
             anchors.left: parent.left
             anchors.top: parent.top
-            anchors.leftMargin: 24 * root.uiScale
+            anchors.leftMargin: 26 * root.uiScale
             anchors.topMargin: 22 * root.uiScale
-            text: "Personalize"
+            text: root.pickerMode === "avatar"
+                ? "Choose profile photo"
+                : "Choose lock wallpaper"
             color: Qt.rgba(1, 1, 1, 0.97)
-            font.pixelSize: 18 * root.uiScale
+            font.pixelSize: 19 * root.uiScale
             font.weight: Font.DemiBold
         }
 
         Text {
             anchors.left: parent.left
             anchors.top: parent.top
-            anchors.leftMargin: 24 * root.uiScale
+            anchors.leftMargin: 26 * root.uiScale
             anchors.topMargin: 52 * root.uiScale
-            text: "Profile photo and lock wallpaper"
-            color: Qt.rgba(1, 1, 1, 0.62)
+            text: root.pickerMode === "avatar"
+                ? "Select an image from your files"
+                : "Select a wallpaper independently from your profile photo"
+            color: Qt.rgba(1, 1, 1, 0.60)
             font.pixelSize: 12 * root.uiScale
         }
 
-        Grid {
-            id: avatarGrid
+        Rectangle {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.rightMargin: 18 * root.uiScale
+            anchors.topMargin: 18 * root.uiScale
+            width: 34 * root.uiScale
+            height: width
+            radius: width / 2
+            color: closePointer.containsMouse
+                ? Qt.rgba(1, 1, 1, 0.10)
+                : "transparent"
+
+            Text {
+                anchors.centerIn: parent
+                text: "×"
+                color: Qt.rgba(1, 1, 1, 0.82)
+                font.pixelSize: 22 * root.uiScale
+                font.weight: Font.Light
+            }
+
+            MouseArea {
+                id: closePointer
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.pickerOpen = false
+            }
+        }
+
+        Rectangle {
+            id: pathBar
             anchors.left: parent.left
+            anchors.right: parent.right
             anchors.top: parent.top
             anchors.leftMargin: 24 * root.uiScale
-            anchors.topMargin: 88 * root.uiScale
-            columns: 4
-            rowSpacing: 12 * root.uiScale
-            columnSpacing: 12 * root.uiScale
+            anchors.rightMargin: 24 * root.uiScale
+            anchors.topMargin: 82 * root.uiScale
+            height: 44 * root.uiScale
+            radius: height / 2
+            color: Qt.rgba(1, 1, 1, 0.055)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.085)
 
-            Repeater {
-                model: Math.min(8, root.lockState.avatarCandidates.length)
+            Rectangle {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 6 * root.uiScale
+                width: 34 * root.uiScale
+                height: width
+                radius: width / 2
+                visible: root.lockState.browserParent.length > 0
+                color: upPointer.containsMouse
+                    ? Qt.rgba(1, 1, 1, 0.10)
+                    : "transparent"
 
-                Item {
-                    required property int index
-                    width: 86 * root.uiScale
-                    height: width
-                    property string path: String(root.lockState.avatarCandidates[index] || "")
-                    property bool selected: path.length > 0 && path === root.lockState.avatarPath
-                    scale: candidatePointer.pressed
-                        ? 0.94
-                        : (candidatePointer.containsMouse ? 1.035 : 1)
+                MahoIconV2 {
+                    anchors.centerIn: parent
+                    width: 16 * root.uiScale
+                    height: 16 * root.uiScale
+                    name: "arrow-left"
+                    iconOpacity: 0.86
+                }
 
-                    Behavior on scale {
-                        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
-                    }
+                MouseArea {
+                    id: upPointer
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.lockState.browseImages(root.lockState.browserParent)
+                }
+            }
 
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 19 * root.uiScale
-                        color: Qt.rgba(
-                            1, 1, 1,
-                            parent.selected ? 0.145 : (candidatePointer.containsMouse ? 0.12 : 0.070)
-                        )
-                        border.width: parent.selected ? 2 : 1
-                        border.color: parent.selected
-                            ? Qt.rgba(1, 1, 1, 0.42)
-                            : (candidatePointer.containsMouse
-                                ? Qt.rgba(1, 1, 1, 0.27)
-                                : Qt.rgba(1, 1, 1, 0.10))
+            Text {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: (root.lockState.browserParent.length > 0 ? 48 : 16) * root.uiScale
+                anchors.rightMargin: 16 * root.uiScale
+                text: root.lockState.browserPath.length > 0
+                    ? root.lockState.browserPath
+                    : "Loading Pictures…"
+                color: Qt.rgba(1, 1, 1, 0.70)
+                font.pixelSize: 11 * root.uiScale
+                elide: Text.ElideMiddle
+            }
+        }
 
-                        Behavior on color { ColorAnimation { duration: 120 } }
-                        Behavior on border.color { ColorAnimation { duration: 120 } }
-                    }
+        GridView {
+            id: browserGrid
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: pathBar.bottom
+            anchors.bottom: footer.top
+            anchors.leftMargin: 24 * root.uiScale
+            anchors.rightMargin: 24 * root.uiScale
+            anchors.topMargin: 16 * root.uiScale
+            anchors.bottomMargin: 14 * root.uiScale
+            clip: true
+            model: root.lockState.browserEntries
+            cellWidth: 154 * root.uiScale
+            cellHeight: 128 * root.uiScale
+            boundsBehavior: Flickable.StopAtBounds
+
+            delegate: Item {
+                required property int index
+                property var entry: root.lockState.browserEntries[index] || ({})
+                property bool isFolder: entry.isDir === true
+                width: 142 * root.uiScale
+                height: 116 * root.uiScale
+                scale: entryPointer.pressed
+                    ? 0.965
+                    : (entryPointer.containsMouse ? 1.018 : 1)
+
+                Behavior on scale {
+                    NumberAnimation { duration: 115; easing.type: Easing.OutCubic }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 18 * root.uiScale
+                    color: entryPointer.containsMouse
+                        ? Qt.rgba(1, 1, 1, 0.105)
+                        : Qt.rgba(1, 1, 1, 0.060)
+                    border.width: 1
+                    border.color: entryPointer.containsMouse
+                        ? Qt.rgba(1, 1, 1, 0.18)
+                        : Qt.rgba(1, 1, 1, 0.075)
+                    clip: true
 
                     Image {
                         anchors.fill: parent
-                        anchors.margins: 5 * root.uiScale
-                        source: parent.path.length > 0
-                            ? encodeURI("file://" + parent.path)
+                        anchors.margins: 4 * root.uiScale
+                        visible: !parent.parent.isFolder
+                        source: !parent.parent.isFolder
+                            ? encodeURI("file://" + String(parent.parent.entry.path || ""))
                             : ""
                         fillMode: Image.PreserveAspectCrop
                         smooth: true
@@ -311,202 +447,117 @@ Item {
                         cache: true
                     }
 
-                    MouseArea {
-                        id: candidatePointer
+                    Rectangle {
                         anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            root.lockState.setAvatar(parent.path)
-                            root.profileOpen = false
+                        visible: parent.parent.isFolder
+                        color: "transparent"
+
+                        MahoIconV2 {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.top: parent.top
+                            anchors.topMargin: 22 * root.uiScale
+                            width: 38 * root.uiScale
+                            height: 38 * root.uiScale
+                            name: "folder"
+                            iconOpacity: 0.82
                         }
                     }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 31 * root.uiScale
+                        color: Qt.rgba(0.02, 0.025, 0.04, 0.72)
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 9 * root.uiScale
+                            anchors.rightMargin: 9 * root.uiScale
+                            text: String(parent.parent.parent.entry.name || "")
+                            color: Qt.rgba(1, 1, 1, 0.88)
+                            font.pixelSize: 10.5 * root.uiScale
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                MouseArea {
+                    id: entryPointer
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.selectEntry(parent.entry)
                 }
             }
         }
 
-        Row {
+        Text {
+            anchors.centerIn: browserGrid
+            visible: root.lockState.browserPath.length > 0
+                && root.lockState.browserEntries.length === 0
+            text: "No image files in this folder"
+            color: Qt.rgba(1, 1, 1, 0.52)
+            font.pixelSize: 13 * root.uiScale
+        }
+
+        Item {
+            id: footer
             anchors.left: parent.left
+            anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.leftMargin: 24 * root.uiScale
-            anchors.bottomMargin: 69 * root.uiScale
-            spacing: 9 * root.uiScale
+            height: 68 * root.uiScale
+
+            Text {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 26 * root.uiScale
+                text: "JPG · PNG · WEBP · AVIF · BMP"
+                color: Qt.rgba(1, 1, 1, 0.42)
+                font.pixelSize: 10 * root.uiScale
+            }
 
             Rectangle {
-                width: 138 * root.uiScale
-                height: 39 * root.uiScale
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: 24 * root.uiScale
+                width: root.pickerMode === "avatar"
+                    ? 112 * root.uiScale
+                    : 138 * root.uiScale
+                height: 38 * root.uiScale
                 radius: height / 2
-                color: choosePhotoPointer.pressed
-                    ? Qt.rgba(1, 1, 1, 0.17)
-                    : (choosePhotoPointer.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.14)
-                        : Qt.rgba(1, 1, 1, 0.09))
+                color: footerPointer.pressed
+                    ? Qt.rgba(1, 1, 1, 0.16)
+                    : (footerPointer.containsMouse
+                        ? Qt.rgba(1, 1, 1, 0.12)
+                        : Qt.rgba(1, 1, 1, 0.075))
                 border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.13)
-                scale: choosePhotoPointer.pressed ? 0.97 : 1
-
-                Behavior on scale {
-                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
-                }
+                border.color: Qt.rgba(1, 1, 1, 0.11)
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Choose photo…"
-                    color: Qt.rgba(1, 1, 1, 0.94)
-                    font.pixelSize: 12 * root.uiScale
+                    text: root.pickerMode === "avatar"
+                        ? "Use initials"
+                        : "Shuffle"
+                    color: Qt.rgba(1, 1, 1, 0.90)
+                    font.pixelSize: 11.5 * root.uiScale
                     font.weight: Font.Medium
                 }
 
                 MouseArea {
-                    id: choosePhotoPointer
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: avatarFileDialog.open()
-                }
-            }
-
-            Rectangle {
-                width: 112 * root.uiScale
-                height: 39 * root.uiScale
-                radius: height / 2
-                color: initialsPointer.pressed
-                    ? Qt.rgba(1, 1, 1, 0.17)
-                    : (initialsPointer.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.14)
-                        : Qt.rgba(1, 1, 1, 0.09))
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.13)
-                scale: initialsPointer.pressed ? 0.97 : 1
-
-                Behavior on scale {
-                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "Use initials"
-                    color: Qt.rgba(1, 1, 1, 0.92)
-                    font.pixelSize: 12 * root.uiScale
-                }
-
-                MouseArea {
-                    id: initialsPointer
+                    id: footerPointer
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        root.lockState.clearAvatar()
-                        root.profileOpen = false
+                        if (root.pickerMode === "avatar")
+                            root.lockState.clearAvatar()
+                        else
+                            root.lockState.shuffleLockWallpaper()
+                        root.pickerOpen = false
                     }
-                }
-            }
-
-            Rectangle {
-                width: 112 * root.uiScale
-                height: 39 * root.uiScale
-                radius: height / 2
-                color: refreshPointer.pressed
-                    ? Qt.rgba(1, 1, 1, 0.17)
-                    : (refreshPointer.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.14)
-                        : Qt.rgba(1, 1, 1, 0.09))
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.13)
-                scale: refreshPointer.pressed ? 0.97 : 1
-
-                Behavior on scale {
-                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "Scan folders"
-                    color: Qt.rgba(1, 1, 1, 0.92)
-                    font.pixelSize: 12 * root.uiScale
-                }
-
-                MouseArea {
-                    id: refreshPointer
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.lockState.refreshAvatarCandidates()
-                }
-            }
-        }
-
-        Row {
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: 24 * root.uiScale
-            anchors.bottomMargin: 20 * root.uiScale
-            spacing: 9 * root.uiScale
-
-            Rectangle {
-                width: 166 * root.uiScale
-                height: 39 * root.uiScale
-                radius: height / 2
-                color: chooseWallpaperPointer.pressed
-                    ? Qt.rgba(1, 1, 1, 0.17)
-                    : (chooseWallpaperPointer.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.14)
-                        : Qt.rgba(1, 1, 1, 0.09))
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.13)
-                scale: chooseWallpaperPointer.pressed ? 0.97 : 1
-
-                Behavior on scale {
-                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "Choose wallpaper…"
-                    color: Qt.rgba(1, 1, 1, 0.94)
-                    font.pixelSize: 12 * root.uiScale
-                    font.weight: Font.Medium
-                }
-
-                MouseArea {
-                    id: chooseWallpaperPointer
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: wallpaperFileDialog.open()
-                }
-            }
-
-            Rectangle {
-                width: 150 * root.uiScale
-                height: 39 * root.uiScale
-                radius: height / 2
-                color: shufflePointer.pressed
-                    ? Qt.rgba(1, 1, 1, 0.17)
-                    : (shufflePointer.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.14)
-                        : Qt.rgba(1, 1, 1, 0.09))
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.13)
-                scale: shufflePointer.pressed ? 0.97 : 1
-
-                Behavior on scale {
-                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "Shuffle wallpaper"
-                    color: Qt.rgba(1, 1, 1, 0.92)
-                    font.pixelSize: 12 * root.uiScale
-                }
-
-                MouseArea {
-                    id: shufflePointer
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.lockState.shuffleLockWallpaper()
                 }
             }
         }
