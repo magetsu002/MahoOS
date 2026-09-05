@@ -35,6 +35,8 @@ optdepends=(
   'linux-cachyos-lts: MahoOS V1 recovery kernel'
   'snapper: Btrfs system-state management'
   'snap-pac: automatic pre/post package transaction snapshots'
+  'limine: MahoOS V1 boot manager policy'
+  'limine-snapper-sync: recovery-only Btrfs snapshot boot entries'
 )
 source=(
   "maho-os-${pkgver}.tar.zst"
@@ -71,6 +73,8 @@ package() {
     "$pkgdir/usr/bin/maho-install"
   install -Dm755 "$source_root/packaging/arch/maho-platform-wrapper" \
     "$pkgdir/usr/bin/maho-platform"
+  install -Dm755 "$source_root/packaging/arch/maho-recovery-wrapper" \
+    "$pkgdir/usr/bin/maho-recovery"
   install -Dm644 "$source_root/README.md" \
     "$pkgdir/usr/share/doc/maho-os/README.md"
 }
