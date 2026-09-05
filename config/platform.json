@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "kernel": {
+    "primary_package": "linux-cachyos",
+    "fallback_package": "linux-cachyos-lts",
+    "fallback_visibility": "recovery-or-advanced-only",
+    "custom_kernel_fork": false
+  },
+  "system_states": {
+    "filesystem": "btrfs",
+    "root_snapper_config": "root",
+    "package_transaction_snapshots": "snap-pac",
+    "maximum_recovery_entries": 10,
+    "timeline_snapshots": false,
+    "home_rollback_policy": "exclude-personal-data-by-default",
+    "snapshots_are_backups": false
+  },
+  "recovery": {
+    "prefer_smallest_effective_scope": true,
+    "destructive_actions_require_confirmation": true,
+    "repeated_service_failure_threshold": 3,
+    "graphical_fallback": "text-console"
+  },
+  "distribution": {
+    "package_format": "pacman",
+    "packaged_payload_root": "/usr/lib/maho",
+    "runtime_root": "$XDG_DATA_HOME/maho/runtime",
+    "release_source": "signed-release-artifact"
+  }
+}
