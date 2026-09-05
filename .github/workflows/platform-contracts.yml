@@ -43,10 +43,17 @@ jobs:
           set -euo pipefail
           python tests/recovery-policy.py
 
-      - name: Recovery planner syntax
+      - name: Read-only platform doctor contracts
         shell: bash
         run: |
           set -euo pipefail
+          bash tests/platform-doctor.sh
+
+      - name: Platform and recovery syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-platform tests/platform-doctor.sh
           python - <<'PY'
           import ast
           import pathlib
