@@ -542,51 +542,8 @@ Item {
             }
         }
 
-        Item {
-            id: powerExpansion
-            width: parent.width
-            height: center.powerExpanded ? compactPower.implicitHeight + 8 : 0
-            visible: height > 0
-            clip: false
-
-            Behavior on height {
-                NumberAnimation { duration: 210; easing.type: Easing.OutCubic }
-            }
-
-            MahoPowerView {
-                id: compactPower
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: implicitHeight
-                theme: center.theme
-                compact: true
-                keyboardNavigation: false
-                closeButtonVisible: true
-                opacity: center.powerExpanded ? 1 : 0
-                scale: center.powerExpanded ? 1 : 0.985
-
-                Behavior on opacity { NumberAnimation { duration: 150 } }
-                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-                onCloseRequested: center.powerExpanded = false
-                onActionRequested: function(action) { center.runPowerAction(action) }
-            }
-
-            Rectangle {
-                anchors.bottom: compactPower.bottom
-                anchors.bottomMargin: -4
-                x: 42
-                width: 11
-                height: 11
-                rotation: 45
-                color: center.theme ? center.theme.alpha(center.theme.surfaceHigh, 0.90) : "#252733"
-                border.width: 1
-                border.color: center.theme ? center.theme.alpha(center.theme.outline, 0.25) : "#505361"
-            }
-        }
-
         Row {
+            id: quickActions
             width: parent.width
             height: 46
             spacing: 7
@@ -618,6 +575,79 @@ Item {
                 labelText: "Launcher"
                 onTriggered: center.launcherRequested()
             }
+        }
+    }
+
+    Rectangle {
+        id: powerScrim
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: quickActions.top
+        anchors.bottomMargin: 2
+        color: center.theme ? center.theme.alpha(center.theme.background, 0.11) : Qt.rgba(0, 0, 0, 0.10)
+        opacity: center.powerExpanded ? 1 : 0
+        visible: opacity > 0.001 || center.powerExpanded
+        z: 30
+
+        Behavior on opacity {
+            NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
+        }
+
+        TapHandler {
+            enabled: center.powerExpanded
+            onTapped: center.powerExpanded = false
+        }
+    }
+
+    Item {
+        id: powerDropdown
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: quickActions.top
+        anchors.bottomMargin: 8
+        height: compactPower.implicitHeight
+        visible: opacity > 0.001 || center.powerExpanded
+        opacity: center.powerExpanded ? 1 : 0
+        scale: center.powerExpanded ? 1 : 0.965
+        transformOrigin: Item.BottomLeft
+        z: 40
+        clip: false
+
+        Behavior on opacity {
+            NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+        }
+
+        Behavior on scale {
+            NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+        }
+
+        MahoPowerView {
+            id: compactPower
+            anchors.fill: parent
+            theme: center.theme
+            compact: true
+            keyboardNavigation: false
+            closeButtonVisible: true
+
+            onCloseRequested: center.powerExpanded = false
+            onActionRequested: function(action) { center.runPowerAction(action) }
+        }
+
+        Rectangle {
+            anchors.top: compactPower.bottom
+            anchors.topMargin: -5
+            x: 42
+            width: 12
+            height: 12
+            rotation: 45
+            color: center.theme
+                ? center.theme.alpha(center.theme.surfaceHigh, 0.78)
+                : Qt.rgba(0.13, 0.14, 0.20, 0.82)
+            border.width: 1
+            border.color: center.theme
+                ? center.theme.alpha(center.theme.primary, 0.24)
+                : Qt.rgba(0.7, 0.75, 1.0, 0.20)
         }
     }
 }
