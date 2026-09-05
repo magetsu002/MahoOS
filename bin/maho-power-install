@@ -1,0 +1,388 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_RUNTIME="$ROOT/bin/maho-power"
+SOURCE_POWER="$ROOT/config/quickshell/maho-power"
+SOURCE_VIEW="$ROOT/config/quickshell/maho-shell/MahoPowerView.qml"
+SOURCE_CENTER="$ROOT/config/quickshell/maho-shell/ControlCenter.qml"
+SOURCE_THEME="$ROOT/config/quickshell/maho-shell/MahoTheme.qml"
+SOURCE_BINDS="$ROOT/config/hypr/maho/core/binds.lua"
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+DEPLOY_PARENT="$DATA_HOME/maho-power"
+DEPLOY_ROOT="$DEPLOY_PARENT/current"
+BIN_TARGET="$HOME/.local/bin/maho-power"
+LIVE_SHELL="$CONFIG_HOME/quickshell/maho-shell"
+LIVE_CENTER="$LIVE_SHELL/ControlCenter.qml"
+LIVE_VIEW="$LIVE_SHELL/MahoPowerView.qml"
+LIVE_BINDS="$CONFIG_HOME/hypr/maho/core/binds.lua"
+BACKUP_ROOT="$STATE_HOME/maho/power-install/backups"
+
+RUNTIME_MARKER="managed-by-maho-power-install-v1"
+WRAPPER_MARKER="# managed-by: maho-power-install v1"
+BIND_BEGIN="-- maho-power-bind:begin"
+BIND_END="-- maho-power-bind:end"
+
+say() {
+    printf '%s\n' "$*"
+}
+
+fail() {
+    say "maho-power-install: $*" >&2
+    return 1
+}
+
+managed_runtime() {
+    [ -f "$DEPLOY_ROOT/.managed-by-maho-power-install" ] \
+        && grep -Fxq "$RUNTIME_MARKER" "$DEPLOY_ROOT/.managed-by-maho-power-install"
+}
+
+managed_wrapper() {
+    [ -f "$BIN_TARGET" ] \
+        && grep -Fq "$WRAPPER_MARKER" "$BIN_TARGET"
+}
+
+bind_block_well_formed() {
+    local source="$1"
+    [ "$(grep -Fxc -- "$BIND_BEGIN" "$source" 2>/dev/null || true)" -eq 1 ] \
+        && [ "$(grep -Fxc -- "$BIND_END" "$source" 2>/dev/null || true)" -eq 1 ] \
+        && awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+            $0 == begin { if (opened || closed) exit 1; opened = 1; next }
+            $0 == end   { if (!opened || closed) exit 1; closed = 1; next }
+            END         { if (!opened || !closed) exit 1 }
+        ' "$source"
+}
+
+bind_marker_present() {
+    grep -Fq -- "$BIND_BEGIN" "$1" 2>/dev/null \
+        || grep -Fq -- "$BIND_END" "$1" 2>/dev/null
+}
+
+remove_managed_bind() {
+    local source="$1" target="$2"
+    awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+        $0 == begin { skipping = 1; next }
+        $0 == end   { skipping = 0; next }
+        !skipping   { print }
+    ' "$source" > "$target"
+}
+
+extract_canonical_bind() {
+    awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+        $0 == begin { copying = 1 }
+        copying { print }
+        $0 == end { copying = 0 }
+    ' "$SOURCE_BINDS"
+}
+
+unmanaged_power_bind_present() {
+    local source="$1" tmp
+    tmp="$(mktemp)"
+    if bind_marker_present "$source"; then
+        remove_managed_bind "$source" "$tmp"
+    else
+        cp -- "$source" "$tmp"
+    fi
+
+    if grep -Eq 'SUPER[^\n]*(SHIFT[^\n]*P|P[^\n]*SHIFT)|mainMod[^\n]*SHIFT[^\n]*P' "$tmp"; then
+        rm -f "$tmp"
+        return 0
+    fi
+
+    rm -f "$tmp"
+    return 1
+}
+
+preflight() {
+    local failed=0 dep
+
+    for dep in quickshell flock hyprctl awk systemctl; do
+        if command -v "$dep" >/dev/null 2>&1; then
+            printf 'PASS  dependency %-10s %s\n' "$dep" "$(command -v "$dep")"
+        else
+            printf 'FAIL  dependency %-10s missing\n' "$dep"
+            failed=1
+        fi
+    done
+
+    for file in \
+        "$SOURCE_RUNTIME" \
+        "$SOURCE_POWER/shell.qml" \
+        "$SOURCE_POWER/PowerBackdrop.qml" \
+        "$SOURCE_VIEW" \
+        "$SOURCE_CENTER" \
+        "$SOURCE_THEME" \
+        "$SOURCE_BINDS" \
+        "$LIVE_CENTER" \
+        "$LIVE_BINDS"
+    do
+        if [ -r "$file" ]; then
+            printf 'PASS  source/live    %s\n' "$file"
+        else
+            printf 'FAIL  source/live    missing %s\n' "$file"
+            failed=1
+        fi
+    done
+
+    bash -n "$SOURCE_RUNTIME" || {
+        say 'FAIL  Power runtime syntax'
+        failed=1
+    }
+
+    bind_block_well_formed "$SOURCE_BINDS" || {
+        say 'FAIL  canonical Power bind block malformed'
+        failed=1
+    }
+
+    if bind_marker_present "$LIVE_BINDS" && ! bind_block_well_formed "$LIVE_BINDS"; then
+        say 'FAIL  existing managed Power bind is malformed'
+        failed=1
+    fi
+
+    if unmanaged_power_bind_present "$LIVE_BINDS"; then
+        say 'FAIL  SUPER+SHIFT+P is already owned outside the Maho Power managed block'
+        failed=1
+    else
+        say 'PASS  SUPER+SHIFT+P ownership available'
+    fi
+
+    if { [ -e "$BIN_TARGET" ] || [ -L "$BIN_TARGET" ]; } && ! managed_wrapper; then
+        say "FAIL  refusing unmanaged command collision: $BIN_TARGET"
+        failed=1
+    fi
+
+    if [ -e "$DEPLOY_ROOT" ] && ! managed_runtime; then
+        say "FAIL  refusing unmanaged runtime collision: $DEPLOY_ROOT"
+        failed=1
+    fi
+
+    grep -Fq 'text: "Notifications"' "$LIVE_CENTER" \
+        && grep -Fq 'titleText: "Volume"' "$LIVE_CENTER" \
+        && grep -Fq 'titleText: "Brightness"' "$LIVE_CENTER" \
+        && grep -Fq 'text: "Wallpaper"' "$LIVE_CENTER" \
+        || {
+            say 'FAIL  live ControlCenter is not a recognized Maho Edge shape'
+            failed=1
+        }
+
+    return "$failed"
+}
+
+stage_runtime() {
+    local stage="$1"
+
+    mkdir -p \
+        "$stage/bin" \
+        "$stage/config/quickshell/maho-power" \
+        "$stage/config/quickshell/maho-shell"
+
+    install -m 0755 "$SOURCE_RUNTIME" "$stage/bin/maho-power"
+    cp -a "$SOURCE_POWER/." "$stage/config/quickshell/maho-power/"
+    install -m 0644 "$SOURCE_VIEW" "$stage/config/quickshell/maho-shell/MahoPowerView.qml"
+    install -m 0644 "$SOURCE_THEME" "$stage/config/quickshell/maho-shell/MahoTheme.qml"
+    printf '%s\n' "$RUNTIME_MARKER" > "$stage/.managed-by-maho-power-install"
+
+    find "$stage" -type d -name '__pycache__' -prune -exec rm -rf -- {} + 2>/dev/null || true
+    find "$stage" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
+}
+
+write_wrapper() {
+    local tmp="$BIN_TARGET.$$"
+
+    mkdir -p "$(dirname "$BIN_TARGET")"
+
+    cat > "$tmp" <<EOF_WRAPPER
+#!/usr/bin/env bash
+$WRAPPER_MARKER
+export MAHO_ROOT="$DEPLOY_ROOT"
+exec "$DEPLOY_ROOT/bin/maho-power" "\$@"
+EOF_WRAPPER
+
+    chmod 0755 "$tmp"
+    mv -f -- "$tmp" "$BIN_TARGET"
+}
+
+write_live_bind() {
+    local tmp="$LIVE_BINDS.maho-power.$$"
+
+    if bind_marker_present "$LIVE_BINDS"; then
+        remove_managed_bind "$LIVE_BINDS" "$tmp"
+    else
+        cp -- "$LIVE_BINDS" "$tmp"
+    fi
+
+    printf '\n' >> "$tmp"
+    extract_canonical_bind >> "$tmp"
+    mv -f -- "$tmp" "$LIVE_BINDS"
+}
+
+snapshot() {
+    local backup="$1"
+
+    mkdir -p "$backup"
+
+    if [ -e "$DEPLOY_ROOT" ]; then
+        cp -a -- "$DEPLOY_ROOT" "$backup/runtime"
+        touch "$backup/had-runtime"
+    fi
+
+    if [ -e "$BIN_TARGET" ] || [ -L "$BIN_TARGET" ]; then
+        cp -a -- "$BIN_TARGET" "$backup/wrapper"
+        touch "$backup/had-wrapper"
+    fi
+
+    if [ -e "$LIVE_CENTER" ]; then
+        cp -a -- "$LIVE_CENTER" "$backup/ControlCenter.qml"
+        touch "$backup/had-center"
+    fi
+
+    if [ -e "$LIVE_VIEW" ]; then
+        cp -a -- "$LIVE_VIEW" "$backup/MahoPowerView.qml"
+        touch "$backup/had-view"
+    fi
+
+    cp -a -- "$LIVE_BINDS" "$backup/binds.lua"
+
+    if systemctl --user is-active --quiet maho-shell.service 2>/dev/null; then
+        touch "$backup/shell-was-active"
+    fi
+}
+
+restore_snapshot() {
+    local backup="$1"
+
+    rm -rf -- "$DEPLOY_ROOT"
+    rm -f -- "$BIN_TARGET" "$LIVE_CENTER" "$LIVE_VIEW"
+
+    [ ! -f "$backup/had-runtime" ] || cp -a -- "$backup/runtime" "$DEPLOY_ROOT"
+    [ ! -f "$backup/had-wrapper" ] || cp -a -- "$backup/wrapper" "$BIN_TARGET"
+    [ ! -f "$backup/had-center" ] || cp -a -- "$backup/ControlCenter.qml" "$LIVE_CENTER"
+    [ ! -f "$backup/had-view" ] || cp -a -- "$backup/MahoPowerView.qml" "$LIVE_VIEW"
+    cp -a -- "$backup/binds.lua" "$LIVE_BINDS"
+
+    hyprctl reload >/dev/null 2>&1 || true
+
+    if [ -f "$backup/shell-was-active" ]; then
+        systemctl --user restart maho-shell.service >/dev/null 2>&1 || true
+    fi
+}
+
+verify_live() {
+    local errors
+
+    managed_runtime || fail 'deployed runtime marker missing'
+    managed_wrapper || fail 'managed wrapper marker missing'
+    [ -r "$LIVE_VIEW" ] || fail 'live shared Power view missing'
+    cmp -s "$SOURCE_VIEW" "$LIVE_VIEW" || fail 'live Power view differs from source'
+    cmp -s "$SOURCE_CENTER" "$LIVE_CENTER" || fail 'live ControlCenter differs from source'
+
+    bind_block_well_formed "$LIVE_BINDS" || fail 'live managed Power bind malformed'
+
+    local block
+    block="$(extract_canonical_bind)"
+    grep -Fq 'mainMod .. " + SHIFT + P"' <<<"$block" \
+        || fail 'canonical SUPER+SHIFT+P missing'
+
+    grep -Fq 'mainMod .. " + SHIFT + P"' "$LIVE_BINDS" \
+        || fail 'live SUPER+SHIFT+P missing'
+
+    "$BIN_TARGET" doctor >/dev/null || fail 'maho-power doctor failed'
+
+    hyprctl reload >/dev/null
+    errors="$(hyprctl configerrors 2>&1 || true)"
+    [ -z "$errors" ] || {
+        printf '%s\n' "$errors" >&2
+        fail 'Hyprland configuration errors after Power bind install'
+    }
+}
+
+install_power() {
+    local stamp backup stage
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    backup="$BACKUP_ROOT/$stamp"
+    stage="$(mktemp -d)"
+
+    trap 'rm -rf -- "$stage"' RETURN
+
+    preflight
+    stage_runtime "$stage/runtime"
+    snapshot "$backup"
+
+    mkdir -p "$DEPLOY_PARENT" "$LIVE_SHELL"
+
+    if ! {
+        rm -rf -- "$DEPLOY_ROOT"
+        mv -- "$stage/runtime" "$DEPLOY_ROOT"
+        write_wrapper
+        install -m 0644 "$SOURCE_VIEW" "$LIVE_VIEW"
+        install -m 0644 "$SOURCE_CENTER" "$LIVE_CENTER"
+        write_live_bind
+        verify_live
+
+        if [ -f "$backup/shell-was-active" ]; then
+            systemctl --user restart maho-shell.service
+        fi
+    }; then
+        say 'INSTALL FAILED — restoring exact pre-install state.'
+        restore_snapshot "$backup"
+        return 1
+    fi
+
+    cat > "$backup/rollback.sh" <<EOF_ROLLBACK
+#!/usr/bin/env bash
+set -euo pipefail
+INSTALLER="$ROOT/bin/maho-power-install"
+exec "\$INSTALLER" rollback "$backup"
+EOF_ROLLBACK
+    chmod 0700 "$backup/rollback.sh"
+
+    say 'Maho Power installed.'
+    say "Backup:   $backup"
+    say "Rollback: $backup/rollback.sh"
+}
+
+status_power() {
+    local failed=0
+
+    managed_runtime && say 'PASS  managed runtime' || { say 'FAIL  managed runtime'; failed=1; }
+    managed_wrapper && say 'PASS  managed wrapper' || { say 'FAIL  managed wrapper'; failed=1; }
+    [ -r "$LIVE_VIEW" ] && say 'PASS  live Power view' || { say 'FAIL  live Power view'; failed=1; }
+    [ -r "$LIVE_CENTER" ] && grep -Fq 'labelText: "Power"' "$LIVE_CENTER" \
+        && say 'PASS  Edge Power entry' || { say 'FAIL  Edge Power entry'; failed=1; }
+    bind_block_well_formed "$LIVE_BINDS" \
+        && grep -Fq 'mainMod .. " + SHIFT + P"' "$LIVE_BINDS" \
+        && say 'PASS  SUPER+SHIFT+P bind' || { say 'FAIL  SUPER+SHIFT+P bind'; failed=1; }
+
+    return "$failed"
+}
+
+rollback_power() {
+    local backup="${1:-}"
+    [ -n "$backup" ] && [ -d "$backup" ] || fail 'rollback requires a valid backup directory'
+    restore_snapshot "$backup"
+    say "Restored Maho Power snapshot: $backup"
+}
+
+case "${1:-install}" in
+    install)
+        install_power
+        ;;
+    preflight)
+        preflight
+        ;;
+    status)
+        status_power
+        ;;
+    rollback)
+        shift
+        rollback_power "${1:-}"
+        ;;
+    *)
+        echo 'usage: maho-power-install {install|preflight|status|rollback BACKUP}' >&2
+        exit 2
+        ;;
+esac
