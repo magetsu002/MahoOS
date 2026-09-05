@@ -240,6 +240,11 @@ def open_path(path_text: str) -> int:
     if not path.exists():
         print(f"maho-launcher-backend: path does not exist: {path}", file=sys.stderr)
         return 2
+
+    maho_files = shutil.which("maho-files")
+    if path.is_dir() and maho_files:
+        return detached([maho_files, "run", str(path)])
+
     if not shutil.which("xdg-open"):
         print("maho-launcher-backend: xdg-open is required", file=sys.stderr)
         return 127
@@ -253,6 +258,9 @@ def run_command(action: str) -> int:
                 return detached([terminal])
         return 127
     if action == "files":
+        maho_files = shutil.which("maho-files")
+        if maho_files:
+            return detached([maho_files, "run", str(Path.home())])
         if shutil.which("thunar"):
             return detached(["thunar", str(Path.home())])
         if shutil.which("xdg-open"):
@@ -279,6 +287,7 @@ def doctor() -> int:
         "gio": bool(shutil.which("gio")),
         "gtk_launch": bool(shutil.which("gtk-launch")),
         "xdg_open": bool(shutil.which("xdg-open")),
+        "maho_files": bool(shutil.which("maho-files")),
         "fd": bool(shutil.which("fd")),
         "desktop_entries": len(apps),
         "resolved_icon_paths": icon_paths,
