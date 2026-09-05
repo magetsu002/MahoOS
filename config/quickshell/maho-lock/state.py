@@ -152,6 +152,33 @@ def resolve_image(raw):
     return path if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS else None
 
 
+def home_dir():
+    try:
+        return Path.home().resolve(strict=True)
+    except OSError:
+        return Path.home().resolve()
+
+
+def inside_home(path, home=None):
+    home = home or home_dir()
+    try:
+        path.relative_to(home)
+        return True
+    except ValueError:
+        return path == home
+
+
+def resolve_home_directory(raw):
+    if not isinstance(raw, str) or not raw:
+        return None
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve(strict=True)
+    except OSError:
+        return None
+    return path if path.is_dir() and inside_home(path) else None
+
+
 def active_wallpaper():
     try:
         payload = json.loads(wallpaper_state_path().read_text())
@@ -178,6 +205,8 @@ def save_wallpaper(path):
 
     payload = load_profile_payload()
     payload["wallpaperPath"] = str(target)
+    if inside_home(target.parent):
+        payload["wallpaperBrowsePath"] = str(target.parent)
     return target if write_profile_payload(payload) else None
 
 
@@ -340,8 +369,6 @@ def avatar_candidates():
         except OSError:
             continue
 
-    # If dedicated avatar folders are empty, expose a small shallow selection
-    # from Pictures rather than recursively indexing the user's entire library.
     if not candidates:
         pictures = Path.home() / "Pictures"
         try:
@@ -367,6 +394,8 @@ def save_avatar(path):
 
     payload = load_profile_payload()
     payload["avatarPath"] = str(target)
+    if inside_home(target.parent):
+        payload["avatarBrowsePath"] = str(target.parent)
     return write_profile_payload(payload)
 
 
@@ -382,11 +411,38 @@ def clear_avatar():
     return write_profile_payload(payload)
 
 
+def default_browse_path(mode, payload=None):
+    payload = payload or load_profile_payload()
+    home = home_dir()
+    pictures = home / "Pictures"
+    fallback = pictures if pictures.is_dir() else home
+
+    key = "avatarBrowsePath" if mode == "avatar" else "wallpaperBrowsePath"
+    remembered = resolve_home_directory(payload.get(key))
+    if remembered is not None:
+        return remembered
+
+    selected = saved_avatar() if mode == "avatar" else saved_wallpaper()
+    if selected is not None and inside_home(selected.parent, home):
+        return selected.parent
+
+    if mode == "wallpaper":
+        active = active_wallpaper()
+        if active is not None and inside_home(active.parent, home):
+            return active.parent
+        for root in wallpaper_roots(active):
+            if inside_home(root, home):
+                return root
+
+    return fallback
+
+
 def ambient_payload():
     username, display_name = user_identity()
     network_kind, network_name = network_info()
     avatar = saved_avatar()
     wallpaper = saved_wallpaper()
+    payload = load_profile_payload()
     return {
         "userName": username,
         "displayName": display_name,
@@ -396,6 +452,8 @@ def ambient_payload():
         "switchUserCommand": switch_user_command(),
         "avatarPath": str(avatar) if avatar else "",
         "savedWallpaperPath": str(wallpaper) if wallpaper else "",
+        "avatarBrowsePath": str(default_browse_path("avatar", payload)),
+        "wallpaperBrowsePath": str(default_browse_path("wallpaper", payload)),
     }
 
 

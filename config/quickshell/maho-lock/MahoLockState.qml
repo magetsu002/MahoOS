@@ -27,9 +27,20 @@ Scope {
     property string selectedLockWallpaperPath: ""
     property string avatarPath: ""
     property var avatarCandidates: []
+
+    property string avatarBrowsePath: ""
+    property string wallpaperBrowsePath: ""
+    property string browserMode: "avatar"
     property string browserPath: ""
     property string browserParent: ""
+    property string browserQuery: ""
     property var browserEntries: []
+    property string requestedBrowserPath: ""
+    property string requestedBrowserQuery: ""
+    property string requestedBrowserMode: "avatar"
+    property string activeBrowserPath: ""
+    property string activeBrowserQuery: ""
+    property string activeBrowserMode: "avatar"
 
     readonly property var batteryDevice: UPower.displayDevice
     readonly property bool batteryAvailable:
@@ -128,14 +139,34 @@ Scope {
             avatarWriteProcess.exec(["python", Quickshell.shellPath("state.py"), "--clear-avatar"])
     }
 
-    function browseImages(path) {
-        if (!imageBrowserProcess.running) {
-            const target = String(path || "")
-            const args = ["python", Quickshell.shellPath("image_browser.py")]
-            if (target.length > 0)
-                args.push(target)
-            imageBrowserProcess.exec(args)
-        }
+    function defaultBrowsePath(mode) {
+        return mode === "avatar" ? avatarBrowsePath : wallpaperBrowsePath
+    }
+
+    function openImageBrowser(mode) {
+        browserMode = mode
+        browserQuery = ""
+        browseImages(defaultBrowsePath(mode), "", mode)
+    }
+
+    function browseImages(path, query, mode) {
+        requestedBrowserPath = String(path || "")
+        requestedBrowserQuery = String(query || "")
+        requestedBrowserMode = String(mode || browserMode || "avatar")
+        if (!imageBrowserProcess.running)
+            startBrowserRequest()
+    }
+
+    function startBrowserRequest() {
+        activeBrowserPath = requestedBrowserPath
+        activeBrowserQuery = requestedBrowserQuery
+        activeBrowserMode = requestedBrowserMode
+        imageBrowserProcess.exec([
+            "python",
+            Quickshell.shellPath("image_browser.py"),
+            activeBrowserPath,
+            activeBrowserQuery,
+        ])
     }
 
     function switchKeyboardLayout() {
@@ -185,6 +216,13 @@ Scope {
                     const savedWallpaper = String(payload.savedWallpaperPath || "")
                     if (savedWallpaper.length > 0 && state.selectedLockWallpaperPath.length === 0)
                         state.selectedLockWallpaperPath = savedWallpaper
+
+                    const avatarDefault = String(payload.avatarBrowsePath || "")
+                    const wallpaperDefault = String(payload.wallpaperBrowsePath || "")
+                    if (state.avatarBrowsePath.length === 0)
+                        state.avatarBrowsePath = avatarDefault
+                    if (state.wallpaperBrowsePath.length === 0)
+                        state.wallpaperBrowsePath = wallpaperDefault
                 } catch (error) {
                     // Optional ambient probes must never block locking.
                 }
@@ -217,8 +255,12 @@ Scope {
                 try {
                     const payload = JSON.parse(this.text)
                     const path = String(payload.path || "")
-                    if (payload.ok === true && path.length > 0)
+                    if (payload.ok === true && path.length > 0) {
                         state.selectedLockWallpaperPath = path
+                        const slash = path.lastIndexOf("/")
+                        if (slash > 0)
+                            state.wallpaperBrowsePath = path.substring(0, slash)
+                    }
                 } catch (error) {
                     // Keep the current wallpaper if selection persistence fails.
                 }
@@ -254,15 +296,38 @@ Scope {
 
         stdout: StdioCollector {
             onStreamFinished: {
+                const completedPath = state.activeBrowserPath
+                const completedQuery = state.activeBrowserQuery
+                const completedMode = state.activeBrowserMode
+
                 try {
                     const payload = JSON.parse(this.text)
-                    state.browserPath = String(payload.path || "")
-                    state.browserParent = String(payload.parent || "")
-                    state.browserEntries = payload.entries || []
+                    if (
+                        completedPath === state.requestedBrowserPath
+                        && completedQuery === state.requestedBrowserQuery
+                        && completedMode === state.requestedBrowserMode
+                    ) {
+                        state.browserMode = completedMode
+                        state.browserPath = String(payload.path || "")
+                        state.browserParent = String(payload.parent || "")
+                        state.browserQuery = String(payload.query || "")
+                        state.browserEntries = payload.entries || []
+
+                        if (completedMode === "avatar" && state.browserPath.length > 0)
+                            state.avatarBrowsePath = state.browserPath
+                        if (completedMode === "wallpaper" && state.browserPath.length > 0)
+                            state.wallpaperBrowsePath = state.browserPath
+                    }
                 } catch (error) {
-                    state.browserPath = ""
-                    state.browserParent = ""
                     state.browserEntries = []
+                }
+
+                if (
+                    completedPath !== state.requestedBrowserPath
+                    || completedQuery !== state.requestedBrowserQuery
+                    || completedMode !== state.requestedBrowserMode
+                ) {
+                    Qt.callLater(state.startBrowserRequest)
                 }
             }
         }

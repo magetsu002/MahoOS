@@ -10,7 +10,7 @@ WlSessionLockSurface {
 
     color: theme.background
 
-    MahoLockViewV6 {
+    MahoLockViewV7 {
         anchors.fill: parent
         theme: root.theme
         lockState: root.state
