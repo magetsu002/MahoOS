@@ -165,6 +165,7 @@ managed_shell() { link_is "$SHELL_TARGET" "$(runtime_path "$SHELL_SOURCE_REL")";
 managed_hypr() { link_is "$HYPR_TARGET" "$(runtime_path "$HYPR_REL")"; }
 legacy_hypr() {
   [ -f "$HYPR_TARGET" ] && [ ! -L "$HYPR_TARGET" ] || return 1
+  sha_is "$HYPR_TARGET" "e792a37a0f8189302ef21a60afc52744eb86c5bae312525ac414540b911e2d15" && return 0
   cmp -s "$HYPR_TARGET" <(cat <<'EOF_LEGACY_HYPR'
 -- Own graphical Maho services only while this Hyprland session is alive.
 
