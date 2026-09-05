@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 POLICY="$ROOT/config/platform.json"
 RECOVERY_POLICY="$ROOT/lib/maho_recovery_policy.py"
+SNAPPER_ROOT_CONFIG="${MAHO_SNAPPER_ROOT_CONFIG:-/etc/snapper/configs/root}"
 
 usage() {
   cat <<'EOF'
@@ -27,42 +28,36 @@ package_state() {
   if has_package "$1"; then printf 'installed'; else printf 'missing'; fi
 }
 
-root_fstype() {
+mount_field() {
+  local field="$1" target="$2"
   if command -v findmnt >/dev/null 2>&1; then
-    findmnt -n -o FSTYPE / 2>/dev/null | head -n1
-  fi
-}
-
-root_source() {
-  if command -v findmnt >/dev/null 2>&1; then
-    findmnt -n -o SOURCE / 2>/dev/null | head -n1
-  fi
-}
-
-home_source() {
-  if command -v findmnt >/dev/null 2>&1; then
-    findmnt -n -o SOURCE /home 2>/dev/null | head -n1
+    findmnt -n -o "$field" "$target" 2>/dev/null | head -n1
   fi
 }
 
 status_json() {
-  local fs root home
-  fs="$(root_fstype || true)"
-  root="$(root_source || true)"
-  home="$(home_source || true)"
-  python - "$POLICY" "$fs" "$root" "$home" \
+  local root_fs root_source home_source boot_fs boot_source
+  root_fs="$(mount_field FSTYPE / || true)"
+  root_source="$(mount_field SOURCE / || true)"
+  home_source="$(mount_field SOURCE /home || true)"
+  boot_fs="$(mount_field FSTYPE /boot || true)"
+  boot_source="$(mount_field SOURCE /boot || true)"
+
+  python - "$POLICY" "$root_fs" "$root_source" "$home_source" "$boot_fs" "$boot_source" \
     "$(package_state linux-cachyos)" \
     "$(package_state linux-cachyos-lts)" \
     "$(package_state snapper)" \
     "$(package_state snap-pac)" \
     "$(package_state limine)" \
     "$(package_state limine-snapper-sync)" \
-    "$(test -r /etc/snapper/configs/root && printf present || printf missing)" <<'PY'
+    "$(test -r "$SNAPPER_ROOT_CONFIG" && printf present || printf missing)" <<'PY'
 import json
 import pathlib
 import sys
 
 policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
+root_source = sys.argv[3] or None
+home_source = sys.argv[4] or None
 print(json.dumps({
     "schema_version": 1,
     "policy": {
@@ -74,15 +69,18 @@ print(json.dumps({
     },
     "detected": {
         "root_fstype": sys.argv[2] or None,
-        "root_source": sys.argv[3] or None,
-        "home_source": sys.argv[4] or None,
-        "linux_cachyos": sys.argv[5],
-        "linux_cachyos_lts": sys.argv[6],
-        "snapper": sys.argv[7],
-        "snap_pac": sys.argv[8],
-        "limine": sys.argv[9],
-        "limine_snapper_sync": sys.argv[10],
-        "root_snapper_config": sys.argv[11],
+        "root_source": root_source,
+        "home_source": home_source,
+        "home_separate_from_root": bool(root_source and home_source and root_source != home_source),
+        "boot_fstype": sys.argv[5] or None,
+        "boot_source": sys.argv[6] or None,
+        "linux_cachyos": sys.argv[7],
+        "linux_cachyos_lts": sys.argv[8],
+        "snapper": sys.argv[9],
+        "snap_pac": sys.argv[10],
+        "limine": sys.argv[11],
+        "limine_snapper_sync": sys.argv[12],
+        "root_snapper_config": sys.argv[13],
     },
 }, sort_keys=True, separators=(",", ":")))
 PY
@@ -104,7 +102,10 @@ print(f"policy primary kernel     {p['primary_kernel']}")
 print(f"policy fallback kernel    {p['fallback_kernel']} ({p['fallback_visibility']})")
 print(f"root filesystem           {x['root_fstype'] or 'unknown'}")
 print(f"root source               {x['root_source'] or 'unknown'}")
-print(f"home source               {x['home_source'] or 'not separately mounted'}")
+print(f"home source               {x['home_source'] or 'unknown'}")
+print(f"home isolated from root   {'yes' if x['home_separate_from_root'] else 'no/unknown'}")
+print(f"boot filesystem           {x['boot_fstype'] or 'unknown'}")
+print(f"boot source               {x['boot_source'] or 'unknown'}")
 for label, key in (
     ("linux-cachyos", "linux_cachyos"),
     ("linux-cachyos-lts", "linux_cachyos_lts"),
@@ -129,6 +130,7 @@ d = json.loads(sys.argv[1])
 x = d["detected"]
 checks = [
     ("Btrfs root", x["root_fstype"] == "btrfs", x["root_fstype"] or "unknown"),
+    ("home rollback isolation", x["home_separate_from_root"], x["home_source"] or "unknown"),
     ("primary kernel", x["linux_cachyos"] == "installed", x["linux_cachyos"]),
     ("LTS fallback", x["linux_cachyos_lts"] == "installed", x["linux_cachyos_lts"]),
     ("Snapper", x["snapper"] == "installed", x["snapper"]),
@@ -141,6 +143,7 @@ for name, ok, detail in checks:
     print(f"{'PASS' if ok else 'MISS'}  {name:<22} {detail}")
 print()
 print("INFO  Boot integration is detected separately; Maho does not silently install or rewrite a bootloader.")
+print("INFO  /boot state must be transactionally coherent with root before kernel-update rollback can be certified.")
 print("INFO  Btrfs snapshots are recovery states, not backups; personal data requires a separate backup strategy.")
 raise SystemExit(0 if all(ok for _, ok, _ in checks) else 1)
 PY
