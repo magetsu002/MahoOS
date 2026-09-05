@@ -7,6 +7,20 @@ CONFIG="${MAHO_LINK_CONFIG:-$ROOT/config/quickshell/maho-link/shell.qml}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOCK="$RUNTIME_DIR/maho-link.lock"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-link.log"
+MODE="${1:-wifi}"
+
+case "$MODE" in
+    wifi|bluetooth) ;;
+    *)
+        echo "maho-link: mode must be wifi or bluetooth" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "maho-link: too many arguments" >&2
+    exit 2
+fi
 
 command -v quickshell >/dev/null 2>&1 || {
     echo "maho-link: quickshell is unavailable" >&2
@@ -26,8 +40,19 @@ command -v flock >/dev/null 2>&1 || {
 mkdir -p "$RUNTIME_DIR" "$(dirname "$LOG")"
 exec 9>"$LOCK"
 if ! flock -n 9; then
-    echo "maho-link: already running"
-    exit 0
+    # Maho Link is one product process. A second Edge request changes the
+    # active connectivity mode in that process instead of being discarded by
+    # the singleton lock.
+    for _ in 1 2 3 4; do
+        if quickshell -p "$CONFIG" ipc call link showMode "$MODE" >/dev/null 2>&1; then
+            exit 0
+        fi
+        sleep 0.025
+    done
+    echo "maho-link: running instance did not accept mode switch" >&2
+    exit 1
 fi
 
+export MAHO_LINK_MODE="$MODE"
+export MAHO_LINK_POSITION_HELPER="$ROOT/config/quickshell/maho-link/position.py"
 exec quickshell -p "$CONFIG" >>"$LOG" 2>&1
