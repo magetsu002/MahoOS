@@ -7,6 +7,14 @@ hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd("kitty"))
 hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("firefox"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([["$HOME/.local/bin/maho-files" run "$HOME"]]))
 
+-- Notification center.
+-- maho-notify-bind:begin
+hl.bind(
+    mainMod .. " + N",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-notify" center]])
+)
+-- maho-notify-bind:end
+
 hl.bind(
     mainMod .. " + W",
     hl.dsp.exec_cmd([["$HOME/.local/bin/qs-wallpaper-picker"]])
