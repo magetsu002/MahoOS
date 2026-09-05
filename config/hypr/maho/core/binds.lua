@@ -5,7 +5,7 @@ local mainMod = "SUPER"
 -- Applications.
 hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd("kitty"))
 hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("firefox"))
-hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([[xdg-open "$HOME"]]))
+hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([["$HOME/.local/bin/maho-files" run "$HOME"]]))
 
 hl.bind(
     mainMod .. " + W",
