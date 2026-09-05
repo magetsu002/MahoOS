@@ -29,12 +29,23 @@ Item {
     }
 
     Rectangle {
+        id: avatarHalo
         anchors.fill: parent
         radius: width / 2
         antialiasing: true
-        color: Qt.rgba(0, 0, 0, 0.10)
+        color: Qt.rgba(0.490, 0.804, 1.000, 0.14)
         border.width: Math.max(1, root.uiScale)
-        border.color: Qt.rgba(1, 1, 1, 0.13)
+        border.color: Qt.rgba(0.882, 0.961, 1.000, 0.68)
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowOpacity: 0.20
+            shadowBlur: 0.78
+            shadowHorizontalOffset: 0
+            shadowVerticalOffset: 5
+            shadowColor: Qt.rgba(0.020, 0.118, 0.255, 0.80)
+            blurMax: 24
+        }
     }
 
     Rectangle {
@@ -112,8 +123,8 @@ Item {
         color: "transparent"
         border.width: Math.max(1, root.uiScale)
         border.color: Qt.rgba(
-            1, 1, 1,
-            root.editable && root.hovered ? 0.34 : 0.18
+            0.882, 0.961, 1.000,
+            root.editable && root.hovered ? 0.78 : 0.62
         )
 
         Behavior on border.color {

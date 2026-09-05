@@ -7,6 +7,8 @@ SURFACE="$LOCK/MahoLockSurface.qml"
 VIEW="$LOCK/MahoLockViewV7.qml"
 BASE="$LOCK/MahoLockViewV5.qml"
 AVATAR="$LOCK/MahoAvatarControl.qml"
+GLASS="$LOCK/MahoGlassCapsuleV3.qml"
+ACTION="$LOCK/MahoActionButton.qml"
 PICKER="$LOCK/MahoImagePicker.qml"
 STATE="$LOCK/MahoLockState.qml"
 PROBE="$LOCK/state.py"
@@ -17,7 +19,7 @@ ICON="$LOCK/MahoIconV2.qml"
 LAUNCHER="$ROOT/bin/maho-lock"
 fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
 pass(){ printf 'PASS  %s\n' "$*"; }
-for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
+for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$GLASS" "$ACTION" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
 bash -n "$LAUNCHER"
 python3 - "$PROBE" "$BROWSER" <<'PY'
 import ast
@@ -70,6 +72,17 @@ grep -Fq 'onPresentationReadyChanged:' "$BASE" || fail "surface readiness cannot
 grep -Fq 'surfaceReady && width > 0 && height > 0' "$BASE" || fail "accepted view can activate at zero size"
 if grep -Fq 'focusRecovery' "$BASE"; then fail "blind focus polling timer remains"; fi
 pass "deterministic secure presentation and focus lifecycle"
+
+grep -Fq 'Qt.rgba(0.973, 0.984, 1.000, 0.98)' "$BASE" || fail "primary foreground contrast drifted"
+grep -Fq 'Qt.rgba(0.957, 0.976, 1.000, 0.94)' "$BASE" || fail "secondary foreground contrast drifted"
+grep -Fq 'Qt.rgba(0.933, 0.965, 1.000, 0.82)' "$BASE" || fail "tertiary foreground contrast drifted"
+grep -Fq 'RadialGradient {' "$BASE" || fail "central atmospheric focus veil missing"
+grep -Fq 'root.focused ? 0.27 : 0.21' "$GLASS" || fail "password glass definition drifted"
+grep -Fq 'root.strong ? 0.40 : 0.46' "$GLASS" || fail "glass edge hierarchy drifted"
+grep -Fq 'shadowEnabled: true' "$GLASS" || fail "glass separation shadow missing"
+grep -Fq 'root.editable && root.hovered ? 0.78 : 0.62' "$AVATAR" || fail "avatar separation ring drifted"
+grep -Fq 'Qt.rgba(0.031, 0.106, 0.227, 0.13)' "$ACTION" || fail "corner action glass treatment missing"
+pass "focused contrast and glass hierarchy"
 
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V7 lost accepted base hierarchy"
 grep -Fq 'MahoAvatarControl {' "$VIEW" || fail "geometric avatar control missing"

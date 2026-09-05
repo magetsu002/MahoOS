@@ -90,11 +90,11 @@ Item {
             ? Qt.rgba(1, 1, 1, 0.15)
             : (wallpaperPointer.containsMouse
                 ? Qt.rgba(1, 1, 1, 0.11)
-                : Qt.rgba(0.06, 0.075, 0.10, 0.52))
+                : Qt.rgba(0.06, 0.075, 0.10, 0.56))
         border.width: 1
         border.color: wallpaperPointer.containsMouse
             ? Qt.rgba(1, 1, 1, 0.20)
-            : Qt.rgba(1, 1, 1, 0.11)
+            : Qt.rgba(1, 1, 1, 0.14)
         scale: wallpaperPointer.pressed ? 0.975 : 1
 
         Behavior on color { ColorAnimation { duration: 125 } }
@@ -121,6 +121,8 @@ Item {
                 color: Qt.rgba(1, 1, 1, 0.93)
                 font.pixelSize: 12 * root.uiScale
                 font.weight: Font.Medium
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
         }
 

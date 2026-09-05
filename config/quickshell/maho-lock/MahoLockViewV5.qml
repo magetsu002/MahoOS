@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Window
+import Qt5Compat.GraphicalEffects
 
 FocusScope {
     id: root
@@ -38,9 +39,11 @@ FocusScope {
         return "Good evening, " + root.lockState.displayName
     }
 
-    readonly property color textPrimary: Qt.rgba(1, 1, 1, 0.97)
-    readonly property color textSecondary: Qt.rgba(1, 1, 1, 0.74)
-    readonly property color textTertiary: Qt.rgba(1, 1, 1, 0.54)
+    // Cool off-white foregrounds preserve the wallpaper while keeping the
+    // lock hierarchy legible over bright sky and reflection details.
+    readonly property color textPrimary: Qt.rgba(0.973, 0.984, 1.000, 0.98)
+    readonly property color textSecondary: Qt.rgba(0.957, 0.976, 1.000, 0.94)
+    readonly property color textTertiary: Qt.rgba(0.933, 0.965, 1.000, 0.82)
 
     focus: true
 
@@ -214,6 +217,22 @@ FocusScope {
         }
     }
 
+    // Broad atmospheric separation for the interaction stack. This has no
+    // panel edge and leaves the wallpaper artwork fully visible.
+    RadialGradient {
+        anchors.fill: parent
+        z: -2
+        horizontalRadius: width * 0.38
+        verticalRadius: height * 0.56
+        verticalOffset: -height * 0.02
+        gradient: Gradient {
+            GradientStop { position: 0.00; color: Qt.rgba(0.031, 0.106, 0.227, 0.14) }
+            GradientStop { position: 0.52; color: Qt.rgba(0.031, 0.106, 0.227, 0.060) }
+            GradientStop { position: 0.78; color: Qt.rgba(0.031, 0.106, 0.227, 0.000) }
+            GradientStop { position: 1.00; color: Qt.rgba(0.031, 0.106, 0.227, 0.000) }
+        }
+    }
+
     Item {
         id: chrome
         anchors.fill: parent
@@ -238,7 +257,7 @@ FocusScope {
                 height: 15 * root.uiScale
                 anchors.verticalCenter: parent.verticalCenter
                 name: "lock"
-                iconOpacity: 0.72
+                iconOpacity: 0.84
             }
 
             Text {
@@ -247,6 +266,8 @@ FocusScope {
                 font.pixelSize: 13 * root.uiScale
                 font.weight: Font.Normal
                 anchors.verticalCenter: parent.verticalCenter
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
         }
 
@@ -301,7 +322,7 @@ FocusScope {
                     height: 18 * root.uiScale
                     anchors.verticalCenter: parent.verticalCenter
                     name: "keyboard"
-                    iconOpacity: 0.78
+                    iconOpacity: 0.88
                 }
 
                 Text {
@@ -351,6 +372,8 @@ FocusScope {
                 font.weight: Font.Light
                 font.letterSpacing: -1.8 * root.uiScale
                 opacity: root.stage(0.04, 0.48)
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.11)
             }
 
             Text {
@@ -361,6 +384,8 @@ FocusScope {
                 color: root.textSecondary
                 font.pixelSize: 18 * root.uiScale
                 opacity: root.stage(0.10, 0.56)
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
 
             Text {
@@ -372,6 +397,8 @@ FocusScope {
                 font.pixelSize: 19 * root.uiScale
                 font.weight: Font.Normal
                 opacity: root.stage(0.17, 0.64)
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
 
             Item {
@@ -466,7 +493,7 @@ FocusScope {
                         width: 17 * root.uiScale
                         height: 17 * root.uiScale
                         name: "lock"
-                        iconOpacity: passwordInput.activeFocus ? 0.90 : 0.67
+                        iconOpacity: passwordInput.activeFocus ? 0.96 : 0.84
                     }
 
                     TextInput {
@@ -497,9 +524,11 @@ FocusScope {
                             visible: passwordInput.text.length === 0
                             text: auth.authenticating ? "Authenticating…" : "Enter your password"
                             color: passwordInput.activeFocus
-                                ? Qt.rgba(1, 1, 1, 0.66)
+                                ? root.textSecondary
                                 : root.textTertiary
                             font.pixelSize: 14 * root.uiScale
+                            style: Text.Raised
+                            styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.16)
                         }
 
                         Keys.onPressed: function(event) {
@@ -550,7 +579,7 @@ FocusScope {
                             name: "eye"
                             iconOpacity: root.passwordVisible
                                 ? 0
-                                : (eyePointer.containsMouse ? 0.94 : 0.72)
+                                : (eyePointer.containsMouse ? 0.98 : 0.88)
 
                             Behavior on iconOpacity {
                                 NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -563,7 +592,7 @@ FocusScope {
                             height: 19 * root.uiScale
                             name: "eye-off"
                             iconOpacity: root.passwordVisible
-                                ? (eyePointer.containsMouse ? 0.98 : 0.80)
+                                ? (eyePointer.containsMouse ? 1.0 : 0.92)
                                 : 0
 
                             Behavior on iconOpacity {
@@ -602,6 +631,8 @@ FocusScope {
                         color: root.textPrimary
                         font.pixelSize: 14 * root.uiScale
                         font.weight: Font.DemiBold
+                        style: Text.Raised
+                        styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.16)
                     }
 
                     MouseArea {
@@ -629,7 +660,9 @@ FocusScope {
                         : root.textSecondary
                     font.pixelSize: 11 * root.uiScale
                     font.weight: auth.errorText.length > 0 ? Font.Medium : Font.Normal
-                    opacity: 0.92
+                    opacity: 0.96
+                    style: Text.Raised
+                    styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
                 }
 
                 Connections {

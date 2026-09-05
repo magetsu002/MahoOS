@@ -23,21 +23,17 @@ Item {
     }
 
     Rectangle {
-        id: iconDisc
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        width: 34
-        height: 34
-        radius: 17
+        anchors.fill: parent
+        radius: height / 2
         color: root.pressed
-            ? Qt.rgba(1, 1, 1, 0.16)
-            : (root.hovered ? Qt.rgba(1, 1, 1, 0.115) : Qt.rgba(1, 1, 1, 0.070))
+            ? Qt.rgba(0.031, 0.106, 0.227, 0.20)
+            : (root.hovered
+                ? Qt.rgba(0.031, 0.106, 0.227, 0.17)
+                : Qt.rgba(0.031, 0.106, 0.227, 0.13))
         border.width: 1
         border.color: root.hovered
-            ? Qt.rgba(1, 1, 1, 0.16)
-            : Qt.rgba(1, 1, 1, 0.085)
-
-        scale: root.pressed ? 0.92 : (root.hovered ? 1.06 : 1)
+            ? Qt.rgba(0.90, 0.97, 1.0, 0.18)
+            : Qt.rgba(0.90, 0.97, 1.0, 0.08)
 
         Behavior on color {
             ColorAnimation { duration: 130; easing.type: Easing.OutCubic }
@@ -46,6 +42,16 @@ Item {
         Behavior on border.color {
             ColorAnimation { duration: 130; easing.type: Easing.OutCubic }
         }
+    }
+
+    Item {
+        id: iconDisc
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        width: 34
+        height: 34
+
+        scale: root.pressed ? 0.92 : (root.hovered ? 1.06 : 1)
 
         Behavior on scale {
             NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
@@ -56,7 +62,7 @@ Item {
             width: 18
             height: 18
             name: root.iconName
-            iconOpacity: root.hovered ? 0.96 : 0.84
+            iconOpacity: root.hovered ? 1.0 : 0.98
 
             scale: root.pressed ? 0.90 : 1
             Behavior on scale {
@@ -70,9 +76,11 @@ Item {
         x: iconDisc.width + 11 + (root.hovered ? 2 : 0)
         anchors.verticalCenter: parent.verticalCenter
         text: root.label
-        color: Qt.rgba(1, 1, 1, root.hovered ? 0.98 : 0.88)
+        color: Qt.rgba(0.957, 0.976, 1.0, root.hovered ? 1.0 : 0.98)
         font.pixelSize: 13
         font.weight: Font.Normal
+        style: Text.Raised
+        styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.30)
 
         Behavior on x {
             NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
