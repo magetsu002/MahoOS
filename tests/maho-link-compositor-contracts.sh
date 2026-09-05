@@ -69,4 +69,38 @@ require "$LINK_VIEW" 'Behavior on opacity' \
     'accepted Link opacity motion was removed'
 echo PASS
 
+echo '=== Bluetooth final-geometry reveal ==='
+require "$SHELL_QML" 'property bool bluetoothGeometryReady: true' \
+    'Bluetooth has no explicit geometry-readiness authority'
+require "$SHELL_QML" 'if (activeMode === "bluetooth" && !bluetoothGeometryReady)' \
+    'Bluetooth can reveal while its taller panel geometry is still settling'
+require "$SHELL_QML" 'linkSurface.shown = false' \
+    'mode switch does not hide old geometry before section replacement'
+require "$SHELL_QML" 'bluetoothGeometryReady = requestedMode !== "bluetooth"' \
+    'Bluetooth geometry gate is not reset on presentation'
+require "$SHELL_QML" 'id: bluetoothRevealTimer' \
+    'Bluetooth geometry settle timer missing'
+require "$SHELL_QML" 'interval: 205' \
+    'Bluetooth reveal does not wait past the accepted 190 ms height behavior'
+require "$SHELL_QML" 'root.bluetoothGeometryReady = true' \
+    'Bluetooth geometry gate never becomes ready'
+echo PASS
+
+echo '=== authoritative Escape dismissal ==='
+require "$SHELL_QML" 'sequence: "Escape"' \
+    'Link has no overlay-level Escape shortcut'
+require "$SHELL_QML" 'context: Qt.ApplicationShortcut' \
+    'Escape still depends on whichever child owns focus'
+require "$SHELL_QML" 'enabled: root.overlayOpen' \
+    'Escape shortcut is not bounded to the open overlay'
+require "$SHELL_QML" 'onActivated: root.closeOverlay()' \
+    'Escape shortcut does not close Link'
+require "$SHELL_QML" 'WlrLayershell.keyboardFocus: root.overlayOpen' \
+    'Link does not explicitly own keyboard focus while open'
+require "$SHELL_QML" '? WlrKeyboardFocus.Exclusive' \
+    'Link is not exclusive keyboard focus while presented'
+require "$SHELL_QML" ': WlrKeyboardFocus.None' \
+    'Link does not release keyboard focus immediately on close'
+echo PASS
+
 echo 'ALL MAHO LINK COMPOSITOR CONTRACTS PASS'
