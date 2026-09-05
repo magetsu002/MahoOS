@@ -52,6 +52,7 @@ jobs:
           bsdtar -tf "$package" | sed 's#^\./##' > /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-install' /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-platform' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/bin/maho-recovery' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/bin/maho-setup' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/config/hypr/maho/core/session.lua' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/apps/maho-files/io.maho.Files.desktop' /tmp/maho-package-files.txt
@@ -75,6 +76,7 @@ jobs:
           pacman -Udd --noconfirm "$package"
           test -x /usr/bin/maho-install
           test -x /usr/bin/maho-platform
+          test -x /usr/bin/maho-recovery
           test -r /usr/lib/maho/bin/maho-setup
           test -x /usr/lib/maho/apps/maho-files/prebuilt/maho-files
           test -r /usr/lib/maho/share/maho/release.json
@@ -107,6 +109,8 @@ jobs:
           su tester -s /bin/bash -c 'HOME=/home/tester XDG_CONFIG_HOME=/home/tester/.config XDG_DATA_HOME=/home/tester/.local/share XDG_STATE_HOME=/home/tester/.local/state XDG_CACHE_HOME=/home/tester/.cache /home/tester/.local/bin/maho-setup status'
           su tester -s /bin/bash -c 'HOME=/home/tester XDG_CONFIG_HOME=/home/tester/.config XDG_DATA_HOME=/home/tester/.local/share XDG_STATE_HOME=/home/tester/.local/state XDG_CACHE_HOME=/home/tester/.cache /home/tester/.local/bin/maho-files doctor'
           su tester -s /bin/bash -c 'HOME=/home/tester XDG_CONFIG_HOME=/home/tester/.config XDG_DATA_HOME=/home/tester/.local/share XDG_STATE_HOME=/home/tester/.local/state XDG_CACHE_HOME=/home/tester/.cache /usr/bin/maho-platform status --json' | python -m json.tool >/dev/null
+          su tester -s /bin/bash -c 'HOME=/home/tester XDG_CONFIG_HOME=/home/tester/.config XDG_DATA_HOME=/home/tester/.local/share XDG_STATE_HOME=/home/tester/.local/state XDG_CACHE_HOME=/home/tester/.cache /usr/bin/maho-recovery inspect' >/tmp/maho-recovery-inspect.txt
+          grep -Fq 'Current runtime' /tmp/maho-recovery-inspect.txt
 
       - name: Upload package candidate
         uses: actions/upload-artifact@v4
