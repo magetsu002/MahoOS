@@ -191,6 +191,14 @@ stage_runtime() {
     cp -a "$SOURCE_LAUNCHER" "$stage/bin/maho-lock"
     cp -a "$SOURCE_CONFIG" "$stage/config/quickshell/maho-lock"
 
+    # Source trees may have been syntax-checked by tooling that emitted Python
+    # bytecode. Bytecode is generated state, not Maho Lock source, and its code
+    # objects embed source paths. Never allow it into the immutable deployment.
+    find "$stage/config/quickshell/maho-lock" \
+        -type d -name '__pycache__' -prune -exec rm -rf -- {} +
+    find "$stage/config/quickshell/maho-lock" \
+        -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
     chmod 0755 "$stage/bin/maho-lock"
     printf '%s\n' "$RUNTIME_MARKER" > "$stage/.managed-by-maho-lock-install"
 
