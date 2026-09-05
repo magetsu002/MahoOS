@@ -3,8 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 VIEW="$ROOT/config/quickshell/maho-shell/MahoPowerView.qml"
+THEME="$ROOT/config/quickshell/maho-shell/MahoTheme.qml"
 CENTER="$ROOT/config/quickshell/maho-shell/ControlCenter.qml"
 STANDALONE="$ROOT/config/quickshell/maho-power/shell.qml"
+STANDALONE_VIEW="$ROOT/config/quickshell/maho-power/MahoPowerView.qml"
+STANDALONE_THEME="$ROOT/config/quickshell/maho-power/MahoTheme.qml"
 BACKDROP="$ROOT/config/quickshell/maho-power/PowerBackdrop.qml"
 RUNTIME="$ROOT/bin/maho-power"
 INSTALLER="$ROOT/bin/maho-power-install"
@@ -31,7 +34,18 @@ reject_text() {
     fi
 }
 
-for file in "$VIEW" "$CENTER" "$STANDALONE" "$BACKDROP" "$RUNTIME" "$INSTALLER" "$BINDS"; do
+for file in \
+    "$VIEW" \
+    "$THEME" \
+    "$CENTER" \
+    "$STANDALONE" \
+    "$STANDALONE_VIEW" \
+    "$STANDALONE_THEME" \
+    "$BACKDROP" \
+    "$RUNTIME" \
+    "$INSTALLER" \
+    "$BINDS"
+do
     require_file "$file"
 done
 
@@ -66,11 +80,14 @@ require_text "$VIEW" 'requiresConfirmation(action)' 'destructive confirmation ga
 require_text "$VIEW" 'Press again to confirm' 'destructive second-activation feedback missing'
 reject_text "$VIEW" 'Esc to close' 'rejected Esc instruction returned'
 reject_text "$VIEW" 'Enter to confirm' 'rejected Enter instruction returned'
+cmp -s "$VIEW" "$STANDALONE_VIEW" || fail 'standalone Power view drifted from Edge visual authority'
+cmp -s "$THEME" "$STANDALONE_THEME" || fail 'standalone theme drifted from Maho Edge theme authority'
 echo PASS
 
 echo '=== standalone overlay ==='
-require_text "$STANDALONE" 'import "../maho-shell"' 'standalone does not reuse Maho shell visual authority'
-require_text "$STANDALONE" 'MahoPowerView {' 'standalone does not reuse shared Power view'
+reject_text "$STANDALONE" 'import "../maho-shell"' 'standalone imports outside its Quickshell config root'
+require_text "$STANDALONE" 'MahoTheme { id: theme }' 'standalone local Maho theme type missing'
+require_text "$STANDALONE" 'MahoPowerView {' 'standalone does not use packaged Power view'
 require_text "$STANDALONE" 'PowerBackdrop {' 'standalone blur carrier missing'
 require_text "$STANDALONE" 'WlrLayershell.namespace: "maho-power"' 'standalone namespace missing'
 require_text "$STANDALONE" 'WlrLayershell.layer: WlrLayer.Overlay' 'standalone is not an Overlay surface'
