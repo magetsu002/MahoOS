@@ -12,6 +12,7 @@ WALLPAPER_UNIT="$ROOT/systemd/user/maho-wallpaper.service"
 SHELL_UNIT="$ROOT/systemd/user/maho-shell.service"
 DOCK_UNIT="$ROOT/systemd/user/maho-dock.service"
 NOTIFY_UNIT="$ROOT/systemd/user/maho-notify.service"
+CLIPBOARD_HISTORY_UNIT="$ROOT/systemd/user/maho-clipboard-history.service"
 SHELL_BIN="$ROOT/bin/maho-shell"
 
 fail() {
@@ -66,6 +67,8 @@ require_text "$SESSION_BIN" 'maho-awww-daemon.service' \
     "session controller no longer owns awww"
 require_text "$SESSION_BIN" 'maho-dock.service' \
     "session controller no longer includes the accepted Dock runtime"
+require_text "$SESSION_BIN" 'maho-clipboard-history.service' \
+    "session controller no longer includes Clipboard history capture"
 require_text "$SESSION_BIN" 'systemctl --user reset-failed' \
     "session controller no longer clears recoverable graphical failures"
 require_text "$SESSION_BIN" 'systemctl --user start "$TARGET"' \
@@ -92,14 +95,21 @@ for service in \
     maho-wallpaper.service \
     maho-shell.service \
     maho-dock.service \
-    maho-notify.service; do
+    maho-notify.service \
+    maho-clipboard-history.service; do
     require_text "$TARGET" "$service" \
         "$service is not pulled by the single Maho session target"
 done
 echo "PASS"
 
 echo "=== graphical surface lifetime ==="
-for unit in "$AWWW_UNIT" "$WALLPAPER_UNIT" "$SHELL_UNIT" "$DOCK_UNIT" "$NOTIFY_UNIT"; do
+for unit in \
+    "$AWWW_UNIT" \
+    "$WALLPAPER_UNIT" \
+    "$SHELL_UNIT" \
+    "$DOCK_UNIT" \
+    "$NOTIFY_UNIT" \
+    "$CLIPBOARD_HISTORY_UNIT"; do
     require_text "$unit" 'After=graphical-session.target' \
         "$(basename "$unit") lost graphical-session ordering"
     require_text "$unit" 'PartOf=maho-hyprland-session.target' \
@@ -124,6 +134,8 @@ require_text "$DOCK_UNIT" 'ExecStart=%h/.local/bin/maho-dock run' \
     "Dock session service bypasses the accepted Dock launcher"
 require_text "$NOTIFY_UNIT" 'ExecStart=%h/.local/bin/maho-notify run' \
     "Notify session service bypasses the accepted Notify launcher"
+require_text "$CLIPBOARD_HISTORY_UNIT" 'ExecStart=%h/.local/bin/maho-clipboard-history serve' \
+    "Clipboard history service bypasses the accepted capture owner"
 echo "PASS"
 
 echo "=== syntax ==="

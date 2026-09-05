@@ -3,4 +3,4 @@ Description=Maho Hyprland graphical session
 BindsTo=graphical-session.target
 After=graphical-session.target
 Wants=maho-awww-daemon.service maho-wallpaper.service
-Wants=maho-shell.service maho-dock.service maho-notify.service
+Wants=maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service

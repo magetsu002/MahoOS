@@ -1,7 +1,8 @@
 [Unit]
 Description=Maho Clipboard history capture
-After=graphical-session.target
-PartOf=graphical-session.target
+After=graphical-session.target maho-hyprland-session.target
+PartOf=maho-hyprland-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
@@ -10,4 +11,4 @@ Restart=always
 RestartSec=1
 
 [Install]
-WantedBy=default.target
+WantedBy=maho-hyprland-session.target

@@ -55,6 +55,7 @@ start_session() {
         maho-shell.service \
         maho-dock.service \
         maho-notify.service \
+        maho-clipboard-history.service \
         >/dev/null 2>&1 || true
 
     systemctl --user start "$TARGET"
@@ -94,7 +95,8 @@ case "${1:-}" in
             maho-wallpaper.service \
             maho-shell.service \
             maho-dock.service \
-            maho-notify.service
+            maho-notify.service \
+            maho-clipboard-history.service
         ;;
     *)
         echo "usage: maho-session start|stop|status|wait-awww" >&2
