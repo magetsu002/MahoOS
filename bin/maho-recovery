@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+RUNTIME_ROOT="$DATA_HOME/maho/runtime"
+CURRENT="$RUNTIME_ROOT/current"
+PREVIOUS="$RUNTIME_ROOT/previous"
+SETUP="${MAHO_SETUP_COMMAND:-$HOME/.local/bin/maho-setup}"
+PLATFORM="${MAHO_PLATFORM_COMMAND:-$ROOT/bin/maho-platform}"
+
+usage() {
+  cat <<'EOF'
+Usage: maho-recovery <command> [args]
+
+Commands:
+  inspect                  Show current and previous Maho runtime state.
+  plan FILE|-              Explain the smallest recovery scope for failure JSON.
+  rollback-runtime         Ask before switching to the previous Maho runtime.
+  rollback-runtime --yes   Explicit non-interactive confirmation.
+  console                  Open the dependency-light interactive recovery console.
+
+System-state and kernel recovery are deliberately not mutated by this command
+until MahoOS certifies boot-state + Btrfs rollback coherence. The console can
+explain those recovery paths without pretending they are safe to execute yet.
+EOF
+}
+
+manifest_field() {
+  local link="$1" field="$2" target manifest
+  target="$(readlink -f -- "$link" 2>/dev/null || true)"
+  manifest="$target/manifest.json"
+  [ -r "$manifest" ] || return 1
+  python - "$manifest" "$field" <<'PY'
+import json
+import pathlib
+import sys
+value = json.loads(pathlib.Path(sys.argv[1]).read_text()).get(sys.argv[2])
+if value is None:
+    raise SystemExit(1)
+print(value)
+PY
+}
+
+runtime_line() {
+  local label="$1" link="$2" target version revision
+  target="$(readlink -f -- "$link" 2>/dev/null || true)"
+  if [ -z "$target" ] || [ ! -d "$target" ]; then
+    printf '%-18s unavailable\n' "$label"
+    return 0
+  fi
+  version="$(manifest_field "$link" version 2>/dev/null || printf unknown)"
+  revision="$(manifest_field "$link" source_revision 2>/dev/null || printf unknown)"
+  printf '%-18s %s\n' "$label" "$target"
+  printf '%-18s version=%s source=%s\n' "" "$version" "$revision"
+}
+
+inspect() {
+  echo 'Maho Recovery state'
+  echo
+  runtime_line 'Current runtime' "$CURRENT"
+  runtime_line 'Previous runtime' "$PREVIOUS"
+  echo
+  if [ -x "$PLATFORM" ] || [ -r "$PLATFORM" ]; then
+    MAHO_ROOT="$ROOT" bash "$PLATFORM" status 2>/dev/null || true
+  else
+    echo 'Platform status      unavailable'
+  fi
+}
+
+plan() {
+  [ "$#" -eq 1 ] || { usage >&2; return 2; }
+  MAHO_ROOT="$ROOT" bash "$PLATFORM" plan "$1"
+}
+
+confirm_runtime_rollback() {
+  local previous current answer
+  previous="$(readlink -f -- "$PREVIOUS" 2>/dev/null || true)"
+  current="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  [ -n "$previous" ] && [ -d "$previous" ] || {
+    echo 'Maho Recovery: no previous runtime is available.' >&2
+    return 1
+  }
+
+  cat <<EOF
+Maho Recovery
+
+The current Maho runtime will be replaced by the previous immutable runtime.
+
+Current : ${current:-unavailable}
+Previous: $previous
+
+This action changes MahoOS runtime wiring only.
+It does not restore Btrfs system snapshots and does not modify personal files.
+The running graphical session is not restarted automatically.
+EOF
+
+  if [ "${1:-}" = --yes ]; then
+    answer=yes
+  else
+    printf '\nType YES to continue: '
+    IFS= read -r answer
+  fi
+
+  [ "$answer" = YES ] || [ "$answer" = yes ] || {
+    echo 'Cancelled. No recovery action was performed.'
+    return 2
+  }
+
+  [ -x "$SETUP" ] || [ -r "$SETUP" ] || {
+    echo "Maho Recovery: setup command unavailable: $SETUP" >&2
+    return 1
+  }
+  bash "$SETUP" rollback
+}
+
+console() {
+  local choice
+  while true; do
+    clear 2>/dev/null || true
+    cat <<'EOF'
++------------------------------------------------------------+
+|                       MAHO RECOVERY                        |
++------------------------------------------------------------+
+|                                                            |
+| Recovery actions are deliberately scoped.                  |
+| Maho will not guess at a destructive system restore.       |
+|                                                            |
+| [1] Inspect current recovery state                          |
+| [2] Roll back Maho runtime                                  |
+| [3] Show platform / snapshot readiness                     |
+| [4] Exit to recovery shell                                  |
+|                                                            |
++------------------------------------------------------------+
+EOF
+    printf 'Selection: '
+    IFS= read -r choice || return 0
+    case "$choice" in
+      1)
+        echo
+        inspect
+        printf '\nPress Enter to continue...'
+        IFS= read -r _ || true
+        ;;
+      2)
+        echo
+        confirm_runtime_rollback || true
+        printf '\nPress Enter to continue...'
+        IFS= read -r _ || true
+        ;;
+      3)
+        echo
+        MAHO_ROOT="$ROOT" bash "$PLATFORM" doctor || true
+        printf '\nPress Enter to continue...'
+        IFS= read -r _ || true
+        ;;
+      4|q|Q|exit)
+        return 0
+        ;;
+      *)
+        printf '\nUnknown selection. Press Enter to continue...'
+        IFS= read -r _ || true
+        ;;
+    esac
+  done
+}
+
+case "${1:-}" in
+  inspect)
+    inspect
+    ;;
+  plan)
+    shift
+    plan "$@"
+    ;;
+  rollback-runtime)
+    shift
+    case "${1:-}" in
+      "") confirm_runtime_rollback ;;
+      --yes) confirm_runtime_rollback --yes ;;
+      *) echo "maho-recovery: unknown rollback option: $1" >&2; exit 2 ;;
+    esac
+    ;;
+  console)
+    console
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "maho-recovery: unknown command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
