@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CURRENT="${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime/current"
+if [ -x "$CURRENT/bin/maho-platform" ]; then
+  export MAHO_ROOT="$CURRENT"
+  exec bash "$CURRENT/bin/maho-platform" "$@"
+fi
+
+export MAHO_ROOT="${MAHO_PACKAGED_ROOT:-/usr/lib/maho}"
+exec bash "$MAHO_ROOT/bin/maho-platform" "$@"
