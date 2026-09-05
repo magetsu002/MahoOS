@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+
+set -u
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONFIG="${MAHO_POWER_CONFIG:-$ROOT/config/quickshell/maho-power/shell.qml}"
+RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}/maho-power-${UID}"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/power"
+LOCK_FILE="$RUNTIME_ROOT/power.lock"
+LOG_FILE="$CACHE_ROOT/power.log"
+
+mkdir -p "$RUNTIME_ROOT" "$CACHE_ROOT"
+chmod 0700 "$RUNTIME_ROOT" "$CACHE_ROOT" 2>/dev/null || true
+
+log_event() {
+    printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE"
+}
+
+power_pids() {
+    local pid argument matched
+
+    while read -r pid; do
+        [ -r "/proc/$pid/cmdline" ] || continue
+        matched=0
+        while read -r argument; do
+            case "$argument" in
+                "$CONFIG"|*/quickshell/maho-power/shell.qml)
+                    matched=1
+                    break
+                    ;;
+            esac
+        done < <(tr '\0' '\n' < "/proc/$pid/cmdline")
+        [ "$matched" -eq 1 ] && printf '%s\n' "$pid"
+    done < <({ pgrep -x quickshell 2>/dev/null; pgrep -x qs 2>/dev/null; } | sort -u)
+}
+
+power_pid() {
+    power_pids | head -1
+}
+
+set_material_rule() {
+    local state="$1"
+
+    command -v hyprctl >/dev/null 2>&1 || return 0
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || return 0
+
+    if [ "$state" = "on" ]; then
+        hyprctl eval '
+            if maho_power_material_rule == nil then
+                maho_power_material_rule = hl.layer_rule({
+                    name = "maho-power-material",
+                    match = { namespace = "maho-power-backdrop" },
+                    blur = true,
+                    ignore_alpha = 0.001,
+                    xray = false,
+                    order = 9,
+                })
+            else
+                maho_power_material_rule:set_enabled(true)
+            end
+        ' >/dev/null 2>&1 || true
+    else
+        hyprctl eval '
+            if maho_power_material_rule ~= nil then
+                maho_power_material_rule:set_enabled(false)
+            end
+        ' >/dev/null 2>&1 || true
+    fi
+}
+
+ipc_call() {
+    local pid="$1"
+    local method="$2"
+    quickshell ipc --pid "$pid" call power "$method" >/dev/null 2>&1
+}
+
+cleanup() {
+    set_material_rule off
+}
+
+run_overlay() {
+    local pid rc
+
+    command -v quickshell >/dev/null 2>&1 || {
+        echo 'maho-power: quickshell is required' >&2
+        return 1
+    }
+    command -v flock >/dev/null 2>&1 || {
+        echo 'maho-power: flock is required' >&2
+        return 1
+    }
+    [ -r "$CONFIG" ] || {
+        echo "maho-power: configuration missing: $CONFIG" >&2
+        return 1
+    }
+
+    exec 9> "$LOCK_FILE"
+    if ! flock -n 9; then
+        pid="$(power_pid)"
+        [ -n "$pid" ] && ipc_call "$pid" focus || true
+        return 0
+    fi
+
+    pid="$(power_pid)"
+    if [ -n "$pid" ]; then
+        ipc_call "$pid" focus || true
+        return 0
+    fi
+
+    trap cleanup EXIT INT TERM
+    set_material_rule on
+    log_event 'opened engine=quickshell'
+    quickshell -p "$CONFIG" >> "$LOG_FILE" 2>&1
+    rc=$?
+    log_event "closed rc=$rc"
+    return "$rc"
+}
+
+open_overlay() {
+    local pid
+    pid="$(power_pid)"
+
+    if [ -n "$pid" ]; then
+        ipc_call "$pid" focus || true
+        return 0
+    fi
+
+    nohup "$0" run >/dev/null 2>&1 &
+}
+
+close_overlay() {
+    local pid
+
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        ipc_call "$pid" close || kill -TERM "$pid" 2>/dev/null || true
+    done < <(power_pids)
+}
+
+switch_user() {
+    if command -v qdbus6 >/dev/null 2>&1; then
+        qdbus6 \
+            org.freedesktop.DisplayManager \
+            /org/freedesktop/DisplayManager/Seat0 \
+            org.freedesktop.DisplayManager.Seat.SwitchToGreeter \
+            >/dev/null 2>&1 && return 0
+    fi
+
+    if command -v qdbus >/dev/null 2>&1; then
+        qdbus \
+            org.freedesktop.DisplayManager \
+            /org/freedesktop/DisplayManager/Seat0 \
+            org.freedesktop.DisplayManager.Seat.SwitchToGreeter \
+            >/dev/null 2>&1 && return 0
+    fi
+
+    if command -v busctl >/dev/null 2>&1; then
+        busctl --system call \
+            org.freedesktop.DisplayManager \
+            /org/freedesktop/DisplayManager/Seat0 \
+            org.freedesktop.DisplayManager.Seat \
+            SwitchToGreeter \
+            >/dev/null 2>&1 && return 0
+    fi
+
+    command -v notify-send >/dev/null 2>&1 \
+        && notify-send 'Maho Power' 'Switch User is unavailable on this display-manager session.'
+    return 1
+}
+
+run_action() {
+    local action="${1:-}"
+
+    case "$action" in
+        lock)
+            [ -x "$HOME/.local/bin/maho-lock" ] || {
+                echo 'maho-power: maho-lock is not installed' >&2
+                return 1
+            }
+            exec "$HOME/.local/bin/maho-lock"
+            ;;
+        sleep)
+            exec systemctl suspend
+            ;;
+        switch-user)
+            switch_user
+            ;;
+        logout)
+            exec hyprctl dispatch exit
+            ;;
+        restart)
+            exec systemctl reboot
+            ;;
+        shutdown)
+            exec systemctl poweroff
+            ;;
+        *)
+            echo 'usage: maho-power action {lock|sleep|switch-user|logout|restart|shutdown}' >&2
+            return 2
+            ;;
+    esac
+}
+
+doctor() {
+    local failed=0
+
+    if command -v quickshell >/dev/null 2>&1; then
+        echo 'PASS  quickshell'
+    else
+        echo 'FAIL  quickshell missing'
+        failed=1
+    fi
+
+    if command -v flock >/dev/null 2>&1; then
+        echo 'PASS  flock'
+    else
+        echo 'FAIL  flock missing'
+        failed=1
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        echo 'PASS  systemctl'
+    else
+        echo 'FAIL  systemctl missing'
+        failed=1
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        echo 'PASS  hyprctl'
+    else
+        echo 'FAIL  hyprctl missing'
+        failed=1
+    fi
+
+    if [ -r "$CONFIG" ]; then
+        echo 'PASS  standalone QML'
+    else
+        echo "FAIL  missing $CONFIG"
+        failed=1
+    fi
+
+    if [ -r "$ROOT/config/quickshell/maho-shell/MahoPowerView.qml" ]; then
+        echo 'PASS  shared Power view'
+    else
+        echo 'FAIL  shared Power view missing'
+        failed=1
+    fi
+
+    return "$failed"
+}
+
+case "${1:-open}" in
+    run)
+        run_overlay
+        ;;
+    open)
+        open_overlay
+        ;;
+    close)
+        close_overlay
+        ;;
+    toggle)
+        if [ -n "$(power_pid)" ]; then
+            close_overlay
+        else
+            open_overlay
+        fi
+        ;;
+    action)
+        shift
+        run_action "${1:-}"
+        ;;
+    doctor)
+        doctor
+        ;;
+    status)
+        if [ -n "$(power_pid)" ]; then
+            echo "running pid=$(power_pid)"
+        else
+            echo 'stopped'
+        fi
+        ;;
+    *)
+        echo 'usage: maho-power {open|run|close|toggle|status|doctor|action ACTION}' >&2
+        exit 2
+        ;;
+esac
