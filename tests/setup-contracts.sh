@@ -39,7 +39,9 @@ chmod +x "$TMP/fake-bin/quickshell"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 COMMANDS=(mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-contain maho-shell maho-notify maho-setup)
-UNITS=(maho-wallpaper.service maho-observe.service maho-security.service maho-shell.service maho-notify.service)
+CORE_UNITS=(maho-observe.service maho-security.service)
+GRAPHICAL_UNITS=(maho-wallpaper.service maho-shell.service maho-notify.service)
+UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}")
 
 echo "=== preflight ==="
 bash "$ROOT/bin/maho-setup" preflight >/dev/null
@@ -67,14 +69,29 @@ for unit in "${UNITS[@]}"; do
     target="$XDG_CONFIG_HOME/systemd/user/$unit"
     [ -L "$target" ] || fail "user service is not a symlink: $unit"
     [ "$(readlink -f "$target")" = "$ROOT/systemd/user/$unit" ] || fail "user service targets wrong checkout: $unit"
-    if [ "$unit" = "maho-notify.service" ]; then
-        if grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG"; then
-            fail "Maho Notify was activated during initial packaging"
-        fi
-    else
-        grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "service was not enabled: $unit"
+done
+
+# Core observers intentionally follow the user manager and are the only setup
+# units in this fixture that may own default.target directly.
+for unit in "${CORE_UNITS[@]}"; do
+    grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" || fail "core service was not enabled: $unit"
+done
+
+# Graphical Maho surfaces are owned by maho-session through
+# maho-hyprland-session.target. A direct enable --now here would recreate the
+# obsolete independent-autostart architecture even though starting them via the
+# session target is valid.
+for unit in "${GRAPHICAL_UNITS[@]}"; do
+    if grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG"; then
+        fail "graphical service was independently enabled: $unit"
+    fi
+    grep -Fq 'WantedBy=maho-hyprland-session.target' "$ROOT/systemd/user/$unit" ||
+        fail "graphical service is not mapped to the Maho session target: $unit"
+    if grep -Fq 'WantedBy=default.target' "$ROOT/systemd/user/$unit"; then
+        fail "graphical service regressed to default.target ownership: $unit"
     fi
 done
+
 grep -q 'maho-security-monitor watch' "$ROOT/systemd/user/maho-security.service" || fail "security service does not use stateful monitor"
 grep -q 'maho-shell run' "$ROOT/systemd/user/maho-shell.service" || fail "shell service does not use managed runtime"
 grep -q 'maho-notify run' "$ROOT/systemd/user/maho-notify.service" || fail "notify service does not use managed runtime"
