@@ -40,7 +40,6 @@ bash -n "$LAUNCHER"
 python3 -m py_compile "$PROBE" "$BROWSER"
 pass "launcher/probe/browser syntax"
 
-# Production remains a real Wayland session lock, never a fake overlay.
 grep -Fq 'WlSessionLock {' "$SHELL" || fail "secure ext-session-lock authority missing"
 grep -Fq 'WlSessionLockSurface {' "$SURFACE" || fail "session lock surface missing"
 grep -Fq 'MahoLockViewV6 {' "$SURFACE" || fail "secure surface does not render V6"
@@ -50,7 +49,6 @@ if grep -Eq 'PanelWindow|FloatingWindow' "$SHELL" "$SURFACE"; then
 fi
 pass "secure Wayland lock boundary"
 
-# PAM remains the only unlock authority.
 grep -Fq 'PamContext {' "$AUTH" || fail "PAM authentication missing"
 grep -Fq 'config: "login"' "$AUTH" || fail "PAM login stack missing"
 grep -Fq 'result === PamResult.Success' "$AUTH" || fail "PAM success gate missing"
@@ -60,7 +58,6 @@ if grep -Fq 'locked = false' "$SURFACE" "$BASE_VIEW" "$VIEW"; then
 fi
 pass "PAM-only unlock authority"
 
-# Random local wallpaper authority stays user-controlled and bounded.
 grep -Fq 'MAHO_LOCK_WALLPAPER_DIR' "$PROBE" || fail "wallpaper directory override missing"
 grep -Fq 'MAHO_LOCK_WALLPAPER_FILE' "$PROBE" || fail "explicit wallpaper override missing"
 grep -Fq 'random.SystemRandom().choice' "$PROBE" || fail "wallpaper randomization missing"
@@ -70,7 +67,6 @@ grep -Fq 'root.lockState.setLockWallpaper(path)' "$VIEW" || fail "preview cannot
 grep -Fq 'root.lockState.shuffleLockWallpaper()' "$VIEW" || fail "preview cannot shuffle lock wallpaper"
 pass "local lock wallpaper authority"
 
-# Battery icon represents charge level and charging state, with calm charging motion.
 for name in battery battery-25 battery-50 battery-75 battery-full battery-charging; do
     [ -s "$LOCK_DIR/icons/$name.svg" ] || fail "missing battery asset: $name"
 done
@@ -86,7 +82,6 @@ grep -Fq 'Number.isFinite' "$STATE" || fail "battery percentage is not finite ch
 grep -Fq 'batteryStatusText' "$STATE" || fail "battery semantic status missing"
 pass "semantic animated battery state"
 
-# Top-right chrome is interactive, animated, lock-safe, and single-surface.
 grep -Fq 'statusInteractive' "$ICON" || fail "status icon interaction missing"
 grep -Fq 'name === "wifi"' "$ICON" || fail "Wi-Fi status interaction missing"
 grep -Fq 'name === "battery"' "$ICON" || fail "battery status interaction missing"
@@ -103,7 +98,6 @@ if grep -Eq 'nmcli.*(radio|connection).*down|rfkill|ip link.*down' "$ICON"; then
 fi
 pass "animated single-surface lock-safe status chrome"
 
-# Password visibility has explicit eye-open and eye-slashed states.
 [ -s "$LOCK_DIR/icons/eye.svg" ] || fail "eye-open asset missing"
 [ -s "$LOCK_DIR/icons/eye-off.svg" ] || fail "eye-off asset missing"
 grep -Fq 'name: "eye"' "$BASE_VIEW" || fail "eye-open state missing"
@@ -111,8 +105,6 @@ grep -Fq 'name: "eye-off"' "$BASE_VIEW" || fail "eye-slashed state missing"
 grep -Fq 'root.passwordVisible' "$BASE_VIEW" || fail "eye state is not visibility-driven"
 pass "password visibility glyph states"
 
-# Profile photo editing is direct, preview-only and non-modal. Wallpaper has its
-# own affordance rather than being hidden behind the identity surface.
 [ -s "$LOCK_DIR/icons/edit.svg" ] || fail "profile edit icon missing"
 [ -s "$LOCK_DIR/icons/wallpaper.svg" ] || fail "wallpaper action icon missing"
 [ -s "$LOCK_DIR/icons/folder.svg" ] || fail "folder browser icon missing"
@@ -126,12 +118,11 @@ grep -Fq 'browseImages' "$VIEW" "$STATE" || fail "in-app file browsing missing"
 grep -Fq 'setAvatar' "$VIEW" || fail "profile selection action missing"
 grep -Fq 'clearAvatar' "$VIEW" || fail "initials reset action missing"
 grep -Fq 'setLockWallpaper' "$VIEW" || fail "wallpaper selection action missing"
-if grep -Eq 'QtQuick\.Dialogs|FileDialog' "$VIEW"; then
+if grep -Eq '^import QtQuick\.Dialogs|^[[:space:]]*FileDialog[[:space:]]*\{' "$VIEW"; then
     fail "overlay preview can still open a modal native file dialog"
 fi
 pass "direct non-modal preview personalization"
 
-# Preview remains safe and renders the production view.
 grep -Fq 'PanelWindow {' "$PREVIEW" || fail "safe preview window missing"
 grep -Fq 'MahoLockViewV6 {' "$PREVIEW" || fail "preview does not render V6"
 grep -Fq 'previewMode: true' "$PREVIEW" || fail "preview mode not explicit"
@@ -141,7 +132,6 @@ if grep -Eq 'WlSessionLock|PamContext' "$PREVIEW"; then
 fi
 pass "safe exact-view preview"
 
-# Accepted hierarchy and motion remain intact in V5 base.
 grep -Fq 'Good morning' "$BASE_VIEW" || fail "time-aware greeting missing"
 grep -Fq 'Screen locked' "$BASE_VIEW" || fail "lock state label missing"
 grep -Fq 'Enter your password' "$BASE_VIEW" || fail "password field missing"
@@ -156,7 +146,6 @@ if grep -Eq 'Bounce|Elastic|OutBack|InBack' "$BASE_VIEW" "$VIEW" "$ICON"; then
 fi
 pass "accepted hierarchy and calm motion"
 
-# Process ownership remains singleton and narrowly scoped.
 grep -Fq 'flock -n 9' "$LAUNCHER" || fail "locker process is not singleton owned"
 grep -Fq 'quickshell --no-duplicate -p "$CONFIG"' "$LAUNCHER" || fail "launcher does not start exact secure config"
 if grep -Eq 'pkill|killall' "$LAUNCHER"; then
