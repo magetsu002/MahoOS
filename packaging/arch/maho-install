@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_PACKAGED_ROOT:-/usr/lib/maho}"
+SETUP="$ROOT/bin/maho-setup"
+
+if [ ! -r "$SETUP" ]; then
+  echo "maho-install: packaged MahoOS payload is missing: $SETUP" >&2
+  exit 1
+fi
+
+cat <<'EOF'
+MahoOS V1 installer
+
+This installs the per-user MahoOS runtime from the packaged, read-only payload.
+Existing Maho-owned wiring is migrated only when its ownership can be proven.
+Unrelated user configuration is left untouched.
+EOF
+
+echo
+bash "$SETUP" install --adopt-live
+
+echo
+if [ -x "$HOME/.local/bin/maho-setup" ]; then
+  "$HOME/.local/bin/maho-setup" status
+fi
+
+echo
+cat <<'EOF'
+MahoOS runtime installation completed.
+
+The running graphical session was not restarted automatically.
+Activate the installed runtime from your graphical session with:
+  maho-session stop && maho-session start
+
+Rollback remains available through:
+  maho-setup rollback
+EOF
