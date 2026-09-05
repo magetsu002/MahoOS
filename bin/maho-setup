@@ -51,6 +51,36 @@ sha_is() {
   actual="$(sha256sum "$path" 2>/dev/null | awk '{print $1}')"
   [ "$actual" = "$expected" ]
 }
+python_parse_only() {
+  python - "$@" <<'PY'
+import ast
+import pathlib
+import sys
+
+for raw in sys.argv[1:]:
+    path = pathlib.Path(raw)
+    ast.parse(path.read_text(), filename=str(path))
+PY
+}
+release_source_revision() {
+  local metadata="$ROOT/share/maho/release.json" revision
+  if [ -r "$metadata" ]; then
+    revision="$(python - "$metadata" <<'PY'
+import json
+import pathlib
+import sys
+
+value = json.loads(pathlib.Path(sys.argv[1]).read_text()).get("source_revision")
+if not isinstance(value, str) or not value.strip():
+    raise SystemExit(1)
+print(value.strip())
+PY
+)" || return 1
+    printf '%s\n' "$revision"
+    return 0
+  fi
+  git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf 'unknown\n'
+}
 
 managed_command() {
   local path; path="$(command_path "$1")"
@@ -203,7 +233,10 @@ preflight() {
   for name in "${UNITS[@]}"; do [ -r "$ROOT/systemd/user/$name" ] || { echo "FAIL  unit $name"; failed=1; }; done
   for file in "${required[@]}"; do [ -r "$ROOT/$file" ] || { echo "FAIL  asset $file"; failed=1; }; done
   for file in config/ownership.json config/intent.json config/adapters.json; do python -m json.tool "$ROOT/$file" >/dev/null 2>&1 || { echo "FAIL  json $file"; failed=1; }; done
-  python -m py_compile \
+  if [ -r "$ROOT/share/maho/release.json" ]; then
+    python -m json.tool "$ROOT/share/maho/release.json" >/dev/null 2>&1 && release_source_revision >/dev/null || { echo "FAIL  release metadata"; failed=1; }
+  fi
+  python_parse_only \
     "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" "$ROOT/lib/security_incident.py" \
     "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
@@ -238,7 +271,7 @@ build_release() {
   hash="$(cd "$stage"; find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
   final="$RELEASES/$hash"
   if [ -d "$final" ]; then rm -rf -- "$stage"; else
-    revision="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf unknown)"
+    revision="$(release_source_revision)"
     python - "$stage/manifest.json" "$hash" "$revision" <<'PY'
 import datetime,json,pathlib,sys
 pathlib.Path(sys.argv[1]).write_text(json.dumps({
