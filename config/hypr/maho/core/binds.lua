@@ -10,7 +10,7 @@ hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([["$HOME/.local/bin/maho-files" run "
 -- Notification center.
 -- maho-notify-bind:begin
 hl.bind(
-    mainMod .. " + N",
+    mainMod .. " + SHIFT + N",
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-notify" center]])
 )
 -- maho-notify-bind:end
