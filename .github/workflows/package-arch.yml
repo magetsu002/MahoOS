@@ -1,0 +1,101 @@
+name: package-arch
+
+on:
+  push:
+    branches:
+      - main
+      - integration/v1-cleanup
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prepare Arch build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed git zstd python libarchive
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build package from exact checked-out revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          su builder -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && bash tools/build-arch-package.sh '$GITHUB_WORKSPACE/dist'"
+
+      - name: Inspect package payload and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$(find dist -maxdepth 1 -type f -name 'maho-os-*.pkg.tar.*' -print -quit)"
+          test -n "$package"
+          pacman -Qip "$package"
+          bsdtar -tf "$package" > /tmp/maho-package-files.txt
+          grep -Fxq 'usr/bin/maho-install' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/bin/maho-setup' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/config/hypr/maho/core/session.lua' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/apps/maho-files/io.maho.Files.desktop' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/share/maho/release.json' /tmp/maho-package-files.txt
+          python - dist/release.json "$(git rev-parse HEAD)" <<'PY'
+          import json
+          import pathlib
+          import sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          assert data["format_version"] == 1
+          assert data["source_revision"] == sys.argv[2]
+          assert len(data["source_archive_sha256"]) == 64
+          PY
+
+      - name: Install package into clean Arch container
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$(find dist -maxdepth 1 -type f -name 'maho-os-*.pkg.tar.*' -print -quit)"
+          pacman -Udd --noconfirm "$package"
+          test -x /usr/bin/maho-install
+          test -r /usr/lib/maho/bin/maho-setup
+          test -r /usr/lib/maho/share/maho/release.json
+          useradd -m tester
+          su tester -s /bin/bash -c 'HOME=/home/tester XDG_CONFIG_HOME=/home/tester/.config XDG_DATA_HOME=/home/tester/.local/share XDG_STATE_HOME=/home/tester/.local/state XDG_CACHE_HOME=/home/tester/.cache /usr/bin/maho-install'
+
+      - name: Verify packaged runtime provenance and read-only source hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -L /home/tester/.local/share/maho/runtime/current
+          test -f /home/tester/.local/share/maho/runtime/current/manifest.json
+          python - /home/tester/.local/share/maho/runtime/current/manifest.json /usr/lib/maho/share/maho/release.json <<'PY'
+          import json
+          import pathlib
+          import sys
+          runtime = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          release = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          assert runtime["version"] == 3
+          assert runtime["source_revision"] == release["source_revision"]
+          assert len(runtime["content_sha256"]) == 64
+          PY
+          if find /usr/lib/maho -type d -name __pycache__ -print -quit | grep -q .; then
+            echo 'packaged source was mutated by preflight' >&2
+            exit 1
+          fi
+          su tester -s /bin/bash -c 'HOME=/home/tester XDG_CONFIG_HOME=/home/tester/.config XDG_DATA_HOME=/home/tester/.local/share XDG_STATE_HOME=/home/tester/.local/state XDG_CACHE_HOME=/home/tester/.cache /home/tester/.local/bin/maho-setup status'
+
+      - name: Upload package candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: maho-os-arch-package
+          path: |
+            dist/maho-os-*.pkg.tar.*
+            dist/release.json
+            dist/SHA256SUMS
+          retention-days: 7
