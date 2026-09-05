@@ -21,8 +21,13 @@ depends=(
   'qt6-base'
   'qt6-declarative'
   'kio'
+)
+makedepends=(
   'cmake'
   'ninja'
+  'qt6-base'
+  'qt6-declarative'
+  'kio'
 )
 optdepends=(
   'matugen: wallpaper-derived Palette V2 generation backend'
@@ -36,6 +41,16 @@ sha256sums=(
   '@RELEASE_SHA256@'
 )
 
+build() {
+  local source_root="$srcdir/maho-os-${pkgver}"
+  cmake \
+    -S "$source_root/apps/maho-files" \
+    -B "$srcdir/build-maho-files" \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$srcdir/build-maho-files" --parallel 2
+}
+
 package() {
   local source_root="$srcdir/maho-os-${pkgver}"
 
@@ -44,6 +59,8 @@ package() {
     cp -a "$source_root/$dir" "$pkgdir/usr/lib/maho/$dir"
   done
 
+  install -Dm755 "$srcdir/build-maho-files/maho-files" \
+    "$pkgdir/usr/lib/maho/apps/maho-files/prebuilt/maho-files"
   install -Dm644 "$srcdir/release.json" \
     "$pkgdir/usr/lib/maho/share/maho/release.json"
   install -Dm755 "$source_root/packaging/arch/maho-install" \
