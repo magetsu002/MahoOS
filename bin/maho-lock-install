@@ -33,6 +33,23 @@ fail() {
     return 1
 }
 
+python_syntax_check() {
+    python - "$@" <<'PY_SYNTAX'
+import ast
+from pathlib import Path
+import sys
+
+for raw in sys.argv[1:]:
+    path = Path(raw)
+    try:
+        source = path.read_bytes()
+        compile(source, str(path), "exec", ast.PyCF_ONLY_AST, dont_inherit=True)
+    except (OSError, SyntaxError) as exc:
+        print(f"{path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+PY_SYNTAX
+}
+
 managed_runtime() {
     [ -f "$DEPLOY_ROOT/.managed-by-maho-lock-install" ] || return 1
     grep -Fxq "$RUNTIME_MARKER" "$DEPLOY_ROOT/.managed-by-maho-lock-install" 2>/dev/null
@@ -77,6 +94,10 @@ preflight() {
         && say "PASS  state probe source" \
         || { say "FAIL  state probe source missing"; failed=1; }
 
+    [ -r "$SOURCE_CONFIG/image_browser.py" ] \
+        && say "PASS  image browser source" \
+        || { say "FAIL  image browser source missing"; failed=1; }
+
     [ -r "$SOURCE_BINDS" ] \
         && say "PASS  canonical bind source" \
         || { say "FAIL  canonical bind source missing"; failed=1; }
@@ -97,8 +118,10 @@ preflight() {
         failed=1
     }
 
-    python -m py_compile "$SOURCE_CONFIG/state.py" || {
-        say "FAIL  state probe syntax"
+    python_syntax_check \
+        "$SOURCE_CONFIG/state.py" \
+        "$SOURCE_CONFIG/image_browser.py" || {
+        say "FAIL  Python helper syntax"
         failed=1
     }
 
@@ -172,7 +195,9 @@ stage_runtime() {
     printf '%s\n' "$RUNTIME_MARKER" > "$stage/.managed-by-maho-lock-install"
 
     bash -n "$stage/bin/maho-lock"
-    python -m py_compile "$stage/config/quickshell/maho-lock/state.py"
+    python_syntax_check \
+        "$stage/config/quickshell/maho-lock/state.py" \
+        "$stage/config/quickshell/maho-lock/image_browser.py"
 }
 
 install_bind() {

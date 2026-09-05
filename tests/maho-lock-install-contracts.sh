@@ -31,10 +31,15 @@ grep -Fq 'SUPER+L already exists outside' "$INSTALLER" || fail "existing SUPER+L
 grep -Fq 'Rolling back Maho Lock installation' "$INSTALLER" || fail "rollback path missing"
 grep -Fq 'hyprctl configerrors' "$INSTALLER" || fail "post-reload config verification missing"
 grep -Fq 'KEPT  user personalization state' "$INSTALLER" || fail "uninstall does not preserve personalization state"
+grep -Fq 'python_syntax_check' "$INSTALLER" || fail "side-effect-free Python syntax authority missing"
+grep -Fq 'ast.PyCF_ONLY_AST' "$INSTALLER" || fail "Python syntax check does not use parse-only compilation"
+if grep -Fq 'py_compile' "$INSTALLER"; then
+    fail "installer syntax validation can generate nondeterministic pyc files"
+fi
 if grep -Fq 'trap cleanup_stage RETURN' "$INSTALLER"; then
     fail "RETURN trap can delete staged runtime while install is still running"
 fi
-pass "installer ownership and rollback guards"
+pass "installer ownership, rollback, and deterministic-runtime guards"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -84,7 +89,13 @@ grep -Fq -- '-- maho-lock-bind:begin' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua
     || fail "live managed bind not installed"
 grep -Fq 'RETURN", hl.dsp.exec_cmd("kitty")' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" \
     || fail "installer damaged existing live bindings"
-pass "sandbox permanent install"
+
+if find "$XDG_DATA_HOME/maho-lock/current/config/quickshell/maho-lock" \
+    \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) \
+    -print -quit | grep -q .; then
+    fail "installed runtime contains generated Python bytecode"
+fi
+pass "sandbox permanent install is deterministic and bytecode-free"
 
 # Reinstallation must update in place without duplicating the managed bind.
 bash "$INSTALLER" install >/tmp/maho-lock-reinstall-contract.out 2>&1 \
@@ -92,7 +103,13 @@ bash "$INSTALLER" install >/tmp/maho-lock-reinstall-contract.out 2>&1 \
 
 COUNT="$(grep -Fc -- '-- maho-lock-bind:begin' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua")"
 [ "$COUNT" -eq 1 ] || fail "reinstall duplicated managed SUPER+L binding"
-pass "idempotent reinstall"
+
+if find "$XDG_DATA_HOME/maho-lock/current/config/quickshell/maho-lock" \
+    \( -type d -name '__pycache__' -o -type f -name '*.pyc' \) \
+    -print -quit | grep -q .; then
+    fail "reinstall generated Python bytecode"
+fi
+pass "idempotent reinstall remains deterministic"
 
 bash "$INSTALLER" status >/tmp/maho-lock-status-contract.out 2>&1 \
     || { cat /tmp/maho-lock-status-contract.out >&2; fail "installed status is not healthy"; }
