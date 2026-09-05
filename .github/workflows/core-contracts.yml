@@ -33,6 +33,7 @@ jobs:
             bin/maho-guard \
             bin/maho-contain \
             bin/maho-shell \
+            bin/maho-session \
             bin/maho-setup \
             lib/authority.sh \
             lib/state.sh \
@@ -63,6 +64,7 @@ jobs:
             tests/security-boundaries.sh \
             tests/setup-contracts.sh \
             tests/environment-observers.sh \
+            tests/session-contracts.sh \
             tests/shell-contracts.sh
 
       - name: Python syntax
@@ -186,6 +188,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/environment-observers.sh
+
+      - name: Maho graphical session contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/session-contracts.sh
 
       - name: Maho Shell UI contracts
         shell: bash

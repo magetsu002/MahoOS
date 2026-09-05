@@ -1,13 +1,12 @@
 [Unit]
-Description=Maho adaptive Quickshell desktop surface
+Description=Maho Dock desktop surface
 After=graphical-session.target maho-hyprland-session.target
 PartOf=maho-hyprland-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/maho-shell run
-SuccessExitStatus=143
+ExecStart=%h/.local/bin/maho-dock run
 Restart=on-failure
 RestartSec=2
 
