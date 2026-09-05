@@ -11,6 +11,13 @@ ShellRoot {
 
     property bool wasSecure: false
 
+    function quitAfterSecureRelease() {
+        if (wasSecure && !sessionLock.secure && !sessionLock.locked) {
+            console.info("maho-lock lifecycle: secure release complete; exiting")
+            Qt.quit()
+        }
+    }
+
     MahoLockTheme {
         id: theme
     }
@@ -37,13 +44,18 @@ ShellRoot {
         onSecureChanged: {
             console.info("maho-lock lifecycle: session secure=" + secure
                 + "; locked=" + locked)
-            if (secure) {
+            if (secure)
                 root.wasSecure = true
-            } else if (root.wasSecure && !locked) {
-                // Successful release has completed. This locker is one-shot;
-                // leave no dormant Quickshell instance behind.
-                Qt.quit()
-            }
+
+            root.quitAfterSecureRelease()
+        }
+
+        onLockedChanged: {
+            console.info("maho-lock lifecycle: session locked=" + locked
+                + "; secure=" + secure)
+            // secure and locked can fall in either order. Exit only after both
+            // confirm that the successfully authenticated release is complete.
+            root.quitAfterSecureRelease()
         }
 
         Component.onCompleted: locked = true
