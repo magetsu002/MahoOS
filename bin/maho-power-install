@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_RUNTIME="$ROOT/bin/maho-power"
+SOURCE_INSTALLER="$ROOT/bin/maho-power-install"
 SOURCE_POWER="$ROOT/config/quickshell/maho-power"
 SOURCE_VIEW="$ROOT/config/quickshell/maho-shell/MahoPowerView.qml"
 SOURCE_CENTER="$ROOT/config/quickshell/maho-shell/ControlCenter.qml"
@@ -111,6 +112,7 @@ preflight() {
 
     for file in \
         "$SOURCE_RUNTIME" \
+        "$SOURCE_INSTALLER" \
         "$SOURCE_POWER/shell.qml" \
         "$SOURCE_POWER/PowerBackdrop.qml" \
         "$SOURCE_VIEW" \
@@ -130,6 +132,11 @@ preflight() {
 
     bash -n "$SOURCE_RUNTIME" || {
         say 'FAIL  Power runtime syntax'
+        failed=1
+    }
+
+    bash -n "$SOURCE_INSTALLER" || {
+        say 'FAIL  Power installer syntax'
         failed=1
     }
 
@@ -224,6 +231,7 @@ snapshot() {
     local backup="$1"
 
     mkdir -p "$backup"
+    install -m 0755 "$SOURCE_INSTALLER" "$backup/maho-power-install"
 
     if [ -e "$DEPLOY_ROOT" ]; then
         cp -a -- "$DEPLOY_ROOT" "$backup/runtime"
@@ -335,8 +343,7 @@ install_power() {
     cat > "$backup/rollback.sh" <<EOF_ROLLBACK
 #!/usr/bin/env bash
 set -euo pipefail
-INSTALLER="$ROOT/bin/maho-power-install"
-exec "\$INSTALLER" rollback "$backup"
+exec "$backup/maho-power-install" rollback "$backup"
 EOF_ROLLBACK
     chmod 0700 "$backup/rollback.sh"
 
