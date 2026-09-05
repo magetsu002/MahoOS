@@ -1,0 +1,35 @@
+name: setup-live-migration
+
+on:
+  push:
+    branches:
+      - main
+      - integration/v1-cleanup
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-setup tests/setup-contracts.sh tests/setup-live-migration-contracts.sh
+
+      - name: Recovered live ownership contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/setup-live-migration-contracts.sh
+
+      - name: Durable setup lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/setup-contracts.sh
