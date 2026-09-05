@@ -145,4 +145,7 @@ python -m json.tool "$ROOT/config/ownership.json" >/dev/null
 python -m json.tool "$ROOT/config/intent.json" >/dev/null
 echo "PASS"
 
+echo "=== Palette V2 behavior and compatibility ==="
+python "$ROOT/tests/palette-v2.py"
+
 echo "ALL CORE CONTRACTS PASS"

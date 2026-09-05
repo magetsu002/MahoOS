@@ -7,102 +7,16 @@ mode="$2"
 out="$3"
 
 command -v magick >/dev/null 2>&1 || {
-    echo "basic backend requires ImageMagick" >&2
+    echo "basic Palette V2 backend requires ImageMagick" >&2
     exit 1
 }
 
-sample="$(
-    magick \
-        "${wall}[0]" \
-        -resize '1x1!' \
-        txt:- 2>/dev/null \
-    | tail -n1
+root="$(
+    cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &&
+    pwd
 )"
 
-base="$(
-    printf '%s\n' "$sample" |
-    grep -oE '#[0-9A-Fa-f]{6,8}' |
-    head -n1 |
-    cut -c1-7
-)"
-
-[ -n "$base" ] || {
-    echo "could not sample wallpaper color" >&2
-    exit 1
-}
-
-python - "$base" "$mode" "$out" <<'PY_BASIC'
-import colorsys
-import json
-import sys
-from pathlib import Path
-
-base = sys.argv[1]
-mode = sys.argv[2]
-out = Path(sys.argv[3])
-
-rgb = tuple(
-    int(base[i:i+2], 16) / 255
-    for i in (1, 3, 5)
-)
-
-h, l, s = colorsys.rgb_to_hls(*rgb)
-
-def color(hue, light, sat):
-    r, g, b = colorsys.hls_to_rgb(
-        hue % 1.0,
-        max(0.0, min(1.0, light)),
-        max(0.0, min(1.0, sat)),
-    )
-
-    return "#{:02x}{:02x}{:02x}".format(
-        round(r * 255),
-        round(g * 255),
-        round(b * 255),
-    )
-
-sat = max(0.35, min(0.80, s))
-
-if mode == "dark":
-    colors = {
-        "background": color(h, 0.075, sat * 0.35),
-        "surface": color(h, 0.10, sat * 0.30),
-        "surface_container": color(h, 0.14, sat * 0.30),
-        "surface_container_high": color(h, 0.19, sat * 0.30),
-        "foreground": color(h, 0.91, sat * 0.18),
-        "muted": color(h, 0.67, sat * 0.20),
-        "primary": color(h, 0.77, sat),
-        "on_primary": color(h, 0.16, sat * 0.45),
-        "secondary": color(h + 0.09, 0.74, sat * 0.55),
-        "on_secondary": color(h + 0.09, 0.15, sat * 0.35),
-        "tertiary": color(h - 0.09, 0.75, sat * 0.60),
-        "on_tertiary": color(h - 0.09, 0.15, sat * 0.35),
-        "error": "#ffb4ab",
-        "on_error": "#690005",
-        "outline": color(h, 0.60, sat * 0.15),
-        "outline_variant": color(h, 0.35, sat * 0.15),
-    }
-else:
-    colors = {
-        "background": color(h, 0.97, sat * 0.10),
-        "surface": color(h, 0.95, sat * 0.10),
-        "surface_container": color(h, 0.91, sat * 0.12),
-        "surface_container_high": color(h, 0.87, sat * 0.14),
-        "foreground": color(h, 0.13, sat * 0.22),
-        "muted": color(h, 0.40, sat * 0.20),
-        "primary": color(h, 0.40, sat),
-        "on_primary": "#ffffff",
-        "secondary": color(h + 0.09, 0.42, sat * 0.60),
-        "on_secondary": "#ffffff",
-        "tertiary": color(h - 0.09, 0.42, sat * 0.65),
-        "on_tertiary": "#ffffff",
-        "error": "#ba1a1a",
-        "on_error": "#ffffff",
-        "outline": color(h, 0.48, sat * 0.18),
-        "outline_variant": color(h, 0.76, sat * 0.14),
-    }
-
-out.write_text(
-    json.dumps(colors, indent=2, sort_keys=True) + "\n"
-)
-PY_BASIC
+# Palette V2 performs the one bounded image sample during canonicalization.
+# This backend only satisfies the existing raw-backend transaction contract;
+# its fallback values are validated but never promoted over analyzed colors.
+cp "$root/backends/basic/palette.raw.json" "$out"
