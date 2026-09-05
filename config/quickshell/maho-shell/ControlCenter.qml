@@ -13,6 +13,7 @@ Item {
     property var notifyStatus
     property date now: new Date()
     property bool powerExpanded: false
+    readonly property real quickActionsTop: panelColumn.y + quickActions.y
 
     signal closeRequested()
     signal wifiRequested()
@@ -583,8 +584,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.bottom: quickActions.top
-        anchors.bottomMargin: 2
+        height: Math.max(0, center.quickActionsTop - 2)
         color: center.theme ? center.theme.alpha(center.theme.background, 0.11) : Qt.rgba(0, 0, 0, 0.10)
         opacity: center.powerExpanded ? 1 : 0
         visible: opacity > 0.001 || center.powerExpanded
@@ -604,8 +604,7 @@ Item {
         id: powerDropdown
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: quickActions.top
-        anchors.bottomMargin: 8
+        y: center.quickActionsTop - height - 8
         height: compactPower.implicitHeight
         visible: opacity > 0.001 || center.powerExpanded
         opacity: center.powerExpanded ? 1 : 0
