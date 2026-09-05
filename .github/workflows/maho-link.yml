@@ -25,7 +25,8 @@ jobs:
             tests/maho-link-drag-startup-contracts.sh \
             tests/maho-link-shared-position-contracts.sh \
             tests/maho-link-bluetooth-session-contracts.sh \
-            tests/maho-link-single-hover-contracts.sh
+            tests/maho-link-single-hover-contracts.sh \
+            tests/maho-link-compositor-contracts.sh
 
       - name: Python syntax
         run: |
@@ -58,3 +59,8 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/maho-link-single-hover-contracts.sh
+
+      - name: Link compositor contracts
+        run: |
+          set -euo pipefail
+          bash tests/maho-link-compositor-contracts.sh
