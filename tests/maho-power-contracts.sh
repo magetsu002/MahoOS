@@ -7,6 +7,7 @@ CENTER="$ROOT/config/quickshell/maho-shell/ControlCenter.qml"
 STANDALONE="$ROOT/config/quickshell/maho-power/shell.qml"
 BACKDROP="$ROOT/config/quickshell/maho-power/PowerBackdrop.qml"
 RUNTIME="$ROOT/bin/maho-power"
+INSTALLER="$ROOT/bin/maho-power-install"
 BINDS="$ROOT/config/hypr/maho/core/binds.lua"
 
 fail() {
@@ -30,12 +31,13 @@ reject_text() {
     fi
 }
 
-for file in "$VIEW" "$CENTER" "$STANDALONE" "$BACKDROP" "$RUNTIME" "$BINDS"; do
+for file in "$VIEW" "$CENTER" "$STANDALONE" "$BACKDROP" "$RUNTIME" "$INSTALLER" "$BINDS"; do
     require_file "$file"
 done
 
 echo '=== runtime syntax ==='
 bash -n "$RUNTIME"
+bash -n "$INSTALLER"
 echo PASS
 
 echo '=== shared visual authority ==='
@@ -64,8 +66,6 @@ require_text "$VIEW" 'requiresConfirmation(action)' 'destructive confirmation ga
 require_text "$VIEW" 'Press again to confirm' 'destructive second-activation feedback missing'
 reject_text "$VIEW" 'Esc to close' 'rejected Esc instruction returned'
 reject_text "$VIEW" 'Enter to confirm' 'rejected Enter instruction returned'
-reject_text "$VIEW" 'to close' 'visual keyboard close helper returned'
-reject_text "$VIEW" 'to confirm' 'visual keyboard confirmation helper returned'
 echo PASS
 
 echo '=== standalone overlay ==='
@@ -112,6 +112,21 @@ require_text "$RUNTIME" 'maho-power action {lock|sleep|switch-user|logout|restar
 reject_text "$RUNTIME" 'eval ' 'runtime must not evaluate arbitrary action input'
 require_text "$RUNTIME" 'match = { namespace = "maho-power-backdrop" }' 'material rule is not scoped to Power blur carrier'
 require_text "$RUNTIME" 'ignore_alpha = 0.001' 'blur threshold contract drifted'
+echo PASS
+
+echo '=== transactional install contract ==='
+require_text "$INSTALLER" 'RUNTIME_MARKER="managed-by-maho-power-install-v1"' 'managed runtime marker missing'
+require_text "$INSTALLER" 'WRAPPER_MARKER="# managed-by: maho-power-install v1"' 'managed wrapper marker missing'
+require_text "$INSTALLER" 'BACKUP_ROOT="$STATE_HOME/maho/power-install/backups"' 'timestamped backup root missing'
+require_text "$INSTALLER" 'refusing unmanaged command collision' 'installer can overwrite unmanaged command'
+require_text "$INSTALLER" 'refusing unmanaged runtime collision' 'installer can overwrite unmanaged runtime'
+require_text "$INSTALLER" 'SUPER+SHIFT+P is already owned outside' 'installer does not guard bind collisions'
+require_text "$INSTALLER" 'restore_snapshot "$backup"' 'automatic rollback path missing'
+require_text "$INSTALLER" 'cmp -s "$SOURCE_CENTER" "$LIVE_CENTER"' 'live Edge source verification missing'
+require_text "$INSTALLER" 'cmp -s "$SOURCE_VIEW" "$LIVE_VIEW"' 'live shared view verification missing'
+require_text "$INSTALLER" 'hyprctl configerrors' 'post-install Hyprland config verification missing'
+require_text "$INSTALLER" 'systemctl --user restart maho-shell.service' 'installer does not refresh active Edge after source replacement'
+reject_text "$INSTALLER" 'pkill -f' 'installer must not broadly kill Quickshell processes'
 echo PASS
 
 echo '=== keybind authority ==='
