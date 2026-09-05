@@ -66,6 +66,64 @@ bind_block_present() {
         && grep -Fq -- "$BIND_END" "$LIVE_BINDS"
 }
 
+bind_marker_present() {
+    [ -f "$LIVE_BINDS" ] || return 1
+    grep -Fq -- "$BIND_BEGIN" "$LIVE_BINDS" \
+        || grep -Fq -- "$BIND_END" "$LIVE_BINDS"
+}
+
+bind_block_well_formed() {
+    local source="$1"
+    [ "$(grep -Fxc -- "$BIND_BEGIN" "$source" || true)" -eq 1 ] \
+        && [ "$(grep -Fxc -- "$BIND_END" "$source" || true)" -eq 1 ] \
+        && awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+            $0 == begin { if (opened || closed) exit 1; opened = 1; next }
+            $0 == end   { if (!opened || closed) exit 1; closed = 1; next }
+            END         { if (!opened || !closed) exit 1 }
+        ' "$source"
+}
+
+managed_bind_migratable() {
+    local source="$1" block
+    bind_block_well_formed "$source" || return 1
+    block="$(awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+        $0 == begin { copying = 1 }
+        copying     { print }
+        $0 == end   { copying = 0 }
+    ' "$source")"
+
+    grep -Fq '"$HOME/.local/bin/maho-lock"' <<<"$block" || return 1
+    grep -Fq 'mainMod .. " + CTRL + L"' <<<"$block" \
+        || grep -Fq 'mainMod .. " + L"' <<<"$block"
+}
+
+managed_bind_healthy() {
+    local source="${1:-$LIVE_BINDS}" block
+    bind_block_well_formed "$source" || return 1
+    block="$(awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+        $0 == begin { copying = 1 }
+        copying     { print }
+        $0 == end   { copying = 0 }
+    ' "$source")"
+
+    grep -Fq 'mainMod .. " + CTRL + L"' <<<"$block" \
+        && ! grep -Fq 'mainMod .. " + L"' <<<"$block" \
+        && grep -Fq '"$HOME/.local/bin/maho-lock"' <<<"$block"
+}
+
+unmanaged_target_bind_present() {
+    local source="$1" unmanaged
+    unmanaged="$(awk -v begin="$BIND_BEGIN" -v end="$BIND_END" '
+        $0 == begin { skipping = 1; next }
+        $0 == end   { skipping = 0; next }
+        !skipping   { print }
+    ' "$source")"
+
+    grep -Fq 'mainMod .. " + CTRL + L"' <<<"$unmanaged" \
+        || grep -Fq '"SUPER + CTRL + L"' <<<"$unmanaged" \
+        || grep -Fq "'SUPER + CTRL + L'" <<<"$unmanaged"
+}
+
 preflight() {
     local failed=0 dep
 
@@ -108,6 +166,16 @@ preflight() {
 
     if [ -r "$LIVE_BINDS" ]; then
         say "PASS  live Maho binds source"
+
+        if bind_marker_present && ! managed_bind_migratable "$LIVE_BINDS"; then
+            say "FAIL  existing Maho Lock managed bind block is malformed or unknown"
+            failed=1
+        elif unmanaged_target_bind_present "$LIVE_BINDS"; then
+            say "FAIL  SUPER+CTRL+L already exists outside the Maho Lock managed block"
+            failed=1
+        else
+            say "PASS  live SUPER+CTRL+L ownership available"
+        fi
     else
         say "FAIL  live Maho binds missing: $LIVE_BINDS"
         failed=1
@@ -125,12 +193,10 @@ preflight() {
         failed=1
     }
 
-    if grep -Fq -- "$BIND_BEGIN" "$SOURCE_BINDS" \
-        && grep -Fq -- "$BIND_END" "$SOURCE_BINDS" \
-        && grep -Fq 'mainMod .. " + L"' "$SOURCE_BINDS"; then
-        say "PASS  canonical SUPER+L binding"
+    if managed_bind_healthy "$SOURCE_BINDS"; then
+        say "PASS  canonical SUPER+CTRL+L binding"
     else
-        say "FAIL  canonical SUPER+L binding missing"
+        say "FAIL  canonical SUPER+CTRL+L binding missing or malformed"
         failed=1
     fi
 
@@ -155,7 +221,7 @@ append_bind_block() {
 -- maho-lock-bind:begin
 -- Secure Maho session lock.
 hl.bind(
-    mainMod .. " + L",
+    mainMod .. " + CTRL + L",
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
 )
 -- maho-lock-bind:end
@@ -216,13 +282,19 @@ install_bind() {
         return 1
     }
 
-    # Do not silently steal SUPER+L from an existing user binding.
-    if grep -Fq 'mainMod .. " + L"' "$LIVE_BINDS" && ! bind_block_present; then
-        fail "SUPER+L already exists outside the Maho Lock managed block"
+    if bind_marker_present && ! managed_bind_migratable "$LIVE_BINDS"; then
+        fail "existing Maho Lock managed bind block is malformed or has unknown ownership"
         return 1
     fi
 
     remove_managed_bind_block "$LIVE_BINDS" "$working"
+
+    # Refuse the exact target chord when it is owned outside our managed block.
+    if unmanaged_target_bind_present "$working"; then
+        fail "SUPER+CTRL+L already exists outside the Maho Lock managed block"
+        return 1
+    fi
+
     append_bind_block "$working"
     mv -f "$working" "$LIVE_BINDS"
 }
@@ -239,7 +311,7 @@ verify_live() {
         return 1
     }
 
-    bind_block_present || return 1
+    managed_bind_healthy || return 1
     managed_wrapper || return 1
     managed_runtime || return 1
     return 0
@@ -326,7 +398,7 @@ install() {
         fail "binding installation failed; inspect $backup"
         return 1
     fi
-    say "PASS  SUPER+L binding staged"
+    say "PASS  SUPER+CTRL+L binding staged"
 
     if verify_live; then
         rm -rf "$stage" "$bind_work"
@@ -360,10 +432,10 @@ status() {
         failed=1
     fi
 
-    if bind_block_present; then
-        say "PASS  SUPER+L managed binding"
+    if managed_bind_healthy; then
+        say "PASS  SUPER+CTRL+L managed binding"
     else
-        say "INFO  SUPER+L managed binding missing"
+        say "INFO  SUPER+CTRL+L managed binding missing or unhealthy"
         failed=1
     fi
 
@@ -386,10 +458,15 @@ uninstall() {
 
     say "Maho Lock uninstall"
 
+    if bind_marker_present && ! managed_bind_migratable "$LIVE_BINDS"; then
+        fail "refusing to remove malformed or unknown managed bind block"
+        return 1
+    fi
+
     if bind_block_present; then
         remove_managed_bind_block "$LIVE_BINDS" "$tmp"
         mv -f "$tmp" "$LIVE_BINDS"
-        say "REMOVED  managed SUPER+L binding"
+        say "REMOVED  managed SUPER+CTRL+L binding"
     fi
 
     if managed_wrapper; then
@@ -428,9 +505,9 @@ Usage:
 
 The installer is user-scoped and requires no root access. It deploys an
 immutable Maho Lock runtime under ~/.local/share, installs ~/.local/bin/maho-lock,
-and wires the managed SUPER+L Hyprland binding with backup + rollback.
+and wires the managed SUPER+CTRL+L Hyprland binding with backup + rollback.
 
-Existing unmanaged commands, runtimes, and SUPER+L bindings are never replaced.
+Existing unmanaged commands, runtimes, and SUPER+CTRL+L bindings are never replaced.
 Profile/wallpaper personalization state is preserved during uninstall.
 EOF_HELP
         exit 2

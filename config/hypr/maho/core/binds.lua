@@ -16,7 +16,7 @@ hl.bind(
 -- Maho Lock installer so the live binding can be upgraded or removed safely.
 -- maho-lock-bind:begin
 hl.bind(
-    mainMod .. " + L",
+    mainMod .. " + CTRL + L",
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
 )
 -- maho-lock-bind:end
