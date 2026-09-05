@@ -27,6 +27,7 @@ ShellRoot {
     property bool placementValid: false
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
+    property bool bluetoothGeometryReady: true
     property string modeAfterPlacementSave: ""
     property real requestedPlacementX: -1
     property real requestedPlacementY: -1
@@ -237,6 +238,8 @@ ShellRoot {
             return
         if (activeMode === "wifi" && !wifi.statusReady)
             return
+        if (activeMode === "bluetooth" && !bluetoothGeometryReady)
+            return
         applyPlacement()
         linkSurface.shown = true
         linkSurface.forceActiveFocus()
@@ -245,6 +248,7 @@ ShellRoot {
     function showMode(mode, reloadPlacement) {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
+        bluetoothRevealTimer.stop()
         closeAfterPlacementSave = false
         backdropActive = true
         presented = true
@@ -254,9 +258,16 @@ ShellRoot {
             return true
         }
         const modeChanged = requestedMode !== activeMode
+
+        // Hide the old geometry before switching section. Bluetooth is taller
+        // than compact Wi-Fi, and changing section while the card is visible
+        // lets the existing 190 ms height behavior paint a growing second edge
+        // underneath the entrance animation.
+        linkSurface.shown = false
+        bluetoothGeometryReady = requestedMode !== "bluetooth"
         activeMode = requestedMode
         linkSurface.page = "main"
-        linkSurface.shown = false
+
         if (reloadPlacement || modeChanged || !placementReady)
             requestPlacementLoad()
         else
@@ -264,6 +275,11 @@ ShellRoot {
 
         if (root.activeMode === "bluetooth") {
             bluetooth.refresh()
+            // MahoLink's accepted height behavior is 190 ms. Keep Bluetooth
+            // fully transparent until that hidden geometry has settled, then
+            // reveal the one final-sized surface. Wi-Fi retains its existing
+            // status-ready gate and compact-height motion.
+            bluetoothRevealTimer.restart()
         } else {
             // Do not paint default/offline placeholders as truth. Status is a
             // fast NetworkManager query; nearby-network discovery is independent.
@@ -281,6 +297,7 @@ ShellRoot {
         if (!overlayOpen)
             return
         modeAfterPlacementSave = ""
+        bluetoothRevealTimer.stop()
         backdropActive = false
         overlayOpen = false
         linkSurface.shown = false
@@ -304,12 +321,32 @@ ShellRoot {
         }
     }
 
+    // Escape is an overlay-level command, not a child-focus command. The old
+    // MahoLink-local Keys handler only worked reliably after pointer focus had
+    // entered the surface. ApplicationShortcut keeps dismissal authoritative
+    // regardless of which row, field, or blank area currently owns focus.
+    Shortcut {
+        sequence: "Escape"
+        context: Qt.ApplicationShortcut
+        enabled: root.overlayOpen
+        onActivated: root.closeOverlay()
+    }
+
     Component.onCompleted: openDelay.restart()
 
     Timer {
         id: openDelay
         interval: 12
         onTriggered: root.showOverlay()
+    }
+
+    Timer {
+        id: bluetoothRevealTimer
+        interval: 205
+        onTriggered: {
+            root.bluetoothGeometryReady = true
+            root.revealSurfaceWhenReady()
+        }
     }
 
     Timer {
@@ -348,6 +385,9 @@ ShellRoot {
 
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "maho-link"
+        WlrLayershell.keyboardFocus: root.overlayOpen
+            ? WlrKeyboardFocus.Exclusive
+            : WlrKeyboardFocus.None
 
         Rectangle {
             anchors.fill: parent
