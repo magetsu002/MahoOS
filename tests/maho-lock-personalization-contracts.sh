@@ -67,4 +67,36 @@ grep -Fq 'property string avatarBrowsePath' "$STATE_QML" || fail "avatar browse 
 grep -Fq 'property string wallpaperBrowsePath' "$STATE_QML" || fail "wallpaper browse state missing"
 grep -Fq 'function openImageBrowser(mode)' "$STATE_QML" || fail "mode-aware browser opener missing"
 grep -Fq 'requestedBrowserQuery' "$STATE_QML" || fail "queued search state missing"
+grep -Fq 'SwitchToGreeter' "$STATE_PY" || fail "SDDM switch-user support missing"
+
+python3 - "$STATE_PY" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("maho_lock_state", path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+original_which = module.shutil.which
+original_run = module.run
+try:
+    module.shutil.which = lambda name: "/usr/bin/busctl" if name == "busctl" else None
+    module.run = lambda args: "b true\n" if "get-property" in args else ""
+    command = module.switch_user_command()
+finally:
+    module.shutil.which = original_which
+    module.run = original_run
+
+assert command == [
+    "/usr/bin/busctl",
+    "--system",
+    "call",
+    "org.freedesktop.DisplayManager",
+    "/org/freedesktop/DisplayManager/Seat0",
+    "org.freedesktop.DisplayManager.Seat",
+    "SwitchToGreeter",
+]
+PY
 pass "separate PFP/wallpaper pickers remember defaults and provide bounded recursive search"

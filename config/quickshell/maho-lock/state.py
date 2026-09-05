@@ -102,6 +102,28 @@ def keyboard_layout():
 
 
 def switch_user_command():
+    busctl = shutil.which("busctl")
+    if busctl:
+        can_switch = run([
+            busctl,
+            "--system",
+            "get-property",
+            "org.freedesktop.DisplayManager",
+            "/org/freedesktop/DisplayManager/Seat0",
+            "org.freedesktop.DisplayManager.Seat",
+            "CanSwitch",
+        ]).strip()
+        if can_switch == "b true":
+            return [
+                busctl,
+                "--system",
+                "call",
+                "org.freedesktop.DisplayManager",
+                "/org/freedesktop/DisplayManager/Seat0",
+                "org.freedesktop.DisplayManager.Seat",
+                "SwitchToGreeter",
+            ]
+
     if shutil.which("dm-tool"):
         return ["dm-tool", "switch-to-greeter"]
     if shutil.which("gdmflexiserver"):
