@@ -25,6 +25,15 @@ hl.bind(
 )
 -- maho-lock-bind:end
 
+-- Power & Session. This opens the standalone Maho Power surface; the same
+-- PowerSession view is also embedded in expanded Maho Edge.
+-- maho-power-bind:begin
+hl.bind(
+    mainMod .. " + SHIFT + P",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-power" open]])
+)
+-- maho-power-bind:end
+
 -- Laptop media keys. On laptops the Fn layer normally reaches Hyprland as
 -- XF86 keysyms rather than as a literal Fn+F-key chord. These bindings mutate
 -- the real system services; Maho Shell observes those service changes and
