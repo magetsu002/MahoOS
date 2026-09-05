@@ -80,26 +80,12 @@ ShellRoot {
 
         Rectangle {
             anchors.fill: parent
-            color: theme.alpha(theme.background, 0.07)
+            color: theme.alpha(theme.background, 0.055)
             opacity: root.presented ? 1 : 0
 
             Behavior on opacity {
                 NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
             }
-        }
-
-        Rectangle {
-            id: depthShadow
-            anchors.centerIn: parent
-            width: powerView.width + 26
-            height: powerView.height + 26
-            radius: 44
-            color: Qt.rgba(0, 0, 0, 0.16)
-            opacity: root.presented ? 1 : 0
-            scale: root.presented ? 1 : 0.965
-
-            Behavior on opacity { NumberAnimation { duration: 155 } }
-            Behavior on scale { NumberAnimation { duration: 185; easing.type: Easing.OutCubic } }
         }
 
         MahoPowerView {
