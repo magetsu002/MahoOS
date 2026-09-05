@@ -80,7 +80,7 @@ ShellRoot {
 
         Rectangle {
             anchors.fill: parent
-            color: theme.alpha(theme.background, 0.18)
+            color: theme.alpha(theme.background, 0.07)
             opacity: root.presented ? 1 : 0
 
             Behavior on opacity {
@@ -91,10 +91,10 @@ ShellRoot {
         Rectangle {
             id: depthShadow
             anchors.centerIn: parent
-            width: Math.min(900, Math.max(720, overlay.width * 0.54))
-            height: Math.min(590, Math.max(500, overlay.height * 0.56))
-            radius: 40
-            color: Qt.rgba(0, 0, 0, 0.18)
+            width: powerView.width + 26
+            height: powerView.height + 26
+            radius: 44
+            color: Qt.rgba(0, 0, 0, 0.16)
             opacity: root.presented ? 1 : 0
             scale: root.presented ? 1 : 0.965
 
@@ -105,8 +105,8 @@ ShellRoot {
         MahoPowerView {
             id: powerView
             anchors.centerIn: parent
-            width: Math.min(860, Math.max(700, overlay.width * 0.52))
-            height: Math.min(570, Math.max(490, overlay.height * 0.55))
+            width: Math.min(860, Math.max(760, overlay.width * 0.56))
+            height: Math.min(570, Math.max(500, overlay.height * 0.57))
             theme: theme
             compact: false
             keyboardNavigation: true
