@@ -614,7 +614,13 @@ ShellRoot {
                     onBrightnessRequested: function(value) { brightness.setValue(value) }
 
                     onWifiRequested: { root.closePanel(); Quickshell.execDetached(["bash", Quickshell.env("HOME") + "/.local/bin/maho-link"]) }
-                    onBluetoothRequested: root.runShell("command -v bluetoothctl >/dev/null && kitty -e bluetoothctl")
+                    onBluetoothRequested: {
+                        root.closePanel()
+                        Quickshell.execDetached([
+                            Quickshell.env("HOME") + "/.local/bin/maho-link",
+                            "bluetooth"
+                        ])
+                    }
 
                     onWallpaperRequested: {
                         root.closePanel()
