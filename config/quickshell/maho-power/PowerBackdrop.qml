@@ -5,6 +5,8 @@ import Quickshell.Wayland
 PanelWindow {
     id: root
 
+    property bool active: true
+
     anchors {
         top: true
         bottom: true
@@ -12,6 +14,7 @@ PanelWindow {
         right: true
     }
 
+    visible: root.active
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     aboveWindows: true
