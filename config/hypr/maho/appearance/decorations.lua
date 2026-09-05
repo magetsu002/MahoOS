@@ -27,15 +27,16 @@ hl.config({
     },
 })
 
--- Maho Link is a layer-shell surface, so ordinary window blur is not enough.
--- Keep the rule namespace-scoped: connectivity glass gets real compositor blur
--- without changing the material or performance characteristics of other layers.
+-- Maho Link uses a dedicated, inputless Top-layer blur carrier. Do not blur
+-- the interactive full-screen Overlay surface: its dim veil and translucent
+-- Wi-Fi/Bluetooth card animate, and using that moving surface as Hyprland's
+-- blur mask produces a visible second/ghost layer beneath the foreground.
 hl.layer_rule({
     name = "maho-link-material",
     match = {
-        namespace = "maho-link",
+        namespace = "maho-link-backdrop",
     },
     blur = true,
-    ignore_alpha = 0.08,
+    ignore_alpha = 0.001,
     xray = false,
 })
