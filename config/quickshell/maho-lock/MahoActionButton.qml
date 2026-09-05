@@ -6,6 +6,9 @@ Item {
     required property var theme
     property string iconName: "power"
     property string label: ""
+    property string fontFamily: "Noto Sans"
+    property int fontWeight: Font.Normal
+    property real fontAxisWeight: 400
     property bool enabled: true
     signal triggered()
 
@@ -78,7 +81,9 @@ Item {
         text: root.label
         color: Qt.rgba(0.957, 0.976, 1.0, root.hovered ? 1.0 : 0.98)
         font.pixelSize: 13
-        font.weight: Font.Normal
+        font.family: root.fontFamily
+        font.weight: root.fontWeight
+        font.variableAxes: ({ "wght": root.fontAxisWeight })
         style: Text.Raised
         styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.30)
 

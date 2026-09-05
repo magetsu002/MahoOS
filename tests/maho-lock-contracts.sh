@@ -17,9 +17,11 @@ PREVIEW="$LOCK/preview.qml"
 AUTH="$LOCK/MahoLockAuth.qml"
 ICON="$LOCK/MahoIconV2.qml"
 LAUNCHER="$ROOT/bin/maho-lock"
+ROUNDED_FONT="$LOCK/assets/Nunito-Variable.ttf"
+ROUNDED_LICENSE="$LOCK/assets/Nunito-OFL.txt"
 fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
 pass(){ printf 'PASS  %s\n' "$*"; }
-for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$GLASS" "$ACTION" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
+for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$GLASS" "$ACTION" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER" "$ROUNDED_FONT" "$ROUNDED_LICENSE"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
 bash -n "$LAUNCHER"
 python3 - "$PROBE" "$BROWSER" <<'PY'
 import ast
@@ -83,6 +85,17 @@ grep -Fq 'shadowEnabled: true' "$GLASS" || fail "glass separation shadow missing
 grep -Fq 'root.editable && root.hovered ? 0.78 : 0.62' "$AVATAR" || fail "avatar separation ring drifted"
 grep -Fq 'Qt.rgba(0.031, 0.106, 0.227, 0.13)' "$ACTION" || fail "corner action glass treatment missing"
 pass "focused contrast and glass hierarchy"
+
+grep -Fq 'mipmap: false' "$BASE" || fail "wallpaper texture filtering can re-soften the image"
+if grep -Eq 'id: wallpaperEffect|id: wallpaperTexture|blurMax: 32|sourceSize\.(width|height): root\.(width|height)' "$BASE"; then
+    fail "destructive full-screen wallpaper resampling remains"
+fi
+grep -Fq 'source: "assets/Nunito-Variable.ttf"' "$BASE" || fail "rounded UI typeface is not bundled"
+grep -Fq 'MAHO_LOCK_TYPOGRAPHY' "$BASE" || fail "classic typography fallback is missing"
+grep -Fq 'font.family: root.uiFontFamily' "$BASE" || fail "rounded typography is not applied"
+grep -Fq 'useRoundedTypography ? 600 : 400' "$BASE" || fail "rounded typography weight-axis contract drifted"
+grep -Fq 'font.variableAxes: ({ "wght": root.uiAxisWeight })' "$BASE" || fail "rounded variable-font weight is not pinned"
+pass "native wallpaper fidelity and reversible rounded typography"
 
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V7 lost accepted base hierarchy"
 grep -Fq 'MahoAvatarControl {' "$VIEW" || fail "geometric avatar control missing"

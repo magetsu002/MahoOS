@@ -1,58 +1,60 @@
 # Maho Lock visual fidelity QA
 
-- Source visual truth: `/home/magetsu/Downloads/maho-lock-target.png`
-- Corner-action feedback crops: `/tmp/codex-clipboard-af295688-c6db-433f-a06d-bd38ae26f614.png`, `/tmp/codex-clipboard-de1dfcf1-5d69-4faf-bc18-32062ed75bc0.png`
-- Baseline live screenshot: `/home/magetsu/Downloads/maho-lock-before-fidelity-20260905.png`
-- Implementation screenshot: `/home/magetsu/Downloads/maho-lock-final-installed-20260905.png`
-- Full comparison: `/home/magetsu/Downloads/maho-lock-target-vs-final-installed-20260905.png`
-- Focused comparison: `/home/magetsu/Downloads/maho-lock-target-vs-final-installed-focus-20260905.png`
+- Original lock target: `/home/magetsu/Downloads/maho-lock-target.png`
+- Wallpaper source visual truth: `/home/magetsu/Downloads/rize3.png`
+- User-reported blurred baseline: `/tmp/codex-clipboard-4660f51b-de23-4aa7-b9fe-f0d078f17552.png`
+- Installed implementation screenshot: `/home/magetsu/Downloads/maho-lock-final-installed-sharp-rounded-20260905.png`
+- Baseline vs installed comparison: `/home/magetsu/Downloads/maho-lock-before-vs-sharp-rounded-20260905.png`
+- Source vs installed full comparison: `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-20260905.png`
+- Source vs installed focused comparison: `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-focus-20260905.png`
+- Rounded vs classic typography comparison: `/home/magetsu/Downloads/maho-lock-rounded-vs-classic-font-20260905.png`
 - Real viewport: 1600 × 1000 logical pixels at 1.6 output scale; 2560 × 1600 captured pixels
-- Source pixels: 1672 × 941 (16:9)
+- Wallpaper source pixels: 1672 × 941 (16:9)
 - Implementation pixels: 2560 × 1600 (16:10)
-- Normalization: source was proportionally fit and letterboxed into 1280 × 800; implementation was proportionally resized to 1280 × 800. No geometry was inferred from the source because its aspect ratio differs from the real output and the real clock/layout geometry is an explicit product constraint.
-- State: live wallpaper and avatar, customization preview, password field focused, default controls visible
+- Normalization: the source was center-cropped to 1506 × 941 using the production `PreserveAspectCrop` rule, then both source and implementation were resized to 1280 × 800 for equal-size comparison. The focused cloud region is 450 × 260 in each half.
+- State: customization preview, password field focused, default controls visible. The avatar changed through user personalization during this iteration, so avatar content is intentionally excluded from this wallpaper/type QA.
 
 ## Full-view comparison evidence
 
-The final frame preserves the live wallpaper crop, clock implementation, two-dot colon, typography family, component placement, and control dimensions. Compared with the baseline, foreground hierarchy no longer collapses into the wallpaper: the date, greeting, authentication controls, helper copy, top status, and corner actions are immediately visible. The wallpaper remains vivid and no panel boundary is visible around the central stack.
+The source and installed views now retain the same cloud contours, fine sky streaks, character edges, crop, saturation relationship, and reflected horizon structure. The implementation remains modestly darker because the existing foreground-contrast veil is intentional. The prior baseline visibly spread every cloud edge and character silhouette; the installed view no longer does.
+
+On the same 900 × 520 top-left region, a Laplacian edge-deviation check increased from `0.0172671` in the blurred baseline to `0.0763066` in the installed render (4.42×). This metric is supporting evidence only; the equal-size visual comparison confirms that the added detail is real source detail rather than sharpening halos.
 
 ## Focused comparison evidence
 
-The focused comparison covers clock, date, greeting, avatar, password field, Unlock button, and preview helper. It confirms that the field now has a distinct cool-glass silhouette, luminous edge, internal highlight, and restrained shadow; the avatar has a cool ring and shadow; and the major text has stronger off-white contrast with a restrained separation shadow. The target's larger generated control geometry was intentionally not copied.
+The equal-size cloud crop shows that the installed render preserves the source's stepped painted cloud boundaries and thin white streaks. No visible blur halo, ringing, compression block, or texture duplication remains. The installed output is still an upscale because the 1672 × 941 source is smaller than the physical 2560 × 1600 panel, but it is no longer deliberately degraded by the lock renderer.
+
+The typography comparison confirms that Nunito at the explicit `wght=600` axis has rounded terminals and more visual weight than the classic Noto Sans/normal path. The clock is excluded from the font override and retains its previous family, weight, letter spacing, geometry, and two-dot colon. `MAHO_LOCK_TYPOGRAPHY=classic` successfully launched the previous Noto Sans/normal body-text path.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing family, sizes, weights, letter spacing, clock geometry, and two-dot colon are preserved. Only foreground alpha and restrained raised-text separation changed.
-- Spacing and layout rhythm: no positions, gaps, margins, dimensions, radii, or wallpaper crop rules changed.
-- Colors and visual tokens: primary/secondary/tertiary off-whites were strengthened; password/Unlock glass uses a cool blue tint with clearer borders; a broad radial focus veil was added without a detectable edge.
-- Image quality and asset fidelity: the wallpaper and avatar sources, crop modes, decode quality, and artwork are unchanged. The avatar only gained edge/halo separation.
+- Fonts and typography: non-clock UI now uses the bundled OFL Nunito variable font at weight axis 600; primary labels use the stronger rounded treatment. Sizes, line heights, wrapping, and positions are unchanged. The clock remains untouched. The previous Noto Sans/normal path is retained behind the `classic` environment override.
+- Spacing and layout rhythm: no frame positions, margins, component sizes, field geometry, radii, vertical rhythm, or wallpaper crop rule changed.
+- Colors and visual tokens: the established off-white hierarchy, glass opacity, focus veil, borders, and shadows are unchanged in this iteration.
+- Image quality and asset fidelity: the redundant logical-size decode, mipmap softening, `ShaderEffectSource`, and full-screen `MultiEffect` blur were removed. The wallpaper now renders directly from the user's original source with smooth aspect-crop scaling.
 - Copy and content: all visible labels and status text are unchanged.
 
 ## Comparison history
 
-1. Baseline — blocked.
-   - P1: password glass, placeholder/icons, date/greeting, helper text, and corner actions were washed out against the sky/reflection.
-   - P2: avatar edge merged into the blue scene; the interaction stack lacked local atmospheric separation.
-2. Pass 1 — blocked.
-   - Fixes: initial off-white tokens, focus veil, glass borders/shadows, avatar ring, and corner-action glass.
-   - Remaining P2: password silhouette and secondary copy still read too softly at normalized viewing scale.
-3. Passes 2–3 — blocked.
-   - Fixes: increased secondary/tertiary foreground strength, cool-glass opacity/edge definition, and veil strength while retaining the wallpaper.
-   - Remaining P2: corner labels still needed local contrast over the pale lower reflection.
-4. Pass 4 — passed.
-   - Fix: added a restrained dark-cool glass plate behind each corner action and strengthened its one-pixel text separation.
-   - Post-fix evidence: both corner actions are immediately readable while remaining tertiary; no actionable P0/P1/P2 mismatch remains within the explicit geometry-preservation scope.
-5. Corner-action polish — passed.
-   - User feedback: the inner circular icon plate created cramped, uneven negative space inside the outer capsule.
-   - Fix: removed the inner circle fill and border while retaining its 34-pixel alignment slot, leaving one clean glass button with balanced 8–9-pixel optical edge spacing.
-   - Post-fix evidence: `/home/magetsu/Downloads/maho-lock-clean-action-sleep-20260905.png` and `/home/magetsu/Downloads/maho-lock-clean-action-switch-user-20260905.png`.
+1. Original contrast fidelity pass — passed.
+   - Earlier P1/P2 findings covered washed-out text/glass, avatar separation, and disappearing corner actions.
+   - Those fixes and the clean single-capsule corner actions remain intact.
+2. Wallpaper/font baseline — blocked.
+   - P1: the wallpaper was decoded at the 1600 × 1000 logical UI size and then passed through a full-screen blur with `blur=0.34` and `blurMax=32`, before the compositor scaled it to 2560 × 1600.
+   - P2: the first rounded-font trial resolved the variable font's ExtraLight alias, producing rounded but thinner text than requested.
+3. Wallpaper quality fix — passed.
+   - Fix: direct native-source `Image` rendering, no logical `sourceSize`, no full-screen effect texture, and `mipmap: false`; crop and transition animation were preserved.
+   - Post-fix evidence: `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-20260905.png` and `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-focus-20260905.png`.
+4. Typography correction — passed.
+   - Fix: resolve the loaded family explicitly as `Nunito`, pin rounded body text to variable axis 600, keep the clock outside the override, and preserve the exact classic body family/weight path.
+   - Post-fix evidence: `/home/magetsu/Downloads/maho-lock-rounded-vs-classic-font-20260905.png` plus successful installed-runtime launches for default and `MAHO_LOCK_TYPOGRAPHY=classic` modes.
 
 ## Findings
 
-No actionable P0, P1, or P2 visual differences remain within scope. The target and live output have different aspect ratios and generated geometry; those differences are expected and intentionally preserved rather than reproduced.
+No actionable P0, P1, or P2 difference remains in the wallpaper-quality and rounded-type scope. The unavoidable source-to-panel upscale is a source-resolution constraint, not a rendering regression.
 
 ## Follow-up polish
 
-No P3 change is recommended before user inspection. Additional opacity would risk turning the focus treatment into a visible panel or flattening the wallpaper.
+- P3: for literal 1:1 panel detail, use a wallpaper at least 2560 × 1600 (or larger with a compatible crop). The current 1672 × 941 source now receives the best faithful scaling available without inventing detail.
 
 final result: passed

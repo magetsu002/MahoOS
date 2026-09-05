@@ -120,7 +120,13 @@ Item {
                 text: "Wallpaper"
                 color: Qt.rgba(1, 1, 1, 0.93)
                 font.pixelSize: 12 * root.uiScale
-                font.weight: Font.Medium
+                font.family: baseView.uiFontFamily
+                font.weight: baseView.useRoundedTypography
+                    ? Font.DemiBold
+                    : Font.Medium
+                font.variableAxes: ({
+                    "wght": baseView.useRoundedTypography ? 700 : 500
+                })
                 style: Text.Raised
                 styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
