@@ -11,7 +11,15 @@ ShellRoot {
     MahoLinkTheme { id: theme }
     MahoLinkState { id: wifi }
     BluetoothState { id: bluetooth }
+    LinkBackdrop { id: backdrop; active: root.backdropActive }
 
+    // Keep compositor blur on its own stable plane. The old architecture put
+    // blur on the same full-screen surface whose dim layer and Link card were
+    // animating, so Hyprland continuously recomputed the blur mask during the
+    // entrance motion. That reads as a second/ghost layer under both Wi-Fi and
+    // Bluetooth. The backdrop now exists before the foreground reveals and is
+    // unmapped immediately when dismissal begins.
+    property bool backdropActive: true
     property bool presented: true
     property bool overlayOpen: false
     property bool dragging: false
@@ -238,6 +246,7 @@ ShellRoot {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
         closeAfterPlacementSave = false
+        backdropActive = true
         presented = true
         overlayOpen = true
         if (placementSave.running || placementSavePending) {
@@ -272,6 +281,7 @@ ShellRoot {
         if (!overlayOpen)
             return
         modeAfterPlacementSave = ""
+        backdropActive = false
         overlayOpen = false
         linkSurface.shown = false
         if (placementSave.running || placementSavePending) {
