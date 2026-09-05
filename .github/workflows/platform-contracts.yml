@@ -1,0 +1,55 @@
+name: platform-contracts
+
+on:
+  push:
+    branches:
+      - main
+      - integration/v1-cleanup
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate platform policy schema surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m json.tool config/platform.json >/dev/null
+          python - <<'PY'
+          import json
+          import pathlib
+
+          p = json.loads(pathlib.Path('config/platform.json').read_text())
+          assert p['schema_version'] == 1
+          assert p['kernel']['primary_package'] == 'linux-cachyos'
+          assert p['kernel']['fallback_package'] == 'linux-cachyos-lts'
+          assert p['kernel']['fallback_visibility'] == 'recovery-or-advanced-only'
+          assert p['kernel']['custom_kernel_fork'] is False
+          assert p['system_states']['filesystem'] == 'btrfs'
+          assert p['system_states']['home_rollback_policy'] == 'exclude-personal-data-by-default'
+          assert p['recovery']['prefer_smallest_effective_scope'] is True
+          assert p['recovery']['destructive_actions_require_confirmation'] is True
+          PY
+
+      - name: Recovery policy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/recovery-policy.py
+
+      - name: Recovery planner syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import pathlib
+          for file in ('lib/maho_recovery_policy.py', 'tests/recovery-policy.py'):
+              ast.parse(pathlib.Path(file).read_text(), filename=file)
+          PY
