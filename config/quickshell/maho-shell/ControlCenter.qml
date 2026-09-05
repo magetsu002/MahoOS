@@ -642,10 +642,10 @@ Item {
             height: 14
             rotation: 45
             color: center.theme
-                ? center.theme.alpha(center.theme.surfaceHigh, 0.92)
-                : Qt.rgba(0.13, 0.14, 0.20, 0.92)
+                ? center.theme.alpha(center.theme.surfaceHigh, 0.98)
+                : Qt.rgba(0.16, 0.17, 0.23, 0.98)
             border.width: 0
-            z: -1
+            z: 1
         }
     }
 }
