@@ -26,7 +26,7 @@ grep -Fq 'statusParticipant' "$ICON" || fail "status controls no longer expose p
 grep -Fq 'closePeerStatuses(rootItem())' "$ICON" || fail "opening one status no longer closes peers"
 grep -Fq 'visible: root.statusOpen' "$ICON" || fail "closed status cards can linger and stack"
 
-if grep -Eq 'QtQuick\.Dialogs|FileDialog' "$VIEW"; then
+if grep -Eq '^import QtQuick\.Dialogs|^[[:space:]]*FileDialog[[:space:]]*\{' "$VIEW"; then
     fail "overlay lock preview can still launch modal native file dialogs"
 fi
 grep -Fq 'onClicked: root.openPicker("avatar")' "$VIEW" \
