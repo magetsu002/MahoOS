@@ -1,0 +1,28 @@
+name: maho-power
+
+on:
+  push:
+    branches:
+      - 'feat/maho-power-session'
+      - 'feat/maho-power-session-*'
+      - 'fix/maho-power-*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Power contracts
+        run: bash tests/maho-power-contracts.sh
+
+      - name: Existing Maho Shell contracts
+        run: bash tests/shell-contracts.sh
+
+      - name: Runtime syntax
+        run: bash -n bin/maho-power
