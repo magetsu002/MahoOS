@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,284 +11,296 @@ export XDG_DATA_HOME="$TMP/data"
 export XDG_STATE_HOME="$TMP/state"
 export XDG_CACHE_HOME="$TMP/cache"
 export PATH="$TMP/fake-bin:/usr/bin:/bin"
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$TMP/fake-bin"
+mkdir -p "$HOME/.local/bin" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$TMP/fake-bin"
 
 SYSTEMCTL_LOG="$TMP/systemctl.log"
 export MAHO_TEST_SYSTEMCTL_LOG="$SYSTEMCTL_LOG"
-cat > "$TMP/fake-bin/systemctl" <<'EOF_SYSTEMCTL'
+cat >"$TMP/fake-bin/systemctl" <<'EOF_SYSTEMCTL'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >> "$MAHO_TEST_SYSTEMCTL_LOG"
+printf '%s\n' "$*" >>"$MAHO_TEST_SYSTEMCTL_LOG"
 case "$*" in
-    '--user show-environment') exit 0 ;;
-    '--user is-active --quiet maho-wallpaper.service') exit 0 ;;
-    '--user is-active --quiet maho-observe.service') exit 0 ;;
-    '--user is-active --quiet maho-security.service') exit 0 ;;
-    '--user is-active --quiet maho-shell.service') exit 0 ;;
-    '--user is-active --quiet maho-notify.service') exit 1 ;;
-    *) exit 0 ;;
+  '--user show-environment') exit 0 ;;
+  '--user daemon-reload') [ "${MAHO_TEST_FAIL_DAEMON_RELOAD:-0}" = 1 ] && exit 1; exit 0 ;;
+  *) exit 0 ;;
 esac
 EOF_SYSTEMCTL
 chmod +x "$TMP/fake-bin/systemctl"
-
-cat > "$TMP/fake-bin/quickshell" <<'EOF_QUICKSHELL'
-#!/usr/bin/env bash
-exit 0
-EOF_QUICKSHELL
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$TMP/fake-bin/quickshell"
 chmod +x "$TMP/fake-bin/quickshell"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
-
 COMMANDS=(
-    mahoctl
-    maho-theme
-    maho-wallpaper
-    maho-wallpaper-session
-    maho-observe
-    maho-adapt
-    maho-provenance
-    maho-security
-    maho-security-monitor
-    maho-guard
-    maho-contain
-    maho-shell
-    maho-notify
-    maho-session
-    maho-launcher
-    maho-dock
-    maho-files
-    maho-link
-    maho-lock
-    maho-power
-    maho-clipboard
-    maho-clipboard-history
-    maho-setup
+  mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
+  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard
+  maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
+  maho-files maho-link maho-lock maho-power maho-clipboard
+  maho-clipboard-history maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service)
-GRAPHICAL_UNITS=(
-    maho-awww-daemon.service
-    maho-wallpaper.service
-    maho-shell.service
-    maho-dock.service
-    maho-notify.service
-    maho-clipboard-history.service
-)
+GRAPHICAL_UNITS=(maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service)
 SESSION_TARGET_UNIT=maho-hyprland-session.target
 UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "$SESSION_TARGET_UNIT")
 
+RUNTIME_ROOT="$XDG_DATA_HOME/maho/runtime"
+RELEASES="$RUNTIME_ROOT/releases"
+CURRENT="$RUNTIME_ROOT/current"
+PREVIOUS="$RUNTIME_ROOT/previous"
+OLD_RELEASE="$RELEASES/maho-link-693943265af1e8bbfd6bf33db8fd8c1ab2459062"
+OLDER_RELEASE="$RELEASES/6d73d9c8d25d0d491c1629572d6b36c1b670cd72a50bc9dd981635a5dc1bd3c1"
 UNIT_DIR="$XDG_CONFIG_HOME/systemd/user"
-
-# Seed historical enablement links so setup proves that it removes obsolete
-# graphical ownership without touching unrelated targets.
-mkdir -p "$UNIT_DIR/default.target.wants" "$UNIT_DIR/graphical-session.target.wants"
-ln -s ../maho-wallpaper.service "$UNIT_DIR/default.target.wants/maho-wallpaper.service"
-ln -s ../maho-shell.service "$UNIT_DIR/graphical-session.target.wants/maho-shell.service"
-ln -s ../maho-hyprland-session.target "$UNIT_DIR/default.target.wants/$SESSION_TARGET_UNIT"
-
-echo "=== preflight ==="
-bash "$ROOT/bin/maho-setup" preflight >/dev/null
-echo "PASS"
-
-echo "=== install ==="
-bash "$ROOT/bin/maho-setup" install >/dev/null
-for name in "${COMMANDS[@]}"; do
-    path="$HOME/.local/bin/$name"
-    [ -x "$path" ] || fail "launcher not executable: $name"
-    grep -Fq '# managed-by: maho-setup v1' "$path" || fail "launcher missing ownership marker: $name"
-done
-
+HYPR_SESSION="$XDG_CONFIG_HOME/hypr/maho/core/session.lua"
 SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
-[ -L "$SHELL_TARGET" ] || fail "Maho Shell configuration is not a symlink"
-[ "$(readlink -f "$SHELL_TARGET")" = "$ROOT/config/quickshell/maho-shell" ] || fail "Maho Shell targets wrong checkout"
-[ -r "$SHELL_TARGET/shell.qml" ] || fail "Maho Shell entrypoint missing after install"
-
 NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
-[ -L "$NOTIFY_TARGET" ] || fail "Maho Notify configuration is not a symlink"
-[ "$(readlink -f "$NOTIFY_TARGET")" = "$ROOT/config/quickshell/maho-notify" ] || fail "Maho Notify targets wrong checkout"
-[ -r "$NOTIFY_TARGET/shell.qml" ] || fail "Maho Notify entrypoint missing after install"
-
-HYPR_SESSION_TARGET="$XDG_CONFIG_HOME/hypr/maho/core/session.lua"
-[ -L "$HYPR_SESSION_TARGET" ] || fail "Maho Hyprland session hook is not a symlink"
-[ "$(readlink -f "$HYPR_SESSION_TARGET")" = "$ROOT/config/hypr/maho/core/session.lua" ] ||
-    fail "Maho Hyprland session hook targets wrong checkout"
-
 FILES_DESKTOP_TARGET="$XDG_DATA_HOME/applications/io.maho.Files.desktop"
-[ -L "$FILES_DESKTOP_TARGET" ] || fail "Maho Files desktop entry is not a symlink"
-[ "$(readlink -f "$FILES_DESKTOP_TARGET")" = "$ROOT/apps/maho-files/io.maho.Files.desktop" ] ||
-    fail "Maho Files desktop entry targets wrong checkout"
-grep -Fq 'Exec=maho-files run %U' "$FILES_DESKTOP_TARGET" ||
-    fail "Maho Files desktop entry lost canonical launch command"
-grep -Fq 'StartupWMClass=io.maho.Files' "$FILES_DESKTOP_TARGET" ||
-    fail "Maho Files desktop identity regressed"
 
-for unit in "${UNITS[@]}"; do
-    target="$UNIT_DIR/$unit"
-    [ -L "$target" ] || fail "user unit is not a symlink: $unit"
-    [ "$(readlink -f "$target")" = "$ROOT/systemd/user/$unit" ] ||
-        fail "user unit targets wrong checkout: $unit"
-done
+mkdir -p "$OLD_RELEASE/config/quickshell/maho-shell" "$OLD_RELEASE/config/hypr/maho/core" "$OLD_RELEASE/systemd/user" "$OLDER_RELEASE" \
+  "$UNIT_DIR/default.target.wants" "$UNIT_DIR/graphical-session.target.wants" "$UNIT_DIR/$SESSION_TARGET_UNIT.wants" \
+  "$(dirname "$SHELL_TARGET")" "$(dirname "$HYPR_SESSION")" "$(dirname "$FILES_DESKTOP_TARGET")"
+printf '%s\n' '// old shell' >"$OLD_RELEASE/config/quickshell/maho-shell/shell.qml"
+printf '%s\n' '-- old session hook' >"$OLD_RELEASE/config/hypr/maho/core/session.lua"
+for unit in "${UNITS[@]}"; do cp "$ROOT/systemd/user/$unit" "$OLD_RELEASE/systemd/user/$unit"; done
+cat >"$OLD_RELEASE/manifest.json" <<'EOF_OLD_MANIFEST'
+{"content_sha256":"569b034d66cf37e75c94f4442630e2de21c10db6c006d2fa85d02571d1b37df1","source_revision":"eafcc986adaafbb1f36df09ea9f831af6a0c1a5b","version":1}
+EOF_OLD_MANIFEST
+ln -s "$OLD_RELEASE" "$CURRENT"
+ln -s "$OLDER_RELEASE" "$PREVIOUS"
 
-# Core observers intentionally follow the user manager.
-for unit in "${CORE_UNITS[@]}"; do
-    grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG" ||
-        fail "core service was not enabled: $unit"
-    grep -Fq 'WantedBy=default.target' "$ROOT/systemd/user/$unit" ||
-        fail "core service lost default.target ownership: $unit"
-done
-
-# Graphical Maho surfaces are owned only by maho-session through the single
-# maho-hyprland-session.target.
-for unit in "${GRAPHICAL_UNITS[@]}"; do
-    if grep -q -- "--user enable --now $unit" "$SYSTEMCTL_LOG"; then
-        fail "graphical service was independently enabled: $unit"
-    fi
-    if grep -q -- "--user start $unit" "$SYSTEMCTL_LOG"; then
-        fail "graphical service was independently started: $unit"
-    fi
-    grep -Fq 'WantedBy=maho-hyprland-session.target' "$ROOT/systemd/user/$unit" ||
-        fail "graphical service is not mapped to the Maho session target: $unit"
-    if grep -Fq 'WantedBy=default.target' "$ROOT/systemd/user/$unit"; then
-        fail "graphical service regressed to default.target ownership: $unit"
-    fi
-done
-
-if grep -q -- "--user enable --now $SESSION_TARGET_UNIT" "$SYSTEMCTL_LOG" ||
-   grep -q -- "--user start $SESSION_TARGET_UNIT" "$SYSTEMCTL_LOG"; then
-    fail "setup independently activated the Maho graphical session target"
-fi
-
-[ ! -e "$UNIT_DIR/default.target.wants/maho-wallpaper.service" ] ||
-    fail "stale default.target wallpaper ownership survived install"
-[ ! -e "$UNIT_DIR/graphical-session.target.wants/maho-shell.service" ] ||
-    fail "stale graphical-session.target shell ownership survived install"
-[ ! -e "$UNIT_DIR/default.target.wants/$SESSION_TARGET_UNIT" ] ||
-    fail "stale default.target session-target ownership survived install"
-
-grep -q 'maho-security-monitor watch' "$ROOT/systemd/user/maho-security.service" ||
-    fail "security service does not use stateful monitor"
-grep -q 'maho-shell run' "$ROOT/systemd/user/maho-shell.service" ||
-    fail "shell service does not use managed runtime"
-grep -q 'maho-notify run' "$ROOT/systemd/user/maho-notify.service" ||
-    fail "notify service does not use managed runtime"
-grep -q 'maho-clipboard-history serve' "$ROOT/systemd/user/maho-clipboard-history.service" ||
-    fail "clipboard history service bypasses managed runtime"
-"$HOME/.local/bin/maho-adapt" validate-registry | grep -q '^PASS$'
-"$HOME/.local/bin/maho-guard" doctor | grep -q 'automatic system mutation: none'
-echo "PASS"
-
-echo "=== status ==="
-"$HOME/.local/bin/maho-setup" status >/dev/null
-echo "PASS"
-
-echo "=== unmanaged command protected ==="
-printf '%s\n' '#!/usr/bin/env bash' 'echo external' > "$HOME/.local/bin/maho-security"
-chmod +x "$HOME/.local/bin/maho-security"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote an unmanaged command"
-fi
-grep -q '^echo external$' "$HOME/.local/bin/maho-security" || fail "unmanaged command was modified"
-rm -f "$HOME/.local/bin/maho-security"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-echo "PASS"
-
-echo "=== unmanaged unit protected ==="
-TARGET="$UNIT_DIR/maho-observe.service"
-rm -f "$TARGET"
-printf '%s\n' '[Unit]' 'Description=External observer' > "$TARGET"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote an unmanaged user unit"
-fi
-grep -q 'External observer' "$TARGET" || fail "unmanaged unit was modified"
-rm -f "$TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-echo "PASS"
-
-echo "=== unmanaged shell protected ==="
-rm -f "$SHELL_TARGET"
-mkdir -p "$SHELL_TARGET"
-printf '%s\n' 'external-shell' > "$SHELL_TARGET/owner.txt"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote unmanaged Quickshell configuration"
-fi
-grep -q '^external-shell$' "$SHELL_TARGET/owner.txt" || fail "unmanaged Quickshell configuration was modified"
-rm -rf "$SHELL_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$SHELL_TARGET" ] || fail "managed shell was not restored after unmanaged protection test"
-echo "PASS"
-
-echo "=== unmanaged notify protected ==="
-rm -f "$NOTIFY_TARGET"
-mkdir -p "$NOTIFY_TARGET"
-printf '%s\n' 'external-notify' > "$NOTIFY_TARGET/owner.txt"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote unmanaged Maho Notify configuration"
-fi
-grep -q '^external-notify$' "$NOTIFY_TARGET/owner.txt" || fail "unmanaged Maho Notify configuration was modified"
-rm -rf "$NOTIFY_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$NOTIFY_TARGET" ] || fail "managed Maho Notify was not restored after unmanaged protection test"
-echo "PASS"
-
-echo "=== unmanaged Hyprland session hook protected ==="
-rm -f "$HYPR_SESSION_TARGET"
-mkdir -p "$(dirname "$HYPR_SESSION_TARGET")"
-printf '%s\n' '-- external-session-hook' > "$HYPR_SESSION_TARGET"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote unmanaged Hyprland session hook"
-fi
-grep -q '^-- external-session-hook$' "$HYPR_SESSION_TARGET" ||
-    fail "unmanaged Hyprland session hook was modified"
-rm -f "$HYPR_SESSION_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$HYPR_SESSION_TARGET" ] ||
-    fail "managed Hyprland session hook was not restored"
-echo "PASS"
-
-echo "=== unmanaged Maho Files desktop entry protected ==="
-rm -f "$FILES_DESKTOP_TARGET"
-mkdir -p "$(dirname "$FILES_DESKTOP_TARGET")"
-printf '%s\n' '[Desktop Entry]' 'Name=External Files' > "$FILES_DESKTOP_TARGET"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then
-    fail "setup overwrote unmanaged Maho Files desktop entry"
-fi
-grep -q '^Name=External Files$' "$FILES_DESKTOP_TARGET" ||
-    fail "unmanaged Maho Files desktop entry was modified"
-rm -f "$FILES_DESKTOP_TARGET"
-bash "$ROOT/bin/maho-setup" install >/dev/null
-[ -L "$FILES_DESKTOP_TARGET" ] ||
-    fail "managed Maho Files desktop entry was not restored"
-echo "PASS"
-
-echo "=== uninstall ==="
-"$HOME/.local/bin/maho-setup" uninstall >/dev/null
+write_live_v2_wrapper() {
+  local name="$1"
+  cat >"$HOME/.local/bin/$name" <<EOF_WRAPPER
+#!/usr/bin/env bash
+# managed-by: maho-setup v2
+MAHO_ROOT="\${XDG_DATA_HOME:-\$HOME/.local/share}/maho/runtime/current"
+export MAHO_ROOT
+exec bash "\$MAHO_ROOT/bin/$name" "\$@"
+EOF_WRAPPER
+  chmod +x "$HOME/.local/bin/$name"
+}
 for name in "${COMMANDS[@]}"; do
-    [ ! -e "$HOME/.local/bin/$name" ] || fail "managed launcher survived uninstall: $name"
+  case "$name" in maho-notify|maho-link|maho-launcher|maho-dock|maho-files|maho-lock|maho-power|maho-clipboard|maho-clipboard-history) continue ;; esac
+  write_live_v2_wrapper "$name"
 done
+
+cp "$ROOT/bin/maho-notify" "$HOME/.local/bin/maho-notify"; chmod +x "$HOME/.local/bin/maho-notify"
+cat >"$HOME/.local/bin/maho-link" <<'EOF_LINK'
+#!/usr/bin/env bash
+# managed-by: maho-link-final-motion
+exec "$HOME/.local/share/maho-link/current/bin/maho-link" "$@"
+EOF_LINK
+chmod +x "$HOME/.local/bin/maho-link"
+cat >"$HOME/.local/bin/maho-launcher" <<'EOF_LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+RUNTIME="/home/magetsu/.local/share/maho-ux-cleanup-aafda5fd8843eb7bb06eeb51d25b8662dfd55252"
+export MAHO_ROOT="$RUNTIME"
+exec bash "$RUNTIME/bin/maho-launcher" "$@"
+EOF_LAUNCHER
+chmod +x "$HOME/.local/bin/maho-launcher"
+cat >"$HOME/.local/bin/maho-dock" <<'EOF_DOCK'
+#!/usr/bin/env bash
+set -u
+RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-dock"
+REAL="$RUNTIME/bin/maho-dock"
+export MAHO_ROOT="$RUNTIME"
+export MAHO_DOCK_CONFIG="$RUNTIME/config/quickshell/maho-shell/dock-shell.qml"
+export MAHO_APP_MODEL="$RUNTIME/lib/maho_app_model.py"
+exec bash "$REAL" "$@"
+EOF_DOCK
+chmod +x "$HOME/.local/bin/maho-dock"
+cat >"$HOME/.local/bin/maho-files" <<'EOF_FILES'
+#!/usr/bin/env bash
+set -euo pipefail
+RUNTIME="$HOME/.local/share/maho-files"
+SOURCE="$RUNTIME/source"
+APP="$RUNTIME/bin/maho-files-app"
+exec "$APP" "$@"
+EOF_FILES
+chmod +x "$HOME/.local/bin/maho-files"
+cat >"$HOME/.local/bin/maho-lock" <<'EOF_LOCK'
+#!/usr/bin/env bash
+# managed-by: maho-lock-install v1
+exec "/home/magetsu/.local/share/maho-lock/current/bin/maho-lock" "$@"
+EOF_LOCK
+chmod +x "$HOME/.local/bin/maho-lock"
+cat >"$HOME/.local/bin/maho-power" <<'EOF_POWER'
+#!/usr/bin/env bash
+# managed-by: maho-power-install v1
+export MAHO_ROOT="/home/magetsu/.local/share/maho-power/current"
+exec "/home/magetsu/.local/share/maho-power/current/bin/maho-power" "$@"
+EOF_POWER
+chmod +x "$HOME/.local/bin/maho-power"
+cat >"$HOME/.local/bin/maho-clipboard" <<'EOF_CLIPBOARD'
+#!/usr/bin/env bash
+set -euo pipefail
+RUNTIME="/home/magetsu/.local/share/maho-ux-cleanup-aafda5fd8843eb7bb06eeb51d25b8662dfd55252"
+exec bash "$RUNTIME/bin/maho-clipboard" "$@"
+EOF_CLIPBOARD
+chmod +x "$HOME/.local/bin/maho-clipboard"
+cp "$ROOT/bin/maho-clipboard-history" "$HOME/.local/bin/maho-clipboard-history"; chmod +x "$HOME/.local/bin/maho-clipboard-history"
+
 for unit in "${UNITS[@]}"; do
-    [ ! -e "$UNIT_DIR/$unit" ] || fail "managed unit survived uninstall: $unit"
+  case "$unit" in maho-dock.service|maho-clipboard-history.service) continue ;; esac
+  ln -s "$CURRENT/systemd/user/$unit" "$UNIT_DIR/$unit"
 done
-grep -q -- "--user stop $SESSION_TARGET_UNIT" "$SYSTEMCTL_LOG" ||
-    fail "session target was not stopped during uninstall"
+cat >"$UNIT_DIR/maho-dock.service" <<'EOF_DOCK_UNIT'
+[Unit]
+Description=Maho Dock
+Documentation=https://github.com/magetsu002/MahoOS
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-dock run
+Restart=always
+RestartSec=2
+KillMode=process
+TimeoutStopSec=5
+[Install]
+WantedBy=default.target
+EOF_DOCK_UNIT
+cat >"$UNIT_DIR/maho-clipboard-history.service" <<'EOF_CLIP_UNIT'
+[Unit]
+Description=Maho Clipboard history capture
+After=graphical-session.target
+PartOf=graphical-session.target
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-clipboard-history serve
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+[Install]
+WantedBy=default.target
+EOF_CLIP_UNIT
+
+ln -s "$CURRENT/config/quickshell/maho-shell" "$SHELL_TARGET"
+ln -s "$CURRENT/config/hypr/maho/core/session.lua" "$HYPR_SESSION"
+mkdir -p "$NOTIFY_TARGET"; printf '%s\n' live-notify-owner >"$NOTIFY_TARGET/owner.txt"; printf '%s\n' '// live Notify directory' >"$NOTIFY_TARGET/shell.qml"
+cp "$ROOT/apps/maho-files/io.maho.Files.desktop" "$FILES_DESKTOP_TARGET"
+for unit in maho-observe.service maho-security.service maho-dock.service maho-clipboard-history.service; do ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/default.target.wants/$unit"; done
+for unit in maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-notify.service; do ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/graphical-session.target.wants/$unit"; done
+printf '%s\n' '[Unit]' 'Description=Unrelated Waybar theme watcher' >"$UNIT_DIR/maho-waybar-theme.path"
+ln -s "$UNIT_DIR/maho-waybar-theme.path" "$UNIT_DIR/default.target.wants/maho-waybar-theme.path"
+
+describe_path() {
+  local path="$1"
+  if [ -L "$path" ]; then printf 'L\t%s\t%s\n' "$path" "$(readlink "$path")";
+  elif [ -f "$path" ]; then printf 'F\t%s\t%s\n' "$path" "$(sha256sum "$path" | awk '{print $1}')";
+  elif [ -d "$path" ]; then printf 'D\t%s\t%s\n' "$path" "$(find "$path" -type f -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')";
+  else printf 'M\t%s\n' "$path"; fi
+}
+capture_live_state() {
+  local out="$1" name unit wants; : >"$out"
+  describe_path "$CURRENT" >>"$out"; describe_path "$PREVIOUS" >>"$out"
+  for name in "${COMMANDS[@]}"; do describe_path "$HOME/.local/bin/$name" >>"$out"; done
+  describe_path "$SHELL_TARGET" >>"$out"; describe_path "$NOTIFY_TARGET" >>"$out"; describe_path "$HYPR_SESSION" >>"$out"; describe_path "$FILES_DESKTOP_TARGET" >>"$out"
+  for unit in "${UNITS[@]}"; do describe_path "$UNIT_DIR/$unit" >>"$out"; for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do describe_path "$UNIT_DIR/$wants/$unit" >>"$out"; done; done
+  describe_path "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" >>"$out"
+}
+
+echo '=== preflight ==='
+bash "$ROOT/bin/maho-setup" preflight >/dev/null
+echo PASS
+
+echo '=== validation failure is non-mutating ==='
+cp "$HOME/.local/bin/maho-security" "$TMP/maho-security.v2"
+printf '%s\n' '#!/usr/bin/env bash' 'echo external-security-owner' >"$HOME/.local/bin/maho-security"; chmod +x "$HOME/.local/bin/maho-security"
+capture_live_state "$TMP/before-validation-failure"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer accepted an unmanaged command'; fi
+capture_live_state "$TMP/after-validation-failure"
+cmp -s "$TMP/before-validation-failure" "$TMP/after-validation-failure" || fail 'validation failure mutated live wiring'
+cp "$TMP/maho-security.v2" "$HOME/.local/bin/maho-security"; chmod +x "$HOME/.local/bin/maho-security"
+echo PASS
+
+echo '=== post-switch failure rolls back exact live wiring ==='
+capture_live_state "$TMP/before-post-switch-failure"
+export MAHO_TEST_FAIL_DAEMON_RELOAD=1
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'simulated daemon-reload failure unexpectedly succeeded'; fi
+unset MAHO_TEST_FAIL_DAEMON_RELOAD
+capture_live_state "$TMP/after-post-switch-failure"
+cmp -s "$TMP/before-post-switch-failure" "$TMP/after-post-switch-failure" || fail 'post-switch failure did not restore exact pre-install wiring'
+echo PASS
+
+echo '=== successful durable V1 migration ==='
+: >"$SYSTEMCTL_LOG"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+NEW_RELEASE="$(readlink -f "$CURRENT")"
+[ -n "$NEW_RELEASE" ] || fail 'runtime/current did not resolve'
+[ "$NEW_RELEASE" != "$OLD_RELEASE" ] || fail 'runtime/current did not switch'
+[ -f "$NEW_RELEASE/manifest.json" ] || fail 'immutable release manifest missing'
+[ "$(readlink -f "$PREVIOUS")" = "$OLD_RELEASE" ] || fail 'previous runtime was not retained'
+python - "$NEW_RELEASE/manifest.json" <<'PY'
+import json,pathlib,sys
+p=json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert p['version']==3 and p['source_revision'] and p['content_sha256']
+PY
+[ -r "$NEW_RELEASE/apps/maho-files/CMakeLists.txt" ] || fail 'native Maho Files source omitted from release'
+[ -r "$NEW_RELEASE/apps/maho-files/io.maho.Files.desktop" ] || fail 'Maho Files desktop entry omitted from release'
+for name in "${COMMANDS[@]}"; do
+  path="$HOME/.local/bin/$name"; [ -x "$path" ] || fail "managed command missing: $name"
+  grep -Fq '# managed-by: maho-setup v3' "$path" || fail "managed command lost v3 marker: $name"
+  grep -Fq 'maho/runtime/current' "$path" || fail "managed command bypasses runtime/current: $name"
+done
+grep -Fq 'MAHO_NOTIFY_CONFIG_DIR="$MAHO_ROOT/config/quickshell/maho-notify"' "$HOME/.local/bin/maho-notify" || fail 'Notify wrapper does not force immutable config'
+[ -d "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail 'live-owned Notify directory was replaced'
+grep -Fq live-notify-owner "$NOTIFY_TARGET/owner.txt" || fail 'live-owned Notify directory was modified'
+[ -L "$SHELL_TARGET" ] && [ "$(readlink "$SHELL_TARGET")" = "$CURRENT/config/quickshell/maho-shell" ] || fail 'Shell does not route through runtime/current'
+[ -L "$HYPR_SESSION" ] && [ "$(readlink "$HYPR_SESSION")" = "$CURRENT/config/hypr/maho/core/session.lua" ] || fail 'Hyprland session hook does not route through runtime/current'
+[ -L "$FILES_DESKTOP_TARGET" ] && [ "$(readlink "$FILES_DESKTOP_TARGET")" = "$CURRENT/apps/maho-files/io.maho.Files.desktop" ] || fail 'Files desktop entry does not route through runtime/current'
+grep -Fq 'Exec=maho-files run %U' "$FILES_DESKTOP_TARGET" || fail 'Files desktop command regressed'
+grep -Fq 'StartupWMClass=io.maho.Files' "$FILES_DESKTOP_TARGET" || fail 'Files desktop identity regressed'
+for unit in "${UNITS[@]}"; do target="$UNIT_DIR/$unit"; [ -L "$target" ] || fail "unit not runtime-managed: $unit"; [ "$(readlink "$target")" = "$CURRENT/systemd/user/$unit" ] || fail "unit bypasses runtime/current: $unit"; done
 for unit in "${CORE_UNITS[@]}"; do
-    grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" ||
-        fail "core service was not disabled: $unit"
+  [ -L "$UNIT_DIR/default.target.wants/$unit" ] || fail "core unit not default-owned: $unit"
+  [ ! -e "$UNIT_DIR/graphical-session.target.wants/$unit" ] && [ ! -L "$UNIT_DIR/graphical-session.target.wants/$unit" ] || fail "core unit graphically owned: $unit"
 done
 for unit in "${GRAPHICAL_UNITS[@]}"; do
-    if grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG"; then
-        fail "graphical service was individually disabled during uninstall: $unit"
-    fi
+  [ ! -e "$UNIT_DIR/default.target.wants/$unit" ] && [ ! -L "$UNIT_DIR/default.target.wants/$unit" ] || fail "graphical unit retained default ownership: $unit"
+  [ ! -e "$UNIT_DIR/graphical-session.target.wants/$unit" ] && [ ! -L "$UNIT_DIR/graphical-session.target.wants/$unit" ] || fail "graphical unit retained graphical-session ownership: $unit"
 done
-[ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] ||
-    fail "managed shell configuration survived uninstall"
-[ ! -e "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] ||
-    fail "managed Maho Notify configuration survived uninstall"
-[ ! -e "$HYPR_SESSION_TARGET" ] && [ ! -L "$HYPR_SESSION_TARGET" ] ||
-    fail "managed Hyprland session hook survived uninstall"
-[ ! -e "$FILES_DESKTOP_TARGET" ] && [ ! -L "$FILES_DESKTOP_TARGET" ] ||
-    fail "managed Maho Files desktop entry survived uninstall"
-echo "PASS"
+for wants in default.target.wants graphical-session.target.wants; do [ ! -e "$UNIT_DIR/$wants/$SESSION_TARGET_UNIT" ] && [ ! -L "$UNIT_DIR/$wants/$SESSION_TARGET_UNIT" ] || fail "session target independently enabled through $wants"; done
+[ -L "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" ] || fail 'unrelated Waybar watcher was touched'
+if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG"; then fail 'install restarted or directly activated live services'; fi
+"$HOME/.local/bin/maho-setup" status >/dev/null
+echo PASS
 
-echo "=== Maho Notify packaging contracts ==="
-bash "$ROOT/tests/notify-contracts.sh" >/dev/null
-echo "PASS"
+echo '=== unmanaged Hyprland hook remains protected ==='
+rm -f "$HYPR_SESSION"; printf '%s\n' '-- external Hyprland owner' >"$HYPR_SESSION"
+capture_live_state "$TMP/before-unmanaged-hypr"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer overwrote unrelated Hyprland hook'; fi
+capture_live_state "$TMP/after-unmanaged-hypr"
+cmp -s "$TMP/before-unmanaged-hypr" "$TMP/after-unmanaged-hypr" || fail 'failed Hyprland validation mutated wiring'
+rm -f "$HYPR_SESSION"; ln -s "$CURRENT/config/hypr/maho/core/session.lua" "$HYPR_SESSION"
+echo PASS
 
-echo "ALL V1 SETUP CONTRACTS PASS"
+echo '=== unmanaged Maho Files desktop entry remains protected ==='
+rm -f "$FILES_DESKTOP_TARGET"; printf '%s\n' '[Desktop Entry]' 'Name=External Files' >"$FILES_DESKTOP_TARGET"
+capture_live_state "$TMP/before-unmanaged-files"
+if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer overwrote unrelated Files desktop entry'; fi
+capture_live_state "$TMP/after-unmanaged-files"
+cmp -s "$TMP/before-unmanaged-files" "$TMP/after-unmanaged-files" || fail 'failed Files validation mutated wiring'
+rm -f "$FILES_DESKTOP_TARGET"; ln -s "$CURRENT/apps/maho-files/io.maho.Files.desktop" "$FILES_DESKTOP_TARGET"
+echo PASS
+
+echo '=== static session contracts ==='
+bash "$ROOT/tests/session-contracts.sh" >/dev/null
+echo PASS
+
+echo '=== uninstall ownership ==='
+: >"$SYSTEMCTL_LOG"
+"$HOME/.local/bin/maho-setup" uninstall >/dev/null
+grep -q -- "--user stop $SESSION_TARGET_UNIT" "$SYSTEMCTL_LOG" || fail 'uninstall did not stop Maho graphical target'
+for unit in "${CORE_UNITS[@]}"; do grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" || fail "uninstall did not disable core service: $unit"; done
+for unit in "${GRAPHICAL_UNITS[@]}"; do if grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG"; then fail "uninstall individually disabled graphical service: $unit"; fi; done
+for name in "${COMMANDS[@]}"; do [ ! -e "$HOME/.local/bin/$name" ] && [ ! -L "$HOME/.local/bin/$name" ] || fail "managed command survived uninstall: $name"; done
+for unit in "${UNITS[@]}"; do [ ! -e "$UNIT_DIR/$unit" ] && [ ! -L "$UNIT_DIR/$unit" ] || fail "managed unit survived uninstall: $unit"; done
+[ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail 'managed Shell mapping survived uninstall'
+[ ! -e "$HYPR_SESSION" ] && [ ! -L "$HYPR_SESSION" ] || fail 'managed Hyprland hook survived uninstall'
+[ ! -e "$FILES_DESKTOP_TARGET" ] && [ ! -L "$FILES_DESKTOP_TARGET" ] || fail 'managed Files desktop entry survived uninstall'
+[ -d "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail 'live-owned Notify directory was removed'
+grep -Fq live-notify-owner "$NOTIFY_TARGET/owner.txt" || fail 'live-owned Notify directory changed during uninstall'
+[ -L "$CURRENT" ] && [ -d "$CURRENT" ] || fail 'uninstall destroyed immutable runtime history'
+[ -L "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" ] || fail 'uninstall touched unrelated Waybar watcher'
+echo PASS
+
+echo
+printf '%s\n' 'ALL DURABLE V1 SETUP CONTRACTS PASS'

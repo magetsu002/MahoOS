@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-set -u
+set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="$HOME/.local/bin"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
-SHELL_SOURCE="$ROOT/config/quickshell/maho-shell"
+RUNTIME_ROOT="$DATA_HOME/maho/runtime"
+RELEASES="$RUNTIME_ROOT/releases"
+CURRENT="$RUNTIME_ROOT/current"
+PREVIOUS="$RUNTIME_ROOT/previous"
+MARKER="# managed-by: maho-setup v3"
+V2_MARKER="# managed-by: maho-setup v2"
+V1_MARKER="# managed-by: maho-setup v1"
+HYPR_REL="config/hypr/maho/core/session.lua"
+HYPR_TARGET="$CONFIG_HOME/hypr/maho/core/session.lua"
+SHELL_SOURCE_REL="config/quickshell/maho-shell"
 SHELL_TARGET="$CONFIG_HOME/quickshell/maho-shell"
-NOTIFY_SOURCE="$ROOT/config/quickshell/maho-notify"
-NOTIFY_TARGET="$CONFIG_HOME/quickshell/maho-notify"
-HYPR_SESSION_SOURCE="$ROOT/config/hypr/maho/core/session.lua"
-HYPR_SESSION_TARGET="$CONFIG_HOME/hypr/maho/core/session.lua"
-FILES_DESKTOP_SOURCE="$ROOT/apps/maho-files/io.maho.Files.desktop"
+NOTIFY_LEGACY_TARGET="$CONFIG_HOME/quickshell/maho-notify"
+FILES_DESKTOP_REL="apps/maho-files/io.maho.Files.desktop"
 FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
-MARKER="# managed-by: maho-setup v1"
 
 COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
@@ -25,316 +30,386 @@ COMMANDS=(
 )
 CORE_UNITS=(maho-observe.service maho-security.service)
 GRAPHICAL_UNITS=(
-  maho-awww-daemon.service maho-wallpaper.service maho-shell.service
-  maho-dock.service maho-notify.service maho-clipboard-history.service
+  maho-awww-daemon.service
+  maho-wallpaper.service
+  maho-shell.service
+  maho-dock.service
+  maho-notify.service
+  maho-clipboard-history.service
 )
 SESSION_TARGET_UNIT=maho-hyprland-session.target
 UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "$SESSION_TARGET_UNIT")
 
-SHELL_FILES=(
-  shell.qml dock-shell.qml MahoTheme.qml Audio.qml Brightness.qml Battery.qml
-  Media.qml SystemState.qml DockState.qml DockReservation.qml MahoCard.qml
-  SliderCard.qml WorkspaceRail.qml EdgeBar.qml SideEdgeBar.qml NotifyStatus.qml
-  ControlCenter.qml state.py
-)
-NOTIFY_FILES=(
-  shell.qml NotificationService.qml NotificationModel.qml NotificationStack.qml
-  NotificationCard.qml NotifyTheme.qml HistoryModel.qml NotificationCenter.qml
-  HistoryRow.qml state.py
-)
-REQUIRED_ASSETS=(
-  config/hypr/maho/core/session.lua
-  config/quickshell/maho-launcher/shell.qml
-  config/quickshell/maho-link/shell.qml
-  config/quickshell/maho-link/position.py
-  config/quickshell/maho-lock/shell.qml
-  config/quickshell/maho-lock/preview.qml
-  config/quickshell/maho-power/shell.qml
-  config/quickshell/maho-clipboard/shell.qml
-  apps/maho-files/CMakeLists.txt
-  apps/maho-files/io.maho.Files.desktop
-  lib/maho_app_model.py
-  lib/maho_launcher_backend.py
-)
-
 die() { echo "maho-setup: $*" >&2; return 1; }
-launcher_path() { printf '%s/%s\n' "$BIN_DIR" "$1"; }
-unit_source() { printf '%s/systemd/user/%s\n' "$ROOT" "$1"; }
-unit_target() { printf '%s/%s\n' "$UNIT_DIR" "$1"; }
-
-is_managed_launcher() {
-  local p; p="$(launcher_path "$1")"
-  [ -e "$p" ] || [ -L "$p" ] || return 1
-  if [ -L "$p" ]; then
-    [ "$(readlink -f -- "$p" 2>/dev/null || true)" = "$ROOT/bin/$1" ]
-  else
-    grep -Fq "$MARKER" "$p" 2>/dev/null
-  fi
+command_path() { printf '%s/%s\n' "$BIN_DIR" "$1"; }
+runtime_path() { printf '%s/%s\n' "$CURRENT" "$1"; }
+unit_path() { printf '%s/%s\n' "$UNIT_DIR" "$1"; }
+link_is() { [ -L "$1" ] && [ "$(readlink -- "$1")" = "$2" ]; }
+sha_is() {
+  local path="$1" expected="$2" actual
+  [ -f "$path" ] || return 1
+  actual="$(sha256sum "$path" 2>/dev/null | awk '{print $1}')"
+  [ "$actual" = "$expected" ]
 }
 
-is_managed_unit() {
-  local src dst; src="$(unit_source "$1")"; dst="$(unit_target "$1")"
-  if [ -L "$dst" ]; then
-    [ "$(readlink -f -- "$dst" 2>/dev/null || true)" = "$src" ]
-  else
-    [ -f "$dst" ] && cmp -s "$dst" "$src"
-  fi
+managed_command() {
+  local path; path="$(command_path "$1")"
+  [ -f "$path" ] && grep -Fq "$MARKER" "$path" 2>/dev/null
+}
+legacy_runtime_wrapper() {
+  local path="$1"
+  [ -f "$path" ] || return 1
+  grep -Fq "$V2_MARKER" "$path" 2>/dev/null || grep -Fq "$V1_MARKER" "$path" 2>/dev/null
+}
+legacy_direct_notify() {
+  local path="$1"
+  sha_is "$path" "77d1b10eefb368648ef762b3275b066b5a7c0f554dd543678488ff6686bc5ddf" || cmp -s "$path" "$ROOT/bin/maho-notify"
+}
+legacy_link() {
+  local path="$1"
+  sha_is "$path" "0ce5327f5b027c6cce51b667dc9e1e8468fd5d9fd946ed7908095c09e496db4c" && return 0
+  sha_is "$path" "0f366321f351059e9600591008c4bce22d194377e68bc6e4d149af10166729a3" && return 0
+  [ -f "$path" ] || return 1
+  { grep -Fqx '# managed-by: maho-link-final-motion' "$path" && grep -Fqx 'exec "$HOME/.local/share/maho-link/current/bin/maho-link" "$@"' "$path"; } ||
+  { grep -Fqx 'RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-link-bluetooth"' "$path" && grep -Fqx 'exec bash "$RUNTIME/bin/maho-link" "$@"' "$path"; }
+}
+legacy_launcher() {
+  local path="$1"
+  sha_is "$path" "5de3a0a3bb4a3e298fd7555d53d81c05f3f7c720a86b3dcbef70805da369cf78" && return 0
+  [ -f "$path" ] || return 1
+  { grep -Fqx 'RUNTIME="/home/magetsu/.local/share/maho-ux-cleanup-aafda5fd8843eb7bb06eeb51d25b8662dfd55252"' "$path" && grep -Fqx 'exec bash "$RUNTIME/bin/maho-launcher" "$@"' "$path"; } ||
+  { grep -Fqx 'RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-launcher-preview"' "$path" && grep -Fqx 'exec bash "$RUNTIME/bin/maho-launcher" "$@"' "$path"; }
+}
+legacy_dock() {
+  local path="$1"
+  sha_is "$path" "bb8e9b2b8ddf0a9974ed7684cb34723c2a8662ce3594672b6ac2c19a963ed579" && return 0
+  [ -f "$path" ] || return 1
+  grep -Fqx 'RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-dock"' "$path" &&
+  grep -Fqx 'export MAHO_DOCK_CONFIG="$RUNTIME/config/quickshell/maho-shell/dock-shell.qml"' "$path" &&
+  grep -Fqx 'export MAHO_APP_MODEL="$RUNTIME/lib/maho_app_model.py"' "$path"
+}
+legacy_files() {
+  local path="$1"
+  sha_is "$path" "a9050ebb1ef2f3838260b855ac86f1bac3ff63eb079d333cf820b6e656d7c61b" && return 0
+  [ -f "$path" ] || return 1
+  grep -Fqx 'RUNTIME="$HOME/.local/share/maho-files"' "$path" && grep -Fqx 'SOURCE="$RUNTIME/source"' "$path" && grep -Fqx 'APP="$RUNTIME/bin/maho-files-app"' "$path"
+}
+legacy_lock() {
+  local path="$1"
+  sha_is "$path" "e50019c819531c828415a92431f55f88dcaf2339706f8df25e16af0e8e164adc" && return 0
+  [ -f "$path" ] || return 1
+  grep -Fqx '# managed-by: maho-lock-install v1' "$path" && grep -Fq '/.local/share/maho-lock/current/bin/maho-lock' "$path"
+}
+legacy_power() {
+  local path="$1"
+  sha_is "$path" "110fae05d2875e6552d0add83252df094e33e4a7246106abce832724808fbf8d" && return 0
+  [ -f "$path" ] || return 1
+  grep -Fqx '# managed-by: maho-power-install v1' "$path" && grep -Fq '/.local/share/maho-power/current/bin/maho-power' "$path"
+}
+legacy_clipboard() {
+  local path="$1"
+  sha_is "$path" "875615a7ba3654826e54372ece70296580dd0afa2ad0f67feb445f29c2165e03" && return 0
+  [ -f "$path" ] || return 1
+  grep -Fqx 'RUNTIME="/home/magetsu/.local/share/maho-ux-cleanup-aafda5fd8843eb7bb06eeb51d25b8662dfd55252"' "$path" && grep -Fqx 'exec bash "$RUNTIME/bin/maho-clipboard" "$@"' "$path"
+}
+legacy_clipboard_history() {
+  local path="$1"
+  sha_is "$path" "528f9e8105af185b6bf9a0299b8538ac7b6db94082c6d2e3a8d1cd3fff4155a5" || cmp -s "$path" "$ROOT/bin/maho-clipboard-history"
 }
 
-is_managed_dir_link() {
-  [ -L "$2" ] && [ "$(readlink -f -- "$2" 2>/dev/null || true)" = "$1" ]
+safe_command() {
+  local name="$1" path; path="$(command_path "$name")"
+  [ ! -e "$path" ] && [ ! -L "$path" ] && return 0
+  [ -f "$path" ] || return 1
+  managed_command "$name" && return 0
+  legacy_runtime_wrapper "$path" && return 0
+  case "$name" in
+    maho-notify) legacy_direct_notify "$path" ;;
+    maho-link) legacy_link "$path" ;;
+    maho-launcher) legacy_launcher "$path" ;;
+    maho-dock) legacy_dock "$path" ;;
+    maho-files) legacy_files "$path" ;;
+    maho-lock) legacy_lock "$path" ;;
+    maho-power) legacy_power "$path" ;;
+    maho-clipboard) legacy_clipboard "$path" ;;
+    maho-clipboard-history) legacy_clipboard_history "$path" ;;
+    *) return 1 ;;
+  esac
 }
 
-is_managed_file_target() {
-  local src="$1" dst="$2"
-  if [ -L "$dst" ]; then
-    [ "$(readlink -f -- "$dst" 2>/dev/null || true)" = "$src" ]
-  else
-    [ -f "$dst" ] && cmp -s "$dst" "$src"
-  fi
+managed_unit() { link_is "$(unit_path "$1")" "$(runtime_path "systemd/user/$1")"; }
+legacy_dock_unit() {
+  local path="$1"
+  sha_is "$path" "d4649dfbc02dfa4b1929096fc3c88da12f40719ce5b7c44faa9fa33fc0a6e0f6" && return 0
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  grep -Fq 'ExecStart=%h/.local/bin/maho-dock run' "$path" && grep -Fq 'WantedBy=default.target' "$path"
+}
+legacy_clipboard_history_unit() {
+  local path="$1"
+  sha_is "$path" "3e69d839a1c1f6131e5ee88d6cdb86cd568915585cbffde162c95211caac696b" && return 0
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  grep -Fq 'PartOf=graphical-session.target' "$path" && grep -Fq 'ExecStart=%h/.local/bin/maho-clipboard-history serve' "$path" && grep -Fq 'WantedBy=default.target' "$path"
+}
+safe_unit() {
+  local name="$1" path; path="$(unit_path "$name")"
+  [ ! -e "$path" ] && [ ! -L "$path" ] && return 0
+  managed_unit "$name" && return 0
+  case "$name" in
+    maho-dock.service) legacy_dock_unit "$path" ;;
+    maho-clipboard-history.service) legacy_clipboard_history_unit "$path" ;;
+    *) return 1 ;;
+  esac
+}
+
+managed_shell() { link_is "$SHELL_TARGET" "$(runtime_path "$SHELL_SOURCE_REL")"; }
+managed_hypr() { link_is "$HYPR_TARGET" "$(runtime_path "$HYPR_REL")"; }
+legacy_hypr() {
+  [ -f "$HYPR_TARGET" ] && [ ! -L "$HYPR_TARGET" ] || return 1
+  cmp -s "$HYPR_TARGET" <(cat <<'EOF_LEGACY_HYPR'
+-- Own graphical Maho services only while this Hyprland session is alive.
+
+hl.on("hyprland.start", function()
+    hl.exec_cmd([["$HOME/.local/bin/maho-session" start]])
+    hl.exec_cmd("waybar")
+end)
+
+hl.on("hyprland.shutdown", function()
+    hl.exec_cmd([["$HOME/.local/bin/maho-session" stop]])
+end)
+EOF_LEGACY_HYPR
+)
+}
+managed_files_desktop() { link_is "$FILES_DESKTOP_TARGET" "$(runtime_path "$FILES_DESKTOP_REL")"; }
+legacy_files_desktop() {
+  [ -f "$FILES_DESKTOP_TARGET" ] && [ ! -L "$FILES_DESKTOP_TARGET" ] || return 1
+  sha_is "$FILES_DESKTOP_TARGET" "9bd5d1b54d6217fc0912ba78dd482abf4cb248f2f0dc001f975d367b1071b83a" || cmp -s "$FILES_DESKTOP_TARGET" "$ROOT/$FILES_DESKTOP_REL"
 }
 
 report_capability() {
-  if command -v "$1" >/dev/null 2>&1; then
-    printf 'PASS  capability %-14s\n' "$1"
-  else
-    printf 'INFO  capability %-14s unavailable\n' "$1"
-  fi
+  if command -v "$1" >/dev/null 2>&1; then printf 'PASS  capability %-14s\n' "$1"; else printf 'INFO  capability %-14s unavailable\n' "$1"; fi
 }
-
 preflight() {
   local failed=0 name file
-  [ -d "$ROOT/bin" ] || { echo "FAIL  repository bin directory missing"; failed=1; }
-  for name in "${COMMANDS[@]}"; do
-    [ -r "$ROOT/bin/$name" ] && printf 'PASS  source %-24s\n' "$name" || {
-      printf 'FAIL  source %-24s missing\n' "$name"; failed=1;
-    }
-  done
-  for name in "${UNITS[@]}"; do
-    [ -r "$(unit_source "$name")" ] && printf 'PASS  unit   %s\n' "$name" || {
-      printf 'FAIL  unit   %s missing\n' "$name"; failed=1;
-    }
-  done
-  for name in "${SHELL_FILES[@]}"; do
-    [ -r "$SHELL_SOURCE/$name" ] || { echo "FAIL  shell  $name missing"; failed=1; }
-  done
-  for name in "${NOTIFY_FILES[@]}"; do
-    [ -r "$NOTIFY_SOURCE/$name" ] || { echo "FAIL  notify $name missing"; failed=1; }
-  done
-  for file in "${REQUIRED_ASSETS[@]}"; do
-    [ -r "$ROOT/$file" ] || { echo "FAIL  asset  $file missing"; failed=1; }
-  done
-  for file in config/ownership.json config/intent.json config/adapters.json; do
-    python -m json.tool "$ROOT/$file" >/dev/null 2>&1 || { echo "FAIL  json   $file"; failed=1; }
-  done
+  local -a required=(
+    config/ownership.json config/intent.json config/adapters.json "$HYPR_REL"
+    config/quickshell/maho-shell/shell.qml config/quickshell/maho-notify/shell.qml
+    config/quickshell/maho-launcher/shell.qml config/quickshell/maho-link/shell.qml
+    config/quickshell/maho-lock/shell.qml config/quickshell/maho-power/shell.qml
+    config/quickshell/maho-clipboard/shell.qml "$FILES_DESKTOP_REL"
+    apps/maho-files/CMakeLists.txt lib/maho_app_model.py lib/maho_launcher_backend.py
+  )
+  for name in "${COMMANDS[@]}"; do [ -r "$ROOT/bin/$name" ] || { echo "FAIL  source $name"; failed=1; }; done
+  for name in "${UNITS[@]}"; do [ -r "$ROOT/systemd/user/$name" ] || { echo "FAIL  unit $name"; failed=1; }; done
+  for file in "${required[@]}"; do [ -r "$ROOT/$file" ] || { echo "FAIL  asset $file"; failed=1; }; done
+  for file in config/ownership.json config/intent.json config/adapters.json; do python -m json.tool "$ROOT/$file" >/dev/null 2>&1 || { echo "FAIL  json $file"; failed=1; }; done
   python -m py_compile \
-    "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" \
-    "$ROOT/lib/security_incident.py" "$ROOT/lib/security_preflight.py" \
-    "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
-    "$ROOT/lib/maho_launcher_backend.py" "$SHELL_SOURCE/state.py" \
-    "$NOTIFY_SOURCE/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
+    "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" "$ROOT/lib/security_incident.py" \
+    "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
+    "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
+    "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
-  for name in "${COMMANDS[@]}"; do
-    bash -n "$ROOT/bin/$name" >/dev/null 2>&1 || { echo "FAIL  shell syntax $name"; failed=1; }
-  done
-  bash -n "$ROOT/lib/authority.sh" "$ROOT/lib/intent.sh" "$ROOT/lib/state.sh" \
-    "$ROOT/lib/events.sh" "$ROOT/lib/decision.sh" "$ROOT/lib/policy.sh" \
-    "$ROOT/lib/cycle.sh" "$ROOT/lib/transaction.sh" \
-    "$ROOT/adapters/appearance/wallpaper-theme.sh" >/dev/null 2>&1 || {
-      echo "FAIL  shared shell syntax"; failed=1;
-    }
-  [ "$failed" -eq 0 ] && echo "PASS  shell syntax"
-  for name in quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl \
-    wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
-  if command -v qmake6 >/dev/null 2>&1 || command -v qtpaths6 >/dev/null 2>&1; then
-    echo "PASS  capability Qt6"
-  else
-    echo "INFO  capability Qt6 unavailable; Maho Files cannot build"
-  fi
-  if find /usr/lib/cmake /usr/lib64/cmake -maxdepth 2 -type f \
-    \( -name KF6KIOConfig.cmake -o -name KF6KIOConfigVersion.cmake \) \
-    -print -quit 2>/dev/null | grep -q .; then
-    echo "PASS  capability KDE-KIO"
-  else
-    echo "INFO  capability KDE-KIO unavailable; Maho Files cannot build"
-  fi
+  for name in "${COMMANDS[@]}"; do bash -n "$ROOT/bin/$name" >/dev/null 2>&1 || { echo "FAIL  shell syntax $name"; failed=1; }; done
+  bash -n "$ROOT/lib/authority.sh" "$ROOT/lib/intent.sh" "$ROOT/lib/state.sh" "$ROOT/lib/events.sh" \
+    "$ROOT/lib/decision.sh" "$ROOT/lib/policy.sh" "$ROOT/lib/cycle.sh" "$ROOT/lib/transaction.sh" \
+    "$ROOT/adapters/appearance/wallpaper-theme.sh" >/dev/null 2>&1 || { echo "FAIL  shared shell syntax"; failed=1; }
+  [ "$failed" -eq 0 ] && echo "PASS  preflight"
+  for name in quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
   return "$failed"
 }
 
-write_launcher() {
-  local name="$1" dst tmp; dst="$(launcher_path "$name")"
-  if { [ -e "$dst" ] || [ -L "$dst" ]; } && ! is_managed_launcher "$name"; then
-    die "refusing to overwrite unmanaged command: $dst"; return 1
+validate_targets() {
+  local name path
+  for name in "${COMMANDS[@]}"; do safe_command "$name" || die "refusing unmanaged command: $(command_path "$name")" || return 1; done
+  for name in "${UNITS[@]}"; do safe_unit "$name" || die "refusing unmanaged unit: $(unit_path "$name")" || return 1; done
+  if [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then managed_shell || { die "refusing unmanaged shell config: $SHELL_TARGET"; return 1; }; fi
+  if [ -e "$HYPR_TARGET" ] || [ -L "$HYPR_TARGET" ]; then managed_hypr || legacy_hypr || { die "refusing unrelated Hyprland session hook: $HYPR_TARGET"; return 1; }; fi
+  if [ -e "$FILES_DESKTOP_TARGET" ] || [ -L "$FILES_DESKTOP_TARGET" ]; then managed_files_desktop || legacy_files_desktop || { die "refusing unmanaged Maho Files desktop entry: $FILES_DESKTOP_TARGET"; return 1; }; fi
+  path="$NOTIFY_LEGACY_TARGET"
+  if [ -L "$path" ]; then echo "INFO  legacy Notify config link left untouched: $path"; elif [ -d "$path" ]; then echo "INFO  preserving live-owned Notify config directory: $path"; fi
+}
+
+build_release() {
+  local stage hash final revision dir
+  mkdir -p "$RELEASES"; stage="$RELEASES/.staging-$$"; mkdir -m 0755 "$stage"
+  for dir in bin lib adapters config theme systemd share apps; do [ -e "$ROOT/$dir" ] && cp -a -- "$ROOT/$dir" "$stage/$dir"; done
+  find "$stage" -type d -name __pycache__ -prune -exec rm -rf -- {} +
+  find "$stage" -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.qmlls.ini' \) -delete
+  hash="$(cd "$stage"; find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+  final="$RELEASES/$hash"
+  if [ -d "$final" ]; then rm -rf -- "$stage"; else
+    revision="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf unknown)"
+    python - "$stage/manifest.json" "$hash" "$revision" <<'PY'
+import datetime,json,pathlib,sys
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+ "version":3,"content_sha256":sys.argv[2],"source_revision":sys.argv[3],
+ "installed_at":datetime.datetime.now(datetime.timezone.utc).isoformat()
+},indent=2,sort_keys=True)+"\n")
+PY
+    chmod -R u=rwX,go=rX "$stage"; mv -- "$stage" "$final"
   fi
-  mkdir -p "$BIN_DIR"; tmp="$BIN_DIR/.${name}.$$"
-  cat >"$tmp" <<EOF_LAUNCHER
+  printf '%s\n' "$final"
+}
+
+atomic_link() {
+  local source="$1" target="$2" tmp
+  mkdir -p "$(dirname -- "$target")"; tmp="$(dirname -- "$target")/.maho-link-$$-$(basename -- "$target")"
+  rm -f -- "$tmp"; ln -s -- "$source" "$tmp"
+  if [ -d "$target" ] && [ ! -L "$target" ]; then rm -f -- "$tmp"; die "refusing directory target: $target"; return 1; fi
+  mv -Tf -- "$tmp" "$target"
+}
+write_command() {
+  local name="$1" path tmp; path="$(command_path "$name")"; mkdir -p "$BIN_DIR"; tmp="$BIN_DIR/.maho-command-$$-$name"
+  cat >"$tmp" <<EOF_COMMAND
 #!/usr/bin/env bash
 $MARKER
-export MAHO_ROOT="$ROOT"
-bash "$ROOT/bin/$name" "\$@"
-EOF_LAUNCHER
-  chmod 0755 "$tmp"; mv -f "$tmp" "$dst"
-}
-
-install_unit() {
-  local name="$1" src dst; src="$(unit_source "$name")"; dst="$(unit_target "$name")"
-  mkdir -p "$UNIT_DIR"
-  if { [ -e "$dst" ] || [ -L "$dst" ]; } && ! is_managed_unit "$name"; then
-    die "refusing to replace unmanaged user unit: $dst"; return 1
+MAHO_ROOT="\${XDG_DATA_HOME:-\$HOME/.local/share}/maho/runtime/current"
+export MAHO_ROOT
+EOF_COMMAND
+  if [ "$name" = maho-notify ]; then cat >>"$tmp" <<'EOF_NOTIFY'
+export MAHO_NOTIFY_CONFIG_DIR="$MAHO_ROOT/config/quickshell/maho-notify"
+EOF_NOTIFY
   fi
-  rm -f "$dst"; ln -s "$src" "$dst"
+  cat >>"$tmp" <<EOF_COMMAND
+exec bash "\$MAHO_ROOT/bin/$name" "\$@"
+EOF_COMMAND
+  chmod 0755 "$tmp"; mv -Tf -- "$tmp" "$path"
 }
 
-install_dir_link() {
-  local src="$1" dst="$2" label="$3"; mkdir -p "$(dirname "$dst")"
-  if [ -e "$dst" ] || [ -L "$dst" ]; then
-    is_managed_dir_link "$src" "$dst" || { die "refusing to replace unmanaged $label: $dst"; return 1; }
-    rm -f "$dst"
-  fi
-  ln -s "$src" "$dst"
+snapshot_one() {
+  local tx="$1" manifest="$2" path="$3" key="$4"
+  if [ -d "$path" ] && [ ! -L "$path" ]; then die "snapshot refuses directory: $path"; return 1; fi
+  if [ -e "$path" ] || [ -L "$path" ]; then cp -a --no-dereference "$path" "$tx/$key"; printf 'p\t%s\t%s\n' "$path" "$key" >>"$manifest"; else printf 'm\t%s\t%s\n' "$path" "$key" >>"$manifest"; fi
 }
-
-install_file_target() {
-  local src="$1" dst="$2" label="$3"; mkdir -p "$(dirname "$dst")"
-  if [ -e "$dst" ] || [ -L "$dst" ]; then
-    # An ancestor symlink may already expose source at dst. Never unlink source.
-    if [ ! -L "$dst" ] && [ "$dst" -ef "$src" ]; then return 0; fi
-    is_managed_file_target "$src" "$dst" || { die "refusing to replace unmanaged $label: $dst"; return 1; }
-    rm -f "$dst"
-  fi
-  ln -s "$src" "$dst"
+snapshot_all() {
+  local tx="$1" manifest="$tx/manifest" index=0 name wants path
+  mkdir -m 0700 "$tx"; : >"$manifest"
+  for name in "${COMMANDS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(command_path "$name")" "$index"; done
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$SHELL_TARGET" "$index"
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$HYPR_TARGET" "$index"
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$FILES_DESKTOP_TARGET" "$index"
+  for name in "${UNITS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(unit_path "$name")" "$index"; done
+  for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do path="$UNIT_DIR/$wants/$name"; index=$((index+1)); snapshot_one "$tx" "$manifest" "$path" "$index"; done; done
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$PREVIOUS" "$index"
 }
-
-remove_managed_file_target() {
-  local src="$1" dst="$2" label="$3"
-  if [ -L "$dst" ]; then
-    if is_managed_file_target "$src" "$dst"; then rm -f "$dst"; echo "REMOVED  $dst";
-    else echo "KEPT     unmanaged $label $dst"; fi
-  elif [ -f "$dst" ]; then
-    if [ "$dst" -ef "$src" ]; then
-      echo "KEPT     $label exposed through existing parent mapping $dst"
-    elif cmp -s "$dst" "$src"; then rm -f "$dst"; echo "REMOVED  $dst"
-    else echo "KEPT     unmanaged $label $dst"; fi
-  fi
+restore_all() {
+  local tx="$1" state path key; [ -f "$tx/manifest" ] || return 0
+  while IFS=$'\t' read -r state path key; do [ -d "$path" ] && [ ! -L "$path" ] && continue; rm -f -- "$path"; [ "$state" = p ] && { mkdir -p "$(dirname -- "$path")"; cp -a --no-dereference "$tx/$key" "$path"; }; done <"$tx/manifest"
 }
-
-systemd_available() {
-  command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1
-}
-
-remove_managed_enablement_link() {
-  local name="$1" wants="$2" link src resolved
-  link="$UNIT_DIR/$wants/$name"; [ -L "$link" ] || return 0
-  src="$(readlink -f -- "$(unit_target "$name")" 2>/dev/null || true)"
-  resolved="$(readlink -f -- "$link" 2>/dev/null || true)"
-  [ -n "$src" ] && [ "$resolved" = "$src" ] && rm -f "$link"
-}
-
-remove_stale_graphical_ownership() {
+wire_runtime() {
   local name
-  for name in "${GRAPHICAL_UNITS[@]}"; do
-    remove_managed_enablement_link "$name" default.target.wants
-    remove_managed_enablement_link "$name" graphical-session.target.wants
-  done
-  remove_managed_enablement_link "$SESSION_TARGET_UNIT" default.target.wants
-  remove_managed_enablement_link "$SESSION_TARGET_UNIT" graphical-session.target.wants
+  for name in "${COMMANDS[@]}"; do write_command "$name"; done
+  atomic_link "$(runtime_path "$SHELL_SOURCE_REL")" "$SHELL_TARGET"
+  atomic_link "$(runtime_path "$HYPR_REL")" "$HYPR_TARGET"
+  atomic_link "$(runtime_path "$FILES_DESKTOP_REL")" "$FILES_DESKTOP_TARGET"
+  for name in "${UNITS[@]}"; do atomic_link "$(runtime_path "systemd/user/$name")" "$(unit_path "$name")"; done
+}
+systemd_available() { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }
+managed_wants_link() {
+  local name="$1" wants="$2" link target resolved_link resolved_target
+  link="$UNIT_DIR/$wants/$name"; target="$(unit_path "$name")"; [ -L "$link" ] || return 1
+  resolved_link="$(readlink -f -- "$link" 2>/dev/null || true)"; resolved_target="$(readlink -f -- "$target" 2>/dev/null || true)"
+  [ -n "$resolved_link" ] && [ -n "$resolved_target" ] && [ "$resolved_link" = "$resolved_target" ]
+}
+remove_managed_wants_link() { local name="$1" wants="$2" link="$UNIT_DIR/$2/$1"; managed_wants_link "$name" "$wants" && rm -f -- "$link" || true; }
+wire_ownership() {
+  local name
+  mkdir -p "$UNIT_DIR/default.target.wants" "$UNIT_DIR/graphical-session.target.wants" "$UNIT_DIR/$SESSION_TARGET_UNIT.wants"
+  for name in "${CORE_UNITS[@]}"; do remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; atomic_link "$UNIT_DIR/$name" "$UNIT_DIR/default.target.wants/$name"; done
+  for name in "${GRAPHICAL_UNITS[@]}"; do remove_managed_wants_link "$name" default.target.wants; remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; done
+  remove_managed_wants_link "$SESSION_TARGET_UNIT" default.target.wants
+  remove_managed_wants_link "$SESSION_TARGET_UNIT" graphical-session.target.wants
+  remove_managed_wants_link "$SESSION_TARGET_UNIT" "$SESSION_TARGET_UNIT.wants"
+  systemctl --user daemon-reload
 }
 
-install() {
-  local name
-  echo "Maho OS V1 setup"; echo; preflight || return 1
-  echo; echo "Installing user commands..."
-  for name in "${COMMANDS[@]}"; do write_launcher "$name" || return 1; done
-  install_dir_link "$SHELL_SOURCE" "$SHELL_TARGET" "Quickshell configuration" || return 1
-  install_dir_link "$NOTIFY_SOURCE" "$NOTIFY_TARGET" "Maho Notify configuration" || return 1
-  install_file_target "$HYPR_SESSION_SOURCE" "$HYPR_SESSION_TARGET" "Hyprland session hook" || return 1
-  install_file_target "$FILES_DESKTOP_SOURCE" "$FILES_DESKTOP_TARGET" "Maho Files desktop entry" || return 1
-  for name in "${UNITS[@]}"; do install_unit "$name" || return 1; done
-  remove_stale_graphical_ownership
-  if systemd_available; then
-    systemctl --user daemon-reload
-    for name in "${CORE_UNITS[@]}"; do
-      if systemctl --user enable --now "$name" >/dev/null 2>&1; then
-        echo "PASS  $name enabled and started"
-      else
-        echo "INFO  $name could not be started now; installation remains valid"
-      fi
-    done
-    echo "INFO  graphical runtime installed; activation is owned by maho-session"
-  else
-    echo "INFO  systemd user manager unavailable; service activation deferred"
-  fi
-  command -v update-desktop-database >/dev/null 2>&1 && \
-    update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
-  echo "PASS: Maho OS V1 user setup complete"
-}
+install_runtime() (
+  set -e
+  local release old="" tx committed=0 rc
+  preflight; validate_targets; release="$(build_release)"
+  [ -L "$CURRENT" ] && old="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  tx="$RUNTIME_ROOT/.transaction-$$"; snapshot_all "$tx"
+  rollback_exit() {
+    rc=$?; [ "$committed" -eq 1 ] && return "$rc"; set +e
+    if [ -n "$old" ] && [ -d "$old" ]; then atomic_link "$old" "$CURRENT" >/dev/null 2>&1; else rm -f -- "$CURRENT"; fi
+    restore_all "$tx"; systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true; rm -rf -- "$tx"; return "$rc"
+  }
+  trap rollback_exit EXIT
+  [ -n "$old" ] && [ "$old" != "$release" ] && atomic_link "$old" "$PREVIOUS"
+  atomic_link "$release" "$CURRENT"; wire_runtime
+  if systemd_available; then wire_ownership; else echo "INFO  systemd user manager unavailable; ownership wiring deferred"; fi
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
+  committed=1; rm -rf -- "$tx"; trap - EXIT
+  echo "PASS  runtime $CURRENT -> $release"
+  echo "INFO  running graphical services were not restarted"
+  echo "INFO  activate the new graphical runtime with: maho-session stop && maho-session start"
+)
 
 status() {
   local failed=0 name
-  echo "Maho OS V1 setup status"; echo "Repository: $ROOT"
-  for name in "${COMMANDS[@]}"; do is_managed_launcher "$name" || { echo "INFO  command $name not managed"; failed=1; }; done
-  is_managed_dir_link "$SHELL_SOURCE" "$SHELL_TARGET" || { echo "INFO  shell not managed"; failed=1; }
-  is_managed_dir_link "$NOTIFY_SOURCE" "$NOTIFY_TARGET" || { echo "INFO  notify not managed"; failed=1; }
-  is_managed_file_target "$HYPR_SESSION_SOURCE" "$HYPR_SESSION_TARGET" || { echo "INFO  session hook not managed"; failed=1; }
-  is_managed_file_target "$FILES_DESKTOP_SOURCE" "$FILES_DESKTOP_TARGET" || { echo "INFO  Files desktop entry not managed"; failed=1; }
-  for name in "${UNITS[@]}"; do is_managed_unit "$name" || { echo "INFO  unit $name not managed"; failed=1; }; done
+  [ -L "$CURRENT" ] && [ -d "$CURRENT" ] || { echo "FAIL  runtime current"; failed=1; }
+  for name in "${COMMANDS[@]}"; do managed_command "$name" || { echo "FAIL  command $name"; failed=1; }; done
+  for name in "${UNITS[@]}"; do managed_unit "$name" || { echo "FAIL  unit $name"; failed=1; }; done
+  managed_shell || { echo "FAIL  shell config"; failed=1; }
+  managed_hypr || { echo "FAIL  Hyprland session hook"; failed=1; }
+  managed_files_desktop || { echo "FAIL  Maho Files desktop entry"; failed=1; }
   if systemd_available; then
-    for name in "${UNITS[@]}"; do
-      systemctl --user is-active --quiet "$name" && echo "PASS  service $name active" || echo "INFO  service $name inactive"
-    done
+    for name in "${CORE_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  core ownership $name"; failed=1; }; done
+    for name in "${GRAPHICAL_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants; then echo "FAIL  stale graphical ownership $name"; failed=1; fi; done
+    if managed_wants_link "$SESSION_TARGET_UNIT" default.target.wants || managed_wants_link "$SESSION_TARGET_UNIT" graphical-session.target.wants; then echo "FAIL  stale session target ownership"; failed=1; fi
   fi
   return "$failed"
 }
-
+rollback() {
+  local previous current
+  [ -L "$PREVIOUS" ] || { die "no previous release"; return 1; }
+  previous="$(readlink -f -- "$PREVIOUS")"; [ -d "$previous" ] || { die "previous release missing"; return 1; }
+  current="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"; atomic_link "$previous" "$CURRENT"
+  [ -n "$current" ] && [ -d "$current" ] && atomic_link "$current" "$PREVIOUS"
+  systemd_available && systemctl --user daemon-reload || true
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
+  echo "PASS  rolled back to $previous"; echo "INFO  running graphical services were not restarted"
+}
 uninstall() {
-  local name dst path
-  echo "Maho OS V1 user uninstall"
-  if systemd_available; then
-    systemctl --user stop "$SESSION_TARGET_UNIT" >/dev/null 2>&1 || true
-    for name in "${CORE_UNITS[@]}"; do systemctl --user disable --now "$name" >/dev/null 2>&1 || true; done
-  fi
-  remove_stale_graphical_ownership
-  for name in "${GRAPHICAL_UNITS[@]}"; do remove_managed_enablement_link "$name" "$SESSION_TARGET_UNIT.wants"; done
-  for name in "${UNITS[@]}"; do
-    dst="$(unit_target "$name")"
-    if is_managed_unit "$name"; then rm -f "$dst"; echo "REMOVED  $dst"
-    elif [ -e "$dst" ] || [ -L "$dst" ]; then echo "KEPT     unmanaged user unit $dst"; fi
-  done
-  if is_managed_dir_link "$SHELL_SOURCE" "$SHELL_TARGET"; then rm -f "$SHELL_TARGET"; fi
-  if is_managed_dir_link "$NOTIFY_SOURCE" "$NOTIFY_TARGET"; then rm -f "$NOTIFY_TARGET"; fi
-  remove_managed_file_target "$HYPR_SESSION_SOURCE" "$HYPR_SESSION_TARGET" "Hyprland session hook"
-  remove_managed_file_target "$FILES_DESKTOP_SOURCE" "$FILES_DESKTOP_TARGET" "Maho Files desktop entry"
-  for name in "${COMMANDS[@]}"; do
-    path="$(launcher_path "$name")"
-    if is_managed_launcher "$name"; then rm -f "$path"
-    elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT     unmanaged command $path"; fi
-  done
+  local name path wants
+  if systemd_available; then systemctl --user stop "$SESSION_TARGET_UNIT" >/dev/null 2>&1 || true; for name in "${CORE_UNITS[@]}"; do systemctl --user disable --now "$name" >/dev/null 2>&1 || true; done; fi
+  for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do remove_managed_wants_link "$name" "$wants"; done; done
+  for name in "${UNITS[@]}"; do path="$(unit_path "$name")"; if managed_unit "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged user unit $path"; fi; done
+  managed_shell && rm -f -- "$SHELL_TARGET" || true
+  managed_hypr && rm -f -- "$HYPR_TARGET" || true
+  managed_files_desktop && rm -f -- "$FILES_DESKTOP_TARGET" || true
+  for name in "${COMMANDS[@]}"; do path="$(command_path "$name")"; if managed_command "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged command $path"; fi; done
   systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true
-  command -v update-desktop-database >/dev/null 2>&1 && \
-    update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
-  echo "PASS: Maho-managed user wiring removed; user data and unmanaged configuration preserved"
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
+  echo "PASS  runtime wiring removed; releases and live-owned Notify configuration preserved"
 }
 
 case "${1:-}" in
-  install) install ;;
-  status) status ;;
-  uninstall) uninstall ;;
+  install) shift; case "${1:-}" in ""|--adopt-live) ;; *) die "unknown install option: $1"; exit 2 ;; esac; install_runtime ;;
   preflight) preflight ;;
+  status) status ;;
+  rollback) rollback ;;
+  uninstall) uninstall ;;
   *) cat <<'HELP'
-Maho OS V1 user setup
+Maho OS durable V1 runtime setup
 
 Usage:
   bash bin/maho-setup preflight
-  bash bin/maho-setup install
+  bash bin/maho-setup install [--adopt-live]
   maho-setup status
+  maho-setup rollback
   maho-setup uninstall
 
-Setup wires the accepted Maho runtime from the current checkout without root or
-package installation. Observe/security follow the user-manager lifetime.
-Graphical services are installed under maho-hyprland-session.target and only
-maho-session activates that target for a valid Hyprland Wayland session.
-Unmanaged commands, units, desktop entries, Hyprland hooks and Quickshell
-configuration are never overwritten.
+Install validates all live targets before mutation, builds an immutable
+content-addressed release, atomically switches runtime/current, and wires the
+accepted MahoOS V1 command/unit/session surface through that stable path.
+
+Observe/security follow the user-manager lifetime. Graphical services are owned
+only by maho-session -> maho-hyprland-session.target. Installation never restarts
+the running graphical session. Existing live-owned Notify configuration is
+preserved and the managed Notify wrapper explicitly uses the immutable runtime
+configuration.
+
+--adopt-live is retained for compatibility and does not bypass validation.
 HELP
   ;;
 esac
