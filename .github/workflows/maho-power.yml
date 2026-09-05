@@ -25,7 +25,15 @@ jobs:
         run: bash tests/maho-power-compositor-contracts.sh
 
       - name: Notification keybind contract
-        run: bash tests/maho-notify-keybind-contract.sh
+        run: |
+          set -euo pipefail
+          BINDS=config/hypr/maho/core/binds.lua
+          [ "$(grep -Fxc -- '-- maho-notify-bind:begin' "$BINDS" || true)" -eq 1 ]
+          [ "$(grep -Fxc -- '-- maho-notify-bind:end' "$BINDS" || true)" -eq 1 ]
+          grep -Fq 'mainMod .. " + SHIFT + N"' "$BINDS"
+          grep -Fq '"$HOME/.local/bin/maho-notify" center' "$BINDS"
+          ! grep -Fq 'mainMod .. " + N"' "$BINDS"
+          [ "$(grep -Fc 'mainMod .. " + SHIFT + N"' "$BINDS")" -eq 1 ]
 
       - name: Existing Maho Shell contracts
         run: bash tests/shell-contracts.sh
