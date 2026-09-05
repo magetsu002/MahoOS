@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Maho Files
+GenericName=File Manager
+Comment=Browse and manage files with MahoOS
+Exec=maho-files run %U
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;Utility;
+MimeType=inode/directory;
+StartupNotify=true
+StartupWMClass=io.maho.Files

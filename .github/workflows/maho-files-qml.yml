@@ -1,0 +1,77 @@
+name: maho-files-qml
+
+on:
+  push:
+    branches:
+      - 'feat/maho-files-qml'
+      - 'feat/maho-files-qml-*'
+      - 'fix/maho-files-qml-*'
+      - 'fix/maho-files-*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-and-build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+      - name: Install Arch build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            base-devel \
+            cmake \
+            ninja \
+            qt6-base \
+            qt6-declarative \
+            kio
+
+      - uses: actions/checkout@v4
+
+      - name: Architecture contracts
+        run: |
+          bash tests/maho-files-qml-contracts.sh
+          bash tests/maho-files-dnd-search-contracts.sh
+
+      - name: Configure native app
+        run: |
+          cmake \
+            -S apps/maho-files \
+            -B build/maho-files \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile native app and QML cache
+        run: |
+          cmake --build build/maho-files --parallel 2
+
+      - name: Binary proof
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          test -x build/maho-files/maho-files
+          build/maho-files/maho-files --version
+
+      - name: QML startup proof
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set +e
+          timeout 3s build/maho-files/maho-files "$HOME" > qml-smoke.log 2>&1
+          status=$?
+          set -e
+
+          cat qml-smoke.log
+
+          if [ "$status" -ne 124 ]; then
+            echo "Maho Files exited before the smoke timeout (status=$status)" >&2
+            exit "$status"
+          fi
+
+          if grep -Eq 'QQmlApplicationEngine failed to load component|Cannot override FINAL property' qml-smoke.log; then
+            echo "Maho Files QML failed during startup smoke" >&2
+            exit 1
+          fi

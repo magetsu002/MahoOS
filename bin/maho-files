@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+SOURCE="$ROOT/apps/maho-files"
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+BUILD="${MAHO_FILES_BUILD_DIR:-$CACHE_HOME/maho/files-qml-build}"
+BINARY="$BUILD/maho-files"
+
+usage() {
+    cat <<'EOF'
+Usage: maho-files <command> [args]
+
+Commands:
+  doctor          Check native Maho Files build/runtime dependencies.
+  configure       Configure the isolated CMake build directory.
+  build           Configure and compile Maho Files.
+  run [LOCATION]  Build if necessary, then run Maho Files.
+  clean           Remove only the isolated Maho Files build directory.
+EOF
+}
+
+need_command() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+doctor() {
+    local failed=0
+
+    echo "Maho Files native frontend doctor"
+    echo
+
+    for command in cmake ninja; do
+        if need_command "$command"; then
+            printf 'PASS  %-14s %s\n' "$command" "$(command -v "$command")"
+        else
+            printf 'FAIL  %-14s missing\n' "$command"
+            failed=1
+        fi
+    done
+
+    if need_command qmake6 || need_command qtpaths6; then
+        echo "PASS  Qt 6          available"
+    else
+        echo "FAIL  Qt 6          development/runtime tools missing"
+        failed=1
+    fi
+
+    if find /usr/lib/cmake /usr/lib64/cmake -maxdepth 2 -type f \
+        \( -name 'KF6KIOConfig.cmake' -o -name 'KF6KIOConfigVersion.cmake' \) \
+        -print -quit 2>/dev/null | grep -q .; then
+        echo "PASS  KDE KIO        KF6 CMake package available"
+    else
+        echo "FAIL  KDE KIO        KF6 development package missing"
+        failed=1
+    fi
+
+    if [ -f "$HOME/.cache/maho/theme/active.json" ]; then
+        echo "PASS  Palette V2     active Maho palette available"
+    else
+        echo "INFO  Palette V2     active palette absent; neutral fallbacks will be used"
+    fi
+
+    echo
+    if [ "$failed" -ne 0 ]; then
+        echo "Arch dependency hint:"
+        echo "  sudo pacman -S --needed cmake ninja qt6-base qt6-declarative kio"
+    fi
+
+    return "$failed"
+}
+
+configure() {
+    mkdir -p "$BUILD"
+    cmake \
+        -S "$SOURCE" \
+        -B "$BUILD" \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+}
+
+build() {
+    configure
+    cmake --build "$BUILD" --parallel
+}
+
+run() {
+    if [ ! -x "$BINARY" ]; then
+        build
+    fi
+    exec "$BINARY" "$@"
+}
+
+clean() {
+    case "$BUILD" in
+        "$CACHE_HOME"/maho/files-qml-build|"$CACHE_HOME"/maho/files-qml-build/*)
+            rm -rf -- "$BUILD"
+            ;;
+        *)
+            echo "maho-files: refusing to clean non-default build path: $BUILD" >&2
+            return 1
+            ;;
+    esac
+}
+
+case "${1:-run}" in
+    doctor)
+        doctor
+        ;;
+    configure)
+        configure
+        ;;
+    build)
+        build
+        ;;
+    run)
+        shift || true
+        run "$@"
+        ;;
+    clean)
+        clean
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        echo "maho-files: unknown command: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

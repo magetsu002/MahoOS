@@ -12,8 +12,25 @@ Scope {
         return fallback
     }
 
+    function semanticPalette(name, fallback) {
+        const roles = data.semantic
+        if (roles && roles[name] !== undefined && roles[name] !== null)
+            return roles[name]
+        return fallback
+    }
+
     function alpha(c, a) {
         return Qt.rgba(c.r, c.g, c.b, a)
+    }
+
+    function mix(first, second, amount) {
+        const t = Math.max(0, Math.min(1, amount))
+        return Qt.rgba(
+            first.r * (1 - t) + second.r * t,
+            first.g * (1 - t) + second.g * t,
+            first.b * (1 - t) + second.b * t,
+            first.a * (1 - t) + second.a * t
+        )
     }
 
     property color background: palette("background", "#141218")
@@ -27,6 +44,24 @@ Scope {
     property color tertiary: palette("tertiary", "#efb8c8")
     property color error: palette("error", "#f2b8b5")
 
+    // Palette V2 is additive inside the stable version-1 envelope. Existing
+    // Maho Edge consumers continue to use the legacy color properties above;
+    // newer surfaces can consume semantic roles without changing Edge visuals.
+    readonly property int paletteVersion: Number(data.palette_version || 1)
+    readonly property string paletteMode: String(data.palette_mode || "")
+    readonly property color semanticBackground: semanticPalette("background", background)
+    readonly property color semanticSurface: semanticPalette("surface", surface)
+    readonly property color semanticSurfaceElevated: semanticPalette("surface_elevated", surfaceHigh)
+    readonly property color semanticForeground: semanticPalette("foreground", foreground)
+    readonly property color semanticForegroundMuted: semanticPalette("foreground_muted", muted)
+    readonly property color semanticAccent: semanticPalette("accent", primary)
+    readonly property color semanticAccentSoft: semanticPalette("accent_soft", mix(primary, surface, 0.18))
+    readonly property color semanticBorder: semanticPalette("border", outline)
+    readonly property color semanticFocus: semanticPalette("focus", primary)
+    readonly property color semanticShadow: semanticPalette("shadow", "#000000")
+
+    // Theme is shared data, not a lifecycle owner. Maho Edge and Maho Dock may
+    // instantiate this type independently while reading the same active palette.
     FileView {
         path: Quickshell.env("HOME") + "/.cache/maho/theme/active.json"
         watchChanges: true
@@ -36,9 +71,13 @@ Scope {
         JsonAdapter {
             id: data
             property int version: 0
+            property int palette_version: 0
+            property string palette_mode: ""
             property var colors: ({})
+            property var semantic: ({})
             property string mode: "dark"
             property var source: ({})
+            property var analysis: ({})
         }
     }
 }
