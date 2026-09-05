@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 
 Item {
     id: center
@@ -11,6 +12,7 @@ Item {
     property var media
     property var notifyStatus
     property date now: new Date()
+    property bool powerExpanded: false
 
     signal closeRequested()
     signal wifiRequested()
@@ -50,6 +52,53 @@ Item {
         if (value < 30) return ""
         if (value < 70) return ""
         return ""
+    }
+
+    function runPowerAction(action) {
+        powerExpanded = false
+        Quickshell.execDetached([
+            Quickshell.env("HOME") + "/.local/bin/maho-power",
+            "action",
+            action
+        ])
+    }
+
+    component BottomAction: MahoCard {
+        id: quick
+        required property string iconText
+        required property string labelText
+        property bool activeState: false
+        signal triggered()
+
+        interactive: true
+        emphasized: activeState
+        onActivated: triggered()
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 1
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: quick.iconText
+                color: center.theme ? center.theme.primary : "white"
+                font.family: "JetBrainsMono Nerd Font"
+                font.pixelSize: 14
+                textFormat: Text.PlainText
+                Behavior on color { ColorAnimation { duration: 300 } }
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: quick.labelText
+                color: quick.activeState && center.theme
+                    ? center.theme.alpha(center.theme.primary, 0.92)
+                    : (center.theme ? center.theme.muted : "white")
+                font.pixelSize: 8
+                textFormat: Text.PlainText
+                Behavior on color { ColorAnimation { duration: 300 } }
+            }
+        }
     }
 
     Column {
@@ -94,7 +143,10 @@ Item {
                 radius: 10
                 theme: center.theme
                 interactive: true
-                onActivated: center.closeRequested()
+                onActivated: {
+                    center.powerExpanded = false
+                    center.closeRequested()
+                }
 
                 Text {
                     anchors.centerIn: parent
@@ -129,7 +181,6 @@ Item {
                         : "white"
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 17
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
 
                 Column {
@@ -145,8 +196,8 @@ Item {
                         color: center.theme ? center.theme.foreground : "white"
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
-                        Behavior on color { ColorAnimation { duration: 360 } }
                     }
+
                     Text {
                         width: parent.width
                         text: center.system && center.system.networkName !== ""
@@ -154,7 +205,6 @@ Item {
                         color: center.theme ? center.theme.alpha(center.theme.muted, 0.68) : "#bdb8c3"
                         font.pixelSize: 8
                         elide: Text.ElideRight
-                        Behavior on color { ColorAnimation { duration: 360 } }
                     }
                 }
             }
@@ -177,7 +227,6 @@ Item {
                         : "white"
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 17
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
 
                 Column {
@@ -193,8 +242,8 @@ Item {
                         color: center.theme ? center.theme.foreground : "white"
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
-                        Behavior on color { ColorAnimation { duration: 360 } }
                     }
+
                     Text {
                         width: parent.width
                         text: !center.system || !center.system.bluetoothAvailable
@@ -204,7 +253,6 @@ Item {
                         color: center.theme ? center.theme.alpha(center.theme.muted, 0.68) : "#bdb8c3"
                         font.pixelSize: 8
                         elide: Text.ElideRight
-                        Behavior on color { ColorAnimation { duration: 360 } }
                     }
                 }
             }
@@ -227,7 +275,6 @@ Item {
                     : "white"
                 font.family: "JetBrainsMono Nerd Font"
                 font.pixelSize: 16
-                Behavior on color { ColorAnimation { duration: 360 } }
             }
 
             Text {
@@ -238,7 +285,6 @@ Item {
                 color: center.theme ? center.theme.foreground : "white"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
-                Behavior on color { ColorAnimation { duration: 360 } }
             }
 
             Text {
@@ -251,7 +297,6 @@ Item {
                     : "white"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
-                Behavior on color { ColorAnimation { duration: 360 } }
             }
         }
 
@@ -285,14 +330,13 @@ Item {
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: 14
                     textFormat: Text.PlainText
-                    Behavior on color { ColorAnimation { duration: 220 } }
                 }
             }
 
             Column {
                 anchors.left: parent.left
                 anchors.leftMargin: 50
-                anchors.right: openArrow.left
+                anchors.right: notifyArrow.left
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
@@ -302,8 +346,6 @@ Item {
                     color: center.theme ? center.theme.foreground : "white"
                     font.pixelSize: 10
                     font.weight: Font.DemiBold
-                    textFormat: Text.PlainText
-                    Behavior on color { ColorAnimation { duration: 300 } }
                 }
 
                 Text {
@@ -318,20 +360,17 @@ Item {
                     color: center.theme ? center.theme.alpha(center.theme.muted, 0.70) : "#bdb8c3"
                     font.pixelSize: 8
                     elide: Text.ElideRight
-                    textFormat: Text.PlainText
-                    Behavior on color { ColorAnimation { duration: 300 } }
                 }
             }
 
             Text {
-                id: openArrow
+                id: notifyArrow
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
                 text: "›"
                 color: center.theme ? center.theme.muted : "white"
                 font.pixelSize: 17
-                textFormat: Text.PlainText
             }
         }
 
@@ -372,7 +411,6 @@ Item {
                 color: center.theme ? center.theme.primary : "white"
                 font.family: "JetBrainsMono Nerd Font"
                 font.pixelSize: 16
-                Behavior on color { ColorAnimation { duration: 360 } }
             }
 
             Column {
@@ -380,18 +418,18 @@ Item {
                 anchors.leftMargin: 48
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
+
                 Text {
                     text: "Wallpaper"
                     color: center.theme ? center.theme.foreground : "white"
                     font.pixelSize: 10
                     font.weight: Font.DemiBold
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
+
                 Text {
                     text: "Maho dynamic palette"
                     color: center.theme ? center.theme.alpha(center.theme.muted, 0.68) : "#bdb8c3"
                     font.pixelSize: 8
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
             }
 
@@ -402,7 +440,6 @@ Item {
                 text: "›"
                 color: center.theme ? center.theme.muted : "white"
                 font.pixelSize: 17
-                Behavior on color { ColorAnimation { duration: 360 } }
             }
         }
 
@@ -415,7 +452,7 @@ Item {
             Column {
                 anchors.left: parent.left
                 anchors.leftMargin: 14
-                anchors.right: controls.left
+                anchors.right: mediaControls.left
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 1
@@ -425,8 +462,8 @@ Item {
                     color: center.theme ? center.theme.alpha(center.theme.primary, 0.82) : "white"
                     font.pixelSize: 8
                     font.weight: Font.DemiBold
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
+
                 Text {
                     width: parent.width
                     text: center.media
@@ -436,47 +473,116 @@ Item {
                     font.pixelSize: 10
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
+
                 Text {
                     width: parent.width
                     text: center.media ? center.media.artist : ""
                     color: center.theme ? center.theme.alpha(center.theme.muted, 0.68) : "#bdb8c3"
                     font.pixelSize: 8
                     elide: Text.ElideRight
-                    Behavior on color { ColorAnimation { duration: 360 } }
                 }
             }
 
             Row {
-                id: controls
+                id: mediaControls
                 anchors.right: parent.right
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
 
                 MahoCard {
-                    width: 29; height: 29; radius: 14
+                    width: 29
+                    height: 29
+                    radius: 14
                     theme: center.theme
                     interactive: center.media ? center.media.canPrevious : false
                     onActivated: center.mediaPreviousRequested()
-                    Text { anchors.centerIn: parent; text: "󰒮"; color: center.theme ? center.theme.muted : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
+                    Text {
+                        anchors.centerIn: parent
+                        text: "󰒮"
+                        color: center.theme ? center.theme.muted : "white"
+                        font.family: "JetBrainsMono Nerd Font"
+                        font.pixelSize: 14
+                    }
                 }
+
                 MahoCard {
-                    width: 31; height: 31; radius: 15
+                    width: 31
+                    height: 31
+                    radius: 15
                     theme: center.theme
                     interactive: center.media ? center.media.canToggle : false
                     emphasized: true
                     onActivated: center.mediaToggleRequested()
-                    Text { anchors.centerIn: parent; text: center.media && center.media.playing ? "󰏤" : "󰐊"; color: center.theme ? center.theme.foreground : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
+                    Text {
+                        anchors.centerIn: parent
+                        text: center.media && center.media.playing ? "󰏤" : "󰐊"
+                        color: center.theme ? center.theme.foreground : "white"
+                        font.family: "JetBrainsMono Nerd Font"
+                        font.pixelSize: 14
+                    }
                 }
+
                 MahoCard {
-                    width: 29; height: 29; radius: 14
+                    width: 29
+                    height: 29
+                    radius: 14
                     theme: center.theme
                     interactive: center.media ? center.media.canNext : false
                     onActivated: center.mediaNextRequested()
-                    Text { anchors.centerIn: parent; text: "󰒭"; color: center.theme ? center.theme.muted : "white"; font.family: "JetBrainsMono Nerd Font"; font.pixelSize: 14 }
+                    Text {
+                        anchors.centerIn: parent
+                        text: "󰒭"
+                        color: center.theme ? center.theme.muted : "white"
+                        font.family: "JetBrainsMono Nerd Font"
+                        font.pixelSize: 14
+                    }
                 }
+            }
+        }
+
+        Item {
+            id: powerExpansion
+            width: parent.width
+            height: center.powerExpanded ? compactPower.implicitHeight + 8 : 0
+            visible: height > 0
+            clip: false
+
+            Behavior on height {
+                NumberAnimation { duration: 210; easing.type: Easing.OutCubic }
+            }
+
+            MahoPowerView {
+                id: compactPower
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: implicitHeight
+                theme: center.theme
+                compact: true
+                keyboardNavigation: false
+                closeButtonVisible: true
+                opacity: center.powerExpanded ? 1 : 0
+                scale: center.powerExpanded ? 1 : 0.985
+
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                onCloseRequested: center.powerExpanded = false
+                onActionRequested: function(action) { center.runPowerAction(action) }
+            }
+
+            Rectangle {
+                anchors.bottom: compactPower.bottom
+                anchors.bottomMargin: -4
+                x: 42
+                width: 11
+                height: 11
+                rotation: 45
+                color: center.theme ? center.theme.alpha(center.theme.surfaceHigh, 0.90) : "#252733"
+                border.width: 1
+                border.color: center.theme ? center.theme.alpha(center.theme.outline, 0.25) : "#505361"
             }
         }
 
@@ -485,45 +591,32 @@ Item {
             height: 46
             spacing: 7
 
-            Repeater {
-                model: [
-                    { "icon": "󰌾", "label": "Lock", "action": "lock" },
-                    { "icon": "󰍹", "label": "Capture", "action": "capture" },
-                    { "icon": "󰣇", "label": "Launcher", "action": "launcher" }
-                ]
+            BottomAction {
+                width: (parent.width - 14) / 3
+                height: parent.height
+                theme: center.theme
+                iconText: "󰐥"
+                labelText: "Power"
+                activeState: center.powerExpanded
+                onTriggered: center.powerExpanded = !center.powerExpanded
+            }
 
-                delegate: MahoCard {
-                    required property var modelData
-                    width: (parent.width - 14) / 3
-                    height: parent.height
-                    theme: center.theme
-                    interactive: true
-                    onActivated: {
-                        if (modelData.action === "lock") center.lockRequested()
-                        else if (modelData.action === "capture") center.screenshotRequested()
-                        else center.launcherRequested()
-                    }
+            BottomAction {
+                width: (parent.width - 14) / 3
+                height: parent.height
+                theme: center.theme
+                iconText: "󰍹"
+                labelText: "Capture"
+                onTriggered: center.screenshotRequested()
+            }
 
-                    Column {
-                        anchors.centerIn: parent
-                        spacing: 1
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: modelData.icon
-                            color: center.theme ? center.theme.primary : "white"
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 14
-                            Behavior on color { ColorAnimation { duration: 360 } }
-                        }
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: modelData.label
-                            color: center.theme ? center.theme.muted : "white"
-                            font.pixelSize: 8
-                            Behavior on color { ColorAnimation { duration: 360 } }
-                        }
-                    }
-                }
+            BottomAction {
+                width: (parent.width - 14) / 3
+                height: parent.height
+                theme: center.theme
+                iconText: "󰣇"
+                labelText: "Launcher"
+                onTriggered: center.launcherRequested()
             }
         }
     }
