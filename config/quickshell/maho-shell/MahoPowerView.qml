@@ -111,9 +111,22 @@ Item {
     Rectangle {
         id: shadow
         anchors.fill: shell
-        anchors.margins: root.compact ? -2 : -16
-        radius: shell.radius + (root.compact ? 2 : 14)
-        color: Qt.rgba(0, 0, 0, root.compact ? 0.07 : 0.18)
+        anchors.margins: root.compact ? -2 : -9
+        radius: shell.radius + (root.compact ? 2 : 9)
+        color: Qt.rgba(0, 0, 0, root.compact ? 0.045 : 0.09)
+        z: -3
+    }
+
+    Rectangle {
+        id: halo
+        anchors.fill: shell
+        anchors.margins: root.compact ? -1 : -5
+        radius: shell.radius + (root.compact ? 1 : 5)
+        color: "transparent"
+        border.width: 1
+        border.color: root.theme
+            ? root.alpha(root.theme.primary, root.compact ? 0.035 : 0.085)
+            : Qt.rgba(0.56, 0.64, 1.0, root.compact ? 0.03 : 0.08)
         z: -2
     }
 
@@ -125,19 +138,14 @@ Item {
             ? root.blend(
                 root.theme.surfaceHigh,
                 root.theme.primary,
-                root.compact ? 0.045 : 0.105,
-                root.compact ? 0.78 : 0.50
+                root.compact ? 0.07 : 0.16,
+                root.compact ? 0.88 : 0.44
               )
-            : Qt.rgba(0.10, 0.11, 0.18, root.compact ? 0.82 : 0.54)
+            : Qt.rgba(0.10, 0.12, 0.20, root.compact ? 0.90 : 0.46)
         border.width: 1
         border.color: root.theme
-            ? root.blend(
-                root.theme.outline,
-                root.theme.primary,
-                root.compact ? 0.10 : 0.28,
-                root.compact ? 0.24 : 0.44
-              )
-            : Qt.rgba(0.72, 0.76, 0.96, root.compact ? 0.22 : 0.42)
+            ? root.alpha(root.theme.foreground, root.compact ? 0.08 : 0.15)
+            : Qt.rgba(0.94, 0.95, 1.0, root.compact ? 0.07 : 0.14)
 
         Rectangle {
             anchors.fill: parent
@@ -146,33 +154,45 @@ Item {
             color: "transparent"
             border.width: 1
             border.color: root.theme
-                ? root.alpha(root.theme.foreground, root.compact ? 0.035 : 0.11)
-                : Qt.rgba(1, 1, 1, root.compact ? 0.035 : 0.10)
+                ? root.alpha(root.theme.foreground, root.compact ? 0.025 : 0.055)
+                : Qt.rgba(1, 1, 1, root.compact ? 0.025 : 0.05)
         }
 
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: root.compact ? 86 : 205
+            height: root.compact ? 92 : 220
             radius: parent.radius
             color: "transparent"
             gradient: Gradient {
                 GradientStop {
                     position: 0.0
                     color: root.theme
-                        ? root.alpha(root.theme.primary, root.compact ? 0.045 : 0.16)
-                        : Qt.rgba(0.40, 0.50, 1.0, root.compact ? 0.045 : 0.15)
+                        ? root.alpha(root.theme.primary, root.compact ? 0.07 : 0.19)
+                        : Qt.rgba(0.40, 0.50, 1.0, root.compact ? 0.07 : 0.18)
                 }
                 GradientStop {
                     position: 0.48
                     color: root.theme
-                        ? root.alpha(root.theme.primary, root.compact ? 0.015 : 0.045)
-                        : Qt.rgba(0.40, 0.50, 1.0, root.compact ? 0.015 : 0.045)
+                        ? root.alpha(root.theme.primary, root.compact ? 0.025 : 0.065)
+                        : Qt.rgba(0.40, 0.50, 1.0, root.compact ? 0.025 : 0.06)
                 }
                 GradientStop { position: 1.0; color: "transparent" }
             }
-            opacity: 0.92
+            opacity: 0.95
+        }
+
+        Rectangle {
+            anchors.top: parent.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.topMargin: 1
+            width: parent.width - (root.compact ? 28 : 64)
+            height: 1
+            radius: 1
+            color: root.theme
+                ? root.blend(root.theme.primary, root.theme.foreground, 0.58, root.compact ? 0.11 : 0.28)
+                : Qt.rgba(0.90, 0.92, 1.0, root.compact ? 0.10 : 0.26)
         }
 
         Rectangle {
@@ -187,8 +207,8 @@ Item {
                 GradientStop {
                     position: 1.0
                     color: root.theme
-                        ? root.alpha(root.theme.background, root.compact ? 0.11 : 0.24)
-                        : Qt.rgba(0.02, 0.02, 0.06, root.compact ? 0.11 : 0.24)
+                        ? root.alpha(root.theme.background, root.compact ? 0.10 : 0.12)
+                        : Qt.rgba(0.02, 0.02, 0.06, root.compact ? 0.10 : 0.12)
                 }
             }
         }
@@ -233,11 +253,18 @@ Item {
                 width: root.compact ? 30 : 50
                 height: width
                 radius: root.compact ? 10 : 17
-                color: closeHover.hovered
-                    ? (root.theme ? root.alpha(root.theme.foreground, 0.12) : Qt.rgba(1, 1, 1, 0.11))
-                    : (root.theme ? root.alpha(root.theme.foreground, 0.065) : Qt.rgba(1, 1, 1, 0.06))
+                color: root.theme
+                    ? root.blend(
+                        root.theme.surfaceHigh,
+                        root.theme.primary,
+                        0.08,
+                        closeHover.hovered ? 0.58 : 0.40
+                      )
+                    : Qt.rgba(0.18, 0.20, 0.30, closeHover.hovered ? 0.58 : 0.40)
                 border.width: 1
-                border.color: root.theme ? root.alpha(root.theme.foreground, 0.12) : Qt.rgba(1, 1, 1, 0.10)
+                border.color: root.theme
+                    ? root.alpha(root.theme.foreground, closeHover.hovered ? 0.13 : 0.08)
+                    : Qt.rgba(1, 1, 1, closeHover.hovered ? 0.12 : 0.08)
                 scale: closeTap.pressed ? 0.94 : 1
 
                 Behavior on color { ColorAnimation { duration: 140 } }
@@ -317,18 +344,34 @@ Item {
                 height: root.tileHeight
                 radius: root.compact ? 13 : 20
 
-                color: danger
-                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", armed ? 0.25 : (tileHover.hovered ? 0.20 : 0.15))
-                    : selected
-                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.20)
-                        : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.10 : 0.060)
+                color: tile.danger
+                    ? (root.theme
+                        ? root.blend(
+                            root.theme.surfaceHigh,
+                            root.theme.error,
+                            tile.armed ? 0.34 : (tileHover.hovered ? 0.29 : 0.24),
+                            root.compact ? 0.84 : 0.44
+                          )
+                        : Qt.rgba(0.30, 0.13, 0.18, root.compact ? 0.84 : 0.44))
+                    : tile.selected
+                        ? (root.theme
+                            ? root.blend(root.theme.surfaceHigh, root.theme.primary, 0.34, root.compact ? 0.84 : 0.50)
+                            : Qt.rgba(0.19, 0.24, 0.48, root.compact ? 0.84 : 0.50))
+                        : (root.theme
+                            ? root.blend(
+                                root.theme.surfaceHigh,
+                                root.theme.primary,
+                                tileHover.hovered ? 0.10 : 0.065,
+                                root.compact ? 0.80 : 0.34
+                              )
+                            : Qt.rgba(0.16, 0.17, 0.25, root.compact ? 0.80 : 0.34))
 
-                border.width: selected || armed ? 1.4 : 1
-                border.color: danger
-                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", armed ? 0.72 : 0.34)
-                    : selected
-                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.94)
-                        : root.alpha(root.theme ? root.theme.outline : "#9ba0b5", tileHover.hovered ? 0.32 : 0.18)
+                border.width: tile.selected || tile.armed ? 1.2 : 1
+                border.color: tile.danger
+                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", tile.armed ? 0.64 : 0.30)
+                    : tile.selected
+                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.72)
+                        : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.12 : 0.07)
 
                 scale: tileTap.pressed ? 0.975 : 1
 
@@ -339,9 +382,9 @@ Item {
                 Rectangle {
                     visible: tile.selected && !tile.danger
                     anchors.fill: parent
-                    anchors.margins: -3
-                    radius: parent.radius + 3
-                    color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.035 : 0.060)
+                    anchors.margins: -4
+                    radius: parent.radius + 4
+                    color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.03 : 0.075)
                     z: -1
                 }
 
@@ -352,7 +395,7 @@ Item {
                     radius: Math.max(1, parent.radius - 3)
                     color: "transparent"
                     border.width: 1
-                    border.color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.12 : 0.24)
+                    border.color: root.alpha(root.theme ? root.theme.foreground : "white", root.compact ? 0.08 : 0.16)
                 }
 
                 Rectangle {
@@ -363,7 +406,7 @@ Item {
                     anchors.leftMargin: root.compact ? 10 : 18
                     anchors.rightMargin: root.compact ? 10 : 18
                     height: 1
-                    color: root.alpha(root.theme ? root.theme.foreground : "white", root.compact ? 0.16 : 0.28)
+                    color: root.alpha(root.theme ? root.theme.foreground : "white", root.compact ? 0.12 : 0.22)
                 }
 
                 Text {
@@ -376,7 +419,7 @@ Item {
                     text: tile.glyph
                     color: tile.danger
                         ? (root.theme ? root.theme.error : "#ff5265")
-                        : (root.theme ? root.blend(root.theme.primary, root.theme.foreground, tile.selected ? 0.22 : 0.10, 1.0) : "#b9c8ff")
+                        : (root.theme ? root.blend(root.theme.primary, root.theme.foreground, tile.selected ? 0.24 : 0.12, 1.0) : "#b9c8ff")
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: root.iconSize
                     textFormat: Text.PlainText
