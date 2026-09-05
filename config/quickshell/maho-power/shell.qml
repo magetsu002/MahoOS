@@ -9,42 +9,42 @@ ShellRoot {
     id: root
 
     MahoTheme { id: theme }
-    PowerBackdrop { id: backdrop; active: root.backdropActive }
+    PowerBackdrop { id: backdrop; active: root.presented }
 
-    // The compositor blur carrier must exist before the foreground panel starts
-    // moving. If its mapping follows `presented`, Hyprland commits blur while the
-    // translucent panel is already scaling in, which reads as a second/ghost
-    // layer underneath the card. Keep the stable carrier mapped from process
-    // startup, then unmap it immediately when dismissal begins.
-    property bool backdropActive: true
-    property bool presented: false
+    // `presented` now owns only the compositor carrier lifecycle. It starts
+    // true so the stable blur plane is committed before the foreground moves.
+    // `panelVisible` owns the animated UI. Separating them prevents Hyprland's
+    // blur onset from racing the translucent panel scale/opacity animation and
+    // looking like a duplicate layer underneath it.
+    property bool presented: true
+    property bool panelVisible: false
     property bool closing: false
 
     function closeOverlay() {
         if (closing)
             return
         closing = true
-        backdropActive = false
         presented = false
+        panelVisible = false
         closeTimer.restart()
     }
 
     function focusPanel() {
-        // A second key press during the short close animation should restore one
-        // coherent surface rather than focus a half-dismissed instance.
+        // A second key press during the short close animation restores the same
+        // process coherently instead of focusing a half-dismissed surface.
         if (closing) {
             closeTimer.stop()
             closing = false
-            backdropActive = true
             presented = true
+            panelVisible = true
         }
         powerView.forceActiveFocus()
     }
 
     function executeAction(action) {
         closing = true
-        backdropActive = false
         presented = false
+        panelVisible = false
         Quickshell.execDetached([
             Quickshell.env("HOME") + "/.local/bin/maho-power",
             "action",
@@ -53,11 +53,11 @@ ShellRoot {
         actionQuitTimer.restart()
     }
 
-    // Match the accepted Launcher compositor sequencing: let the stable blur
-    // plane be created first, then reveal the moving foreground on the next Qt
-    // turn. This avoids blur-onset racing the scale/opacity animation.
+    // Match the accepted Launcher sequencing: the blur carrier is already
+    // mapped when the config is instantiated; reveal foreground content on the
+    // next Qt turn instead of creating blur and motion in the same frame.
     Component.onCompleted: Qt.callLater(function() {
-        root.presented = true
+        root.panelVisible = true
         powerView.forceActiveFocus()
     })
 
@@ -95,7 +95,7 @@ ShellRoot {
         Rectangle {
             anchors.fill: parent
             color: theme.alpha(theme.background, 0.055)
-            opacity: root.presented ? 1 : 0
+            opacity: root.panelVisible ? 1 : 0
 
             Behavior on opacity {
                 NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
@@ -111,8 +111,8 @@ ShellRoot {
             compact: false
             keyboardNavigation: true
             closeButtonVisible: true
-            opacity: root.presented ? 1 : 0
-            scale: root.presented ? 1 : 0.965
+            opacity: root.panelVisible ? 1 : 0
+            scale: root.panelVisible ? 1 : 0.965
 
             Behavior on opacity {
                 NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
