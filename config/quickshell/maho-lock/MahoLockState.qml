@@ -27,6 +27,9 @@ Scope {
     property string selectedLockWallpaperPath: ""
     property string avatarPath: ""
     property var avatarCandidates: []
+    property string browserPath: ""
+    property string browserParent: ""
+    property var browserEntries: []
 
     readonly property var batteryDevice: UPower.displayDevice
     readonly property bool batteryAvailable:
@@ -123,6 +126,16 @@ Scope {
     function clearAvatar() {
         if (!avatarWriteProcess.running)
             avatarWriteProcess.exec(["python", Quickshell.shellPath("state.py"), "--clear-avatar"])
+    }
+
+    function browseImages(path) {
+        if (!imageBrowserProcess.running) {
+            const target = String(path || "")
+            const args = ["python", Quickshell.shellPath("image_browser.py")]
+            if (target.length > 0)
+                args.push(target)
+            imageBrowserProcess.exec(args)
+        }
     }
 
     function switchKeyboardLayout() {
@@ -233,6 +246,25 @@ Scope {
 
         stdout: StdioCollector {
             onStreamFinished: state.refreshAmbientState()
+        }
+    }
+
+    Process {
+        id: imageBrowserProcess
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const payload = JSON.parse(this.text)
+                    state.browserPath = String(payload.path || "")
+                    state.browserParent = String(payload.parent || "")
+                    state.browserEntries = payload.entries || []
+                } catch (error) {
+                    state.browserPath = ""
+                    state.browserParent = ""
+                    state.browserEntries = []
+                }
+            }
         }
     }
 
