@@ -585,7 +585,7 @@ Item {
         anchors.right: parent.right
         anchors.top: parent.top
         height: Math.max(0, center.quickActionsTop - 2)
-        color: center.theme ? center.theme.alpha(center.theme.background, 0.11) : Qt.rgba(0, 0, 0, 0.10)
+        color: center.theme ? center.theme.alpha(center.theme.background, 0.16) : Qt.rgba(0, 0, 0, 0.15)
         opacity: center.powerExpanded ? 1 : 0
         visible: opacity > 0.001 || center.powerExpanded
         z: 30
@@ -604,7 +604,7 @@ Item {
         id: powerDropdown
         anchors.left: parent.left
         anchors.right: parent.right
-        y: center.quickActionsTop - height - 8
+        y: center.quickActionsTop - height - 7
         height: compactPower.implicitHeight
         visible: opacity > 0.001 || center.powerExpanded
         opacity: center.powerExpanded ? 1 : 0
@@ -634,19 +634,18 @@ Item {
         }
 
         Rectangle {
+            id: powerPointer
             anchors.top: compactPower.bottom
-            anchors.topMargin: -5
-            x: 42
-            width: 12
-            height: 12
+            anchors.topMargin: -7
+            x: (((powerDropdown.width - 14) / 3) - width) / 2
+            width: 14
+            height: 14
             rotation: 45
             color: center.theme
-                ? center.theme.alpha(center.theme.surfaceHigh, 0.78)
-                : Qt.rgba(0.13, 0.14, 0.20, 0.82)
-            border.width: 1
-            border.color: center.theme
-                ? center.theme.alpha(center.theme.primary, 0.24)
-                : Qt.rgba(0.7, 0.75, 1.0, 0.20)
+                ? center.theme.alpha(center.theme.surfaceHigh, 0.92)
+                : Qt.rgba(0.13, 0.14, 0.20, 0.92)
+            border.width: 0
+            z: -1
         }
     }
 }
