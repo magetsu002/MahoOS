@@ -1,0 +1,53 @@
+pkgname=maho-os
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc='Adaptive MahoOS desktop runtime and native system surfaces'
+arch=('x86_64')
+url='https://github.com/magetsu002/MahoOS'
+# Public V1 release is blocked on an explicit project license decision.
+depends=(
+  'bash'
+  'python'
+  'systemd'
+  'hyprland'
+  'quickshell'
+  'awww'
+  'brightnessctl'
+  'wireplumber'
+  'networkmanager'
+  'bluez-utils'
+  'wl-clipboard'
+  'cliphist'
+  'qt6-base'
+  'qt6-declarative'
+  'kio'
+  'cmake'
+  'ninja'
+)
+optdepends=(
+  'matugen: wallpaper-derived Palette V2 generation backend'
+)
+source=(
+  "maho-os-${pkgver}.tar.zst"
+  'release.json'
+)
+sha256sums=(
+  '@SOURCE_SHA256@'
+  '@RELEASE_SHA256@'
+)
+
+package() {
+  local source_root="$srcdir/maho-os-${pkgver}"
+
+  install -d "$pkgdir/usr/lib/maho"
+  for dir in adapters apps bin config lib systemd theme; do
+    cp -a "$source_root/$dir" "$pkgdir/usr/lib/maho/$dir"
+  done
+
+  install -Dm644 "$srcdir/release.json" \
+    "$pkgdir/usr/lib/maho/share/maho/release.json"
+  install -Dm755 "$source_root/packaging/arch/maho-install" \
+    "$pkgdir/usr/bin/maho-install"
+  install -Dm644 "$source_root/README.md" \
+    "$pkgdir/usr/share/doc/maho-os/README.md"
+}
