@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 //@ pragma ShellId maho-lock
 
 import QtQuick

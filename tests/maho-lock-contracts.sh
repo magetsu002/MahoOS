@@ -31,6 +31,7 @@ PY
 pass "launcher and helper syntax"
 
 grep -Fq 'WlSessionLock {' "$SHELL" || fail "secure session-lock authority missing"
+grep -Fq 'pragma ComponentBehavior: Bound' "$SHELL" || fail "deferred secure surface cannot resolve shared dependencies"
 grep -Fq 'WlSessionLockSurface {' "$SURFACE" || fail "secure lock surface missing"
 grep -Fq 'MahoLockViewV7 {' "$SURFACE" || fail "production does not render V7"
 grep -Fq 'surfaceReady: root.surfaceReady' "$SURFACE" || fail "secure shared view is not gated by surface readiness"
