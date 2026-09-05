@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LAUNCHER="$ROOT/bin/maho-launcher"
 BACKEND="$ROOT/lib/maho_launcher_backend.py"
+APP_MODEL="$ROOT/lib/maho_app_model.py"
 QML="$ROOT/config/quickshell/maho-launcher"
 WINDOW="$QML/MahoLauncherWindow.qml"
 BACKDROP="$QML/LauncherBackdrop.qml"
@@ -119,31 +120,49 @@ require_text "$LAUNCHER" 'xray = false' "blur is bypassing live windows instead 
 reject_text "$LAUNCHER" 'ignore_alpha = 0.02' "animated focus veil can cross the old blur threshold again"
 echo "PASS"
 
-echo "=== own real application engine ==="
+echo "=== Launcher policy over shared app/XDG authority ==="
 require_text "$MODEL" '["python3", root.backendPath, "apps"]' "QML no longer loads the native app index"
 require_text "$MODEL" 'ListModel { id: visibleRows }' "visible rows are not published through a stable QML ListModel"
 require_text "$MODEL" 'readonly property var activeModel: visibleRows' "ListView is not backed by the stable published model"
 require_text "$MODEL" 'function itemAt(index)' "row activation lookup is missing"
 require_text "$MODEL" 'visibleRows.append(row)' "real app snapshots are not copied into stable model roles"
 require_text "$MODEL" 'property var appSource: []' "real app source state is missing"
-require_text "$MODEL" 'function fuzzyScore' "Maho fuzzy ranking is missing"
-require_text "$MODEL" 'usageBoost' "usage/recency ranking is missing"
-require_text "$MODEL" 'launcher-history.json' "bounded launch history is missing"
+require_text "$MODEL" 'function fuzzyScore' "Launcher fuzzy ranking is missing"
+require_text "$MODEL" 'usageBoost' "Launcher usage/recency ranking is missing"
+require_text "$MODEL" 'launcher-history.json' "Launcher bounded launch history is missing"
 reject_text "$MODEL" 'DesktopEntries.applications.values' "launcher still depends on fragile live DesktopEntry QObject roles"
 reject_text "$MODEL" 'ScriptModel' "plain application snapshots are still being wrapped in ScriptModel"
-require_text "$BACKEND" 'def discover_apps()' "Maho desktop-entry discovery is missing"
-require_text "$BACKEND" 'def resolve_icon_paths(' "real app artwork resolver is missing"
-require_text "$BACKEND" 'QS_ICON_THEME' "backend does not honor the selected launcher icon theme"
-require_text "$BACKEND" '"iconPath": ""' "desktop snapshots do not expose a resolved artwork path"
-require_text "$BACKEND" 'configparser.ConfigParser(interpolation=None, strict=False)' "desktop parser is not safe for Exec percent tokens"
-require_text "$BACKEND" 'OnlyShowIn' "desktop visibility semantics are incomplete"
-require_text "$BACKEND" 'NoDisplay' "hidden desktop entries are not filtered"
-require_text "$BACKEND" 'gio", "launch"' "standards-aware desktop entry launching is missing"
-require_text "$BACKEND" 'gtk-launch' "desktop launch fallback is missing"
+
+require_text "$BACKEND" 'from maho_app_model import (' "Launcher backend does not delegate to the shared Maho app model"
+require_text "$BACKEND" 'discover_apps as shared_discover_apps' "shared desktop discovery is not authoritative"
+require_text "$BACKEND" 'find_desktop_file' "shared desktop identity lookup is not exposed to Launcher"
+require_text "$BACKEND" 'launch_app' "trusted app launching is not delegated to shared authority"
+require_text "$BACKEND" 'resolve_icon_paths as shared_resolve_icon_paths' "shared icon resolution is not authoritative"
+require_text "$BACKEND" 'return shared_discover_apps()' "Launcher discovery wrapper does not delegate"
+require_text "$BACKEND" 'shared_resolve_icon_paths(entries)' "Launcher icon wrapper does not delegate"
+reject_text "$BACKEND" 'def parse_desktop_entry(' "Launcher duplicated desktop-entry parsing authority"
+reject_text "$BACKEND" 'def _assign_unique_aliases(' "Launcher duplicated canonical identity authority"
+
+require_text "$APP_MODEL" 'QS_ICON_THEME' "shared app model does not honor the selected launcher icon theme"
+require_text "$APP_MODEL" '"iconPath": ""' "shared desktop snapshots do not expose a resolved artwork path"
+require_text "$APP_MODEL" 'configparser.ConfigParser(interpolation=None, strict=False)' "shared desktop parser is not safe for Exec percent tokens"
+require_text "$APP_MODEL" 'OnlyShowIn' "shared desktop visibility semantics are incomplete"
+require_text "$APP_MODEL" 'NoDisplay' "shared hidden desktop entries are not filtered"
+require_text "$APP_MODEL" '"startupWmClass"' "shared canonical identity lacks StartupWMClass"
+require_text "$APP_MODEL" '"aliases"' "shared canonical aliases are missing"
+require_text "$APP_MODEL" '["gio", "launch", str(desktop_file)]' "shared trusted XDG launching is missing"
+require_text "$APP_MODEL" 'gtk-launch' "shared desktop launch fallback is missing"
+
+require_text "$BACKEND" 'def fuzzy_score(' "Launcher-specific file fuzzy policy disappeared"
+require_text "$BACKEND" 'def file_search(' "Launcher Files mode search left Launcher ownership"
+require_text "$BACKEND" 'def open_path(' "Launcher Files mode open path left Launcher ownership"
+require_text "$BACKEND" 'def run_command(' "Launcher Commands mode left Launcher ownership"
 require_text "$BACKEND" 'xdg-open' "Files mode open contract is missing"
 require_text "$BACKEND" 'choices=("terminal", "files", "lock", "diagnostics")' "Commands allowlist is no longer exact"
 reject_text "$BACKEND" 'shell=True' "backend introduced shell execution"
 reject_text "$BACKEND" 'os.system' "backend introduced os.system"
+reject_text "$APP_MODEL" 'shell=True' "shared app model introduced shell execution"
+reject_text "$APP_MODEL" 'os.system' "shared app model introduced os.system"
 reject_text "$LAUNCHER" 'rofi' "native launcher wrapper still depends on Rofi"
 echo "PASS"
 
@@ -182,6 +201,7 @@ GenericName=Test Application
 Comment=Real desktop entry fixture
 Icon=maho-test
 Exec=true
+StartupWMClass=MahoFixture
 Categories=Utility;
 EOF_DESKTOP
 cat > "$TMP/data/applications/hidden.desktop" <<'EOF_DESKTOP'
@@ -194,6 +214,10 @@ EOF_DESKTOP
 
 HOME="$TMP/home" XDG_DATA_HOME="$TMP/data" XDG_DATA_DIRS="$TMP/empty" QS_ICON_THEME=MahoTest \
 python3 "$BACKEND" apps > "$TMP/apps.json"
+HOME="$TMP/home" XDG_DATA_HOME="$TMP/data" XDG_DATA_DIRS="$TMP/empty" QS_ICON_THEME=MahoTest \
+python3 "$APP_MODEL" apps > "$TMP/shared-apps.json"
+cmp -s "$TMP/apps.json" "$TMP/shared-apps.json" || fail "Launcher app output diverges from shared app/XDG authority"
+
 python3 - "$TMP/apps.json" "$TMP/data/icons/MahoTest/scalable/apps/maho-test.svg" <<'PY'
 import json
 import pathlib
@@ -210,6 +234,10 @@ if row["genericName"] != "Test Application":
     raise SystemExit(f"generic name missing: {row!r}")
 if pathlib.Path(row["iconPath"]) != expected_icon:
     raise SystemExit(f"icon path was not resolved: {row!r}")
+if row["startupWmClass"] != "MahoFixture":
+    raise SystemExit(f"canonical StartupWMClass missing: {row!r}")
+if "mahofixture" not in row["aliases"]:
+    raise SystemExit(f"canonical identity alias missing: {row!r}")
 PY
 
 HOME="$TMP/home" XDG_DATA_HOME="$TMP/data" XDG_DATA_DIRS="$TMP/empty" \
@@ -247,7 +275,7 @@ echo "PASS"
 
 echo "=== syntax ==="
 bash -n "$LAUNCHER"
-python3 -m py_compile "$BACKEND"
+python3 -m py_compile "$APP_MODEL" "$BACKEND"
 if command -v qmllint >/dev/null 2>&1; then
     qmllint "$QML"/*.qml >/dev/null 2>&1 || echo "INFO  qmllint needs the installed Quickshell import environment; native doctor is authoritative"
 else
