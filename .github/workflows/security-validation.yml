@@ -1,0 +1,50 @@
+name: security-validation
+
+on:
+  push:
+    branches:
+      - main
+      - integration/v1-cleanup
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-security-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate security validation report
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/security-validation-report.sh "$GITHUB_WORKSPACE/security-validation"
+
+      - name: Validate evidence schema and revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - security-validation/report.json "$GITHUB_SHA" <<'PY'
+          import json
+          import pathlib
+          import sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          assert data['schema_version'] == 1
+          assert data['source_revision'] == sys.argv[2]
+          assert data['suite_count'] >= 9
+          assert data['suites_failed'] == 0
+          assert data['suites_passed'] == data['suite_count']
+          assert 'not a claim of complete system security' in data['claim_scope']
+          PY
+
+      - name: Upload reproducible evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: maho-security-validation
+          path: security-validation/
+          retention-days: 30
