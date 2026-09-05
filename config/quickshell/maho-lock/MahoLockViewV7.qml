@@ -6,10 +6,14 @@ Item {
     required property var theme
     required property var lockState
     required property var auth
+    property bool surfaceReady: false
     property bool previewMode: false
     property bool pickerOpen: false
     property string pickerMode: "avatar"
     property real avatarReveal: 0
+
+    readonly property bool presentationReady:
+        surfaceReady && width > 0 && height > 0
 
     readonly property real uiScale: Math.max(
         0.78,
@@ -27,24 +31,31 @@ Item {
         root.pickerOpen = true
     }
 
-    Component.onCompleted: avatarRevealTimer.start()
+    function activatePresentation() {
+        if (!presentationReady)
+            return
+
+        avatarReveal = 1
+    }
+
+    function requestPasswordFocus() {
+        baseView.reclaimPasswordFocus()
+    }
+
+    onPresentationReadyChanged: activatePresentation()
+    Component.onCompleted: activatePresentation()
 
     Behavior on avatarReveal {
         NumberAnimation { duration: 430; easing.type: Easing.OutCubic }
     }
 
-    Timer {
-        id: avatarRevealTimer
-        interval: 240
-        repeat: false
-        onTriggered: root.avatarReveal = 1
-    }
-
     MahoLockViewV5 {
+        id: baseView
         anchors.fill: parent
         theme: root.theme
         lockState: root.lockState
         auth: root.auth
+        surfaceReady: root.presentationReady
         previewMode: root.previewMode
     }
 

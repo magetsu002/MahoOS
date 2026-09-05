@@ -6,6 +6,9 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${MAHO_LOCK_CONFIG:-$ROOT/config/quickshell/maho-lock/shell.qml}"
 PREVIEW_CONFIG="${MAHO_LOCK_PREVIEW_CONFIG:-$ROOT/config/quickshell/maho-lock/preview.qml}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+LOG_DIR="$STATE_HOME/maho/lock"
+LOG_FILE="$LOG_DIR/runtime.log"
 LOCK_FILE="$RUNTIME_DIR/maho-lock.lock"
 
 mode="secure"
@@ -60,4 +63,6 @@ if ! flock -n 9; then
     exit 0
 fi
 
-exec quickshell --no-duplicate -p "$CONFIG"
+mkdir -p "$LOG_DIR"
+printf '\n[%s] secure launch config=%s\n' "$(date --iso-8601=seconds)" "$CONFIG" >> "$LOG_FILE"
+exec quickshell --no-duplicate -p "$CONFIG" >> "$LOG_FILE" 2>&1

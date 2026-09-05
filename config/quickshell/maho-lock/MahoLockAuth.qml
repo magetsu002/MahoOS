@@ -25,6 +25,7 @@ Scope {
 
         pendingSecret = value
         errorText = ""
+        console.info("maho-lock auth: PAM attempt started")
 
         if (!pam.start()) {
             pendingSecret = ""
@@ -49,6 +50,7 @@ Scope {
             auth.pendingSecret = ""
 
             if (result === PamResult.Success) {
+                console.info("maho-lock auth: PAM success; scheduling secure release")
                 auth.errorText = ""
                 auth.unlocking = true
                 auth.succeeded()
@@ -59,6 +61,7 @@ Scope {
             auth.errorText = result === PamResult.MaxTries
                 ? "Too many attempts"
                 : "Incorrect password"
+            console.info("maho-lock auth: PAM rejected authentication")
             auth.failed()
         }
 
@@ -74,6 +77,7 @@ Scope {
         repeat: false
         onTriggered: {
             // The session is released only after PAM explicitly succeeded.
+            console.info("maho-lock auth: releasing session after PAM success")
             auth.lock.locked = false
         }
     }

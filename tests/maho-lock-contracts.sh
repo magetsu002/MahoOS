@@ -25,6 +25,8 @@ pass "launcher and helper syntax"
 grep -Fq 'WlSessionLock {' "$SHELL" || fail "secure session-lock authority missing"
 grep -Fq 'WlSessionLockSurface {' "$SURFACE" || fail "secure lock surface missing"
 grep -Fq 'MahoLockViewV7 {' "$SURFACE" || fail "production does not render V7"
+grep -Fq 'surfaceReady: root.surfaceReady' "$SURFACE" || fail "secure shared view is not gated by surface readiness"
+grep -Fq 'secure && visible && width > 0 && height > 0' "$SURFACE" || fail "secure readiness lacks protocol/visibility/size authority"
 grep -Fq 'Component.onCompleted: locked = true' "$SHELL" || fail "secure lock does not engage"
 grep -Fq 'PamContext {' "$AUTH" || fail "PAM missing"
 grep -Fq 'result === PamResult.Success' "$AUTH" || fail "PAM success gate missing"
@@ -33,8 +35,30 @@ pass "secure Wayland + PAM boundary"
 
 grep -Fq 'MahoLockViewV7 {' "$PREVIEW" || fail "preview does not render V7"
 grep -Fq 'previewMode: true' "$PREVIEW" || fail "preview mode missing"
+grep -Fq 'surfaceReady: previewWindow.visible' "$PREVIEW" || fail "preview shared view lacks realized-window readiness"
 if grep -Eq 'WlSessionLock|PamContext' "$PREVIEW"; then fail "preview can acquire secure lock"; fi
 pass "safe exact-view preview"
+
+python3 - "$SURFACE" "$PREVIEW" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+secure, preview = (Path(path).read_text() for path in sys.argv[1:])
+component = re.compile(r"\bMahoLockViewV(\d+)\s*\{")
+secure_views = component.findall(secure)
+preview_views = component.findall(preview)
+assert secure_views == ["7"], secure_views
+assert preview_views == ["7"], preview_views
+PY
+pass "preview and secure hosts instantiate exactly the same accepted view"
+
+grep -Fq 'readonly property bool hostWindowActive: Window.active' "$BASE" || fail "password focus is not tied to window activation"
+grep -Fq 'onHostWindowActiveChanged:' "$BASE" || fail "window activation cannot restore password focus"
+grep -Fq 'onPresentationReadyChanged:' "$BASE" || fail "surface readiness cannot activate the accepted view"
+grep -Fq 'surfaceReady && width > 0 && height > 0' "$BASE" || fail "accepted view can activate at zero size"
+if grep -Fq 'focusRecovery' "$BASE"; then fail "blind focus polling timer remains"; fi
+pass "deterministic secure presentation and focus lifecycle"
 
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V7 lost accepted base hierarchy"
 grep -Fq 'MahoAvatarControl {' "$VIEW" || fail "geometric avatar control missing"
@@ -84,6 +108,7 @@ grep -Fq 'visible: root.statusOpen' "$ICON" || fail "closed status card can ling
 pass "single top-right status surface"
 
 grep -Fq 'flock -n 9' "$LAUNCHER" || fail "locker process ownership missing"
+grep -Fq 'runtime.log' "$LAUNCHER" || fail "secure lifecycle evidence is not persistent"
 if grep -Eq 'pkill|killall' "$LAUNCHER"; then fail "launcher uses broad kills"; fi
 pass "runtime ownership"
 printf 'PASS  Maho Lock final preinstall contracts\n'

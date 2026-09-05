@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import QtQuick.Window
 
 FocusScope {
     id: root
@@ -7,11 +8,17 @@ FocusScope {
     required property var theme
     required property var lockState
     required property var auth
+    property bool surfaceReady: false
     property bool previewMode: false
 
     property real introProgress: 0
     property real errorPulse: 0
     property bool passwordVisible: false
+    property bool presentationActivated: false
+
+    readonly property bool hostWindowActive: Window.active
+    readonly property bool presentationReady:
+        surfaceReady && width > 0 && height > 0
 
     readonly property real uiScale: Math.max(
         0.78,
@@ -49,41 +56,47 @@ FocusScope {
     }
 
     function reclaimPasswordFocus() {
-        if (!auth.unlocking)
-            passwordInput.forceActiveFocus()
-    }
+        if (!presentationReady || auth.unlocking)
+            return
 
-    Component.onCompleted: {
-        introDelay.start()
-        focusRecovery.restart()
-    }
-
-    Timer {
-        id: introDelay
-        interval: 50
-        repeat: false
-        onTriggered: root.introProgress = 1
-    }
-
-    Timer {
-        id: focusRecovery
-        interval: 100
-        repeat: true
-        property int attempts: 0
-
-        onTriggered: {
-            if (auth.unlocking) {
-                stop()
-                return
+        Qt.callLater(function() {
+            if (root.presentationReady && !root.auth.unlocking) {
+                passwordInput.forceActiveFocus()
+                console.info("maho-lock lifecycle: password focus requested; active="
+                    + passwordInput.activeFocus)
             }
-
-            passwordInput.forceActiveFocus()
-            attempts += 1
-
-            if (passwordInput.activeFocus || attempts >= 30)
-                stop()
-        }
+        })
     }
+
+    function activatePresentation() {
+        if (!presentationReady)
+            return
+
+        if (!presentationActivated) {
+            presentationActivated = true
+            introProgress = 1
+            console.info("maho-lock lifecycle: accepted view activated at "
+                + Math.round(width) + "x" + Math.round(height))
+        }
+
+        reclaimPasswordFocus()
+    }
+
+    onPresentationReadyChanged: {
+        console.info("maho-lock lifecycle: view presentationReady="
+            + presentationReady + "; size=" + Math.round(width)
+            + "x" + Math.round(height))
+        if (presentationReady)
+            activatePresentation()
+    }
+
+    onHostWindowActiveChanged: {
+        console.info("maho-lock lifecycle: host window active=" + hostWindowActive)
+        if (hostWindowActive && presentationReady)
+            reclaimPasswordFocus()
+    }
+
+    Component.onCompleted: activatePresentation()
 
     Timer {
         id: clock
@@ -624,8 +637,7 @@ FocusScope {
 
                     function onFailed() {
                         passwordInput.clear()
-                        focusRecovery.attempts = 0
-                        focusRecovery.restart()
+                        root.reclaimPasswordFocus()
                         shake.restart()
                         errorFlash.restart()
                     }

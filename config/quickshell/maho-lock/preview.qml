@@ -56,6 +56,9 @@ ShellRoot {
             theme: theme
             lockState: state
             auth: previewAuth
+            surfaceReady: previewWindow.visible
+                && previewWindow.width > 0
+                && previewWindow.height > 0
             previewMode: true
         }
     }

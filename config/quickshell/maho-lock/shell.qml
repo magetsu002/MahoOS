@@ -14,7 +14,7 @@ ShellRoot {
     }
 
     MahoLockState {
-        id: state
+        id: lockState
     }
 
     MahoLockAuth {
@@ -27,11 +27,14 @@ ShellRoot {
 
         MahoLockSurface {
             theme: theme
-            state: state
+            lockState: lockState
             auth: auth
+            secure: sessionLock.secure
         }
 
         onSecureChanged: {
+            console.info("maho-lock lifecycle: session secure=" + secure
+                + "; locked=" + locked)
             if (secure) {
                 root.wasSecure = true
             } else if (root.wasSecure && !locked) {
