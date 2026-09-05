@@ -21,6 +21,9 @@ jobs:
       - name: Power contracts
         run: bash tests/maho-power-contracts.sh
 
+      - name: Notification keybind contract
+        run: bash tests/maho-notify-keybind-contract.sh
+
       - name: Existing Maho Shell contracts
         run: bash tests/shell-contracts.sh
 
