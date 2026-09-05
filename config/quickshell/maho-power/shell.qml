@@ -9,7 +9,7 @@ ShellRoot {
     id: root
 
     MahoTheme { id: theme }
-    PowerBackdrop { id: backdrop }
+    PowerBackdrop { id: backdrop; active: root.presented }
 
     property bool presented: false
     property bool closing: false
