@@ -24,16 +24,26 @@ Item {
     readonly property int gridGap: compact ? 7 : 16
     readonly property int rowGap: compact ? 7 : 18
     readonly property int tileHeight: compact ? 58 : 112
-    readonly property int iconSize: compact ? 18 : 32
-    readonly property int titleSize: compact ? 14 : 25
-    readonly property int subtitleSize: compact ? 0 : 12
-    readonly property int labelSize: compact ? 10 : 15
-    readonly property int detailSize: compact ? 8 : 11
+    readonly property int iconSize: compact ? 18 : 34
+    readonly property int titleSize: compact ? 14 : 27
+    readonly property int subtitleSize: compact ? 0 : 13
+    readonly property int labelSize: compact ? 10 : 16
+    readonly property int detailSize: compact ? 8 : 12
 
     function alpha(color, amount) {
         if (theme && theme.alpha)
             return theme.alpha(color, amount)
         return Qt.rgba(color.r, color.g, color.b, amount)
+    }
+
+    function blend(a, b, amount, opacity) {
+        const t = Math.max(0, Math.min(1, amount))
+        return Qt.rgba(
+            a.r * (1 - t) + b.r * t,
+            a.g * (1 - t) + b.g * t,
+            a.b * (1 - t) + b.b * t,
+            opacity
+        )
     }
 
     function actionAt(index) {
@@ -101,9 +111,9 @@ Item {
     Rectangle {
         id: shadow
         anchors.fill: shell
-        anchors.margins: root.compact ? -2 : -12
-        radius: shell.radius + (root.compact ? 2 : 10)
-        color: Qt.rgba(0, 0, 0, root.compact ? 0.08 : 0.22)
+        anchors.margins: root.compact ? -2 : -16
+        radius: shell.radius + (root.compact ? 2 : 14)
+        color: Qt.rgba(0, 0, 0, root.compact ? 0.07 : 0.18)
         z: -2
     }
 
@@ -112,12 +122,22 @@ Item {
         anchors.fill: parent
         radius: root.outerRadius
         color: root.theme
-            ? root.alpha(root.theme.surfaceHigh, root.compact ? 0.90 : 0.72)
-            : Qt.rgba(0.09, 0.10, 0.16, root.compact ? 0.93 : 0.76)
+            ? root.blend(
+                root.theme.surfaceHigh,
+                root.theme.primary,
+                root.compact ? 0.045 : 0.105,
+                root.compact ? 0.78 : 0.50
+              )
+            : Qt.rgba(0.10, 0.11, 0.18, root.compact ? 0.82 : 0.54)
         border.width: 1
         border.color: root.theme
-            ? root.alpha(root.theme.outline, root.compact ? 0.28 : 0.44)
-            : Qt.rgba(0.72, 0.76, 0.92, 0.34)
+            ? root.blend(
+                root.theme.outline,
+                root.theme.primary,
+                root.compact ? 0.10 : 0.28,
+                root.compact ? 0.24 : 0.44
+              )
+            : Qt.rgba(0.72, 0.76, 0.96, root.compact ? 0.22 : 0.42)
 
         Rectangle {
             anchors.fill: parent
@@ -126,27 +146,51 @@ Item {
             color: "transparent"
             border.width: 1
             border.color: root.theme
-                ? root.alpha(root.theme.foreground, root.compact ? 0.035 : 0.08)
-                : Qt.rgba(1, 1, 1, 0.07)
+                ? root.alpha(root.theme.foreground, root.compact ? 0.035 : 0.11)
+                : Qt.rgba(1, 1, 1, root.compact ? 0.035 : 0.10)
         }
 
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: root.compact ? 68 : 170
+            height: root.compact ? 86 : 205
             radius: parent.radius
             color: "transparent"
             gradient: Gradient {
                 GradientStop {
                     position: 0.0
                     color: root.theme
-                        ? root.alpha(root.theme.primary, root.compact ? 0.035 : 0.09)
-                        : Qt.rgba(0.32, 0.42, 0.90, 0.10)
+                        ? root.alpha(root.theme.primary, root.compact ? 0.045 : 0.16)
+                        : Qt.rgba(0.40, 0.50, 1.0, root.compact ? 0.045 : 0.15)
+                }
+                GradientStop {
+                    position: 0.48
+                    color: root.theme
+                        ? root.alpha(root.theme.primary, root.compact ? 0.015 : 0.045)
+                        : Qt.rgba(0.40, 0.50, 1.0, root.compact ? 0.015 : 0.045)
                 }
                 GradientStop { position: 1.0; color: "transparent" }
             }
-            opacity: 0.86
+            opacity: 0.92
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: root.compact ? 54 : 150
+            radius: parent.radius
+            color: "transparent"
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "transparent" }
+                GradientStop {
+                    position: 1.0
+                    color: root.theme
+                        ? root.alpha(root.theme.background, root.compact ? 0.11 : 0.24)
+                        : Qt.rgba(0.02, 0.02, 0.06, root.compact ? 0.11 : 0.24)
+                }
+            }
         }
 
         Item {
@@ -162,7 +206,7 @@ Item {
             Column {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: root.compact ? 0 : 6
+                spacing: root.compact ? 0 : 7
 
                 Text {
                     text: "Power & Session"
@@ -175,7 +219,7 @@ Item {
                 Text {
                     visible: !root.compact
                     text: "Choose an action"
-                    color: root.theme ? root.alpha(root.theme.muted, 0.72) : "#aeb4ce"
+                    color: root.theme ? root.alpha(root.theme.muted, 0.78) : "#b8c0dd"
                     font.pixelSize: root.subtitleSize
                     textFormat: Text.PlainText
                 }
@@ -186,14 +230,14 @@ Item {
                 visible: root.closeButtonVisible
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: root.compact ? 30 : 48
+                width: root.compact ? 30 : 50
                 height: width
-                radius: root.compact ? 10 : 16
+                radius: root.compact ? 10 : 17
                 color: closeHover.hovered
-                    ? (root.theme ? root.alpha(root.theme.foreground, 0.09) : Qt.rgba(1, 1, 1, 0.09))
-                    : (root.theme ? root.alpha(root.theme.foreground, 0.045) : Qt.rgba(1, 1, 1, 0.045))
+                    ? (root.theme ? root.alpha(root.theme.foreground, 0.12) : Qt.rgba(1, 1, 1, 0.11))
+                    : (root.theme ? root.alpha(root.theme.foreground, 0.065) : Qt.rgba(1, 1, 1, 0.06))
                 border.width: 1
-                border.color: root.theme ? root.alpha(root.theme.outline, 0.14) : Qt.rgba(1, 1, 1, 0.10)
+                border.color: root.theme ? root.alpha(root.theme.foreground, 0.12) : Qt.rgba(1, 1, 1, 0.10)
                 scale: closeTap.pressed ? 0.94 : 1
 
                 Behavior on color { ColorAnimation { duration: 140 } }
@@ -202,8 +246,8 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: "×"
-                    color: root.theme ? root.alpha(root.theme.foreground, 0.82) : "#e6e7f4"
-                    font.pixelSize: root.compact ? 17 : 26
+                    color: root.theme ? root.alpha(root.theme.foreground, 0.90) : "#edf0ff"
+                    font.pixelSize: root.compact ? 17 : 27
                     textFormat: Text.PlainText
                 }
 
@@ -228,7 +272,7 @@ Item {
             Text {
                 anchors.left: parent.left
                 text: "SESSION"
-                color: root.theme ? root.alpha(root.theme.primary, 0.82) : "#aeb9ff"
+                color: root.theme ? root.alpha(root.theme.primary, 0.88) : "#b9c2ff"
                 font.pixelSize: 8
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.7
@@ -238,7 +282,7 @@ Item {
                 anchors.left: parent.horizontalCenter
                 anchors.leftMargin: root.gridGap / 2
                 text: "POWER"
-                color: root.theme ? root.alpha(root.theme.primary, 0.82) : "#aeb9ff"
+                color: root.theme ? root.alpha(root.theme.primary, 0.88) : "#b9c2ff"
                 font.pixelSize: 8
                 font.weight: Font.DemiBold
                 font.letterSpacing: 0.7
@@ -274,17 +318,17 @@ Item {
                 radius: root.compact ? 13 : 20
 
                 color: danger
-                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", armed ? 0.24 : (tileHover.hovered ? 0.19 : 0.13))
+                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", armed ? 0.25 : (tileHover.hovered ? 0.20 : 0.15))
                     : selected
-                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.16)
-                        : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.075 : 0.045)
+                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.20)
+                        : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.10 : 0.060)
 
-                border.width: selected || armed ? 1.3 : 1
+                border.width: selected || armed ? 1.4 : 1
                 border.color: danger
-                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", armed ? 0.66 : 0.30)
+                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", armed ? 0.72 : 0.34)
                     : selected
-                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.82)
-                        : root.alpha(root.theme ? root.theme.outline : "#9ba0b5", tileHover.hovered ? 0.26 : 0.14)
+                        ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.94)
+                        : root.alpha(root.theme ? root.theme.outline : "#9ba0b5", tileHover.hovered ? 0.32 : 0.18)
 
                 scale: tileTap.pressed ? 0.975 : 1
 
@@ -295,11 +339,31 @@ Item {
                 Rectangle {
                     visible: tile.selected && !tile.danger
                     anchors.fill: parent
+                    anchors.margins: -3
+                    radius: parent.radius + 3
+                    color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.035 : 0.060)
+                    z: -1
+                }
+
+                Rectangle {
+                    visible: tile.selected && !tile.danger
+                    anchors.fill: parent
                     anchors.margins: root.compact ? 2 : 3
                     radius: Math.max(1, parent.radius - 3)
                     color: "transparent"
                     border.width: 1
-                    border.color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.16)
+                    border.color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.12 : 0.24)
+                }
+
+                Rectangle {
+                    visible: tile.selected && !tile.danger
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.leftMargin: root.compact ? 10 : 18
+                    anchors.rightMargin: root.compact ? 10 : 18
+                    height: 1
+                    color: root.alpha(root.theme ? root.theme.foreground : "white", root.compact ? 0.16 : 0.28)
                 }
 
                 Text {
@@ -307,12 +371,12 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: root.compact ? 14 : 34
                     anchors.verticalCenter: parent.verticalCenter
-                    width: root.compact ? 25 : 42
+                    width: root.compact ? 25 : 44
                     horizontalAlignment: Text.AlignHCenter
                     text: tile.glyph
                     color: tile.danger
                         ? (root.theme ? root.theme.error : "#ff5265")
-                        : (root.theme ? root.theme.primary : "#aab8ff")
+                        : (root.theme ? root.blend(root.theme.primary, root.theme.foreground, tile.selected ? 0.22 : 0.10, 1.0) : "#b9c8ff")
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: root.iconSize
                     textFormat: Text.PlainText
@@ -324,7 +388,7 @@ Item {
                     anchors.right: parent.right
                     anchors.rightMargin: root.compact ? 8 : 22
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: root.compact ? 0 : 4
+                    spacing: root.compact ? 0 : 5
 
                     Text {
                         width: parent.width
@@ -340,8 +404,8 @@ Item {
                         width: parent.width
                         text: tile.armed ? "Press again to confirm" : tile.detail
                         color: tile.armed && tile.danger
-                            ? (root.theme ? root.alpha(root.theme.error, 0.84) : "#ff95a1")
-                            : (root.theme ? root.alpha(root.theme.muted, 0.68) : "#a5aac0")
+                            ? (root.theme ? root.alpha(root.theme.error, 0.88) : "#ff95a1")
+                            : (root.theme ? root.alpha(root.theme.muted, 0.74) : "#adb5d0")
                         font.pixelSize: root.detailSize
                         elide: Text.ElideRight
                         textFormat: Text.PlainText
@@ -378,7 +442,7 @@ Item {
                 action: "sleep"
                 title: "Sleep"
                 detail: "Sleep until wake"
-                glyph: "󰒲"
+                glyph: "󰖔"
             }
 
             ActionTile {
@@ -386,7 +450,7 @@ Item {
                 action: "switch-user"
                 title: "Switch User"
                 detail: "Sign in to another account"
-                glyph: "󰀉"
+                glyph: "󰀄"
             }
 
             ActionTile {
