@@ -22,19 +22,22 @@ pass "installer syntax"
 grep -Fq -- '-- maho-lock-bind:begin' "$BINDS" || fail "canonical bind begin marker missing"
 grep -Fq -- '-- maho-lock-bind:end' "$BINDS" || fail "canonical bind end marker missing"
 grep -Fq 'mainMod .. " + CTRL + L"' "$BINDS" || fail "canonical SUPER+CTRL+L bind missing"
+grep -Fq 'mainMod .. " + CTRL + SHIFT + L"' "$BINDS" || fail "canonical customization bind missing"
+grep -Fq '"$HOME/.local/bin/maho-lock" --customize' "$BINDS" || fail "customization bind does not use installed launcher"
 if grep -Fq 'mainMod .. " + L"' "$BINDS"; then fail "old managed SUPER+L bind remains"; fi
 grep -Fq '"$HOME/.local/bin/maho-lock"' "$BINDS" || fail "canonical bind does not use installed launcher"
 pass "canonical managed SUPER+CTRL+L binding"
 
 grep -Fq 'refusing to replace unmanaged command' "$INSTALLER" || fail "unmanaged command protection missing"
 grep -Fq 'refusing to replace unmanaged runtime' "$INSTALLER" || fail "unmanaged runtime protection missing"
-grep -Fq 'SUPER+CTRL+L already exists outside' "$INSTALLER" || fail "existing SUPER+CTRL+L protection missing"
-grep -Fq 'live SUPER+CTRL+L ownership available' "$INSTALLER" || fail "preflight target ownership check missing"
+grep -Fq 'a Maho Lock shortcut already exists outside' "$INSTALLER" || fail "existing target-shortcut protection missing"
+grep -Fq 'live lock and customization shortcut ownership available' "$INSTALLER" || fail "preflight target ownership check missing"
 grep -Fq 'Rolling back Maho Lock installation' "$INSTALLER" || fail "rollback path missing"
 grep -Fq 'hyprctl configerrors' "$INSTALLER" || fail "post-reload config verification missing"
 grep -Fq 'KEPT  user personalization state' "$INSTALLER" || fail "uninstall does not preserve personalization state"
 grep -Fq 'python_syntax_check' "$INSTALLER" || fail "side-effect-free Python syntax authority missing"
 grep -Fq 'ast.PyCF_ONLY_AST' "$INSTALLER" || fail "Python syntax check does not use parse-only compilation"
+grep -Fq 'date +%Y%m%d-%H%M%S-%N' "$INSTALLER" || fail "backup names can collide within one second"
 if grep -Fq 'py_compile' "$INSTALLER"; then
     fail "installer syntax validation can generate nondeterministic pyc files"
 fi
@@ -103,6 +106,8 @@ grep -Fq -- '-- maho-lock-bind:begin' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua
     || fail "live managed bind not installed"
 grep -Fq 'mainMod .. " + CTRL + L"' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" \
     || fail "managed bind was not migrated to SUPER+CTRL+L"
+grep -Fq 'mainMod .. " + CTRL + SHIFT + L"' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" \
+    || fail "managed customization bind was not installed"
 if grep -Fq 'mainMod .. " + L"' "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua"; then
     fail "managed SUPER+L survived migration"
 fi
@@ -165,6 +170,7 @@ grep -Fq 'RETURN", hl.dsp.exec_cmd("kitty")' "$XDG_CONFIG_HOME/hypr/maho/core/bi
 pass "sandbox uninstall preserves unrelated live config"
 
 # An unmanaged owner of the exact target chord must survive a refused install.
+cp -a "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" "$TMP/unrelated-only.lua"
 cat >> "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" <<'EOF_COLLISION'
 hl.bind(mainMod .. " + CTRL + L", hl.dsp.exec_cmd("custom-locker"))
 EOF_COLLISION
@@ -176,10 +182,24 @@ cmp -s "$TMP/binds-before-collision.lua" "$XDG_CONFIG_HOME/hypr/maho/core/binds.
     || fail "collision refusal changed live bindings"
 [ ! -e "$HOME/.local/bin/maho-lock" ] || fail "collision rollback left a managed wrapper"
 [ ! -e "$XDG_DATA_HOME/maho-lock/current" ] || fail "collision rollback left a managed runtime"
-grep -Fq 'SUPER+CTRL+L already exists outside' "$TMP/collision.out" \
+grep -Fq 'a Maho Lock shortcut already exists outside' "$TMP/collision.out" \
     || fail "collision refusal reason missing"
 grep -Fq 'Maho Lock permanent installation' "$TMP/collision.out" \
     || fail "collision preflight did not run"
 pass "unmanaged SUPER+CTRL+L collision is refused transactionally"
+
+cp -a "$TMP/unrelated-only.lua" "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua"
+cat >> "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" <<'EOF_CUSTOMIZE_COLLISION'
+hl.bind(mainMod .. " + CTRL + SHIFT + L", hl.dsp.exec_cmd("custom-editor"))
+EOF_CUSTOMIZE_COLLISION
+cp -a "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" "$TMP/binds-before-customize-collision.lua"
+if bash "$INSTALLER" install >"$TMP/customize-collision.out" 2>&1; then
+    fail "installer replaced an unmanaged customization binding"
+fi
+cmp -s "$TMP/binds-before-customize-collision.lua" "$XDG_CONFIG_HOME/hypr/maho/core/binds.lua" \
+    || fail "customization collision refusal changed live bindings"
+[ ! -e "$HOME/.local/bin/maho-lock" ] || fail "customization collision left a managed wrapper"
+[ ! -e "$XDG_DATA_HOME/maho-lock/current" ] || fail "customization collision left a managed runtime"
+pass "unmanaged customization collision is refused transactionally"
 
 printf 'PASS  Maho Lock permanent installer contracts\n'

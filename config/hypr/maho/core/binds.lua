@@ -19,6 +19,10 @@ hl.bind(
     mainMod .. " + CTRL + L",
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
 )
+hl.bind(
+    mainMod .. " + CTRL + SHIFT + L",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock" --customize]])
+)
 -- maho-lock-bind:end
 
 -- Laptop media keys. On laptops the Fn layer normally reaches Hyprland as

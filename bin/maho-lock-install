@@ -108,6 +108,8 @@ managed_bind_healthy() {
 
     grep -Fq 'mainMod .. " + CTRL + L"' <<<"$block" \
         && ! grep -Fq 'mainMod .. " + L"' <<<"$block" \
+        && grep -Fq 'mainMod .. " + CTRL + SHIFT + L"' <<<"$block" \
+        && grep -Fq '"$HOME/.local/bin/maho-lock" --customize' <<<"$block" \
         && grep -Fq '"$HOME/.local/bin/maho-lock"' <<<"$block"
 }
 
@@ -120,8 +122,11 @@ unmanaged_target_bind_present() {
     ' "$source")"
 
     grep -Fq 'mainMod .. " + CTRL + L"' <<<"$unmanaged" \
+        || grep -Fq 'mainMod .. " + CTRL + SHIFT + L"' <<<"$unmanaged" \
         || grep -Fq '"SUPER + CTRL + L"' <<<"$unmanaged" \
-        || grep -Fq "'SUPER + CTRL + L'" <<<"$unmanaged"
+        || grep -Fq "'SUPER + CTRL + L'" <<<"$unmanaged" \
+        || grep -Fq '"SUPER + CTRL + SHIFT + L"' <<<"$unmanaged" \
+        || grep -Fq "'SUPER + CTRL + SHIFT + L'" <<<"$unmanaged"
 }
 
 preflight() {
@@ -171,10 +176,10 @@ preflight() {
             say "FAIL  existing Maho Lock managed bind block is malformed or unknown"
             failed=1
         elif unmanaged_target_bind_present "$LIVE_BINDS"; then
-            say "FAIL  SUPER+CTRL+L already exists outside the Maho Lock managed block"
+            say "FAIL  a Maho Lock shortcut already exists outside the managed block"
             failed=1
         else
-            say "PASS  live SUPER+CTRL+L ownership available"
+            say "PASS  live lock and customization shortcut ownership available"
         fi
     else
         say "FAIL  live Maho binds missing: $LIVE_BINDS"
@@ -223,6 +228,10 @@ append_bind_block() {
 hl.bind(
     mainMod .. " + CTRL + L",
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock"]])
+)
+hl.bind(
+    mainMod .. " + CTRL + SHIFT + L",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-lock" --customize]])
 )
 -- maho-lock-bind:end
 EOF_BIND
@@ -291,7 +300,7 @@ install_bind() {
 
     # Refuse the exact target chord when it is owned outside our managed block.
     if unmanaged_target_bind_present "$working"; then
-        fail "SUPER+CTRL+L already exists outside the Maho Lock managed block"
+        fail "a Maho Lock shortcut already exists outside the managed block"
         return 1
     fi
 
@@ -337,7 +346,7 @@ install() {
         return 1
     fi
 
-    stamp="$(date +%Y%m%d-%H%M%S)"
+    stamp="$(date +%Y%m%d-%H%M%S-%N)"
     backup="$BACKUP_DIR/$stamp"
     stage="$DEPLOY_PARENT/.stage.$$"
     bind_work="$DEPLOY_PARENT/.binds.$$"
@@ -398,7 +407,7 @@ install() {
         fail "binding installation failed; inspect $backup"
         return 1
     fi
-    say "PASS  SUPER+CTRL+L binding staged"
+    say "PASS  secure lock and customization bindings staged"
 
     if verify_live; then
         rm -rf "$stage" "$bind_work"
@@ -433,9 +442,9 @@ status() {
     fi
 
     if managed_bind_healthy; then
-        say "PASS  SUPER+CTRL+L managed binding"
+        say "PASS  secure lock and customization managed bindings"
     else
-        say "INFO  SUPER+CTRL+L managed binding missing or unhealthy"
+        say "INFO  managed lock/customization bindings missing or unhealthy"
         failed=1
     fi
 
@@ -505,9 +514,9 @@ Usage:
 
 The installer is user-scoped and requires no root access. It deploys an
 immutable Maho Lock runtime under ~/.local/share, installs ~/.local/bin/maho-lock,
-and wires the managed SUPER+CTRL+L Hyprland binding with backup + rollback.
+and wires managed secure-lock and customization bindings with backup + rollback.
 
-Existing unmanaged commands, runtimes, and SUPER+CTRL+L bindings are never replaced.
+Existing unmanaged commands, runtimes, and target bindings are never replaced.
 Profile/wallpaper personalization state is preserved during uninstall.
 EOF_HELP
         exit 2

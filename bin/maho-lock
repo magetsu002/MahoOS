@@ -14,7 +14,7 @@ LOCK_FILE="$RUNTIME_DIR/maho-lock.lock"
 mode="secure"
 case "${1:-}" in
     '') ;;
-    --preview) mode="preview" ;;
+    --preview|--customize) mode="preview" ;;
     -h|--help)
         cat <<'HELP'
 Maho Lock
@@ -22,6 +22,7 @@ Maho Lock
 Usage:
   maho-lock             Securely lock the Wayland session.
   maho-lock --preview   Show the exact lock UI without acquiring a session lock.
+  maho-lock --customize Open the safe wallpaper and profile-photo editor.
 
 The preview is for visual/input acceptance only. Press Escape to close it.
 HELP

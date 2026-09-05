@@ -119,6 +119,7 @@ grep -Fq 'visible: root.statusOpen' "$ICON" || fail "closed status card can ling
 pass "single top-right status surface"
 
 grep -Fq 'flock -n 9' "$LAUNCHER" || fail "locker process ownership missing"
+grep -Fq -- '--preview|--customize' "$LAUNCHER" || fail "safe customization launcher alias missing"
 grep -Fq 'runtime.log' "$LAUNCHER" || fail "secure lifecycle evidence is not persistent"
 if grep -Eq 'pkill|killall' "$LAUNCHER"; then fail "launcher uses broad kills"; fi
 pass "runtime ownership"

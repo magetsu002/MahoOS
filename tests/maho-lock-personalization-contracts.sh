@@ -74,6 +74,7 @@ import importlib.util
 from pathlib import Path
 import sys
 
+sys.dont_write_bytecode = True
 path = Path(sys.argv[1])
 spec = importlib.util.spec_from_file_location("maho_lock_state", path)
 module = importlib.util.module_from_spec(spec)
