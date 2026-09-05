@@ -15,15 +15,21 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Prepare Arch build environment
+      - name: Bootstrap checkout dependencies
         shell: bash
         run: |
           set -euo pipefail
-          pacman -Syu --noconfirm --needed git zstd python libarchive
+          pacman -Sy --noconfirm --needed git zstd python libarchive
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prepare unprivileged package builder
+        shell: bash
+        run: |
+          set -euo pipefail
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
@@ -40,7 +46,7 @@ jobs:
           package="$(find dist -maxdepth 1 -type f -name 'maho-os-*.pkg.tar.*' -print -quit)"
           test -n "$package"
           pacman -Qip "$package"
-          bsdtar -tf "$package" > /tmp/maho-package-files.txt
+          bsdtar -tf "$package" | sed 's#^\./##' > /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-install' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/bin/maho-setup' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/config/hypr/maho/core/session.lua' /tmp/maho-package-files.txt
