@@ -28,18 +28,26 @@ for file in "$SHELL_QML" "$BACKDROP" "$RUNTIME"; do
 done
 
 echo '=== Power compositor sequencing ==='
-require "$SHELL_QML" 'property bool backdropActive: true' \
-    'blur carrier is not mapped before foreground presentation'
-require "$SHELL_QML" 'PowerBackdrop { id: backdrop; active: root.backdropActive }' \
-    'Power backdrop still follows foreground presentation directly'
+require "$SHELL_QML" 'PowerBackdrop { id: backdrop; active: root.presented }' \
+    'Power backdrop no longer has explicit lifecycle authority'
+require "$SHELL_QML" 'property bool presented: true' \
+    'blur carrier is not committed before foreground reveal'
+require "$SHELL_QML" 'property bool panelVisible: false' \
+    'foreground animation is not separated from blur readiness'
 require "$SHELL_QML" 'Component.onCompleted: Qt.callLater(function() {' \
     'foreground is not deferred until after blur carrier creation'
-require "$SHELL_QML" 'backdropActive = false' \
+require "$SHELL_QML" 'root.panelVisible = true' \
+    'foreground reveal does not happen on the deferred Qt turn'
+require "$SHELL_QML" 'presented = false' \
     'dismissal does not unmap blur carrier immediately'
+require "$SHELL_QML" 'panelVisible = false' \
+    'dismissal does not separately animate the foreground away'
 require "$SHELL_QML" 'closeTimer.stop()' \
     'reopen-during-close cannot recover the same coherent surface'
-reject "$SHELL_QML" 'PowerBackdrop { id: backdrop; active: root.presented }' \
-    'blur carrier mapping is coupled to animated foreground state'
+require "$SHELL_QML" 'opacity: root.panelVisible ? 1 : 0' \
+    'foreground opacity still follows blur-carrier state'
+require "$SHELL_QML" 'scale: root.panelVisible ? 1 : 0.965' \
+    'foreground scale still follows blur-carrier state'
 reject "$SHELL_QML" 'id: presentTimer' \
     'legacy timer-driven simultaneous blur/panel reveal returned'
 
