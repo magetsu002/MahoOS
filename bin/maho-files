@@ -3,20 +3,21 @@ set -euo pipefail
 
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 SOURCE="$ROOT/apps/maho-files"
+PACKAGED_BINARY="$SOURCE/prebuilt/maho-files"
 CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 BUILD="${MAHO_FILES_BUILD_DIR:-$CACHE_HOME/maho/files-qml-build}"
-BINARY="$BUILD/maho-files"
+BUILD_BINARY="$BUILD/maho-files"
 
 usage() {
     cat <<'EOF'
 Usage: maho-files <command> [args]
 
 Commands:
-  doctor          Check native Maho Files build/runtime dependencies.
-  configure       Configure the isolated CMake build directory.
-  build           Configure and compile Maho Files.
-  run [LOCATION]  Build if necessary, then run Maho Files.
-  clean           Remove only the isolated Maho Files build directory.
+  doctor          Check native Maho Files runtime/build readiness.
+  configure       Configure the isolated source-build directory.
+  build           Configure and compile Maho Files from source.
+  run [LOCATION]  Run the packaged binary, or build from source when developing.
+  clean           Remove only the isolated Maho Files source-build directory.
 EOF
 }
 
@@ -24,35 +25,54 @@ need_command() {
     command -v "$1" >/dev/null 2>&1
 }
 
+selected_binary() {
+    if [ -n "${MAHO_FILES_BINARY:-}" ]; then
+        printf '%s\n' "$MAHO_FILES_BINARY"
+    elif [ -x "$PACKAGED_BINARY" ]; then
+        printf '%s\n' "$PACKAGED_BINARY"
+    else
+        printf '%s\n' "$BUILD_BINARY"
+    fi
+}
+
 doctor() {
-    local failed=0
+    local failed=0 binary
+    binary="$(selected_binary)"
 
     echo "Maho Files native frontend doctor"
     echo
 
-    for command in cmake ninja; do
-        if need_command "$command"; then
-            printf 'PASS  %-14s %s\n' "$command" "$(command -v "$command")"
+    if [ -x "$binary" ]; then
+        printf 'PASS  %-14s %s\n' "native binary" "$binary"
+    elif [ -x "$PACKAGED_BINARY" ] || [ -n "${MAHO_FILES_BINARY:-}" ]; then
+        printf 'FAIL  %-14s %s is not executable\n' "native binary" "$binary"
+        failed=1
+    else
+        echo "INFO  native binary  no packaged binary; source build required"
+        for command in cmake ninja; do
+            if need_command "$command"; then
+                printf 'PASS  %-14s %s\n' "$command" "$(command -v "$command")"
+            else
+                printf 'FAIL  %-14s missing\n' "$command"
+                failed=1
+            fi
+        done
+
+        if need_command qmake6 || need_command qtpaths6; then
+            echo "PASS  Qt 6          development/runtime tools available"
         else
-            printf 'FAIL  %-14s missing\n' "$command"
+            echo "FAIL  Qt 6          development/runtime tools missing"
             failed=1
         fi
-    done
 
-    if need_command qmake6 || need_command qtpaths6; then
-        echo "PASS  Qt 6          available"
-    else
-        echo "FAIL  Qt 6          development/runtime tools missing"
-        failed=1
-    fi
-
-    if find /usr/lib/cmake /usr/lib64/cmake -maxdepth 2 -type f \
-        \( -name 'KF6KIOConfig.cmake' -o -name 'KF6KIOConfigVersion.cmake' \) \
-        -print -quit 2>/dev/null | grep -q .; then
-        echo "PASS  KDE KIO        KF6 CMake package available"
-    else
-        echo "FAIL  KDE KIO        KF6 development package missing"
-        failed=1
+        if find /usr/lib/cmake /usr/lib64/cmake -maxdepth 2 -type f \
+            \( -name 'KF6KIOConfig.cmake' -o -name 'KF6KIOConfigVersion.cmake' \) \
+            -print -quit 2>/dev/null | grep -q .; then
+            echo "PASS  KDE KIO        KF6 CMake package available"
+        else
+            echo "FAIL  KDE KIO        KF6 development package missing"
+            failed=1
+        fi
     fi
 
     if [ -f "$HOME/.cache/maho/theme/active.json" ]; then
@@ -62,8 +82,8 @@ doctor() {
     fi
 
     echo
-    if [ "$failed" -ne 0 ]; then
-        echo "Arch dependency hint:"
+    if [ "$failed" -ne 0 ] && [ ! -x "$PACKAGED_BINARY" ]; then
+        echo "Arch source-build dependency hint:"
         echo "  sudo pacman -S --needed cmake ninja qt6-base qt6-declarative kio"
     fi
 
@@ -71,6 +91,10 @@ doctor() {
 }
 
 configure() {
+    [ -r "$SOURCE/CMakeLists.txt" ] || {
+        echo "maho-files: source tree unavailable: $SOURCE" >&2
+        return 1
+    }
     mkdir -p "$BUILD"
     cmake \
         -S "$SOURCE" \
@@ -85,10 +109,17 @@ build() {
 }
 
 run() {
-    if [ ! -x "$BINARY" ]; then
+    local binary
+    binary="$(selected_binary)"
+    if [ ! -x "$binary" ]; then
+        if [ "$binary" != "$BUILD_BINARY" ]; then
+            echo "maho-files: configured native binary is not executable: $binary" >&2
+            return 1
+        fi
         build
+        binary="$BUILD_BINARY"
     fi
-    exec "$BINARY" "$@"
+    exec "$binary" "$@"
 }
 
 clean() {
