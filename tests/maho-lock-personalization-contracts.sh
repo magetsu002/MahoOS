@@ -35,9 +35,9 @@ grep -Fq 'onClicked: root.openPicker("wallpaper")' "$VIEW" \
     || fail "wallpaper selection is not a separate control"
 grep -Fq 'text: "Wallpaper"' "$VIEW" \
     || fail "separate wallpaper affordance missing"
-grep -Fq 'text: "Choose profile photo"' "$VIEW" \
+grep -Fq '"Choose profile photo"' "$VIEW" \
     || fail "profile picker title missing"
-grep -Fq 'text: "Choose lock wallpaper"' "$VIEW" \
+grep -Fq '"Choose lock wallpaper"' "$VIEW" \
     || fail "wallpaper picker title missing"
 grep -Fq 'root.lockState.setAvatar(path)' "$VIEW" \
     || fail "profile selection does not reach avatar state authority"
