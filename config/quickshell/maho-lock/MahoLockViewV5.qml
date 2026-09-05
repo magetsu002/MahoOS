@@ -1,6 +1,7 @@
 import QtQuick
-import QtQuick.Effects
 import QtQuick.Window
+import Qt5Compat.GraphicalEffects
+import Quickshell
 
 FocusScope {
     id: root
@@ -15,6 +16,20 @@ FocusScope {
     property real errorPulse: 0
     property bool passwordVisible: false
     property bool presentationActivated: false
+
+    // The rounded trial is deliberately reversible. Launch with
+    // MAHO_LOCK_TYPOGRAPHY=classic to render the previous Noto Sans UI.
+    readonly property bool useRoundedTypography:
+        String(Quickshell.env("MAHO_LOCK_TYPOGRAPHY") || "").toLowerCase() !== "classic"
+    readonly property string classicUiFontFamily: "Noto Sans"
+    readonly property string uiFontFamily:
+        useRoundedTypography && roundedUiFont.status === FontLoader.Ready
+            ? "Nunito"
+            : classicUiFontFamily
+    readonly property int uiBodyWeight:
+        useRoundedTypography ? Font.DemiBold : Font.Normal
+    readonly property real uiAxisWeight:
+        useRoundedTypography ? 600 : 400
 
     readonly property bool hostWindowActive: Window.active
     readonly property bool presentationReady:
@@ -38,11 +53,18 @@ FocusScope {
         return "Good evening, " + root.lockState.displayName
     }
 
-    readonly property color textPrimary: Qt.rgba(1, 1, 1, 0.97)
-    readonly property color textSecondary: Qt.rgba(1, 1, 1, 0.74)
-    readonly property color textTertiary: Qt.rgba(1, 1, 1, 0.54)
+    // Cool off-white foregrounds preserve the wallpaper while keeping the
+    // lock hierarchy legible over bright sky and reflection details.
+    readonly property color textPrimary: Qt.rgba(0.973, 0.984, 1.000, 0.98)
+    readonly property color textSecondary: Qt.rgba(0.957, 0.976, 1.000, 0.94)
+    readonly property color textTertiary: Qt.rgba(0.933, 0.965, 1.000, 0.82)
 
     focus: true
+
+    FontLoader {
+        id: roundedUiFont
+        source: "assets/Nunito-Variable.ttf"
+    }
 
     function stage(start, finish) {
         const span = Math.max(0.001, finish - start)
@@ -140,43 +162,19 @@ FocusScope {
         color: theme.background
     }
 
-    // User wallpaper authority. The selected local image is softened once for
-    // the full lock surface so the controls can stay genuinely translucent.
+    // Render the user's wallpaper directly at its native decode quality. The
+    // previous logical-size decode plus full-screen blur softened it twice on
+    // scaled outputs; local glass and veils already provide UI separation.
     Image {
         id: wallpaperSource
         anchors.fill: parent
-        z: -7
+        z: -5
         source: root.lockState.lockWallpaperUrl
         asynchronous: true
         cache: true
         fillMode: Image.PreserveAspectCrop
         smooth: true
-        mipmap: true
-        sourceSize.width: root.width
-        sourceSize.height: root.height
-    }
-
-    ShaderEffectSource {
-        id: wallpaperTexture
-        anchors.fill: parent
-        z: -6
-        sourceItem: wallpaperSource
-        hideSource: true
-        live: true
-        recursive: false
-    }
-
-    MultiEffect {
-        id: wallpaperEffect
-        anchors.fill: parent
-        z: -5
-        source: wallpaperTexture
-        visible: wallpaperSource.status === Image.Ready
-        blurEnabled: true
-        blur: 0.34
-        blurMax: 32
-        saturation: -0.025
-        brightness: 0.018
+        mipmap: false
         scale: auth.unlocking
             ? 1.010
             : 1.032 - root.stage(0.0, 0.78) * 0.032
@@ -214,6 +212,22 @@ FocusScope {
         }
     }
 
+    // Broad atmospheric separation for the interaction stack. This has no
+    // panel edge and leaves the wallpaper artwork fully visible.
+    RadialGradient {
+        anchors.fill: parent
+        z: -2
+        horizontalRadius: width * 0.38
+        verticalRadius: height * 0.56
+        verticalOffset: -height * 0.02
+        gradient: Gradient {
+            GradientStop { position: 0.00; color: Qt.rgba(0.031, 0.106, 0.227, 0.14) }
+            GradientStop { position: 0.52; color: Qt.rgba(0.031, 0.106, 0.227, 0.060) }
+            GradientStop { position: 0.78; color: Qt.rgba(0.031, 0.106, 0.227, 0.000) }
+            GradientStop { position: 1.00; color: Qt.rgba(0.031, 0.106, 0.227, 0.000) }
+        }
+    }
+
     Item {
         id: chrome
         anchors.fill: parent
@@ -238,15 +252,19 @@ FocusScope {
                 height: 15 * root.uiScale
                 anchors.verticalCenter: parent.verticalCenter
                 name: "lock"
-                iconOpacity: 0.72
+                iconOpacity: 0.84
             }
 
             Text {
                 text: "Screen locked"
                 color: root.textSecondary
                 font.pixelSize: 13 * root.uiScale
-                font.weight: Font.Normal
+                font.family: root.uiFontFamily
+                font.weight: root.uiBodyWeight
+                font.variableAxes: ({ "wght": root.uiAxisWeight })
                 anchors.verticalCenter: parent.verticalCenter
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
         }
 
@@ -289,6 +307,9 @@ FocusScope {
                         : ""
                     color: root.textPrimary
                     font.pixelSize: 13 * root.uiScale
+                    font.family: root.uiFontFamily
+                    font.weight: root.uiBodyWeight
+                    font.variableAxes: ({ "wght": root.uiAxisWeight })
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -301,13 +322,16 @@ FocusScope {
                     height: 18 * root.uiScale
                     anchors.verticalCenter: parent.verticalCenter
                     name: "keyboard"
-                    iconOpacity: 0.78
+                    iconOpacity: 0.88
                 }
 
                 Text {
                     text: root.lockState.keyboardLayout
                     color: root.textPrimary
                     font.pixelSize: 13 * root.uiScale
+                    font.family: root.uiFontFamily
+                    font.weight: root.uiBodyWeight
+                    font.variableAxes: ({ "wght": root.uiAxisWeight })
                     font.capitalization: Font.AllUppercase
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -351,6 +375,8 @@ FocusScope {
                 font.weight: Font.Light
                 font.letterSpacing: -1.8 * root.uiScale
                 opacity: root.stage(0.04, 0.48)
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.11)
             }
 
             Text {
@@ -360,7 +386,12 @@ FocusScope {
                 text: root.currentDate
                 color: root.textSecondary
                 font.pixelSize: 18 * root.uiScale
+                font.family: root.uiFontFamily
+                font.weight: root.uiBodyWeight
+                font.variableAxes: ({ "wght": root.uiAxisWeight })
                 opacity: root.stage(0.10, 0.56)
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
 
             Text {
@@ -370,8 +401,12 @@ FocusScope {
                 text: root.greeting
                 color: root.textPrimary
                 font.pixelSize: 19 * root.uiScale
-                font.weight: Font.Normal
+                font.family: root.uiFontFamily
+                font.weight: root.uiBodyWeight
+                font.variableAxes: ({ "wght": root.uiAxisWeight })
                 opacity: root.stage(0.17, 0.64)
+                style: Text.Raised
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
             }
 
             Item {
@@ -421,6 +456,7 @@ FocusScope {
                         : "M"
                     color: Qt.rgba(1, 1, 1, 0.985)
                     font.pixelSize: 44 * root.uiScale
+                    font.family: root.uiFontFamily
                     font.weight: Font.Light
                     renderType: Text.NativeRendering
                 }
@@ -466,7 +502,7 @@ FocusScope {
                         width: 17 * root.uiScale
                         height: 17 * root.uiScale
                         name: "lock"
-                        iconOpacity: passwordInput.activeFocus ? 0.90 : 0.67
+                        iconOpacity: passwordInput.activeFocus ? 0.96 : 0.84
                     }
 
                     TextInput {
@@ -482,6 +518,9 @@ FocusScope {
                         selectionColor: theme.alpha(theme.accent, 0.36)
                         selectedTextColor: root.textPrimary
                         font.pixelSize: 14 * root.uiScale
+                        font.family: root.uiFontFamily
+                        font.weight: root.uiBodyWeight
+                        font.variableAxes: ({ "wght": root.uiAxisWeight })
                         echoMode: root.passwordVisible ? TextInput.Normal : TextInput.Password
                         passwordCharacter: "●"
                         enabled: !auth.unlocking
@@ -497,9 +536,14 @@ FocusScope {
                             visible: passwordInput.text.length === 0
                             text: auth.authenticating ? "Authenticating…" : "Enter your password"
                             color: passwordInput.activeFocus
-                                ? Qt.rgba(1, 1, 1, 0.66)
+                                ? root.textSecondary
                                 : root.textTertiary
                             font.pixelSize: 14 * root.uiScale
+                            font.family: root.uiFontFamily
+                            font.weight: root.uiBodyWeight
+                            font.variableAxes: ({ "wght": root.uiAxisWeight })
+                            style: Text.Raised
+                            styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.16)
                         }
 
                         Keys.onPressed: function(event) {
@@ -550,7 +594,7 @@ FocusScope {
                             name: "eye"
                             iconOpacity: root.passwordVisible
                                 ? 0
-                                : (eyePointer.containsMouse ? 0.94 : 0.72)
+                                : (eyePointer.containsMouse ? 0.98 : 0.88)
 
                             Behavior on iconOpacity {
                                 NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -563,7 +607,7 @@ FocusScope {
                             height: 19 * root.uiScale
                             name: "eye-off"
                             iconOpacity: root.passwordVisible
-                                ? (eyePointer.containsMouse ? 0.98 : 0.80)
+                                ? (eyePointer.containsMouse ? 1.0 : 0.92)
                                 : 0
 
                             Behavior on iconOpacity {
@@ -601,7 +645,11 @@ FocusScope {
                         text: auth.authenticating ? "Checking…" : "Unlock"
                         color: root.textPrimary
                         font.pixelSize: 14 * root.uiScale
+                        font.family: root.uiFontFamily
                         font.weight: Font.DemiBold
+                        font.variableAxes: ({ "wght": root.useRoundedTypography ? 700 : 600 })
+                        style: Text.Raised
+                        styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.16)
                     }
 
                     MouseArea {
@@ -628,8 +676,12 @@ FocusScope {
                         ? theme.alpha(theme.error, 0.95)
                         : root.textSecondary
                     font.pixelSize: 11 * root.uiScale
-                    font.weight: auth.errorText.length > 0 ? Font.Medium : Font.Normal
-                    opacity: 0.92
+                    font.family: root.uiFontFamily
+                    font.weight: root.uiBodyWeight
+                    font.variableAxes: ({ "wght": root.uiAxisWeight })
+                    opacity: 0.96
+                    style: Text.Raised
+                    styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
                 }
 
                 Connections {
@@ -665,6 +717,9 @@ FocusScope {
                 theme: root.theme
                 iconName: "power"
                 label: "Sleep"
+                fontFamily: root.uiFontFamily
+                fontWeight: root.uiBodyWeight
+                fontAxisWeight: root.uiAxisWeight
                 enabled: true
 
                 onTriggered: {
@@ -681,6 +736,9 @@ FocusScope {
                 theme: root.theme
                 iconName: "users"
                 label: "Switch user"
+                fontFamily: root.uiFontFamily
+                fontWeight: root.uiBodyWeight
+                fontAxisWeight: root.uiAxisWeight
                 enabled: root.previewMode || root.lockState.switchUserCommand.length > 0
                 visible: root.previewMode || root.lockState.switchUserCommand.length > 0
 
