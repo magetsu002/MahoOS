@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+POLICY="$ROOT/config/platform.json"
+RECOVERY_POLICY="$ROOT/lib/maho_recovery_policy.py"
+
+usage() {
+  cat <<'EOF'
+Usage: maho-platform <command> [args]
+
+Commands:
+  doctor              Inspect V1 platform/recovery prerequisites (read-only).
+  status [--json]     Report detected kernel/filesystem/recovery capabilities.
+  plan FILE|-         Compute a recovery recommendation from normalized JSON.
+
+This command is read-only. It never changes kernels, snapshots, boot entries,
+packages, or filesystems.
+EOF
+}
+
+has_package() {
+  command -v pacman >/dev/null 2>&1 && pacman -Q "$1" >/dev/null 2>&1
+}
+
+package_state() {
+  if has_package "$1"; then printf 'installed'; else printf 'missing'; fi
+}
+
+root_fstype() {
+  if command -v findmnt >/dev/null 2>&1; then
+    findmnt -n -o FSTYPE / 2>/dev/null | head -n1
+  fi
+}
+
+root_source() {
+  if command -v findmnt >/dev/null 2>&1; then
+    findmnt -n -o SOURCE / 2>/dev/null | head -n1
+  fi
+}
+
+home_source() {
+  if command -v findmnt >/dev/null 2>&1; then
+    findmnt -n -o SOURCE /home 2>/dev/null | head -n1
+  fi
+}
+
+status_json() {
+  local fs root home
+  fs="$(root_fstype || true)"
+  root="$(root_source || true)"
+  home="$(home_source || true)"
+  python - "$POLICY" "$fs" "$root" "$home" \
+    "$(package_state linux-cachyos)" \
+    "$(package_state linux-cachyos-lts)" \
+    "$(package_state snapper)" \
+    "$(package_state snap-pac)" \
+    "$(package_state limine)" \
+    "$(package_state limine-snapper-sync)" \
+    "$(test -r /etc/snapper/configs/root && printf present || printf missing)" <<'PY'
+import json
+import pathlib
+import sys
+
+policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print(json.dumps({
+    "schema_version": 1,
+    "policy": {
+        "primary_kernel": policy["kernel"]["primary_package"],
+        "fallback_kernel": policy["kernel"]["fallback_package"],
+        "fallback_visibility": policy["kernel"]["fallback_visibility"],
+        "filesystem": policy["system_states"]["filesystem"],
+        "home_rollback_policy": policy["system_states"]["home_rollback_policy"],
+    },
+    "detected": {
+        "root_fstype": sys.argv[2] or None,
+        "root_source": sys.argv[3] or None,
+        "home_source": sys.argv[4] or None,
+        "linux_cachyos": sys.argv[5],
+        "linux_cachyos_lts": sys.argv[6],
+        "snapper": sys.argv[7],
+        "snap_pac": sys.argv[8],
+        "limine": sys.argv[9],
+        "limine_snapper_sync": sys.argv[10],
+        "root_snapper_config": sys.argv[11],
+    },
+}, sort_keys=True, separators=(",", ":")))
+PY
+}
+
+status_human() {
+  local data
+  data="$(status_json)"
+  python - "$data" <<'PY'
+import json
+import sys
+
+d = json.loads(sys.argv[1])
+p = d["policy"]
+x = d["detected"]
+print("MahoOS V1 platform status")
+print()
+print(f"policy primary kernel     {p['primary_kernel']}")
+print(f"policy fallback kernel    {p['fallback_kernel']} ({p['fallback_visibility']})")
+print(f"root filesystem           {x['root_fstype'] or 'unknown'}")
+print(f"root source               {x['root_source'] or 'unknown'}")
+print(f"home source               {x['home_source'] or 'not separately mounted'}")
+for label, key in (
+    ("linux-cachyos", "linux_cachyos"),
+    ("linux-cachyos-lts", "linux_cachyos_lts"),
+    ("snapper", "snapper"),
+    ("snap-pac", "snap_pac"),
+    ("limine", "limine"),
+    ("limine-snapper-sync", "limine_snapper_sync"),
+    ("root Snapper config", "root_snapper_config"),
+):
+    print(f"{label:<25} {x[key]}")
+PY
+}
+
+doctor() {
+  local json failed=0
+  json="$(status_json)"
+  python - "$json" <<'PY' || failed=1
+import json
+import sys
+
+d = json.loads(sys.argv[1])
+x = d["detected"]
+checks = [
+    ("Btrfs root", x["root_fstype"] == "btrfs", x["root_fstype"] or "unknown"),
+    ("primary kernel", x["linux_cachyos"] == "installed", x["linux_cachyos"]),
+    ("LTS fallback", x["linux_cachyos_lts"] == "installed", x["linux_cachyos_lts"]),
+    ("Snapper", x["snapper"] == "installed", x["snapper"]),
+    ("snap-pac", x["snap_pac"] == "installed", x["snap_pac"]),
+    ("root Snapper config", x["root_snapper_config"] == "present", x["root_snapper_config"]),
+]
+print("MahoOS V1 platform doctor")
+print()
+for name, ok, detail in checks:
+    print(f"{'PASS' if ok else 'MISS'}  {name:<22} {detail}")
+print()
+print("INFO  Boot integration is detected separately; Maho does not silently install or rewrite a bootloader.")
+print("INFO  Btrfs snapshots are recovery states, not backups; personal data requires a separate backup strategy.")
+raise SystemExit(0 if all(ok for _, ok, _ in checks) else 1)
+PY
+  return "$failed"
+}
+
+plan() {
+  local input="$1"
+  [ -r "$RECOVERY_POLICY" ] || { echo "maho-platform: recovery policy missing: $RECOVERY_POLICY" >&2; return 1; }
+  python - "$RECOVERY_POLICY" "$input" <<'PY'
+import importlib.util
+import json
+import pathlib
+import sys
+
+module_path = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("maho_recovery_policy", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+raw = sys.stdin.read() if sys.argv[2] == "-" else pathlib.Path(sys.argv[2]).read_text()
+state = json.loads(raw)
+print(json.dumps(module.decide_recovery(state).as_dict(), indent=2, sort_keys=True))
+PY
+}
+
+case "${1:-}" in
+  doctor)
+    doctor
+    ;;
+  status)
+    case "${2:-}" in
+      --json) status_json ;;
+      "") status_human ;;
+      *) echo "maho-platform: unknown status option: $2" >&2; exit 2 ;;
+    esac
+    ;;
+  plan)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    plan "$2"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "maho-platform: unknown command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
