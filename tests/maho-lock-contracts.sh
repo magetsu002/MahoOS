@@ -16,6 +16,7 @@ AUTH="$LOCK_DIR/MahoLockAuth.qml"
 STATE="$LOCK_DIR/MahoLockState.qml"
 THEME="$LOCK_DIR/MahoLockTheme.qml"
 PROBE="$LOCK_DIR/state.py"
+BROWSER="$LOCK_DIR/image_browser.py"
 LAUNCHER="$ROOT/bin/maho-lock"
 
 fail() {
@@ -29,15 +30,15 @@ pass() {
 
 for file in \
     "$SHELL" "$SURFACE" "$BASE_VIEW" "$VIEW" "$GLASS" "$ICON" "$ACTION" \
-    "$PREVIEW" "$AUTH" "$STATE" "$THEME" "$PROBE" "$LAUNCHER"
+    "$PREVIEW" "$AUTH" "$STATE" "$THEME" "$PROBE" "$BROWSER" "$LAUNCHER"
 do
     [ -r "$file" ] || fail "missing ${file#$ROOT/}"
 done
 pass "Maho Lock V6 source files present"
 
 bash -n "$LAUNCHER"
-python3 -m py_compile "$PROBE"
-pass "launcher/probe syntax"
+python3 -m py_compile "$PROBE" "$BROWSER"
+pass "launcher/probe/browser syntax"
 
 # Production remains a real Wayland session lock, never a fake overlay.
 grep -Fq 'WlSessionLock {' "$SHELL" || fail "secure ext-session-lock authority missing"
@@ -49,17 +50,6 @@ if grep -Eq 'PanelWindow|FloatingWindow' "$SHELL" "$SURFACE"; then
 fi
 pass "secure Wayland lock boundary"
 
-# Random local wallpaper authority stays user-controlled and bounded.
-grep -Fq 'MAHO_LOCK_WALLPAPER_DIR' "$PROBE" || fail "wallpaper directory override missing"
-grep -Fq 'MAHO_LOCK_WALLPAPER_FILE' "$PROBE" || fail "explicit wallpaper override missing"
-grep -Fq 'random.SystemRandom().choice' "$PROBE" || fail "wallpaper randomization missing"
-grep -Fq -- '--pick-wallpaper' "$PROBE" || fail "wallpaper picker CLI missing"
-grep -Fq -- '--shuffle-wallpaper' "$PROBE" || fail "wallpaper shuffle CLI missing"
-grep -Fq 'source: root.lockState.lockWallpaperUrl' "$BASE_VIEW" || fail "active view ignores lock wallpaper"
-grep -Fq 'root.lockState.shuffleLockWallpaper()' "$VIEW" || fail "preview personalization cannot shuffle wallpaper"
-grep -Fq 'root.lockState.setLockWallpaper(path)' "$VIEW" || fail "preview cannot persist an explicitly chosen wallpaper"
-pass "random and explicit local lock wallpaper authority"
-
 # PAM remains the only unlock authority.
 grep -Fq 'PamContext {' "$AUTH" || fail "PAM authentication missing"
 grep -Fq 'config: "login"' "$AUTH" || fail "PAM login stack missing"
@@ -69,6 +59,16 @@ if grep -Fq 'locked = false' "$SURFACE" "$BASE_VIEW" "$VIEW"; then
     fail "visual path can release session lock"
 fi
 pass "PAM-only unlock authority"
+
+# Random local wallpaper authority stays user-controlled and bounded.
+grep -Fq 'MAHO_LOCK_WALLPAPER_DIR' "$PROBE" || fail "wallpaper directory override missing"
+grep -Fq 'MAHO_LOCK_WALLPAPER_FILE' "$PROBE" || fail "explicit wallpaper override missing"
+grep -Fq 'random.SystemRandom().choice' "$PROBE" || fail "wallpaper randomization missing"
+grep -Fq -- '--pick-wallpaper' "$PROBE" || fail "wallpaper picker CLI missing"
+grep -Fq 'source: root.lockState.lockWallpaperUrl' "$BASE_VIEW" || fail "active view ignores lock wallpaper"
+grep -Fq 'root.lockState.setLockWallpaper(path)' "$VIEW" || fail "preview cannot persist a selected lock wallpaper"
+grep -Fq 'root.lockState.shuffleLockWallpaper()' "$VIEW" || fail "preview cannot shuffle lock wallpaper"
+pass "local lock wallpaper authority"
 
 # Battery icon represents charge level and charging state, with calm charging motion.
 for name in battery battery-25 battery-50 battery-75 battery-full battery-charging; do
@@ -86,22 +86,22 @@ grep -Fq 'Number.isFinite' "$STATE" || fail "battery percentage is not finite ch
 grep -Fq 'batteryStatusText' "$STATE" || fail "battery semantic status missing"
 pass "semantic animated battery state"
 
-# Top-right chrome is interactive, animated, bounded, and single-authority.
+# Top-right chrome is interactive, animated, lock-safe, and single-surface.
 grep -Fq 'statusInteractive' "$ICON" || fail "status icon interaction missing"
 grep -Fq 'name === "wifi"' "$ICON" || fail "Wi-Fi status interaction missing"
 grep -Fq 'name === "battery"' "$ICON" || fail "battery status interaction missing"
 grep -Fq 'name === "keyboard"' "$ICON" || fail "keyboard status interaction missing"
 grep -Fq 'statusBubble' "$ICON" || fail "status feedback bubble missing"
-grep -Fq 'closePeerStatuses(rootItem())' "$ICON" || fail "multiple top-right status cards can remain open"
-grep -Fq 'visible: root.statusOpen' "$ICON" || fail "closed status card can linger under a new card"
 grep -Fq 'iconVisual' "$ICON" || fail "status hover/press animation missing"
+grep -Fq 'closePeerStatuses(rootItem())' "$ICON" || fail "status cards can stack"
+grep -Fq 'visible: root.statusOpen' "$ICON" || fail "closed status card can linger"
 grep -Fq 'Manage in Maho Link after unlock' "$ICON" || fail "Wi-Fi interaction lacks safe routing"
 grep -Fq -- '--switch-layout' "$ICON" || fail "keyboard icon does not use bounded layout switch helper"
 grep -Fq 'Active layout' "$ICON" || fail "keyboard interaction lacks state feedback"
 if grep -Eq 'nmcli.*(radio|connection).*down|rfkill|ip link.*down' "$ICON"; then
     fail "lock screen can destructively change network state"
 fi
-pass "single-authority animated lock-safe status chrome"
+pass "animated single-surface lock-safe status chrome"
 
 # Password visibility has explicit eye-open and eye-slashed states.
 [ -s "$LOCK_DIR/icons/eye.svg" ] || fail "eye-open asset missing"
@@ -111,25 +111,25 @@ grep -Fq 'name: "eye-off"' "$BASE_VIEW" || fail "eye-slashed state missing"
 grep -Fq 'root.passwordVisible' "$BASE_VIEW" || fail "eye state is not visibility-driven"
 pass "password visibility glyph states"
 
-# Profile-photo editing is available only in non-locking preview mode and its
-# panel actually animates both open and closed instead of disappearing instantly.
+# Profile photo editing is direct, preview-only and non-modal. Wallpaper has its
+# own affordance rather than being hidden behind the identity surface.
 [ -s "$LOCK_DIR/icons/edit.svg" ] || fail "profile edit icon missing"
+[ -s "$LOCK_DIR/icons/wallpaper.svg" ] || fail "wallpaper action icon missing"
+[ -s "$LOCK_DIR/icons/folder.svg" ] || fail "folder browser icon missing"
+[ -s "$LOCK_DIR/icons/arrow-left.svg" ] || fail "browser navigation icon missing"
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V6 no longer preserves accepted V5 hierarchy"
-grep -Fq 'root.previewMode' "$VIEW" || fail "profile editor is not preview-gated"
-grep -Fq 'profileProgress' "$VIEW" || fail "profile panel transition state missing"
-grep -Fq 'root.profileOpen || root.profileProgress > 0.001' "$VIEW" || fail "profile panel cannot animate closed"
-grep -Fq 'avatarReveal' "$VIEW" || fail "profile photo entrance motion missing"
-grep -Fq 'refreshAvatarCandidates' "$VIEW" || fail "profile candidate UI missing"
+grep -Fq 'root.previewMode' "$VIEW" || fail "personalization is not preview-gated"
+grep -Fq 'onClicked: root.openPicker("avatar")' "$VIEW" || fail "profile click is not direct profile selection"
+grep -Fq 'onClicked: root.openPicker("wallpaper")' "$VIEW" || fail "wallpaper selection lacks separate entry point"
+grep -Fq 'pickerProgress' "$VIEW" || fail "in-app picker transition state missing"
+grep -Fq 'browseImages' "$VIEW" "$STATE" || fail "in-app file browsing missing"
 grep -Fq 'setAvatar' "$VIEW" || fail "profile selection action missing"
 grep -Fq 'clearAvatar' "$VIEW" || fail "initials reset action missing"
-grep -Fq 'Choose photo…' "$VIEW" || fail "personalization panel lacks direct photo file chooser"
-grep -Fq 'Choose wallpaper…' "$VIEW" || fail "personalization panel lacks direct wallpaper file chooser"
-grep -Fq -- '--avatar-candidates' "$PROBE" || fail "avatar candidate CLI missing"
-grep -Fq -- '--set-avatar' "$PROBE" || fail "avatar persistence CLI missing"
-grep -Fq -- '--set-wallpaper' "$PROBE" || fail "wallpaper persistence CLI missing"
-grep -Fq 'profile_state_path' "$PROBE" || fail "personalization persistence state missing"
-grep -Fq 'avatarPath' "$STATE" || fail "lock state does not expose avatar"
-pass "animated preview-only file personalization editor"
+grep -Fq 'setLockWallpaper' "$VIEW" || fail "wallpaper selection action missing"
+if grep -Eq 'QtQuick\.Dialogs|FileDialog' "$VIEW"; then
+    fail "overlay preview can still open a modal native file dialog"
+fi
+pass "direct non-modal preview personalization"
 
 # Preview remains safe and renders the production view.
 grep -Fq 'PanelWindow {' "$PREVIEW" || fail "safe preview window missing"
@@ -162,8 +162,8 @@ grep -Fq 'quickshell --no-duplicate -p "$CONFIG"' "$LAUNCHER" || fail "launcher 
 if grep -Eq 'pkill|killall' "$LAUNCHER"; then
     fail "launcher uses broad process killing"
 fi
-if grep -Eq 'shell=True|os\.system|subprocess\.(run|Popen)\([^\n]*shell[[:space:]]*=' "$PROBE"; then
-    fail "state probe uses shell execution"
+if grep -Eq 'shell=True|os\.system|subprocess\.(run|Popen)\([^\n]*shell[[:space:]]*=' "$PROBE" "$BROWSER"; then
+    fail "state/browser probe uses shell execution"
 fi
 pass "runtime ownership/security contract"
 
