@@ -19,7 +19,15 @@ fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
 pass(){ printf 'PASS  %s\n' "$*"; }
 for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
 bash -n "$LAUNCHER"
-python3 -m py_compile "$PROBE" "$BROWSER"
+python3 - "$PROBE" "$BROWSER" <<'PY'
+import ast
+from pathlib import Path
+import sys
+
+for raw in sys.argv[1:]:
+    path = Path(raw)
+    compile(path.read_bytes(), str(path), "exec", ast.PyCF_ONLY_AST, dont_inherit=True)
+PY
 pass "launcher and helper syntax"
 
 grep -Fq 'WlSessionLock {' "$SHELL" || fail "secure session-lock authority missing"
