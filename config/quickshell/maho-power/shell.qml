@@ -9,8 +9,14 @@ ShellRoot {
     id: root
 
     MahoTheme { id: theme }
-    PowerBackdrop { id: backdrop; active: root.presented }
+    PowerBackdrop { id: backdrop; active: root.backdropActive }
 
+    // The compositor blur carrier must exist before the foreground panel starts
+    // moving. If its mapping follows `presented`, Hyprland commits blur while the
+    // translucent panel is already scaling in, which reads as a second/ghost
+    // layer underneath the card. Keep the stable carrier mapped from process
+    // startup, then unmap it immediately when dismissal begins.
+    property bool backdropActive: true
     property bool presented: false
     property bool closing: false
 
@@ -18,15 +24,26 @@ ShellRoot {
         if (closing)
             return
         closing = true
+        backdropActive = false
         presented = false
         closeTimer.restart()
     }
 
     function focusPanel() {
+        // A second key press during the short close animation should restore one
+        // coherent surface rather than focus a half-dismissed instance.
+        if (closing) {
+            closeTimer.stop()
+            closing = false
+            backdropActive = true
+            presented = true
+        }
         powerView.forceActiveFocus()
     }
 
     function executeAction(action) {
+        closing = true
+        backdropActive = false
         presented = false
         Quickshell.execDetached([
             Quickshell.env("HOME") + "/.local/bin/maho-power",
@@ -36,16 +53,13 @@ ShellRoot {
         actionQuitTimer.restart()
     }
 
-    Component.onCompleted: presentTimer.restart()
-
-    Timer {
-        id: presentTimer
-        interval: 1
-        onTriggered: {
-            root.presented = true
-            powerView.forceActiveFocus()
-        }
-    }
+    // Match the accepted Launcher compositor sequencing: let the stable blur
+    // plane be created first, then reveal the moving foreground on the next Qt
+    // turn. This avoids blur-onset racing the scale/opacity animation.
+    Component.onCompleted: Qt.callLater(function() {
+        root.presented = true
+        powerView.forceActiveFocus()
+    })
 
     Timer {
         id: closeTimer
