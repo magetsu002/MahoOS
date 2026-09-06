@@ -571,7 +571,7 @@ Item {
                     border.color: row.modelData.pinned
                         ? theme.alpha(root.accent, 0.26)
                         : theme.alpha(theme.foreground, pinHover.containsMouse ? 0.075 : 0.035)
-                    opacity: ListView.view.clipboardState.mutating ? 0.48 : 1
+                    opacity: root.clipboardState.mutating ? 0.48 : 1
 
                     PinGlyph {
                         anchors.centerIn: parent
@@ -585,13 +585,13 @@ Item {
                     MouseArea {
                         id: pinHover
                         anchors.fill: parent
-                        enabled: !ListView.view.clipboardState.mutating
+                        enabled: !root.clipboardState.mutating
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: function(mouse) {
                             mouse.accepted = true
                             list.currentIndex = row.index
-                            ListView.view.clipboardState.togglePin(row.modelData)
+                            root.clipboardState.togglePin(row.modelData)
                         }
                     }
                 }

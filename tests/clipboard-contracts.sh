@@ -49,7 +49,10 @@ grep -Fq 'Qt.Key_Return' "$PANEL" || fail "Enter handling missing"
 grep -Fq 'root.moveSelection(1)' "$PANEL" || fail "Down key is not wired to selection"
 grep -Fq 'root.moveSelection(-1)' "$PANEL" || fail "Up key is not wired to selection"
 grep -Fq 'root.activateSelection()' "$PANEL" || fail "Enter key is not wired to activation"
-grep -Fq 'ListView.view.clipboardState.togglePin(row.modelData)' "$PANEL" || fail "clipboard rows cannot toggle backend-owned pin state"
+grep -Fq 'root.clipboardState.togglePin(row.modelData)' "$PANEL" || fail "clipboard rows cannot toggle backend-owned pin state"
+if grep -Fq 'ListView.view.clipboardState' "$PANEL"; then
+    fail "pin delegate references a nonexistent ListView property"
+fi
 grep -Fq 'row.modelData.pinned' "$PANEL" || fail "pinned history has no subtle visual state"
 grep -Fq 'mouse.accepted = true' "$PANEL" || fail "pin click can propagate into row copy activation"
 grep -Fq 'root.clipboardState.clearUnpinned()' "$PANEL" || fail "normal-history clear action is missing"
