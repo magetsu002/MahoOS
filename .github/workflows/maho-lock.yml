@@ -8,13 +8,16 @@ on:
     paths:
       - 'bin/maho-lock'
       - 'bin/maho-lock-install'
+      - 'bin/maho-lock-sddm-install'
       - 'config/quickshell/maho-lock/**'
+      - 'config/sddm/maho-lock/**'
       - 'config/hypr/maho/core/binds.lua'
       - 'bin/maho-setup'
       - 'tests/maho-lock-contracts.sh'
       - 'tests/maho-lock-status-targets.sh'
       - 'tests/maho-lock-install-contracts.sh'
       - 'tests/maho-lock-personalization-contracts.sh'
+      - 'tests/maho-lock-sddm-contracts.sh'
       - '.github/workflows/maho-lock.yml'
 
 permissions:
@@ -32,10 +35,12 @@ jobs:
           bash -n \
             bin/maho-lock \
             bin/maho-lock-install \
+            bin/maho-lock-sddm-install \
             tests/maho-lock-contracts.sh \
             tests/maho-lock-status-targets.sh \
             tests/maho-lock-install-contracts.sh \
-            tests/maho-lock-personalization-contracts.sh
+            tests/maho-lock-personalization-contracts.sh \
+            tests/maho-lock-sddm-contracts.sh
           python3 -m py_compile \
             config/quickshell/maho-lock/state.py \
             config/quickshell/maho-lock/image_browser.py
@@ -47,3 +52,4 @@ jobs:
           bash tests/maho-lock-status-targets.sh
           bash tests/maho-lock-install-contracts.sh
           bash tests/maho-lock-personalization-contracts.sh
+          bash tests/maho-lock-sddm-contracts.sh

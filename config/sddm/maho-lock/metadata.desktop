@@ -1,0 +1,11 @@
+[SddmGreeterTheme]
+Name=Maho Lock
+Description=MahoOS login greeter matching the accepted Maho Lock visual language
+Author=MahoOS
+License=GPL-3.0-or-later
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=maho-lock
+Theme-API=2.0
