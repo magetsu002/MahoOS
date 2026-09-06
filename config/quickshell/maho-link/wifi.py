@@ -156,6 +156,8 @@ def active_connection(device: str):
         ssid = profile
 
     current = {
+        "profile": profile,
+        "device": device,
         "ssid": ssid.splitlines()[0].strip(),
         "signal": -1,
         "quality": "",
@@ -303,6 +305,41 @@ def matching_security(ssid: str):
     return None
 
 
+def reconnect_current():
+    device = wifi_device()
+    current = active_connection(device)
+    if not device or not current or not current.get("profile"):
+        emit({"ok": False, "message": "No saved Wi-Fi connection is currently active."})
+        return 1
+
+    profile = str(current["profile"])
+    code, _, err = run(
+        ["nmcli", "--wait", "15", "connection", "down", "id", profile],
+        timeout=20.0,
+    )
+    if code != 0:
+        emit({"ok": False, "message": err or "Could not disconnect the current Wi-Fi connection."})
+        return 1
+    if active_connection(device) is not None:
+        emit({"ok": False, "message": "NetworkManager did not confirm the Wi-Fi disconnect."})
+        return 1
+
+    code, _, err = run(
+        ["nmcli", "--wait", "20", "connection", "up", "id", profile, "ifname", device],
+        timeout=25.0,
+    )
+    if code != 0:
+        emit({"ok": False, "message": err or "Could not reconnect the Wi-Fi connection."})
+        return 1
+    restored = active_connection(device)
+    if restored is None or restored.get("profile") != profile:
+        emit({"ok": False, "message": "NetworkManager did not confirm the Wi-Fi reconnection."})
+        return 1
+
+    emit({"ok": True, "message": "Reconnected to " + str(restored.get("ssid") or profile) + "."})
+    return 0
+
+
 def action(argv):
     if not shutil.which("nmcli"):
         emit({"ok": False, "message": "NetworkManager nmcli is unavailable."})
@@ -312,6 +349,9 @@ def action(argv):
         return 2
 
     command = argv[0]
+    if command == "reconnect" and len(argv) == 1:
+        return reconnect_current()
+
     if command == "toggle" and len(argv) == 2 and argv[1] in ("on", "off"):
         code, _, err = run(["nmcli", "radio", "wifi", argv[1]], timeout=5.0)
         emit({"ok": code == 0, "message": "Wi-Fi enabled." if argv[1] == "on" and code == 0 else "Wi-Fi disabled." if code == 0 else (err or "Could not change Wi-Fi state.")})

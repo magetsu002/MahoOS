@@ -478,6 +478,58 @@ def auto_connect() -> int:
     return 1
 
 
+def device_from_snapshot(device_path: str) -> dict[str, Any] | None:
+    payload = snapshot_payload()
+    for row in payload.get("paired", []):
+        if row.get("path") == device_path:
+            return row
+    return None
+
+
+def wait_for_connected(device_path: str, expected: bool, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        device = device_from_snapshot(device_path)
+        if device is None:
+            return False
+        if bool(device.get("connected")) is expected:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def reconnect_device(device_path: str) -> int:
+    if not valid_device(device_path):
+        emit({"ok": False, "message": "Bluetooth device path is invalid."})
+        return 2
+
+    device = device_from_snapshot(device_path)
+    if device is None or not device.get("paired") or not device.get("connected"):
+        emit({"ok": False, "message": "This Bluetooth device is not currently connected."})
+        return 1
+
+    code, out, err = busctl_call(device_path, DEVICE, "Disconnect", timeout=12.0)
+    if code != 0:
+        emit({"ok": False, "message": friendly_error(err or out, "Couldn’t disconnect this device.")})
+        return 1
+    if not wait_for_connected(device_path, False, 8.0):
+        emit({"ok": False, "message": "Bluetooth did not confirm the disconnect."})
+        return 1
+
+    code, out, err = busctl_call(device_path, DEVICE, "Connect", timeout=18.0)
+    if code != 0:
+        emit({"ok": False, "message": friendly_error(err or out, "Couldn’t reconnect this device.")})
+        return 1
+    if not wait_for_connected(device_path, True, 15.0):
+        emit({"ok": False, "message": "Bluetooth did not confirm the reconnection."})
+        return 1
+
+    remember_manual_connection(device_path, True)
+    emit({"ok": True, "message": "Reconnected."})
+    return 0
+
+
 def action(argv: list[str]) -> int:
     if not shutil.which("busctl"):
         emit({"ok": False, "message": "systemd busctl is unavailable."})
@@ -487,6 +539,9 @@ def action(argv: list[str]) -> int:
         return 2
 
     command = argv[0]
+
+    if command == "reconnect" and len(argv) == 2:
+        return reconnect_device(argv[1])
 
     if command == "toggle" and len(argv) == 3 and argv[2] in ("on", "off"):
         adapter_path = argv[1]

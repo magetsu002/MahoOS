@@ -124,6 +124,12 @@ Scope {
         return runAction(["disconnect", String(device.path)], "disconnect", String(device.path))
     }
 
+    function reconnectDevice(device) {
+        if (!device || !device.path || !device.connected)
+            return false
+        return runAction(["reconnect", String(device.path)], "reconnect", String(device.path))
+    }
+
     function pairDevice(device) {
         if (!device || !device.path)
             return false

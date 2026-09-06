@@ -312,4 +312,16 @@ if grep -Fq 'Studio Headset' "$FAKE_BUSCTL_LOG"; then
 fi
 echo "PASS"
 
+echo "=== authoritative Wi-Fi and Bluetooth reconnect actions ==="
+require_text "$LINK/MahoLinkState.qml" 'function reconnect()' "Wi-Fi state has no reconnect action"
+require_text "$LINK/BluetoothState.qml" 'function reconnectDevice(device)' "Bluetooth state has no reconnect action"
+require_text "$LINK/MahoLinkDetails.qml" 'onClicked: root.wifi.reconnect()' "Wi-Fi details do not expose Reconnect"
+require_text "$LINK/BluetoothDetails.qml" 'root.bluetooth.reconnectDevice(device)' "Bluetooth details do not expose Reconnect"
+require_text "$BACKEND" '"connection", "down", "id", profile' "Wi-Fi reconnect does not deactivate the saved profile"
+require_text "$BACKEND" '"connection", "up", "id", profile, "ifname", device' "Wi-Fi reconnect does not reactivate the saved profile"
+require_text "$BT_BACKEND" 'wait_for_connected(device_path, False, 8.0)' "Bluetooth reconnect does not confirm disconnect"
+require_text "$BT_BACKEND" 'wait_for_connected(device_path, True, 15.0)' "Bluetooth reconnect does not confirm reconnection"
+python3 "$ROOT/tests/maho-link-reconnect-tests.py"
+echo "PASS"
+
 echo "Maho Link contracts passed."
