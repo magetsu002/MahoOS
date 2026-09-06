@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
+import "DockPreviewPolicy.js" as DockPreviewPolicy
 
 PanelWindow {
     id: root
@@ -72,13 +73,7 @@ PanelWindow {
         if (!previewItem || !previewItem.windows)
             return []
         const windows = previewItem.windows
-        if (windows.slice)
-            return windows.slice(0, 3)
-        const output = []
-        const count = Math.min(3, Number(windows.length || 0))
-        for (let index = 0; index < count; ++index)
-            output.push(windows[index])
-        return output
+        return DockPreviewPolicy.selectWindows(windows, 3)
     }
     readonly property int previewCount: previewWindows.length
     readonly property int previewTargetWidth:
