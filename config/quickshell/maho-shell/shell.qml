@@ -16,6 +16,7 @@ ShellRoot {
     Media { id: media }
     DockState { id: dock }
     NotifyStatus { id: notifyBridge }
+    BluetoothAutoConnect { }
 
     property bool expanded: false
     property bool closing: false

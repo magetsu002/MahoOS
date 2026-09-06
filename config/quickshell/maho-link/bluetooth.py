@@ -20,6 +20,8 @@ import tempfile
 import time
 from typing import Any, Iterable
 
+import fcntl
+
 BLUEZ = "org.bluez"
 OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
 ADAPTER = "org.bluez.Adapter1"
@@ -330,6 +332,10 @@ def session_state_path() -> Path:
     return Path(tempfile.gettempdir()) / f"maho-{os.getuid()}" / "link-bluetooth-session.json"
 
 
+def auto_connect_lock_path() -> Path:
+    return session_state_path().with_name("link-bluetooth-auto-connect.lock")
+
+
 def empty_session_state() -> dict[str, Any]:
     return {"version": 1, "suppressed": [], "attempts": {}, "reachable": []}
 
@@ -399,7 +405,7 @@ def remember_manual_connection(device_path: str, connected: bool) -> None:
     save_session_state(state)
 
 
-def auto_connect() -> int:
+def auto_connect_locked() -> int:
     payload = snapshot_payload()
     if not payload["available"] or not payload["enabled"]:
         state = load_session_state()
@@ -476,6 +482,23 @@ def auto_connect() -> int:
         "attempt": failures,
     })
     return 1
+
+
+def auto_connect() -> int:
+    """Run one policy evaluation without racing another Maho surface."""
+    lock_path = auto_connect_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path.parent.chmod(0o700)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            emit({"ok": True, "status": "busy", "devicePath": "", "message": ""})
+            return 0
+        return auto_connect_locked()
+    finally:
+        os.close(descriptor)
 
 
 def device_from_snapshot(device_path: str) -> dict[str, Any] | None:

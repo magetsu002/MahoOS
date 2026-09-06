@@ -11,6 +11,13 @@ MODE="${1:-wifi}"
 
 case "$MODE" in
     wifi|bluetooth) ;;
+    auto-connect-policy)
+        if [ "$#" -gt 1 ]; then
+            echo "maho-link: too many arguments" >&2
+            exit 2
+        fi
+        exec python3 "$ROOT/config/quickshell/maho-link/bluetooth.py" auto-connect
+        ;;
     *)
         echo "maho-link: mode must be wifi or bluetooth" >&2
         exit 2

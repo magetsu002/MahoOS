@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import contextlib
+import fcntl
 import importlib.util
 import io
 import json
@@ -64,6 +65,16 @@ with tempfile.TemporaryDirectory() as temporary:
         return 0, "", ""
 
     MODULE.busctl_call = fake_call
+
+    # Maho Link and the persistent Maho Shell may observe the same BlueZ
+    # transition. Only one of them may evaluate/connect at a time.
+    policy_lock = MODULE.auto_connect_lock_path()
+    policy_lock.parent.mkdir(parents=True, exist_ok=True)
+    with policy_lock.open("a+") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result, response = invoke(MODULE.auto_connect)
+        assert result == 0 and response["status"] == "busy"
+    assert calls == []
 
     # Snapshot truth is entirely derived from BlueZ properties. Only a
     # reachable, paired, trusted audio device is auto-connect eligible.
