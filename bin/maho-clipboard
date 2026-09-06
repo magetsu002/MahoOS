@@ -4,8 +4,10 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${MAHO_CLIPBOARD_CONFIG:-$ROOT/config/quickshell/maho-clipboard/shell.qml}"
+INSTANCE_HELPER="$ROOT/lib/runtime-instance.sh"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOCK="$RUNTIME_DIR/maho-clipboard.lock"
+RUNTIME_IDENTITY=""
 
 if [ "$#" -ne 0 ]; then
     echo "maho-clipboard: no arguments are supported" >&2
@@ -23,6 +25,40 @@ done
     echo "maho-clipboard: configuration missing: $CONFIG" >&2
     exit 1
 }
+[ -r "$INSTANCE_HELPER" ] || {
+    echo "maho-clipboard: runtime identity helper is missing" >&2
+    exit 1
+}
+
+source "$INSTANCE_HELPER"
+RUNTIME_IDENTITY="$(maho_runtime_identity "$ROOT")"
+export MAHO_RUNTIME_IDENTITY="$RUNTIME_IDENTITY"
+
+clipboard_pids() {
+    maho_quickshell_config_pids "/quickshell/maho-clipboard/shell.qml"
+}
+
+retire_stale_clipboards() {
+    local pid identity
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        identity="$(maho_process_runtime_identity "$pid" 2>/dev/null || true)"
+        [ "$identity" = "$RUNTIME_IDENTITY" ] && continue
+
+        quickshell ipc --pid "$pid" call clipboard retire "$RUNTIME_IDENTITY" >/dev/null 2>&1 \
+            || quickshell ipc --pid "$pid" call clipboard close >/dev/null 2>&1 \
+            || true
+        if ! maho_wait_for_process_exit "$pid" 20; then
+            kill -TERM "$pid" 2>/dev/null || true
+            maho_wait_for_process_exit "$pid" 10 || {
+                echo "maho-clipboard: stale runtime instance $pid did not retire" >&2
+                return 1
+            }
+        fi
+    done < <(clipboard_pids)
+}
+
+retire_stale_clipboards
 
 mkdir -p "$RUNTIME_DIR"
 exec 9>"$LOCK"
@@ -32,14 +68,14 @@ exec 9>"$LOCK"
 # killing it, so SUPER+V is a true open/close toggle and the exit animation is
 # allowed to finish normally.
 if ! flock -n 9; then
-    for _ in 1 2 3 4; do
-        if quickshell -p "$CONFIG" ipc call clipboard toggle >/dev/null 2>&1; then
+    while read -r pid; do
+        [ "$(maho_process_runtime_identity "$pid" 2>/dev/null || true)" = "$RUNTIME_IDENTITY" ] || continue
+        if quickshell ipc --pid "$pid" call clipboard toggle >/dev/null 2>&1; then
             exit 0
         fi
-        sleep 0.025
-    done
+    done < <(clipboard_pids)
 
-    echo "maho-clipboard: existing instance did not accept toggle IPC" >&2
+    echo "maho-clipboard: lock owner does not match the current runtime identity" >&2
     exit 1
 fi
 

@@ -176,6 +176,13 @@ with tempfile.TemporaryDirectory() as temporary:
     ]
     assert listed["items"][0]["section"] == "Pinned"
 
+    # A graphical session restart replaces volatile runtime state but retains
+    # XDG_STATE_HOME. Pin ownership must survive that boundary too.
+    restarted_environment = dict(environment)
+    restarted_environment["XDG_RUNTIME_DIR"] = str(base / "fresh-session-runtime")
+    after_session_restart = run_backend(restarted_environment, "list")
+    assert after_session_restart["items"][0]["pinKey"] == pin_key
+
     # Copying the same content can produce a new cliphist id. Matching payload
     # identity still yields one item, never a pinned + normal duplicate.
     (payloads / "11").write_bytes(first_payload)

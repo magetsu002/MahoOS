@@ -51,6 +51,7 @@ grep -Fq 'root.moveSelection(-1)' "$PANEL" || fail "Up key is not wired to selec
 grep -Fq 'root.activateSelection()' "$PANEL" || fail "Enter key is not wired to activation"
 grep -Fq 'ListView.view.clipboardState.togglePin(row.modelData)' "$PANEL" || fail "clipboard rows cannot toggle backend-owned pin state"
 grep -Fq 'row.modelData.pinned' "$PANEL" || fail "pinned history has no subtle visual state"
+grep -Fq 'mouse.accepted = true' "$PANEL" || fail "pin click can propagate into row copy activation"
 grep -Fq 'root.clipboardState.clearUnpinned()' "$PANEL" || fail "normal-history clear action is missing"
 grep -Fq 'pinned ? "unpin" : "pin"' "$STATE" || fail "pin/unpin is not delegated through ClipboardState"
 grep -Fq 'mutationProcess.exec(["python", backendPath(), "clear"])' "$STATE" || fail "normal clear is not delegated to the backend"
@@ -87,9 +88,11 @@ grep -Fq 'target: "clipboard"' "$SHELL" || fail "clipboard IPC target missing"
 grep -Fq 'function toggle(): void { root.toggleOverlay() }' "$SHELL" || fail "clipboard toggle IPC missing"
 grep -Fq 'function open(): void { root.showOverlay() }' "$SHELL" || fail "clipboard open IPC missing"
 grep -Fq 'function close(): void { root.closeOverlay() }' "$SHELL" || fail "clipboard close IPC missing"
-grep -Fq 'quickshell -p "$CONFIG" ipc call clipboard toggle' "$LAUNCHER" || fail "launcher does not toggle the exact running config"
-if grep -Eq 'pkill|killall|kill[[:space:]]' "$LAUNCHER"; then
-    fail "toggle path kills the UI instead of using IPC"
+grep -Fq 'quickshell ipc --pid "$pid" call clipboard toggle' "$LAUNCHER" || fail "launcher does not toggle the exact same-runtime PID"
+grep -Fq 'retire_stale_clipboards' "$LAUNCHER" || fail "stale Clipboard runtime is not handed off"
+grep -Fq 'MAHO_RUNTIME_IDENTITY' "$SHELL" || fail "Clipboard surface does not expose immutable runtime identity"
+if grep -Eq 'pkill|killall' "$LAUNCHER"; then
+    fail "runtime handoff uses a broad process kill"
 fi
 pass "toggle IPC contract"
 
