@@ -96,7 +96,6 @@ def managed_objects() -> tuple[dict[str, Any] | None, str]:
     except (json.JSONDecodeError, TypeError, ValueError):
         return None, "Bluetooth returned an invalid status response."
 
-    # busctl wraps method return values in the top-level data array.
     if isinstance(payload, dict) and "data" in payload:
         payload = unwrap(payload["data"])
     if isinstance(payload, list) and len(payload) == 1 and isinstance(payload[0], dict):
@@ -129,7 +128,6 @@ def device_kind(icon: str, klass: int | None) -> tuple[str, str]:
         if any(needle in normalized for needle in needles):
             return result
 
-    # Bluetooth major device class is encoded in bits 8..12.
     if isinstance(klass, int):
         major = (klass >> 8) & 0x1F
         if major == 0x04:
@@ -468,6 +466,27 @@ def remember_manual_connection(device_path: str, connected: bool) -> None:
     save_session_state(state)
 
 
+def device_from_snapshot(device_path: str) -> dict[str, Any] | None:
+    payload = snapshot_payload()
+    for row in payload.get("paired", []):
+        if row.get("path") == device_path:
+            return row
+    return None
+
+
+def wait_for_connected(device_path: str, expected: bool, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        device = device_from_snapshot(device_path)
+        if device is None:
+            return False
+        if bool(device.get("connected")) is expected:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
 def auto_connect_locked() -> int:
     payload = snapshot_payload()
     if not payload["available"] or not payload["enabled"]:
@@ -487,8 +506,6 @@ def auto_connect_locked() -> int:
     state = load_session_state()
     previously_reachable = set(state["reachable"])
 
-    # A disappearance ends the old bounded retry epoch. A later real
-    # reachability transition may receive a fresh, still-bounded attempt set.
     for path in set(state["attempts"]) - reachable_now:
         state["attempts"].pop(path, None)
     for path in reachable_now - previously_reachable:
@@ -518,11 +535,7 @@ def auto_connect_locked() -> int:
 
     path = selected["path"]
     code, out, err = busctl_call(path, DEVICE, "Connect", timeout=18.0)
-    if code == 0:
-        # BlueZ method success means the request was accepted; the following
-        # ObjectManager snapshot remains the authority for Connected=true.
-        # Hold a short grace window so a slow property signal cannot duplicate
-        # the successful request.
+    if code == 0 and wait_for_connected(path, True, 15.0):
         state["attempts"][path] = {
             "failures": 0,
             "nextAttempt": now + AUTOCONNECT_BACKOFF_SECONDS[1],
@@ -536,11 +549,16 @@ def auto_connect_locked() -> int:
     delay = AUTOCONNECT_BACKOFF_SECONDS[failures - 1]
     state["attempts"][path] = {"failures": failures, "nextAttempt": now + delay}
     save_session_state(state)
+    message = (
+        "Bluetooth did not confirm the connection state."
+        if code == 0
+        else friendly_error(err or out, "Couldn’t connect to this device.")
+    )
     emit({
         "ok": False,
         "status": "backoff",
         "devicePath": path,
-        "message": friendly_error(err or out, "Couldn’t connect to this device."),
+        "message": message,
         "retryAfter": delay,
         "attempt": failures,
     })
@@ -554,27 +572,6 @@ def auto_connect() -> int:
             emit({"ok": True, "status": "busy", "devicePath": "", "message": ""})
             return 0
         return auto_connect_locked()
-
-
-def device_from_snapshot(device_path: str) -> dict[str, Any] | None:
-    payload = snapshot_payload()
-    for row in payload.get("paired", []):
-        if row.get("path") == device_path:
-            return row
-    return None
-
-
-def wait_for_connected(device_path: str, expected: bool, timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    while True:
-        device = device_from_snapshot(device_path)
-        if device is None:
-            return False
-        if bool(device.get("connected")) is expected:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.25)
 
 
 def reconnect_device(device_path: str) -> int:
@@ -642,14 +639,11 @@ def action(argv: list[str]) -> int:
             timeout=8.0,
         )
         ok = code == 0
-        emit(
-            {
-                "ok": ok,
-                "message": ("Bluetooth enabled." if argv[2] == "on" else "Bluetooth disabled.")
-                if ok
-                else friendly_error(err or out, "Couldn’t change Bluetooth state."),
-            }
-        )
+        emit({
+            "ok": ok,
+            "message": ("Bluetooth enabled." if argv[2] == "on" else "Bluetooth disabled.")
+            if ok else friendly_error(err or out, "Couldn’t change Bluetooth state."),
+        })
         return 0 if ok else 1
 
     if command in ("scan-start", "scan-stop") and len(argv) == 2:
@@ -660,14 +654,11 @@ def action(argv: list[str]) -> int:
         method = "StartDiscovery" if command == "scan-start" else "StopDiscovery"
         code, out, err = busctl_call(adapter_path, ADAPTER, method, timeout=10.0)
         ok = code == 0
-        emit(
-            {
-                "ok": ok,
-                "message": ("Looking for nearby devices…" if command == "scan-start" else "Discovery stopped.")
-                if ok
-                else friendly_error(err or out, "Couldn’t change Bluetooth discovery."),
-            }
-        )
+        emit({
+            "ok": ok,
+            "message": ("Looking for nearby devices…" if command == "scan-start" else "Discovery stopped.")
+            if ok else friendly_error(err or out, "Couldn’t change Bluetooth discovery."),
+        })
         return 0 if ok else 1
 
     if command in ("connect", "disconnect") and len(argv) == 2:
@@ -716,12 +707,10 @@ def action(argv: list[str]) -> int:
             return 2
         code, out, err = busctl_call(adapter_path, ADAPTER, "RemoveDevice", "o", device_path, timeout=12.0)
         ok = code == 0
-        emit(
-            {
-                "ok": ok,
-                "message": "Device forgotten." if ok else friendly_error(err or out, "Couldn’t forget this device."),
-            }
-        )
+        emit({
+            "ok": ok,
+            "message": "Device forgotten." if ok else friendly_error(err or out, "Couldn’t forget this device."),
+        })
         return 0 if ok else 1
 
     emit({"ok": False, "message": "Unsupported Bluetooth action."})

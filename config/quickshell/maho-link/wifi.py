@@ -6,8 +6,6 @@ import subprocess
 import sys
 from typing import Iterable
 
-# The compatibility snapshot still permits NetworkManager's bounded automatic
-# refresh. Live Maho Link startup uses the separate cached networks path.
 DEFAULT_SCAN_ARGS = ("--rescan", "auto")
 
 
@@ -133,30 +131,33 @@ def active_connection(device: str):
     if not device:
         return None
     code, out, _ = run([
-        "nmcli", "-t", "-e", "yes", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"
+        "nmcli", "-t", "-e", "yes", "-f", "NAME,UUID,TYPE,DEVICE", "connection", "show", "--active"
     ])
     if code != 0:
         return None
 
     profile = ""
+    connection_uuid = ""
     for line in out.splitlines():
         fields = split_nmcli(line)
-        if len(fields) < 3 or fields[2] != device:
+        if len(fields) < 4 or fields[3] != device:
             continue
-        if fields[1] in ("802-11-wireless", "wifi", "wireless"):
+        if fields[2] in ("802-11-wireless", "wifi", "wireless"):
             profile = fields[0]
+            connection_uuid = fields[1]
             break
-    if not profile:
+    if not profile or not connection_uuid:
         return None
 
     code, ssid, _ = run([
-        "nmcli", "-t", "-g", "802-11-wireless.ssid", "connection", "show", profile
+        "nmcli", "-t", "-g", "802-11-wireless.ssid", "connection", "show", "uuid", connection_uuid
     ])
     if code != 0 or not ssid.strip():
         ssid = profile
 
     current = {
         "profile": profile,
+        "uuid": connection_uuid,
         "device": device,
         "ssid": ssid.splitlines()[0].strip(),
         "signal": -1,
@@ -273,8 +274,6 @@ def networks_snapshot():
 
 
 def snapshot():
-    # Compatibility/diagnostic snapshot. The live QML no longer waits for this
-    # rescan-capable path before showing authoritative connection state.
     if not shutil.which("nmcli"):
         emit(unavailable_payload())
         return 0
@@ -308,13 +307,14 @@ def matching_security(ssid: str):
 def reconnect_current():
     device = wifi_device()
     current = active_connection(device)
-    if not device or not current or not current.get("profile"):
+    if not device or not current or not current.get("uuid"):
         emit({"ok": False, "message": "No saved Wi-Fi connection is currently active."})
         return 1
 
     profile = str(current["profile"])
+    connection_uuid = str(current["uuid"])
     code, _, err = run(
-        ["nmcli", "--wait", "15", "connection", "down", "id", profile],
+        ["nmcli", "--wait", "15", "connection", "down", "uuid", connection_uuid],
         timeout=20.0,
     )
     if code != 0:
@@ -325,14 +325,14 @@ def reconnect_current():
         return 1
 
     code, _, err = run(
-        ["nmcli", "--wait", "20", "connection", "up", "id", profile, "ifname", device],
+        ["nmcli", "--wait", "20", "connection", "up", "uuid", connection_uuid, "ifname", device],
         timeout=25.0,
     )
     if code != 0:
         emit({"ok": False, "message": err or "Could not reconnect the Wi-Fi connection."})
         return 1
     restored = active_connection(device)
-    if restored is None or restored.get("profile") != profile:
+    if restored is None or restored.get("uuid") != connection_uuid:
         emit({"ok": False, "message": "NetworkManager did not confirm the Wi-Fi reconnection."})
         return 1
 

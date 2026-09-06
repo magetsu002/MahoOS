@@ -22,6 +22,8 @@ def load(name, path):
 BLUETOOTH = load("maho_link_bluetooth_reconnect", ROOT / "config/quickshell/maho-link/bluetooth.py")
 WIFI = load("maho_link_wifi_reconnect", ROOT / "config/quickshell/maho-link/wifi.py")
 DEVICE = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_01"
+PROFILE_UUID = "11111111-2222-3333-4444-555555555555"
+OTHER_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
 def invoke(function, *args):
@@ -51,8 +53,6 @@ with tempfile.TemporaryDirectory() as temporary:
     assert [call[2] for call in bluetooth_calls] == ["Disconnect", "Connect"]
     assert DEVICE not in BLUETOOTH.load_session_state()["suppressed"]
 
-    # A Connect request is never sent until authoritative state confirms the
-    # disconnect. This is a failure, not optimistic success.
     bluetooth_calls.clear()
     BLUETOOTH.device_from_snapshot = lambda path: {
         "path": DEVICE, "paired": True, "connected": True
@@ -64,9 +64,6 @@ with tempfile.TemporaryDirectory() as temporary:
     assert [call[2] for call in bluetooth_calls] == ["Disconnect"]
     assert DEVICE not in BLUETOOTH.load_session_state()["suppressed"]
 
-    # Failure releases the shared operation lock and cannot poison a later
-    # explicit Connect. Manual actions and the session auto-connect worker use
-    # the same lock, so they serialize instead of sending duplicate requests.
     bluetooth_calls.clear()
     BLUETOOTH.wait_for_connected = lambda path, expected, timeout: True
     result, response = invoke(BLUETOOTH.action, ["connect", DEVICE])
@@ -80,6 +77,7 @@ with tempfile.TemporaryDirectory() as temporary:
     wifi_calls = []
     active_profile = {
         "profile": "Home profile",
+        "uuid": PROFILE_UUID,
         "device": "wlan0",
         "ssid": "Home Wi-Fi",
     }
@@ -93,12 +91,12 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result == 0
     assert response == {"ok": True, "message": "Reconnected to Home Wi-Fi."}
     assert wifi_calls == [
-        ["nmcli", "--wait", "15", "connection", "down", "id", "Home profile"],
-        ["nmcli", "--wait", "20", "connection", "up", "id", "Home profile", "ifname", "wlan0"],
+        ["nmcli", "--wait", "15", "connection", "down", "uuid", PROFILE_UUID],
+        ["nmcli", "--wait", "20", "connection", "up", "uuid", PROFILE_UUID, "ifname", "wlan0"],
     ]
 
-    # NetworkManager must confirm the down transition before the saved profile
-    # is reactivated; credentials are never rebuilt or passed on argv.
+    # NetworkManager must confirm the down transition before the exact saved
+    # profile is reactivated; credentials are never rebuilt or passed on argv.
     wifi_calls.clear()
     wifi_states = iter([active_profile, active_profile])
     WIFI.active_connection = lambda _device: next(wifi_states)
@@ -107,4 +105,19 @@ with tempfile.TemporaryDirectory() as temporary:
     assert response["message"] == "NetworkManager did not confirm the Wi-Fi disconnect."
     assert len(wifi_calls) == 1 and "down" in wifi_calls[0]
 
-print("PASS  Bluetooth and Wi-Fi reconnect use confirmed disconnect/reconnect state")
+    # Profile names are not unique NetworkManager identities. A different UUID
+    # with the same human-readable name must not satisfy reconnect verification.
+    wifi_calls.clear()
+    wrong_profile = dict(active_profile)
+    wrong_profile["uuid"] = OTHER_UUID
+    wifi_states = iter([active_profile, None, wrong_profile])
+    WIFI.active_connection = lambda _device: next(wifi_states)
+    result, response = invoke(WIFI.reconnect_current)
+    assert result == 1
+    assert response["message"] == "NetworkManager did not confirm the Wi-Fi reconnection."
+    assert wifi_calls == [
+        ["nmcli", "--wait", "15", "connection", "down", "uuid", PROFILE_UUID],
+        ["nmcli", "--wait", "20", "connection", "up", "uuid", PROFILE_UUID, "ifname", "wlan0"],
+    ]
+
+print("PASS  Bluetooth confirmation and Wi-Fi reconnect use exact confirmed state")

@@ -65,8 +65,6 @@ with tempfile.TemporaryDirectory() as temporary:
     MODULE.time.time = lambda: now[0]
     MODULE.shutil.which = lambda name: "/usr/bin/" + name
 
-    # Fixture the typed busctl ObjectManager envelope used by the live system,
-    # not only the already-unwrapped dictionaries below.
     typed_payload = {
         "type": "a{oa{sa{sv}}}",
         "data": [{ADAPTER: {MODULE.ADAPTER: {
@@ -87,9 +85,8 @@ with tempfile.TemporaryDirectory() as temporary:
         return 0, "", ""
 
     MODULE.busctl_call = fake_call
+    MODULE.wait_for_connected = lambda _path, _expected, _timeout: True
 
-    # Maho Link and the persistent Maho Shell may observe the same BlueZ
-    # transition. Only one of them may evaluate/connect at a time.
     policy_lock = MODULE.auto_connect_lock_path()
     policy_lock.parent.mkdir(parents=True, exist_ok=True)
     with policy_lock.open("a+") as lock_handle:
@@ -98,8 +95,6 @@ with tempfile.TemporaryDirectory() as temporary:
         assert result == 0 and response["status"] == "busy"
     assert calls == []
 
-    # Snapshot truth is entirely derived from BlueZ properties. Only a
-    # reachable, paired, trusted audio device is auto-connect eligible.
     current_objects = objects_with(
         device(HEADPHONES, "Studio Headset", paired=True, trusted=True),
         device(KEYBOARD, "Keyboard", paired=True, trusted=True, icon="input-keyboard"),
@@ -111,9 +106,6 @@ with tempfile.TemporaryDirectory() as temporary:
     assert payload["paired"][0]["available"] is True
     assert payload["autoConnectEligible"] == [HEADPHONES]
 
-    # Exact observed Galaxy Buds state: a paired/bonded but untrusted device
-    # that is also discovered must remain one known device. A transient scan
-    # object with the same address cannot turn it into a Pair target.
     current_objects = objects_with(
         device(GALAXY, "Galaxy Buds Core", paired=True, bonded=True,
                trusted=False, connected=False, rssi=-48),
@@ -139,6 +131,20 @@ with tempfile.TemporaryDirectory() as temporary:
         device(UNKNOWN, "Unknown Buds", paired=False, trusted=False),
     )
 
+    # A D-Bus Connect method success is not a connection success until BlueZ
+    # exposes Connected=true. Lack of confirmation enters the same bounded
+    # backoff path instead of emitting a false "connected" state.
+    MODULE.wait_for_connected = lambda _path, _expected, _timeout: False
+    connect_results.append((0, "", ""))
+    result, response = invoke(MODULE.auto_connect)
+    assert result == 1 and response["status"] == "backoff"
+    assert response["message"] == "Bluetooth did not confirm the connection state."
+    assert response["attempt"] == 1
+    assert len(calls) == 1
+    MODULE.save_session_state(MODULE.empty_session_state())
+    calls.clear()
+    MODULE.wait_for_connected = lambda _path, _expected, _timeout: True
+
     # One failed request enters backoff. Repeated policy evaluations cannot
     # spam BlueZ before the retry deadline.
     connect_results.append((1, "", "org.bluez.Error.Failed"))
@@ -150,7 +156,6 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result == 0 and response["status"] == "idle"
     assert len(calls) == 1
 
-    # Retries are bounded to four for the same reachability epoch.
     for expected_attempt, advance in ((2, 5), (3, 15), (4, 45)):
         now[0] += advance
         connect_results.append((1, "", "org.bluez.Error.Failed"))
@@ -161,9 +166,6 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result == 0 and response["status"] == "idle"
     assert len([call for call in calls if call[2] == "Connect"]) == 4
 
-    # Becoming unavailable resets that bounded epoch; becoming reachable later
-    # permits one new attempt and a successful method call receives a grace
-    # window while Connected=true is still awaiting confirmation.
     current_objects = objects_with(
         device(HEADPHONES, "Studio Headset", paired=True, trusted=True, rssi=None)
     )
@@ -178,10 +180,6 @@ with tempfile.TemporaryDirectory() as temporary:
     invoke(MODULE.auto_connect)
     assert len(calls) == successful_call_count
 
-    # A successful explicit disconnect is remembered for this login session.
-    # It suppresses all later automatic attempts but never changes pairing or
-    # trust and can be cleared by an explicit manual Connect.
-    MODULE.wait_for_connected = lambda _path, _expected, _timeout: True
     result, response = invoke(MODULE.action, ["disconnect", HEADPHONES])
     assert result == 0 and response["ok"] is True
     persisted = MODULE.load_session_state()
@@ -196,4 +194,4 @@ with tempfile.TemporaryDirectory() as temporary:
     state_file = MODULE.session_state_path()
     assert state_file.stat().st_mode & 0o777 == 0o600
 
-print("PASS  BlueZ truth, eligible audio policy, bounded backoff, and session disconnect suppression")
+print("PASS  BlueZ truth, confirmed auto-connect, bounded backoff, and session disconnect suppression")
