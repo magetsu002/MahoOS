@@ -1,90 +1,65 @@
 import QtQuick
+import QtQuick.Shapes
 
 Item {
     id: root
+    objectName: "clipboardPinGlyph"
 
     required property color glyphColor
 
-    implicitWidth: 17
-    implicitHeight: 17
+    implicitWidth: 18
+    implicitHeight: 18
 
-    // Pinning is an action, not decoration. Keep the glyph readable even when
-    // its surrounding row is using a very quiet wallpaper-derived palette.
+    // Preserve a quiet Maho treatment while guaranteeing that the action is
+    // visually legible on the dark glass surface.
     readonly property color visibleColor: Qt.rgba(
         glyphColor.r,
         glyphColor.g,
         glyphColor.b,
-        Math.max(0.90, glyphColor.a)
+        Math.max(0.92, glyphColor.a)
     )
-
+    readonly property color renderedColor: visibleColor
     readonly property bool geometryReady:
-        cap.width > 0 && leftShoulder.width > 0 && rightShoulder.width > 0
-        && shelf.width > 0 && needle.height > 0
-    readonly property color renderedColor: cap.color
+        vector.width > 0 && vector.height > 0 && vector.scale > 0
 
-    Item {
-        id: geometry
+    Shape {
+        id: vector
+        objectName: "clipboardPinVector"
         anchors.centerIn: parent
-        width: Math.min(root.width, root.height)
-        height: width
+        width: 18
+        height: 18
+        scale: Math.min(root.width, root.height) / 18
+        antialiasing: true
 
-        Rectangle {
-            id: cap
-            objectName: "pinCap"
-            x: geometry.width * 0.29
-            y: geometry.height * 0.17
-            width: geometry.width * 0.42
-            height: Math.max(1.7, geometry.width * 0.10)
-            radius: height / 2
-            color: root.visibleColor
+        // A single proportional vector replaces the old rotated rectangles.
+        // The fixed 18x18 view box keeps the pin from stretching at fractional
+        // Wayland scales while Shape supplies antialiased joins and caps.
+        ShapePath {
+            strokeColor: root.visibleColor
+            strokeWidth: 1.55
+            fillColor: Qt.rgba(
+                root.visibleColor.r,
+                root.visibleColor.g,
+                root.visibleColor.b,
+                0.08
+            )
+            capStyle: ShapePath.RoundCap
+            joinStyle: ShapePath.RoundJoin
+
+            PathSvg {
+                path: "M 5.4 2.8 L 12.6 2.8 L 11.45 7.0 L 14.15 9.55 L 14.15 11.15 L 3.85 11.15 L 3.85 9.55 L 6.55 7.0 Z"
+            }
         }
 
-        Rectangle {
-            id: leftShoulder
-            objectName: "pinLeftShoulder"
-            x: geometry.width * 0.25
-            y: geometry.height * 0.28
-            width: geometry.width * 0.34
-            height: Math.max(1.7, geometry.width * 0.10)
-            radius: height / 2
-            rotation: 64
-            transformOrigin: Item.Left
-            color: root.visibleColor
-        }
+        ShapePath {
+            strokeColor: root.visibleColor
+            strokeWidth: 1.55
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            joinStyle: ShapePath.RoundJoin
 
-        Rectangle {
-            id: rightShoulder
-            objectName: "pinRightShoulder"
-            x: geometry.width * 0.75
-            y: geometry.height * 0.28
-            width: geometry.width * 0.34
-            height: Math.max(1.7, geometry.width * 0.10)
-            radius: height / 2
-            rotation: 116
-            transformOrigin: Item.Left
-            color: root.visibleColor
-        }
-
-        Rectangle {
-            id: shelf
-            objectName: "pinShelf"
-            x: geometry.width * 0.20
-            y: geometry.height * 0.55
-            width: geometry.width * 0.60
-            height: Math.max(1.7, geometry.width * 0.10)
-            radius: height / 2
-            color: root.visibleColor
-        }
-
-        Rectangle {
-            id: needle
-            objectName: "pinNeedle"
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: geometry.height * 0.57
-            width: Math.max(1.7, geometry.width * 0.10)
-            height: geometry.height * 0.29
-            radius: width / 2
-            color: root.visibleColor
+            PathMove { x: 9; y: 11.15 }
+            PathLine { x: 9; y: 15.65 }
         }
     }
 }

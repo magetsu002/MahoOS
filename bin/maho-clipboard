@@ -2,7 +2,10 @@
 
 set -euo pipefail
 
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve through runtime/current before constructing the QML path. A stable
+# symlink URL can otherwise let Qt reuse compiled QML from a previous immutable
+# release even though runtime/current already points somewhere else.
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CONFIG="${MAHO_CLIPBOARD_CONFIG:-$ROOT/config/quickshell/maho-clipboard/shell.qml}"
 INSTANCE_HELPER="$ROOT/lib/runtime-instance.sh"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -88,5 +91,10 @@ if command -v hyprctl >/dev/null 2>&1; then
     hyprctl eval 'if _G.maho_clipboard_glass_rule == nil then _G.maho_clipboard_glass_rule = hl.layer_rule({ name = "maho-clipboard-runtime-glass", match = { namespace = "maho-clipboard" }, blur = true, ignore_alpha = 0.16, xray = false, no_anim = true }) end' \
         >/dev/null 2>&1 || true
 fi
+
+# Clipboard is a tiny transient surface. Prefer deterministic source delivery
+# over QML bytecode reuse so an immutable runtime switch cannot display stale
+# delegate code from the previous release.
+export QML_DISABLE_DISK_CACHE=1
 
 exec quickshell -p "$CONFIG" >/dev/null 2>&1

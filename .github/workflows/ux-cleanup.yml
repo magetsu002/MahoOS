@@ -16,7 +16,9 @@ on:
       - 'tests/launcher-qml-contracts.sh'
       - 'tests/clipboard-contracts.sh'
       - 'tests/clipboard-history-contracts.sh'
+      - 'tests/clipboard-runtime-path-contracts.sh'
       - 'tests/tst-clipboard-pin-glyph.qml'
+      - 'tests/tst-clipboard-pin-row.qml'
       - 'tests/ux-cleanup-contracts.sh'
       - '.github/workflows/ux-cleanup.yml'
 
@@ -44,7 +46,8 @@ jobs:
           set -euo pipefail
           bash -n bin/maho-launcher bin/maho-clipboard bin/maho-clipboard-history \
             tests/launcher-qml-contracts.sh tests/clipboard-contracts.sh \
-            tests/clipboard-history-contracts.sh tests/ux-cleanup-contracts.sh
+            tests/clipboard-history-contracts.sh tests/clipboard-runtime-path-contracts.sh \
+            tests/ux-cleanup-contracts.sh
 
       - name: Python syntax
         run: |
@@ -58,6 +61,11 @@ jobs:
           set -euo pipefail
           bash tests/clipboard-contracts.sh
 
+      - name: Clipboard immutable runtime path contract
+        run: |
+          set -euo pipefail
+          bash tests/clipboard-runtime-path-contracts.sh
+
       - name: Clipboard pin glyph render contract
         env:
           QT_QPA_PLATFORM: offscreen
@@ -69,6 +77,7 @@ jobs:
           fi
           [ -n "$QMLTESTRUNNER" ] || { echo 'Qt QML test runner is unavailable' >&2; exit 1; }
           "$QMLTESTRUNNER" -input tests/tst-clipboard-pin-glyph.qml
+          "$QMLTESTRUNNER" -input tests/tst-clipboard-pin-row.qml
 
       - name: Clipboard history contracts
         run: |

@@ -83,13 +83,14 @@ printf '%s\n' 'PASS  Clipboard short/multiline/leading-newline/whitespace previe
 printf '%s\n' '=== Clipboard pin discoverability contract ==='
 require_text "$CLIP_PANEL" 'ClipboardPinGlyph {' 'clipboard row pin affordance is missing'
 require_text "$CLIP_PANEL" 'root.clipboardState.togglePin(row.modelData)' 'clipboard pin affordance is not actionable'
-require_text "$CLIP_PIN_GLYPH" 'Math.max(0.90, glyphColor.a)' 'unpinned glyph can fade below readable opacity'
-require_text "$CLIP_PIN_GLYPH" 'Math.max(1.7, geometry.width * 0.10)' 'pin geometry regressed to hairline weight'
-printf '%s\n' 'PASS  Clipboard pin action stays visibly discoverable'
+require_text "$CLIP_PIN_GLYPH" 'import QtQuick.Shapes' 'pin is not rendered through proportional vector geometry'
+require_text "$CLIP_PIN_GLYPH" 'PathSvg {' 'pin vector outline is missing'
+require_text "$CLIP_PIN_GLYPH" 'Math.max(0.92, glyphColor.a)' 'unpinned glyph can fade below readable opacity'
+require_text "$CLIP_PIN_GLYPH" 'scale: Math.min(root.width, root.height) / 18' 'pin can stretch instead of preserving its aspect ratio'
+reject_text "$CLIP_PIN_GLYPH" 'rotation: 64' 'legacy rotated-rectangle pin geometry returned'
+printf '%s\n' 'PASS  Clipboard pin action uses proportional visible vector geometry'
 
 printf '%s\n' '=== Launcher canonical activation contract ==='
-# activateItem(index) performs the authoritative backend lookup. Both Enter
-# and a single left click feed only an index into that same path.
 require_text "$LAUNCHER_WINDOW" 'function activateItem(index)' 'Launcher has no canonical activation entry point'
 require_text "$LAUNCHER_WINDOW" 'const authoritativeRow = backend.itemAt(index)' 'activation does not resolve the current authoritative row'
 require_text "$LAUNCHER_WINDOW" 'backend.activate(authoritativeRow)' 'canonical activation does not reach the backend'
