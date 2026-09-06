@@ -188,17 +188,12 @@ Item {
                 return
             }
             if (action === "connect") {
-                if (root.selectedBluetoothDevice)
-                    root.selectedBluetoothDevice = Object.assign({}, root.selectedBluetoothDevice, {"connected": true, "paired": true})
                 if (root.page === "pairing")
                     root.page = "details"
                 return
             }
-            if (action === "disconnect") {
-                if (root.selectedBluetoothDevice)
-                    root.selectedBluetoothDevice = Object.assign({}, root.selectedBluetoothDevice, {"connected": false})
+            if (action === "disconnect")
                 return
-            }
             if (action === "forget") {
                 root.page = "main"
                 root.selectedBluetoothDevice = null

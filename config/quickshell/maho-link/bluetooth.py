@@ -10,10 +10,14 @@ busctl JSON and actions are sent directly to org.bluez D-Bus interfaces.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from typing import Any, Iterable
 
 BLUEZ = "org.bluez"
@@ -24,6 +28,8 @@ BATTERY = "org.bluez.Battery1"
 
 ADAPTER_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+$")
 DEVICE_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+/dev_[0-9A-Fa-f_]+$")
+AUTOCONNECT_BACKOFF_SECONDS = (5, 15, 45, 120)
+MAX_AUTOCONNECT_ATTEMPTS = len(AUTOCONNECT_BACKOFF_SECONDS)
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -157,22 +163,24 @@ def property_value(props: dict[str, Any], name: str, default: Any = None) -> Any
     return unwrap(value)
 
 
-def snapshot() -> int:
+def unavailable_snapshot(error: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "enabled": False,
+        "discovering": False,
+        "adapterPath": "",
+        "paired": [],
+        "availableDevices": [],
+        "connected": [],
+        "autoConnectEligible": [],
+        "error": error,
+    }
+
+
+def snapshot_payload() -> dict[str, Any]:
     objects, error = managed_objects()
     if objects is None:
-        emit(
-            {
-                "available": False,
-                "enabled": False,
-                "discovering": False,
-                "adapterPath": "",
-                "paired": [],
-                "availableDevices": [],
-                "connected": [],
-                "error": error,
-            }
-        )
-        return 0
+        return unavailable_snapshot(error)
 
     adapters: list[tuple[str, dict[str, Any]]] = []
     for path, interfaces in objects.items():
@@ -183,19 +191,7 @@ def snapshot() -> int:
             adapters.append((path, adapter_props))
 
     if not adapters:
-        emit(
-            {
-                "available": False,
-                "enabled": False,
-                "discovering": False,
-                "adapterPath": "",
-                "paired": [],
-                "availableDevices": [],
-                "connected": [],
-                "error": "No Bluetooth adapter is available.",
-            }
-        )
-        return 0
+        return unavailable_snapshot("No Bluetooth adapter is available.")
 
     adapters.sort(key=lambda row: row[0])
     adapter_path, adapter_props = adapters[0]
@@ -205,6 +201,7 @@ def snapshot() -> int:
     paired: list[dict[str, Any]] = []
     nearby: list[dict[str, Any]] = []
     connected: list[dict[str, Any]] = []
+    auto_connect_eligible: list[str] = []
 
     for path, interfaces in objects.items():
         if not isinstance(interfaces, dict) or not DEVICE_PATH_RE.fullmatch(path):
@@ -237,12 +234,14 @@ def snapshot() -> int:
             except (TypeError, ValueError):
                 battery = None
 
+        reachable = connected_flag or isinstance(rssi, (int, float))
         row = {
             "path": path,
             "name": name,
             "paired": paired_flag,
             "connected": connected_flag,
             "trusted": trusted_flag,
+            "available": reachable,
             "type": type_label,
             "kind": kind,
             "icon": icon,
@@ -257,6 +256,9 @@ def snapshot() -> int:
             nearby.append(row)
         if connected_flag:
             connected.append(row)
+        if (enabled and paired_flag and trusted_flag and not connected_flag
+                and reachable and kind in ("headphones", "speaker")):
+            auto_connect_eligible.append(path)
 
     paired.sort(key=lambda row: (not row["connected"], row["name"].casefold(), row["path"]))
     nearby.sort(
@@ -268,27 +270,31 @@ def snapshot() -> int:
     )
     connected.sort(key=lambda row: (row["name"].casefold(), row["path"]))
 
-    emit(
-        {
-            "available": True,
-            "enabled": enabled,
-            "discovering": discovering,
-            "adapterPath": adapter_path,
-            "paired": paired,
-            "availableDevices": nearby,
-            "connected": connected,
-            "error": "",
-        }
-    )
+    auto_connect_eligible.sort()
+    return {
+        "available": True,
+        "enabled": enabled,
+        "discovering": discovering,
+        "adapterPath": adapter_path,
+        "paired": paired,
+        "availableDevices": nearby,
+        "connected": connected,
+        "autoConnectEligible": auto_connect_eligible,
+        "error": "",
+    }
+
+
+def snapshot() -> int:
+    emit(snapshot_payload())
     return 0
 
 
-def valid_adapter(path: str) -> bool:
-    return bool(ADAPTER_PATH_RE.fullmatch(path))
+def valid_adapter(path: Any) -> bool:
+    return isinstance(path, str) and bool(ADAPTER_PATH_RE.fullmatch(path))
 
 
-def valid_device(path: str) -> bool:
-    return bool(DEVICE_PATH_RE.fullmatch(path))
+def valid_device(path: Any) -> bool:
+    return isinstance(path, str) and bool(DEVICE_PATH_RE.fullmatch(path))
 
 
 def friendly_error(raw: str, fallback: str) -> str:
@@ -315,6 +321,161 @@ def busctl_call(path: str, interface: str, method: str, *signature_and_args: str
         ["busctl", "--system", "call", BLUEZ, path, interface, method, *signature_and_args],
         timeout=timeout,
     )
+
+
+def session_state_path() -> Path:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return Path(runtime) / "maho" / "link-bluetooth-session.json"
+    return Path(tempfile.gettempdir()) / f"maho-{os.getuid()}" / "link-bluetooth-session.json"
+
+
+def empty_session_state() -> dict[str, Any]:
+    return {"version": 1, "suppressed": [], "attempts": {}, "reachable": []}
+
+
+def load_session_state() -> dict[str, Any]:
+    try:
+        raw = json.loads(session_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return empty_session_state()
+    if not isinstance(raw, dict):
+        return empty_session_state()
+
+    suppressed = sorted({path for path in raw.get("suppressed", []) if valid_device(path)})
+    reachable = sorted({path for path in raw.get("reachable", []) if valid_device(path)})
+    attempts: dict[str, dict[str, Any]] = {}
+    source_attempts = raw.get("attempts", {})
+    if isinstance(source_attempts, dict):
+        for path, value in source_attempts.items():
+            if not valid_device(path) or not isinstance(value, dict):
+                continue
+            try:
+                failures = max(0, min(MAX_AUTOCONNECT_ATTEMPTS, int(value.get("failures", 0))))
+                next_attempt = max(0.0, float(value.get("nextAttempt", 0)))
+            except (TypeError, ValueError):
+                continue
+            attempts[path] = {"failures": failures, "nextAttempt": next_attempt}
+    return {
+        "version": 1,
+        "suppressed": suppressed,
+        "attempts": attempts,
+        "reachable": reachable,
+    }
+
+
+def save_session_state(state: dict[str, Any]) -> None:
+    target = session_state_path()
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.parent.chmod(0o700)
+    descriptor, temporary = tempfile.mkstemp(prefix=".link-bluetooth.", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, separators=(",", ":"), sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def remember_manual_connection(device_path: str, connected: bool) -> None:
+    state = load_session_state()
+    suppressed = set(state["suppressed"])
+    if connected:
+        suppressed.discard(device_path)
+        state["attempts"][device_path] = {
+            "failures": 0,
+            "nextAttempt": time.time() + AUTOCONNECT_BACKOFF_SECONDS[1],
+        }
+    else:
+        suppressed.add(device_path)
+    state["suppressed"] = sorted(suppressed)
+    save_session_state(state)
+
+
+def auto_connect() -> int:
+    payload = snapshot_payload()
+    if not payload["available"] or not payload["enabled"]:
+        state = load_session_state()
+        state["attempts"] = {}
+        state["reachable"] = []
+        save_session_state(state)
+        emit({"ok": True, "status": "idle", "devicePath": "", "message": ""})
+        return 0
+
+    candidates = {
+        row["path"]: row
+        for row in payload["paired"]
+        if row["path"] in payload["autoConnectEligible"]
+    }
+    reachable_now = set(candidates)
+    state = load_session_state()
+    previously_reachable = set(state["reachable"])
+
+    # A disappearance ends the old bounded retry epoch. A later real
+    # reachability transition may receive a fresh, still-bounded attempt set.
+    for path in set(state["attempts"]) - reachable_now:
+        state["attempts"].pop(path, None)
+    for path in reachable_now - previously_reachable:
+        state["attempts"].pop(path, None)
+    state["reachable"] = sorted(reachable_now)
+
+    now = time.time()
+    selected: dict[str, Any] | None = None
+    for path in sorted(candidates, key=lambda candidate: (
+            candidates[candidate]["kind"] != "headphones",
+            candidates[candidate]["name"].casefold(),
+            candidate)):
+        if path in state["suppressed"]:
+            continue
+        attempt = state["attempts"].get(path, {"failures": 0, "nextAttempt": 0})
+        if attempt["failures"] >= MAX_AUTOCONNECT_ATTEMPTS:
+            continue
+        if now < attempt["nextAttempt"]:
+            continue
+        selected = candidates[path]
+        break
+
+    if selected is None:
+        save_session_state(state)
+        emit({"ok": True, "status": "idle", "devicePath": "", "message": ""})
+        return 0
+
+    path = selected["path"]
+    code, out, err = busctl_call(path, DEVICE, "Connect", timeout=18.0)
+    if code == 0:
+        # BlueZ method success means the request was accepted; the following
+        # ObjectManager snapshot remains the authority for Connected=true.
+        # Hold a short grace window so a slow property signal cannot duplicate
+        # the successful request.
+        state["attempts"][path] = {
+            "failures": 0,
+            "nextAttempt": now + AUTOCONNECT_BACKOFF_SECONDS[1],
+        }
+        save_session_state(state)
+        emit({"ok": True, "status": "connected", "devicePath": path, "message": "Connected."})
+        return 0
+
+    previous = state["attempts"].get(path, {"failures": 0, "nextAttempt": 0})
+    failures = min(MAX_AUTOCONNECT_ATTEMPTS, int(previous["failures"]) + 1)
+    delay = AUTOCONNECT_BACKOFF_SECONDS[failures - 1]
+    state["attempts"][path] = {"failures": failures, "nextAttempt": now + delay}
+    save_session_state(state)
+    emit({
+        "ok": False,
+        "status": "backoff",
+        "devicePath": path,
+        "message": friendly_error(err or out, "Couldn’t connect to this device."),
+        "retryAfter": delay,
+        "attempt": failures,
+    })
+    return 1
 
 
 def action(argv: list[str]) -> int:
@@ -384,6 +545,8 @@ def action(argv: list[str]) -> int:
         timeout = 45.0 if command == "pair" else 18.0
         code, out, err = busctl_call(device_path, DEVICE, method, timeout=timeout)
         ok = code == 0
+        if ok and command in ("connect", "disconnect"):
+            remember_manual_connection(device_path, command == "connect")
         success = {"connect": "Connected.", "disconnect": "Disconnected.", "pair": "Paired."}[command]
         failure = {
             "connect": "Couldn’t connect to this device.",
@@ -421,6 +584,8 @@ def main() -> int:
         return 2
     if sys.argv[1] == "snapshot":
         return snapshot()
+    if sys.argv[1] == "auto-connect":
+        return auto_connect()
     if sys.argv[1] == "action":
         return action(sys.argv[2:])
     emit({"ok": False, "message": "Unknown Bluetooth command."})

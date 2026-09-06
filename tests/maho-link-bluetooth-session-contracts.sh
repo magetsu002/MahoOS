@@ -40,4 +40,14 @@ if grep -nE 'onRead:.*availableDevices|onRead:.*pairedDevices|onRead:.*connected
 fi
 echo "PASS"
 
+echo "=== bounded trusted-audio auto-connect policy ==="
+require_text "$BACKEND" 'paired_flag and trusted_flag and not connected_flag' "auto-connect does not require paired and trusted BlueZ truth"
+require_text "$BACKEND" 'kind in ("headphones", "speaker")' "auto-connect is not limited to audio devices"
+require_text "$BACKEND" 'AUTOCONNECT_BACKOFF_SECONDS = (5, 15, 45, 120)' "auto-connect retry backoff is missing or unbounded"
+require_text "$BACKEND" 'state["suppressed"]' "intentional disconnect suppression is not backend-owned"
+require_text "$STATE" '["python", backendPath(), "auto-connect"]' "Bluetooth state never invokes the backend policy"
+require_text "$STATE" 'state.autoConnectEligible = payload.autoConnectEligible || []' "QML does not consume authoritative eligibility"
+python3 "$ROOT/tests/maho-link-bluetooth-policy-tests.py"
+echo "PASS"
+
 echo "ALL MAHO LINK BLUETOOTH SESSION CONTRACTS PASS"
