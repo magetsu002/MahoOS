@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+THEME_SOURCE="$ROOT/config/sddm/maho-lock"
+LOCK_ASSETS="$ROOT/config/quickshell/maho-lock/assets"
+
+THEME_ROOT="${MAHO_SDDM_THEME_ROOT:-/usr/share/sddm/themes}"
+CONFIG_ROOT="${MAHO_SDDM_CONFIG_ROOT:-/etc/sddm.conf.d}"
+STATE_ROOT="${MAHO_SDDM_STATE_ROOT:-/var/lib/maho-lock-sddm}"
+THEME_TARGET="$THEME_ROOT/maho-lock"
+CONFIG_TARGET="$CONFIG_ROOT/90-maho-lock.conf"
+MARKER="managed-by-maho-lock-sddm-v1"
+CONFIG_MARKER="# managed-by: maho-lock-sddm v1"
+
+say() { printf '%s\n' "$*"; }
+die() { say "maho-lock-sddm-install: $*" >&2; return 1; }
+
+invoking_user() {
+    if [ -n "${MAHO_SDDM_USER:-}" ] && [ "$MAHO_SDDM_USER" != root ]; then
+        printf '%s\n' "$MAHO_SDDM_USER"
+    elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+        printf '%s\n' "$SUDO_USER"
+    else
+        id -un
+    fi
+}
+
+user_home() {
+    local name="$1" entry
+    entry="$(getent passwd "$name")" || return 1
+    printf '%s\n' "$entry" | awk -F: '{print $6}'
+}
+
+managed_theme() {
+    [ -f "$THEME_TARGET/.managed-by-maho-lock-sddm" ] \
+        && grep -Fxq "$MARKER" "$THEME_TARGET/.managed-by-maho-lock-sddm"
+}
+
+managed_config() {
+    [ -f "$CONFIG_TARGET" ] && grep -Fxq "$CONFIG_MARKER" "$CONFIG_TARGET"
+}
+
+require_root() {
+    [ "$(id -u)" -eq 0 ] && return 0
+
+    if [ "${MAHO_SDDM_ALLOW_UNPRIVILEGED:-0}" = 1 ] \
+        && [ "$THEME_ROOT" != /usr/share/sddm/themes ] \
+        && [ "$CONFIG_ROOT" != /etc/sddm.conf.d ] \
+        && [ "$STATE_ROOT" != /var/lib/maho-lock-sddm ]; then
+        return 0
+    fi
+
+    die "system installation requires root; run: sudo bash bin/maho-lock-sddm-install install"
+}
+
+profile_assets() {
+    local home="$1" profile="$home/.local/state/maho/lock/profile.json"
+
+    python - "$profile" <<'PY_PROFILE'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = {}
+try:
+    payload = json.loads(path.read_text())
+except (OSError, ValueError, TypeError):
+    pass
+
+for key in ("wallpaperPath", "avatarPath"):
+    value = payload.get(key, "")
+    print(value if isinstance(value, str) else "")
+PY_PROFILE
+}
+
+preflight() {
+    local failed=0 dependency file
+
+    for dependency in python getent awk install cp mv; do
+        command -v "$dependency" >/dev/null 2>&1 \
+            && printf 'PASS  dependency %-14s %s\n' "$dependency" "$(command -v "$dependency")" \
+            || { printf 'FAIL  dependency %-14s missing\n' "$dependency"; failed=1; }
+    done
+
+    for file in Main.qml MahoSddmIcon.qml metadata.desktop theme.conf; do
+        [ -r "$THEME_SOURCE/$file" ] \
+            && say "PASS  theme source $file" \
+            || { say "FAIL  theme source $file"; failed=1; }
+    done
+
+    [ -r "$LOCK_ASSETS/maho-lock-dusk.jpg" ] \
+        && say "PASS  fallback wallpaper" \
+        || { say "FAIL  fallback wallpaper"; failed=1; }
+    [ -r "$LOCK_ASSETS/Nunito-Variable.ttf" ] \
+        && say "PASS  rounded typography asset" \
+        || { say "FAIL  rounded typography asset"; failed=1; }
+
+    return "$failed"
+}
+
+build_theme() {
+    local stage="$1" account home wallpaper avatar avatar_available=false
+    local -a assets
+
+    account="$(invoking_user)"
+    home="$(user_home "$account")"
+    mapfile -t assets < <(profile_assets "$home")
+    wallpaper="${assets[0]:-}"
+    avatar="${assets[1]:-}"
+
+    mkdir -p "$stage/assets"
+    install -m 0644 "$THEME_SOURCE/Main.qml" "$stage/Main.qml"
+    install -m 0644 "$THEME_SOURCE/MahoSddmIcon.qml" "$stage/MahoSddmIcon.qml"
+    install -m 0644 "$THEME_SOURCE/metadata.desktop" "$stage/metadata.desktop"
+    install -m 0644 "$THEME_SOURCE/theme.conf" "$stage/theme.conf"
+    install -m 0644 "$LOCK_ASSETS/Nunito-Variable.ttf" "$stage/assets/Nunito-Variable.ttf"
+
+    if [ -n "$wallpaper" ] && [ -f "$wallpaper" ] && [ -r "$wallpaper" ]; then
+        install -m 0644 "$wallpaper" "$stage/assets/wallpaper"
+        say "PASS  staged selected wallpaper $wallpaper" >&2
+    else
+        install -m 0644 "$LOCK_ASSETS/maho-lock-dusk.jpg" "$stage/assets/wallpaper"
+        say "INFO  selected wallpaper unavailable; staged bundled fallback" >&2
+    fi
+
+    if [ -n "$avatar" ] && [ -f "$avatar" ] && [ -r "$avatar" ]; then
+        install -m 0644 "$avatar" "$stage/assets/avatar"
+        avatar_available=true
+        say "PASS  staged selected avatar $avatar" >&2
+    else
+        say "INFO  selected avatar unavailable; greeter will show the user initial" >&2
+    fi
+
+    sed -i \
+        -e "s/@AVATAR_AVAILABLE@/$avatar_available/g" \
+        -e "s/@DEFAULT_USER@/$account/g" \
+        "$stage/theme.conf"
+    printf '%s\n' "$MARKER" > "$stage/.managed-by-maho-lock-sddm"
+    chmod -R a+rX "$stage"
+}
+
+stage() {
+    local target="${1:-}" 
+    preflight || return 1
+    if [ -z "$target" ]; then
+        target="$(mktemp -d /tmp/maho-lock-sddm-theme.XXXXXX)"
+    else
+        [ ! -e "$target" ] || { die "stage target already exists: $target"; return 1; }
+        mkdir -p "$target"
+    fi
+    build_theme "$target"
+    say "PASS  staged SDDM theme $target"
+}
+
+install_theme() {
+    local stamp backup stage_path config_tmp had_theme=0 had_config=0 committed=0
+
+    require_root || return 1
+    preflight || return 1
+
+    if [ -e "$THEME_TARGET" ] && ! managed_theme; then
+        die "refusing to replace unmanaged theme: $THEME_TARGET"
+        return 1
+    fi
+    if [ -e "$CONFIG_TARGET" ] && ! managed_config; then
+        die "refusing to replace unmanaged config: $CONFIG_TARGET"
+        return 1
+    fi
+
+    mkdir -p "$THEME_ROOT" "$CONFIG_ROOT" "$STATE_ROOT/backups"
+    stamp="$(date +%Y%m%d-%H%M%S-%N)"
+    backup="$STATE_ROOT/backups/$stamp"
+    stage_path="$THEME_ROOT/.maho-lock.stage.$$"
+    config_tmp="$CONFIG_ROOT/.90-maho-lock.conf.$$"
+    mkdir -m 0700 "$backup" "$stage_path"
+
+    build_theme "$stage_path"
+
+    if managed_theme; then
+        mv "$THEME_TARGET" "$backup/theme"
+        had_theme=1
+    fi
+    if managed_config; then
+        mv "$CONFIG_TARGET" "$backup/90-maho-lock.conf"
+        had_config=1
+    fi
+
+    rollback_install() {
+        local rc=$?
+        [ "$committed" -eq 1 ] && return "$rc"
+        rm -rf -- "$THEME_TARGET" "$stage_path"
+        rm -f -- "$CONFIG_TARGET" "$config_tmp"
+        [ "$had_theme" -eq 1 ] && mv "$backup/theme" "$THEME_TARGET"
+        [ "$had_config" -eq 1 ] && mv "$backup/90-maho-lock.conf" "$CONFIG_TARGET"
+        return "$rc"
+    }
+    trap rollback_install EXIT
+
+    mv "$stage_path" "$THEME_TARGET"
+    {
+        printf '%s\n' "$CONFIG_MARKER"
+        printf '%s\n' '[Theme]'
+        printf '%s\n' 'Current=maho-lock'
+    } > "$config_tmp"
+    chmod 0644 "$config_tmp"
+    mv "$config_tmp" "$CONFIG_TARGET"
+
+    committed=1
+    trap - EXIT
+    say "PASS  installed SDDM theme $THEME_TARGET"
+    say "PASS  selected persistent SDDM theme in $CONFIG_TARGET"
+    say "PASS  no SDDM restart performed; the current graphical session is untouched"
+    say "Backup: $backup"
+}
+
+status() {
+    local failed=0
+
+    if managed_theme; then
+        say "PASS  managed SDDM theme $THEME_TARGET"
+    else
+        say "FAIL  managed SDDM theme missing"
+        failed=1
+    fi
+
+    if managed_config && grep -Fxq 'Current=maho-lock' "$CONFIG_TARGET"; then
+        say "PASS  persistent SDDM selection $CONFIG_TARGET"
+    else
+        say "FAIL  persistent SDDM selection missing"
+        failed=1
+    fi
+
+    [ -r "$THEME_TARGET/assets/wallpaper" ] \
+        && say "PASS  SDDM-readable wallpaper asset" \
+        || { say "FAIL  SDDM-readable wallpaper asset"; failed=1; }
+    [ -r "$THEME_TARGET/Main.qml" ] \
+        && say "PASS  SDDM greeter entrypoint" \
+        || { say "FAIL  SDDM greeter entrypoint"; failed=1; }
+
+    return "$failed"
+}
+
+uninstall_theme() {
+    local stamp backup
+
+    require_root || return 1
+    if [ -e "$THEME_TARGET" ] && ! managed_theme; then
+        die "refusing to remove unmanaged theme: $THEME_TARGET"
+        return 1
+    fi
+    if [ -e "$CONFIG_TARGET" ] && ! managed_config; then
+        die "refusing to remove unmanaged config: $CONFIG_TARGET"
+        return 1
+    fi
+
+    mkdir -p "$STATE_ROOT/backups"
+    stamp="$(date +%Y%m%d-%H%M%S-%N)"
+    backup="$STATE_ROOT/backups/$stamp"
+    mkdir -m 0700 "$backup"
+    managed_theme && mv "$THEME_TARGET" "$backup/theme"
+    managed_config && mv "$CONFIG_TARGET" "$backup/90-maho-lock.conf"
+    say "PASS  removed managed SDDM selection and theme"
+    say "Backup: $backup"
+}
+
+case "${1:-}" in
+    preflight) preflight ;;
+    stage) shift; stage "${1:-}" ;;
+    install) install_theme ;;
+    status) status ;;
+    uninstall) uninstall_theme ;;
+    *)
+        cat <<'EOF_HELP'
+Maho Lock SDDM integration
+
+Usage:
+  bash bin/maho-lock-sddm-install preflight
+  bash bin/maho-lock-sddm-install stage [DIRECTORY]
+  sudo bash bin/maho-lock-sddm-install install
+  sudo bash bin/maho-lock-sddm-install status
+  sudo bash bin/maho-lock-sddm-install uninstall
+
+Install copies the current Maho Lock wallpaper/avatar into an SDDM-readable,
+managed theme and persistently selects it for the next boot. It never restarts
+SDDM, so installing it does not terminate the current graphical session.
+EOF_HELP
+        exit 2
+        ;;
+esac
