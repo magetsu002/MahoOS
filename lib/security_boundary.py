@@ -10,7 +10,13 @@ import os
 import socket
 import stat
 import struct
+import sys
 from pathlib import Path
+
+# Runtime security observers may execute from a content-addressed immutable
+# release. Never let a privileged/root invocation create import bytecode inside
+# that release, even when filesystem permission bits would not stop root.
+sys.dont_write_bytecode = True
 
 from security_probe import read_process, stable_hash
 
