@@ -70,41 +70,6 @@ Item {
         )
     }
 
-    component PinGlyph: Canvas {
-        id: pinGlyph
-        required property color glyphColor
-
-        antialiasing: true
-        onGlyphColorChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-
-        onPaint: {
-            const ctx = getContext("2d")
-            const w = width
-            const h = height
-            ctx.reset()
-            ctx.strokeStyle = glyphColor
-            ctx.fillStyle = glyphColor
-            ctx.lineWidth = Math.max(1.2, w * 0.075)
-            ctx.lineCap = "round"
-            ctx.lineJoin = "round"
-            ctx.beginPath()
-            ctx.moveTo(w * 0.34, h * 0.20)
-            ctx.lineTo(w * 0.66, h * 0.20)
-            ctx.lineTo(w * 0.61, h * 0.44)
-            ctx.lineTo(w * 0.72, h * 0.56)
-            ctx.lineTo(w * 0.28, h * 0.56)
-            ctx.lineTo(w * 0.39, h * 0.44)
-            ctx.closePath()
-            ctx.stroke()
-            ctx.beginPath()
-            ctx.moveTo(w * 0.50, h * 0.57)
-            ctx.lineTo(w * 0.50, h * 0.86)
-            ctx.stroke()
-        }
-    }
-
     function resetSelectionToBeginning() {
         Qt.callLater(function() {
             if (root.filteredItems.length === 0) {
@@ -573,7 +538,7 @@ Item {
                         : theme.alpha(theme.foreground, pinHover.containsMouse ? 0.075 : 0.035)
                     opacity: root.clipboardState.mutating ? 0.48 : 1
 
-                    PinGlyph {
+                    ClipboardPinGlyph {
                         anchors.centerIn: parent
                         width: 17
                         height: 17
