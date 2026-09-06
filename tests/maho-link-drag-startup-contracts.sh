@@ -80,10 +80,10 @@ case "$*" in
   "-t -e yes -f DEVICE,TYPE,STATE device status")
     echo "wlan0:wifi:connected"
     ;;
-  "-t -e yes -f NAME,TYPE,DEVICE connection show --active")
-    echo "Home Profile:802-11-wireless:wlan0"
+  "-t -e yes -f NAME,UUID,TYPE,DEVICE connection show --active")
+    echo "Home Profile:11111111-2222-3333-4444-555555555555:802-11-wireless:wlan0"
     ;;
-  "-t -g 802-11-wireless.ssid connection show Home Profile")
+  "-t -g 802-11-wireless.ssid connection show uuid 11111111-2222-3333-4444-555555555555")
     echo "Ashraf4G"
     ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
@@ -113,6 +113,7 @@ assert data["available"] is True
 assert data["enabled"] is True
 assert data["device"] == "wlan0"
 assert data["current"]["ssid"] == "Ashraf4G"
+assert data["current"]["uuid"] == "11111111-2222-3333-4444-555555555555"
 assert data["current"]["state"] == "Connected"
 assert data["current"]["signal"] == -1
 assert data["current"]["ipv4"] == "192.168.1.50/24"
