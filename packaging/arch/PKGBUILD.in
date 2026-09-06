@@ -71,6 +71,13 @@ package() {
     "$pkgdir/usr/lib/maho/share/maho/release.json"
   install -Dm755 "$source_root/packaging/arch/maho-install" \
     "$pkgdir/usr/bin/maho-install"
+  install -Dm755 "$source_root/packaging/arch/maho-files-wrapper" \
+    "$pkgdir/usr/bin/maho-files"
+  install -d "$pkgdir/usr/share/applications"
+  sed 's#^Exec=.*#Exec=/usr/bin/maho-files run %U#' \
+    "$source_root/apps/maho-files/io.maho.Files.desktop" \
+    > "$pkgdir/usr/share/applications/io.maho.Files.desktop"
+  chmod 0644 "$pkgdir/usr/share/applications/io.maho.Files.desktop"
   install -Dm755 "$source_root/packaging/arch/maho-platform-wrapper" \
     "$pkgdir/usr/bin/maho-platform"
   install -Dm755 "$source_root/packaging/arch/maho-recovery-wrapper" \

@@ -49,6 +49,15 @@ grep -Fq 'Qt.Key_Return' "$PANEL" || fail "Enter handling missing"
 grep -Fq 'root.moveSelection(1)' "$PANEL" || fail "Down key is not wired to selection"
 grep -Fq 'root.moveSelection(-1)' "$PANEL" || fail "Up key is not wired to selection"
 grep -Fq 'root.activateSelection()' "$PANEL" || fail "Enter key is not wired to activation"
+grep -Fq 'root.clipboardState.togglePin(row.modelData)' "$PANEL" || fail "clipboard rows cannot toggle backend-owned pin state"
+if grep -Fq 'ListView.view.clipboardState' "$PANEL"; then
+    fail "pin delegate references a nonexistent ListView property"
+fi
+grep -Fq 'row.modelData.pinned' "$PANEL" || fail "pinned history has no subtle visual state"
+grep -Fq 'mouse.accepted = true' "$PANEL" || fail "pin click can propagate into row copy activation"
+grep -Fq 'root.clipboardState.clearUnpinned()' "$PANEL" || fail "normal-history clear action is missing"
+grep -Fq 'pinned ? "unpin" : "pin"' "$STATE" || fail "pin/unpin is not delegated through ClipboardState"
+grep -Fq 'mutationProcess.exec(["python", backendPath(), "clear"])' "$STATE" || fail "normal clear is not delegated to the backend"
 grep -Fq 'searchInput.forceActiveFocus()' "$PANEL" || fail "search field does not claim item focus"
 grep -Fq 'focusable: true' "$SHELL" || fail "clipboard window is not permanently keyboard-capable"
 grep -Fq 'WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive' "$SHELL" || fail "clipboard window does not claim the Wayland keyboard seat"
@@ -82,9 +91,11 @@ grep -Fq 'target: "clipboard"' "$SHELL" || fail "clipboard IPC target missing"
 grep -Fq 'function toggle(): void { root.toggleOverlay() }' "$SHELL" || fail "clipboard toggle IPC missing"
 grep -Fq 'function open(): void { root.showOverlay() }' "$SHELL" || fail "clipboard open IPC missing"
 grep -Fq 'function close(): void { root.closeOverlay() }' "$SHELL" || fail "clipboard close IPC missing"
-grep -Fq 'quickshell -p "$CONFIG" ipc call clipboard toggle' "$LAUNCHER" || fail "launcher does not toggle the exact running config"
-if grep -Eq 'pkill|killall|kill[[:space:]]' "$LAUNCHER"; then
-    fail "toggle path kills the UI instead of using IPC"
+grep -Fq 'quickshell ipc --pid "$pid" call clipboard toggle' "$LAUNCHER" || fail "launcher does not toggle the exact same-runtime PID"
+grep -Fq 'retire_stale_clipboards' "$LAUNCHER" || fail "stale Clipboard runtime is not handed off"
+grep -Fq 'MAHO_RUNTIME_IDENTITY' "$SHELL" || fail "Clipboard surface does not expose immutable runtime identity"
+if grep -Eq 'pkill|killall' "$LAUNCHER"; then
+    fail "runtime handoff uses a broad process kill"
 fi
 pass "toggle IPC contract"
 
@@ -161,7 +172,7 @@ cat > "${MAHO_TEST_CAPTURE:?}"
 EOF_WLCOPY
 chmod +x "$TMP/bin/wl-copy"
 
-LIST_JSON="$(PATH="$TMP/bin:$PATH" python "$BACKEND" list)"
+LIST_JSON="$(XDG_STATE_HOME="$TMP/state" PATH="$TMP/bin:$PATH" python "$BACKEND" list)"
 python - "$LIST_JSON" <<'PY'
 import json
 import sys
@@ -174,7 +185,7 @@ PY
 pass "history preview classification"
 
 CAPTURE="$TMP/restored.bin"
-MAHO_TEST_CAPTURE="$CAPTURE" PATH="$TMP/bin:$PATH" python "$BACKEND" select 7 > "$TMP/select.json"
+MAHO_TEST_CAPTURE="$CAPTURE" XDG_STATE_HOME="$TMP/state" PATH="$TMP/bin:$PATH" python "$BACKEND" select 7 > "$TMP/select.json"
 python - "$TMP/select.json" <<'PY'
 import json
 import sys

@@ -99,7 +99,7 @@ require_text "$PREVIEW" 'top.handle || top.wayland || null' "Dock preview does n
 require_text "$PREVIEW" 'visible: !capture.hasContent' "Dock preview has no capture readiness fallback"
 require_text "$PREVIEW" 'Preview unavailable' "capture failure still renders as unexplained blank content"
 require_text "$DOCK" 'if (!previewItem || !previewItem.windows)' "Dock preview still relies on brittle Array.isArray gating"
-require_text "$DOCK" 'windows.slice(0, 3)' "Dock preview does not bound selected app windows"
+require_text "$DOCK" 'DockPreviewPolicy.selectWindows(windows, 3)' "Dock preview does not rank and cap selected app windows"
 require_text "$DOCK" 'previewCount <= 1 ? 540' "single-window preview does not adapt its shell width"
 require_text "$DOCK" 'previewCount === 2 ? 660' "two-window preview does not use balanced width"
 require_text "$DOCK" 'previewCount <= 1 ? 414' "single-window preview is not promoted to a hero card"
@@ -109,6 +109,12 @@ require_text "$PREVIEW" 'property real cardHeight:' "preview card cannot accept 
 require_text "$PREVIEW" 'width: cardWidth' "preview card width is not driven by adaptive layout"
 require_text "$PREVIEW" 'height: cardHeight' "preview card height is not driven by adaptive layout"
 require_text "$DOCK" 'MahoDockPreviewCard {' "Dock does not render window cards"
+QMLTESTRUNNER="$(command -v qmltestrunner || true)"
+if [ -z "$QMLTESTRUNNER" ] && [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
+    QMLTESTRUNNER=/usr/lib/qt6/bin/qmltestrunner
+fi
+[ -n "$QMLTESTRUNNER" ] || fail "Qt QML test runner is unavailable"
+QT_QPA_PLATFORM=offscreen "$QMLTESTRUNNER" -input "$ROOT/tests/tst-maho-dock-preview-policy.qml"
 echo PASS
 
 echo "=== exact window close controls ==="
@@ -137,10 +143,13 @@ require_text "$MODEL" 'function pinItem(item)' "Dock model lost pin API"
 require_text "$MODEL" 'function unpinItem(item)' "Dock model lost unpin API"
 echo PASS
 
-echo "=== shared application identity ==="
+echo "=== shared application identity and activation ==="
 require_text "$LAUNCHER_BACKEND" 'from maho_app_model import (' "Launcher does not use the shared Maho app model"
 require_text "$APP_MODEL" '"startupWmClass"' "shared app model does not expose StartupWMClass"
 require_text "$APP_MODEL" '"aliases"' "shared app model does not publish canonical aliases"
+require_text "$APP_MODEL" 'focus_existing_app(desktop_id)' "normal app launches do not prefer an existing toplevel"
+require_text "$APP_MODEL" 'sub.add_parser("launch-new")' "shared app model has no explicit new-instance path"
+require_text "$MODEL" 'newInstance ? "launch-new" : "launch-app"' "Dock does not preserve explicit New Window semantics"
 require_text "$MODEL" 'root.aliasToId[normalized]' "Dock does not match windows through canonical aliases"
 require_text "$MODEL" 'clean(ipc.class)' "Dock does not consider Hyprland class"
 require_text "$MODEL" 'clean(ipc.initialClass)' "Dock does not consider Hyprland initialClass"
@@ -155,6 +164,7 @@ identity = text[start:end]
 if ".title" in identity or "title)" in identity:
     raise SystemExit("FAIL: Dock matches app identity using window title")
 PY
+python3 "$ROOT/tests/test_maho_app_model.py"
 echo PASS
 
 echo "=== event-driven Hyprland session model ==="

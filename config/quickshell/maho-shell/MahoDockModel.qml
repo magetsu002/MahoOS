@@ -325,7 +325,7 @@ Scope {
         root.mruByAddress = next
     }
 
-    function launchApp(id) {
+    function launchApp(id, newInstance) {
         const app = root.appById[id]
         if (!app)
             return
@@ -335,7 +335,11 @@ Scope {
         root.launching = next
         launchExpiry.restart()
         rebuild()
-        Quickshell.execDetached(["python3", root.appModelPath, "launch-app", id])
+        Quickshell.execDetached([
+            "python3", root.appModelPath,
+            newInstance ? "launch-new" : "launch-app",
+            id
+        ])
     }
 
     function focusWindow(window) {
@@ -363,13 +367,13 @@ Scope {
 
         if (newWindow) {
             if (!item.temporary)
-                launchApp(clean(item.id))
+                launchApp(clean(item.id), true)
             return
         }
 
         if (!item.running) {
             if (!item.temporary)
-                launchApp(clean(item.id))
+                launchApp(clean(item.id), false)
             return
         }
 

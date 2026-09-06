@@ -14,6 +14,7 @@ PALETTE_CPP="$APP/src/MahoPalette.cpp"
 MAIN_CPP="$APP/src/main.cpp"
 QML="$APP/qml/Main.qml"
 WRAPPER="$ROOT/bin/maho-files"
+FINGERPRINT="$APP/source-fingerprint.py"
 LAUNCHER_BACKEND="$ROOT/lib/maho_launcher_backend.py"
 
 fail() {
@@ -37,7 +38,7 @@ reject_text() {
     fi
 }
 
-for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER" "$LAUNCHER_BACKEND"; do
+for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER" "$LAUNCHER_BACKEND" "$FINGERPRINT"; do
     [ -f "$file" ] || fail "missing Maho Files file: $file"
 done
 
@@ -142,13 +143,26 @@ for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X'
 done
 echo PASS
 
+echo "=== type-to-search ownership ==="
+require_text "$QML" 'function handleBrowseKey(event)' "shared printable-key search handoff is missing"
+require_text "$QML" 'Keys.onPressed: function(event) { root.handleBrowseKey(event) }' "browse surfaces do not route unhandled keys to search"
+require_text "$QML" 'root.textEntryHasFocus()' "type-to-search can steal focus from an existing text field"
+require_text "$QML" 'namePopup.opened' "type-to-search can interfere with rename/new-folder editing"
+require_text "$QML" 'Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier' "type-to-search does not protect keyboard shortcuts"
+require_text "$QML" 'searchField.text = typed' "first printable character is not inserted atomically"
+require_text "$QML" 'searchField.cursorPosition = searchField.text.length' "search cursor is not placed after the handed-off character"
+require_text "$QML" 'function closeSearch()' "Escape search cleanup is not shared"
+echo PASS
+
 echo "=== canonical desktop identity ==="
 require_text "$MAIN_CPP" 'setDesktopFileName(QStringLiteral("io.maho.Files"))' "Wayland desktop identity drifted from io.maho.Files"
 require_text "$DESKTOP" 'Name=Maho Files' "desktop entry is not branded as Maho Files"
-require_text "$DESKTOP" 'Exec=maho-files run %U' "desktop entry does not route through the bounded wrapper"
+require_text "$DESKTOP" 'Exec=maho-files %U' "standalone desktop entry does not launch the native binary directly"
 require_text "$DESKTOP" 'MimeType=inode/directory;' "desktop entry does not advertise directory capability"
 require_text "$CMAKE" 'io.maho.Files.desktop' "desktop identity is not installed with the native app"
 require_text "$CMAKE" '${CMAKE_INSTALL_DATADIR}/applications' "desktop entry install target is not XDG applications"
+require_text "$MODEL_H" '~MahoDirectoryModel() override' "directory model has no explicit safe shutdown"
+require_text "$MODEL_CPP" 'disconnect(&m_lister, nullptr, this, nullptr)' "KIO callbacks survive into destroyed item storage"
 reject_text "$WRAPPER" 'xdg-mime default' "preview/install wrapper must not silently change the user's default file manager"
 echo PASS
 
@@ -174,6 +188,10 @@ echo "=== wrapper safety ==="
 bash -n "$WRAPPER"
 require_text "$WRAPPER" 'MAHO_FILES_BUILD_DIR' "isolated build override is missing"
 require_text "$WRAPPER" 'cmake --build' "wrapper cannot build the native app"
+require_text "$WRAPPER" 'verified_binary' "runtime does not verify selected native artifact provenance"
+require_text "$WRAPPER" 'binary_fingerprint' "runtime trusts binary existence instead of embedded identity"
+require_text "$CMAKE" 'MAHO_FILES_SOURCE_FINGERPRINT' "native build does not embed source identity"
+require_text "$MAIN_CPP" 'MAHO_FILES_SOURCE_FINGERPRINT=' "native executable lacks an inspectable provenance marker"
 if grep -Eq '^[[:space:]]*(sudo[[:space:]]+)?pacman[[:space:]]+-S' "$WRAPPER"; then
     fail "wrapper must never mutate packages automatically"
 fi

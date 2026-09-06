@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Qml Quick QuickControls2)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # Arch's kio package installs /usr/lib/cmake/KF6KIO/KF6KIOConfig.cmake.
 # Consume that package directly instead of depending on ECM's umbrella FindKF6.
 find_package(KF6KIO CONFIG REQUIRED)
@@ -30,6 +31,23 @@ qt_add_qml_module(maho-files
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+)
+
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source-fingerprint.py" "${CMAKE_CURRENT_SOURCE_DIR}"
+    RESULT_VARIABLE MAHO_FILES_FINGERPRINT_RESULT
+    OUTPUT_VARIABLE MAHO_FILES_SOURCE_FINGERPRINT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(LENGTH "${MAHO_FILES_SOURCE_FINGERPRINT}" MAHO_FILES_FINGERPRINT_LENGTH)
+if(NOT MAHO_FILES_FINGERPRINT_RESULT EQUAL 0 OR
+   NOT MAHO_FILES_SOURCE_FINGERPRINT MATCHES "^[0-9a-f]+$" OR
+   NOT MAHO_FILES_FINGERPRINT_LENGTH EQUAL 64)
+    message(FATAL_ERROR "Unable to compute Maho Files source fingerprint")
+endif()
+
+target_compile_definitions(maho-files PRIVATE
+    MAHO_FILES_SOURCE_FINGERPRINT="${MAHO_FILES_SOURCE_FINGERPRINT}"
 )
 
 target_include_directories(maho-files PRIVATE src)

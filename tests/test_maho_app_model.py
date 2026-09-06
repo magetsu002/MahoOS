@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -27,17 +29,15 @@ class MahoAppModelTests(unittest.TestCase):
         path.write_text("[Desktop Entry]\nType=Application\n" + body, encoding="utf-8")
         return path
 
-    def environment(self, data_home: Path, data_dirs: list[Path]):
-        return mock.patch.dict(
-            os.environ,
-            {
-                "XDG_DATA_HOME": str(data_home),
-                "XDG_DATA_DIRS": ":".join(str(path) for path in data_dirs),
-                "XDG_CURRENT_DESKTOP": "Hyprland",
-                "LANG": "C",
-            },
-            clear=False,
-        )
+    def environment(self, data_home: Path, data_dirs: list[Path], *, hyprland: bool = False):
+        values = {
+            "XDG_DATA_HOME": str(data_home),
+            "XDG_DATA_DIRS": ":".join(str(path) for path in data_dirs),
+            "XDG_CURRENT_DESKTOP": "Hyprland",
+            "LANG": "C",
+            "HYPRLAND_INSTANCE_SIGNATURE": "test-instance" if hyprland else "",
+        }
+        return mock.patch.dict(os.environ, values, clear=False)
 
     def test_startup_wm_class_and_exec_create_canonical_aliases(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -136,6 +136,159 @@ class MahoAppModelTests(unittest.TestCase):
             self.assertEqual(argv, ["gio", "launch", str(desktop)])
             self.assertNotIn("shell", popen.call_args.kwargs)
             self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_launch_focuses_existing_vesktop_without_spawning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            data = base / "data"
+            empty = base / "empty"
+            empty.mkdir()
+            self.write_desktop(
+                data,
+                "dev.vencord.Vesktop.desktop",
+                "Name=Vesktop\nStartupWMClass=vesktop\nExec=/usr/bin/vesktop %U\n",
+            )
+            clients = [{
+                "address": "0xabc123",
+                "class": "vesktop",
+                "initialClass": "vesktop",
+                "mapped": True,
+                "focusHistoryID": 2,
+                "title": "a title that must not be identity authority",
+            }]
+            calls: list[list[str]] = []
+
+            def run(argv, **kwargs):
+                calls.append(argv)
+                if argv == ["hyprctl", "-j", "clients"]:
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(clients), "")
+                if argv == ["hyprctl", "dispatch", "focuswindow", "address:0xabc123"]:
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+                self.fail(f"unexpected subprocess.run argv: {argv}")
+
+            def which(name: str):
+                if name == "hyprctl":
+                    return "/usr/bin/hyprctl"
+                if name == "gio":
+                    return "/usr/bin/gio"
+                return None
+
+            with self.environment(data, [empty], hyprland=True), \
+                    mock.patch.object(app_model.shutil, "which", side_effect=which), \
+                    mock.patch.object(app_model.subprocess, "run", side_effect=run), \
+                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                result = app_model.launch_app("dev.vencord.Vesktop.desktop")
+
+            self.assertEqual(result, 0)
+            self.assertEqual(calls, [
+                ["hyprctl", "-j", "clients"],
+                ["hyprctl", "dispatch", "focuswindow", "address:0xabc123"],
+            ])
+            popen.assert_not_called()
+
+    def test_launch_falls_back_to_xdg_when_no_window_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            data = base / "data"
+            empty = base / "empty"
+            empty.mkdir()
+            desktop = self.write_desktop(
+                data,
+                "dev.vencord.Vesktop.desktop",
+                "Name=Vesktop\nStartupWMClass=vesktop\nExec=/usr/bin/vesktop %U\n",
+            )
+
+            def run(argv, **kwargs):
+                if argv == ["hyprctl", "-j", "clients"]:
+                    return subprocess.CompletedProcess(
+                        argv, 0,
+                        json.dumps([{"address": "0x111", "class": "firefox", "initialClass": "firefox", "mapped": True}]),
+                        "",
+                    )
+                self.fail(f"unexpected subprocess.run argv: {argv}")
+
+            def which(name: str):
+                if name == "hyprctl":
+                    return "/usr/bin/hyprctl"
+                if name == "gio":
+                    return "/usr/bin/gio"
+                return None
+
+            with self.environment(data, [empty], hyprland=True), \
+                    mock.patch.object(app_model.shutil, "which", side_effect=which), \
+                    mock.patch.object(app_model.subprocess, "run", side_effect=run), \
+                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                result = app_model.launch_app("dev.vencord.Vesktop.desktop")
+
+            self.assertEqual(result, 0)
+            popen.assert_called_once()
+            self.assertEqual(popen.call_args.args[0], ["gio", "launch", str(desktop)])
+
+    def test_launch_does_not_focus_ambiguous_runtime_class(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            data = base / "data"
+            empty = base / "empty"
+            empty.mkdir()
+            target = self.write_desktop(
+                data,
+                "com.alpha.Editor.desktop",
+                "Name=Alpha Editor\nStartupWMClass=Electron\nExec=/usr/bin/electron %U\n",
+            )
+            self.write_desktop(
+                data,
+                "com.beta.Editor.desktop",
+                "Name=Beta Editor\nStartupWMClass=Electron\nExec=/usr/bin/electron %U\n",
+            )
+
+            def run(argv, **kwargs):
+                if argv == ["hyprctl", "-j", "clients"]:
+                    return subprocess.CompletedProcess(
+                        argv, 0,
+                        json.dumps([{"address": "0x222", "class": "Electron", "initialClass": "Electron", "mapped": True}]),
+                        "",
+                    )
+                self.fail(f"ambiguous client must not be focused: {argv}")
+
+            def which(name: str):
+                if name == "hyprctl":
+                    return "/usr/bin/hyprctl"
+                if name == "gio":
+                    return "/usr/bin/gio"
+                return None
+
+            with self.environment(data, [empty], hyprland=True), \
+                    mock.patch.object(app_model.shutil, "which", side_effect=which), \
+                    mock.patch.object(app_model.subprocess, "run", side_effect=run), \
+                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                result = app_model.launch_app("com.alpha.Editor.desktop")
+
+            self.assertEqual(result, 0)
+            popen.assert_called_once()
+            self.assertEqual(popen.call_args.args[0], ["gio", "launch", str(target)])
+
+    def test_launch_new_bypasses_existing_window_activation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            data = base / "data"
+            empty = base / "empty"
+            empty.mkdir()
+            desktop = self.write_desktop(
+                data,
+                "dev.vencord.Vesktop.desktop",
+                "Name=Vesktop\nStartupWMClass=vesktop\nExec=/usr/bin/vesktop %U\n",
+            )
+
+            with self.environment(data, [empty], hyprland=True), \
+                    mock.patch.object(app_model.shutil, "which", side_effect=lambda name: "/usr/bin/gio" if name == "gio" else "/usr/bin/hyprctl" if name == "hyprctl" else None), \
+                    mock.patch.object(app_model.subprocess, "run") as run, \
+                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                result = app_model.launch_new_app("dev.vencord.Vesktop.desktop")
+
+            self.assertEqual(result, 0)
+            run.assert_not_called()
+            popen.assert_called_once()
+            self.assertEqual(popen.call_args.args[0], ["gio", "launch", str(desktop)])
 
     def test_identity_normalization_never_depends_on_window_title(self):
         self.assertEqual(app_model.normalize_identity("Code.desktop"), "code")

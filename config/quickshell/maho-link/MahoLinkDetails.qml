@@ -224,6 +224,89 @@ Item {
             height: 50
             radius: 17
             antialiasing: true
+            scale: reconnectHover.pressed ? 0.995 : 1
+            color: root.glassInteractive
+            border.width: 1
+            border.color: root.glassStroke
+            opacity: root.wifi.busy || !root.wifi.currentNetwork ? 0.50 : 1
+
+            Behavior on scale { NumberAnimation { duration: 115; easing.type: Easing.OutCubic } }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                gradient: Gradient {
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.018) }
+                    GradientStop { position: 0.66; color: "transparent" }
+                    GradientStop { position: 1; color: chrome.theme.alpha(chrome.theme.background, 0.030) }
+                }
+            }
+
+            Rectangle {
+                id: reconnectHoverPlane
+                anchors.fill: parent
+                radius: parent.radius
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent, 0.065)
+                opacity: reconnectHover.containsMouse ? 1 : 0
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: 13
+                anchors.verticalCenter: parent.verticalCenter
+                width: 30
+                height: 30
+                radius: 11
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.06), 0.34)
+                border.width: 1
+                border.color: chrome.theme.alpha(chrome.theme.foreground, 0.035)
+
+                Text {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -1
+                    text: "󰑐"
+                    color: chrome.theme.alpha(chrome.textSecondary, 0.80)
+                    font.family: "JetBrainsMono Nerd Font"
+                    font.pixelSize: 15
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    renderType: Text.NativeRendering
+                }
+            }
+
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 55
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.wifi.activeAction === "reconnect" ? "Reconnecting…" : "Reconnect"
+                color: chrome.textPrimary
+                font.family: "Inter"
+                font.pixelSize: 11
+                font.weight: Font.Medium
+            }
+
+            MouseArea {
+                id: reconnectHover
+                anchors.fill: parent
+                enabled: !root.wifi.busy && root.wifi.currentNetwork !== null
+                hoverEnabled: true
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: root.wifi.reconnect()
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: 50
+            radius: 17
+            antialiasing: true
             scale: disconnectHover.pressed ? 0.995 : 1
             color: root.glassInteractive
             border.width: 1
@@ -281,7 +364,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: 55
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.wifi.busy ? "Disconnecting…" : "Disconnect"
+                text: root.wifi.activeAction === "disconnect" ? "Disconnecting…" : "Disconnect"
                 color: chrome.textPrimary
                 font.family: "Inter"
                 font.pixelSize: 11

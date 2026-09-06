@@ -149,6 +149,8 @@ python -m py_compile "$BACKEND" "$BT_BACKEND"
 bash -n "$ROOT/bin/maho-link"
 require_text "$BACKEND" '"--rescan", "auto"' "snapshot no longer permits NetworkManager to refresh stale discovery"
 require_text "$ROOT/bin/maho-link" 'wifi|bluetooth' "Maho Link launcher does not constrain focused modes"
+require_text "$ROOT/bin/maho-link" 'retire_stale_links' "Maho Link can preserve a stale runtime singleton"
+require_text "$LINK/shell.qml" 'MAHO_RUNTIME_IDENTITY' "Maho Link does not expose immutable runtime identity"
 echo "PASS"
 
 echo "=== deterministic NetworkManager snapshot ==="
@@ -310,6 +312,20 @@ PY
 if grep -Fq 'Studio Headset' "$FAKE_BUSCTL_LOG"; then
     fail "Bluetooth device name leaked into busctl argv"
 fi
+echo "PASS"
+
+echo "=== authoritative Wi-Fi and Bluetooth reconnect actions ==="
+require_text "$LINK/MahoLinkState.qml" 'function reconnect()' "Wi-Fi state has no reconnect action"
+require_text "$LINK/BluetoothState.qml" 'function reconnectDevice(device)' "Bluetooth state has no reconnect action"
+require_text "$LINK/MahoLinkDetails.qml" 'onClicked: root.wifi.reconnect()' "Wi-Fi details do not expose Reconnect"
+require_text "$LINK/BluetoothDetails.qml" 'root.bluetooth.reconnectDevice(device)' "Bluetooth details do not expose Reconnect"
+require_text "$BACKEND" '"connection", "down", "uuid", connection_uuid' "Wi-Fi reconnect does not deactivate the exact saved profile"
+require_text "$BACKEND" '"connection", "up", "uuid", connection_uuid, "ifname", device' "Wi-Fi reconnect does not reactivate the exact saved profile"
+require_text "$BACKEND" 'restored.get("uuid") != connection_uuid' "Wi-Fi reconnect does not verify exact profile identity"
+require_text "$BT_BACKEND" 'wait_for_connected(device_path, False, 8.0)' "Bluetooth reconnect does not confirm disconnect"
+require_text "$BT_BACKEND" 'wait_for_connected(device_path, True, 15.0)' "Bluetooth reconnect does not confirm reconnection"
+require_text "$BT_BACKEND" 'wait_for_connected(device_path, expected_connected, 15.0)' "manual Bluetooth action does not confirm authoritative state"
+python3 "$ROOT/tests/maho-link-reconnect-tests.py"
 echo "PASS"
 
 echo "Maho Link contracts passed."

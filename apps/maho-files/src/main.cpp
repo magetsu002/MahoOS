@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QCommandLineOption>
 #include <QFileInfo>
 #include <QIcon>
 #include <QImage>
@@ -13,9 +14,20 @@
 #include <QQmlContext>
 #include <QQuickImageProvider>
 #include <QQuickStyle>
+#include <QTimer>
 #include <QUrl>
 
 #include <KFilePlacesModel>
+
+#include <cstring>
+#include <iostream>
+
+#ifndef MAHO_FILES_SOURCE_FINGERPRINT
+#error "Maho Files must be built with an embedded source fingerprint"
+#endif
+
+[[gnu::used]] static constexpr char kMahoFilesArtifactProvenance[] =
+    "MAHO_FILES_SOURCE_FINGERPRINT=" MAHO_FILES_SOURCE_FINGERPRINT;
 
 class ThemeIconProvider final : public QQuickImageProvider
 {
@@ -202,11 +214,17 @@ private:
 
 int main(int argc, char *argv[])
 {
-    QApplication application(argc, argv);
+    if (argc == 2 && std::strcmp(argv[1], "--source-fingerprint") == 0) {
+        std::cout << MAHO_FILES_SOURCE_FINGERPRINT << '\n';
+        return 0;
+    }
+
     QCoreApplication::setOrganizationName(QStringLiteral("MahoOS"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("maho.local"));
     QCoreApplication::setApplicationName(QStringLiteral("Maho Files"));
     QApplication::setDesktopFileName(QStringLiteral("io.maho.Files"));
+
+    QApplication application(argc, argv);
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
@@ -214,6 +232,10 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(QStringLiteral("Maho Files — native QML frontend over KDE KIO"));
     parser.addHelpOption();
     parser.addVersionOption();
+    const QCommandLineOption shutdownTestOption(
+        QStringLiteral("test-shutdown-after-load"),
+        QStringLiteral("Exit after the initial model load for shutdown diagnostics."));
+    parser.addOption(shutdownTestOption);
     parser.addPositionalArgument(QStringLiteral("location"), QStringLiteral("Folder or KIO URL to open."), QStringLiteral("[location]"));
     parser.process(application);
 
@@ -238,5 +260,7 @@ int main(int argc, char *argv[])
                      Qt::QueuedConnection);
 
     engine.loadFromModule(QStringLiteral("Maho.Files"), QStringLiteral("Main"));
+    if (parser.isSet(shutdownTestOption))
+        QTimer::singleShot(350, &application, &QCoreApplication::quit);
     return application.exec();
 }

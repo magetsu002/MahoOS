@@ -13,6 +13,7 @@ ShellRoot {
 
     property bool presented: true
     property bool overlayOpen: false
+    readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
 
     function showOverlay() {
         closeTimer.stop()
@@ -45,9 +46,25 @@ ShellRoot {
         function toggle(): void { root.toggleOverlay() }
         function open(): void { root.showOverlay() }
         function close(): void { root.closeOverlay() }
+        function runtimeIdentity(): string { return root.runtimeIdentity }
+        function retire(nextIdentity: string): bool {
+            if (nextIdentity === root.runtimeIdentity)
+                return false
+            root.overlayOpen = false
+            clipboardSurface.shown = false
+            root.presented = false
+            retireTimer.restart()
+            return true
+        }
     }
 
     Component.onCompleted: openDelay.restart()
+
+    Timer {
+        id: retireTimer
+        interval: 1
+        onTriggered: Qt.quit()
+    }
 
     Timer {
         id: openDelay
@@ -148,7 +165,7 @@ ShellRoot {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             theme: theme
-            state: clipboard
+            clipboardState: clipboard
             shown: root.overlayOpen
             onCloseRequested: root.closeOverlay()
         }

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Shared Maho application discovery, identity, icon resolution, and launch helpers.
 
-This module is intentionally GUI-agnostic. Maho Launcher and Maho Dock both use
-this source of truth so one desktop entry cannot become two incompatible app
-identities merely because it is shown by a different surface.
+Maho Launcher and Maho Dock both use this source of truth so one desktop entry
+cannot become two incompatible app identities merely because it is shown by a
+different surface. Discovery remains desktop-toolkit agnostic; normal launch
+requests may use the current Hyprland toplevel set to focus an already-running
+application before falling back to the trusted XDG launch path.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Iterable
 ICON_EXTENSIONS = {".svg": 60, ".png": 50, ".xpm": 20}
 IDENTITY_TOKEN = re.compile(r"[^a-z0-9]+")
 FIELD_CODE = re.compile(r"^%[fFuUdDnNickvm]$")
+HYPRLAND_ADDRESS = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
 def desktop_roots() -> list[Path]:
@@ -369,7 +372,7 @@ def resolve_icon_paths(entries: list[dict[str, object]]) -> None:
             entry["iconPath"] = resolved[1]
 
 
-def discover_apps() -> list[dict[str, object]]:
+def discover_apps(resolve_icons: bool = True) -> list[dict[str, object]]:
     seen: set[str] = set()
     output: list[dict[str, object]] = []
 
@@ -393,7 +396,8 @@ def discover_apps() -> list[dict[str, object]]:
             if entry is not None:
                 output.append(entry)
 
-    resolve_icon_paths(output)
+    if resolve_icons:
+        resolve_icon_paths(output)
     _assign_unique_aliases(output)
     output.sort(key=lambda item: str(item["name"]).casefold())
     return output
@@ -415,7 +419,92 @@ def detached(argv: list[str]) -> int:
     return 0
 
 
-def launch_app(desktop_id: str) -> int:
+def _hyprland_clients() -> list[dict[str, object]]:
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or not shutil.which("hyprctl"):
+        return []
+    try:
+        completed = subprocess.run(
+            ["hyprctl", "-j", "clients"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=0.8,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    try:
+        payload = json.loads(completed.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict)]
+
+
+def _entry_for_activation(desktop_id: str) -> dict[str, object] | None:
+    for entry in discover_apps(resolve_icons=False):
+        if str(entry.get("id", "")) == desktop_id:
+            return entry
+    return None
+
+
+def _matching_hyprland_clients(desktop_id: str) -> list[dict[str, object]]:
+    entry = _entry_for_activation(desktop_id)
+    if entry is None:
+        return []
+    aliases = {normalize_identity(value) for value in entry.get("aliases", []) if value}
+    if not aliases:
+        return []
+
+    matches: list[dict[str, object]] = []
+    for client in _hyprland_clients():
+        if client.get("mapped") is False:
+            continue
+        identities = {
+            normalize_identity(client.get("class", "")),
+            normalize_identity(client.get("initialClass", "")),
+        }
+        identities.discard("")
+        if aliases & identities:
+            matches.append(client)
+
+    def client_rank(client: dict[str, object]) -> tuple[int, str]:
+        try:
+            history = int(client.get("focusHistoryID", 1_000_000))
+        except (TypeError, ValueError):
+            history = 1_000_000
+        return history, str(client.get("address", ""))
+
+    matches.sort(key=client_rank)
+    return matches
+
+
+def focus_existing_app(desktop_id: str) -> bool:
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or not shutil.which("hyprctl"):
+        return False
+    for client in _matching_hyprland_clients(desktop_id):
+        address = str(client.get("address", ""))
+        if not HYPRLAND_ADDRESS.fullmatch(address):
+            continue
+        try:
+            completed = subprocess.run(
+                ["hyprctl", "dispatch", "focuswindow", f"address:{address}"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=0.8,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if completed.returncode == 0:
+            return True
+    return False
+
+
+def launch_new_app(desktop_id: str) -> int:
     desktop_file = find_desktop_file(desktop_id)
     if desktop_file is None:
         print(f"maho-app-model: desktop entry not found: {desktop_id}", file=sys.stderr)
@@ -432,6 +521,15 @@ def launch_app(desktop_id: str) -> int:
     return 127
 
 
+def launch_app(desktop_id: str) -> int:
+    if find_desktop_file(desktop_id) is None:
+        print(f"maho-app-model: desktop entry not found: {desktop_id}", file=sys.stderr)
+        return 2
+    if focus_existing_app(desktop_id):
+        return 0
+    return launch_new_app(desktop_id)
+
+
 def list_apps() -> int:
     json.dump(discover_apps(), sys.stdout, ensure_ascii=False, separators=(",", ":"))
     return 0
@@ -445,6 +543,7 @@ def doctor() -> int:
         "identity_aliases": sum(len(app.get("aliases", [])) for app in apps),
         "gio": bool(shutil.which("gio")),
         "gtk_launch": bool(shutil.which("gtk-launch")),
+        "hyprctl": bool(shutil.which("hyprctl")),
         "icon_theme": os.environ.get("QS_ICON_THEME", ""),
     }
     json.dump(result, sys.stdout, separators=(",", ":"))
@@ -457,6 +556,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("apps")
     launch = sub.add_parser("launch-app")
     launch.add_argument("desktop_id")
+    launch_new = sub.add_parser("launch-new")
+    launch_new.add_argument("desktop_id")
     sub.add_parser("doctor")
     return parser
 
@@ -467,6 +568,8 @@ def main() -> int:
         return list_apps()
     if args.command == "launch-app":
         return launch_app(args.desktop_id)
+    if args.command == "launch-new":
+        return launch_new_app(args.desktop_id)
     if args.command == "doctor":
         return doctor()
     return 2

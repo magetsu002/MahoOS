@@ -290,7 +290,7 @@ Item {
         Rectangle {
             id: actionCard
             width: parent.width
-            height: 104
+            height: device && device.connected ? 157 : 104
             radius: 19
             antialiasing: true
             color: root.glassInteractive
@@ -365,7 +365,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             anchors.verticalCenterOffset: -1
-                            text: device && device.connected ? "󰂲" : "󰂱"
+                            text: device && device.connected ? "󰑐" : "󰂱"
                             color: chrome.theme.alpha(chrome.textSecondary, 0.84)
                             font.family: "JetBrainsMono Nerd Font"
                             font.pixelSize: 15
@@ -379,7 +379,9 @@ Item {
                         anchors.left: parent.left
                         anchors.leftMargin: 54
                         anchors.verticalCenter: parent.verticalCenter
-                        text: device && device.connected ? "Disconnect" : "Connect"
+                        text: root.bluetooth.activeAction === "reconnect"
+                            ? "Reconnecting…"
+                            : device && device.connected ? "Reconnect" : "Connect"
                         color: chrome.textPrimary
                         font.family: "Inter"
                         font.pixelSize: 11
@@ -394,7 +396,7 @@ Item {
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: {
                             if (device && device.connected)
-                                root.bluetooth.disconnectDevice(device)
+                                root.bluetooth.reconnectDevice(device)
                             else
                                 root.bluetooth.connectDevice(device)
                         }
@@ -405,6 +407,88 @@ Item {
                     width: parent.width - 42
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 1
+                    color: root.separator
+                }
+
+                Item {
+                    width: parent.width
+                    height: device && device.connected ? 52 : 0
+                    visible: device && device.connected
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        radius: 15
+                        antialiasing: true
+                        scale: disconnectHover.pressed ? 0.996 : 1
+                        color: "transparent"
+                        Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
+
+                        Rectangle {
+                            id: disconnectHoverPlane
+                            anchors.fill: parent
+                            radius: parent.radius
+                            antialiasing: true
+                            color: chrome.theme.alpha(chrome.theme.foreground, 0.032)
+                            opacity: disconnectHover.containsMouse ? 1 : 0
+
+                            Behavior on opacity {
+                                NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 13
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 30
+                        height: 30
+                        radius: 11
+                        antialiasing: true
+                        color: chrome.theme.alpha(chrome.theme.surfaceHigh, 0.28)
+                        border.width: 1
+                        border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
+
+                        Text {
+                            anchors.centerIn: parent
+                            anchors.verticalCenterOffset: -1
+                            text: "󰂲"
+                            color: chrome.theme.alpha(chrome.textSecondary, 0.84)
+                            font.family: "JetBrainsMono Nerd Font"
+                            font.pixelSize: 15
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            renderType: Text.NativeRendering
+                        }
+                    }
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 54
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.bluetooth.activeAction === "disconnect" ? "Disconnecting…" : "Disconnect"
+                        color: chrome.textPrimary
+                        font.family: "Inter"
+                        font.pixelSize: 11
+                        font.weight: Font.Medium
+                    }
+
+                    MouseArea {
+                        id: disconnectHover
+                        anchors.fill: parent
+                        enabled: !root.bluetooth.busy
+                        hoverEnabled: true
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: root.bluetooth.disconnectDevice(device)
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width - 42
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: device && device.connected ? 1 : 0
+                    visible: device && device.connected
                     color: root.separator
                 }
 

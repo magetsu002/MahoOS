@@ -13,7 +13,20 @@ permissions:
 jobs:
   migration-contracts:
     runs-on: ubuntu-latest
+    container: archlinux:latest
     steps:
+      - name: Install Arch setup dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            base-devel \
+            cmake \
+            ninja \
+            python \
+            qt6-base \
+            qt6-declarative \
+            kio
+
       - uses: actions/checkout@v4
 
       - name: Shell syntax

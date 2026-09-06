@@ -152,6 +152,10 @@ Item {
             if (hovered)
                 root.hovered(root.index)
         }
+        onPointChanged: {
+            if (hovered)
+                root.hovered(root.index)
+        }
     }
 
     TapHandler {

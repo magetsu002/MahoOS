@@ -9,12 +9,18 @@ busctl JSON and actions are sent directly to org.bluez D-Bus interfaces.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
+import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
-from typing import Any, Iterable
+import tempfile
+import time
+from typing import Any, Iterable, Iterator
 
 BLUEZ = "org.bluez"
 OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
@@ -24,6 +30,8 @@ BATTERY = "org.bluez.Battery1"
 
 ADAPTER_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+$")
 DEVICE_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+/dev_[0-9A-Fa-f_]+$")
+AUTOCONNECT_BACKOFF_SECONDS = (5, 15, 45, 120)
+MAX_AUTOCONNECT_ATTEMPTS = len(AUTOCONNECT_BACKOFF_SECONDS)
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -88,7 +96,6 @@ def managed_objects() -> tuple[dict[str, Any] | None, str]:
     except (json.JSONDecodeError, TypeError, ValueError):
         return None, "Bluetooth returned an invalid status response."
 
-    # busctl wraps method return values in the top-level data array.
     if isinstance(payload, dict) and "data" in payload:
         payload = unwrap(payload["data"])
     if isinstance(payload, list) and len(payload) == 1 and isinstance(payload[0], dict):
@@ -121,7 +128,6 @@ def device_kind(icon: str, klass: int | None) -> tuple[str, str]:
         if any(needle in normalized for needle in needles):
             return result
 
-    # Bluetooth major device class is encoded in bits 8..12.
     if isinstance(klass, int):
         major = (klass >> 8) & 0x1F
         if major == 0x04:
@@ -157,22 +163,54 @@ def property_value(props: dict[str, Any], name: str, default: Any = None) -> Any
     return unwrap(value)
 
 
-def snapshot() -> int:
+def unavailable_snapshot(error: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "enabled": False,
+        "discovering": False,
+        "adapterPath": "",
+        "paired": [],
+        "availableDevices": [],
+        "connected": [],
+        "autoConnectEligible": [],
+        "error": error,
+    }
+
+
+def merge_device_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse duplicate BlueZ objects by stable adapter/address identity."""
+    merged: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        identity = safe_string(row.get("address")).upper() or safe_string(row.get("path"))
+        current = merged.get(identity)
+        if current is None:
+            merged[identity] = dict(row)
+            continue
+
+        def priority(candidate: dict[str, Any]) -> tuple[bool, bool, bool, bool]:
+            return (
+                bool(candidate.get("paired")),
+                bool(candidate.get("bonded")),
+                bool(candidate.get("connected")),
+                bool(candidate.get("discovered")),
+            )
+
+        preferred, other = (row, current) if priority(row) > priority(current) else (current, row)
+        combined = dict(preferred)
+        for field in ("paired", "bonded", "trusted", "connected", "discovered"):
+            combined[field] = bool(current.get(field)) or bool(row.get(field))
+        if combined.get("rssi") is None and other.get("rssi") is not None:
+            combined["rssi"] = other["rssi"]
+            combined["quality"] = other.get("quality", "")
+        combined["available"] = combined["connected"] or combined["discovered"]
+        merged[identity] = combined
+    return list(merged.values())
+
+
+def snapshot_payload() -> dict[str, Any]:
     objects, error = managed_objects()
     if objects is None:
-        emit(
-            {
-                "available": False,
-                "enabled": False,
-                "discovering": False,
-                "adapterPath": "",
-                "paired": [],
-                "availableDevices": [],
-                "connected": [],
-                "error": error,
-            }
-        )
-        return 0
+        return unavailable_snapshot(error)
 
     adapters: list[tuple[str, dict[str, Any]]] = []
     for path, interfaces in objects.items():
@@ -183,28 +221,15 @@ def snapshot() -> int:
             adapters.append((path, adapter_props))
 
     if not adapters:
-        emit(
-            {
-                "available": False,
-                "enabled": False,
-                "discovering": False,
-                "adapterPath": "",
-                "paired": [],
-                "availableDevices": [],
-                "connected": [],
-                "error": "No Bluetooth adapter is available.",
-            }
-        )
-        return 0
+        return unavailable_snapshot("No Bluetooth adapter is available.")
 
     adapters.sort(key=lambda row: row[0])
     adapter_path, adapter_props = adapters[0]
     enabled = bool(property_value(adapter_props, "Powered", False))
     discovering = bool(property_value(adapter_props, "Discovering", False))
 
-    paired: list[dict[str, Any]] = []
-    nearby: list[dict[str, Any]] = []
-    connected: list[dict[str, Any]] = []
+    device_rows: list[dict[str, Any]] = []
+    auto_connect_eligible: list[str] = []
 
     for path, interfaces in objects.items():
         if not isinstance(interfaces, dict) or not DEVICE_PATH_RE.fullmatch(path):
@@ -224,10 +249,13 @@ def snapshot() -> int:
         except (TypeError, ValueError):
             klass = None
         type_label, kind = device_kind(icon, klass)
+        address = safe_string(property_value(props, "Address")).upper()
         paired_flag = bool(property_value(props, "Paired", False))
+        bonded_flag = bool(property_value(props, "Bonded", False))
         connected_flag = bool(property_value(props, "Connected", False))
         trusted_flag = bool(property_value(props, "Trusted", False))
         rssi = property_value(props, "RSSI")
+        discovered_flag = isinstance(rssi, (int, float))
         battery_props = interfaces.get(BATTERY)
         battery = None
         if isinstance(battery_props, dict):
@@ -237,12 +265,17 @@ def snapshot() -> int:
             except (TypeError, ValueError):
                 battery = None
 
+        reachable = connected_flag or discovered_flag
         row = {
             "path": path,
+            "address": address,
             "name": name,
             "paired": paired_flag,
+            "bonded": bonded_flag,
             "connected": connected_flag,
             "trusted": trusted_flag,
+            "discovered": discovered_flag,
+            "available": reachable,
             "type": type_label,
             "kind": kind,
             "icon": icon,
@@ -250,13 +283,21 @@ def snapshot() -> int:
             "rssi": int(rssi) if isinstance(rssi, (int, float)) else None,
             "quality": quality_from_rssi(rssi),
         }
+        device_rows.append(row)
 
-        if paired_flag:
+    paired: list[dict[str, Any]] = []
+    nearby: list[dict[str, Any]] = []
+    connected: list[dict[str, Any]] = []
+    for row in merge_device_rows(device_rows):
+        if row["paired"]:
             paired.append(row)
-        elif enabled:
+        elif enabled and row["discovered"]:
             nearby.append(row)
-        if connected_flag:
+        if row["connected"]:
             connected.append(row)
+        if (enabled and row["paired"] and row["trusted"] and not row["connected"]
+                and row["available"] and row["kind"] in ("headphones", "speaker")):
+            auto_connect_eligible.append(row["path"])
 
     paired.sort(key=lambda row: (not row["connected"], row["name"].casefold(), row["path"]))
     nearby.sort(
@@ -268,27 +309,31 @@ def snapshot() -> int:
     )
     connected.sort(key=lambda row: (row["name"].casefold(), row["path"]))
 
-    emit(
-        {
-            "available": True,
-            "enabled": enabled,
-            "discovering": discovering,
-            "adapterPath": adapter_path,
-            "paired": paired,
-            "availableDevices": nearby,
-            "connected": connected,
-            "error": "",
-        }
-    )
+    auto_connect_eligible.sort()
+    return {
+        "available": True,
+        "enabled": enabled,
+        "discovering": discovering,
+        "adapterPath": adapter_path,
+        "paired": paired,
+        "availableDevices": nearby,
+        "connected": connected,
+        "autoConnectEligible": auto_connect_eligible,
+        "error": "",
+    }
+
+
+def snapshot() -> int:
+    emit(snapshot_payload())
     return 0
 
 
-def valid_adapter(path: str) -> bool:
-    return bool(ADAPTER_PATH_RE.fullmatch(path))
+def valid_adapter(path: Any) -> bool:
+    return isinstance(path, str) and bool(ADAPTER_PATH_RE.fullmatch(path))
 
 
-def valid_device(path: str) -> bool:
-    return bool(DEVICE_PATH_RE.fullmatch(path))
+def valid_device(path: Any) -> bool:
+    return isinstance(path, str) and bool(DEVICE_PATH_RE.fullmatch(path))
 
 
 def friendly_error(raw: str, fallback: str) -> str:
@@ -301,6 +346,8 @@ def friendly_error(raw: str, fallback: str) -> str:
         (("notconnected", "not connected"), "Device is not connected."),
         (("inprogress", "in progress"), "Another Bluetooth operation is already in progress."),
         (("notready", "not ready"), "Bluetooth is not ready."),
+        (("br-connection-unknown", "host is down", "no matching connection"),
+         "Device is not reachable or not accepting a connection."),
         (("connectionattemptfailed", "connection attempt failed"), "Couldn’t connect to this device."),
         (("failed",), fallback),
     )
@@ -317,6 +364,247 @@ def busctl_call(path: str, interface: str, method: str, *signature_and_args: str
     )
 
 
+def session_state_path() -> Path:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return Path(runtime) / "maho" / "link-bluetooth-session.json"
+    return Path(tempfile.gettempdir()) / f"maho-{os.getuid()}" / "link-bluetooth-session.json"
+
+
+def auto_connect_lock_path() -> Path:
+    return session_state_path().with_name("link-bluetooth-auto-connect.lock")
+
+
+@contextmanager
+def connection_operation(*, blocking: bool) -> Iterator[bool]:
+    """Serialize every connect/disconnect sequence across Maho processes."""
+    lock_path = auto_connect_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path.parent.chmod(0o700)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = False
+    try:
+        flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(descriptor, flags)
+            acquired = True
+        except BlockingIOError:
+            acquired = False
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def empty_session_state() -> dict[str, Any]:
+    return {"version": 1, "suppressed": [], "attempts": {}, "reachable": []}
+
+
+def load_session_state() -> dict[str, Any]:
+    try:
+        raw = json.loads(session_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return empty_session_state()
+    if not isinstance(raw, dict):
+        return empty_session_state()
+
+    suppressed = sorted({path for path in raw.get("suppressed", []) if valid_device(path)})
+    reachable = sorted({path for path in raw.get("reachable", []) if valid_device(path)})
+    attempts: dict[str, dict[str, Any]] = {}
+    source_attempts = raw.get("attempts", {})
+    if isinstance(source_attempts, dict):
+        for path, value in source_attempts.items():
+            if not valid_device(path) or not isinstance(value, dict):
+                continue
+            try:
+                failures = max(0, min(MAX_AUTOCONNECT_ATTEMPTS, int(value.get("failures", 0))))
+                next_attempt = max(0.0, float(value.get("nextAttempt", 0)))
+            except (TypeError, ValueError):
+                continue
+            attempts[path] = {"failures": failures, "nextAttempt": next_attempt}
+    return {
+        "version": 1,
+        "suppressed": suppressed,
+        "attempts": attempts,
+        "reachable": reachable,
+    }
+
+
+def save_session_state(state: dict[str, Any]) -> None:
+    target = session_state_path()
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target.parent.chmod(0o700)
+    descriptor, temporary = tempfile.mkstemp(prefix=".link-bluetooth.", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, separators=(",", ":"), sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def remember_manual_connection(device_path: str, connected: bool) -> None:
+    state = load_session_state()
+    suppressed = set(state["suppressed"])
+    if connected:
+        suppressed.discard(device_path)
+        state["attempts"][device_path] = {
+            "failures": 0,
+            "nextAttempt": time.time() + AUTOCONNECT_BACKOFF_SECONDS[1],
+        }
+    else:
+        suppressed.add(device_path)
+    state["suppressed"] = sorted(suppressed)
+    save_session_state(state)
+
+
+def device_from_snapshot(device_path: str) -> dict[str, Any] | None:
+    payload = snapshot_payload()
+    for row in payload.get("paired", []):
+        if row.get("path") == device_path:
+            return row
+    return None
+
+
+def wait_for_connected(device_path: str, expected: bool, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        device = device_from_snapshot(device_path)
+        if device is None:
+            return False
+        if bool(device.get("connected")) is expected:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def auto_connect_locked() -> int:
+    payload = snapshot_payload()
+    if not payload["available"] or not payload["enabled"]:
+        state = load_session_state()
+        state["attempts"] = {}
+        state["reachable"] = []
+        save_session_state(state)
+        emit({"ok": True, "status": "idle", "devicePath": "", "message": ""})
+        return 0
+
+    candidates = {
+        row["path"]: row
+        for row in payload["paired"]
+        if row["path"] in payload["autoConnectEligible"]
+    }
+    reachable_now = set(candidates)
+    state = load_session_state()
+    previously_reachable = set(state["reachable"])
+
+    for path in set(state["attempts"]) - reachable_now:
+        state["attempts"].pop(path, None)
+    for path in reachable_now - previously_reachable:
+        state["attempts"].pop(path, None)
+    state["reachable"] = sorted(reachable_now)
+
+    now = time.time()
+    selected: dict[str, Any] | None = None
+    for path in sorted(candidates, key=lambda candidate: (
+            candidates[candidate]["kind"] != "headphones",
+            candidates[candidate]["name"].casefold(),
+            candidate)):
+        if path in state["suppressed"]:
+            continue
+        attempt = state["attempts"].get(path, {"failures": 0, "nextAttempt": 0})
+        if attempt["failures"] >= MAX_AUTOCONNECT_ATTEMPTS:
+            continue
+        if now < attempt["nextAttempt"]:
+            continue
+        selected = candidates[path]
+        break
+
+    if selected is None:
+        save_session_state(state)
+        emit({"ok": True, "status": "idle", "devicePath": "", "message": ""})
+        return 0
+
+    path = selected["path"]
+    code, out, err = busctl_call(path, DEVICE, "Connect", timeout=18.0)
+    if code == 0 and wait_for_connected(path, True, 15.0):
+        state["attempts"][path] = {
+            "failures": 0,
+            "nextAttempt": now + AUTOCONNECT_BACKOFF_SECONDS[1],
+        }
+        save_session_state(state)
+        emit({"ok": True, "status": "connected", "devicePath": path, "message": "Connected."})
+        return 0
+
+    previous = state["attempts"].get(path, {"failures": 0, "nextAttempt": 0})
+    failures = min(MAX_AUTOCONNECT_ATTEMPTS, int(previous["failures"]) + 1)
+    delay = AUTOCONNECT_BACKOFF_SECONDS[failures - 1]
+    state["attempts"][path] = {"failures": failures, "nextAttempt": now + delay}
+    save_session_state(state)
+    message = (
+        "Bluetooth did not confirm the connection state."
+        if code == 0
+        else friendly_error(err or out, "Couldn’t connect to this device.")
+    )
+    emit({
+        "ok": False,
+        "status": "backoff",
+        "devicePath": path,
+        "message": message,
+        "retryAfter": delay,
+        "attempt": failures,
+    })
+    return 1
+
+
+def auto_connect() -> int:
+    """Run one policy evaluation without racing another Maho surface."""
+    with connection_operation(blocking=False) as acquired:
+        if not acquired:
+            emit({"ok": True, "status": "busy", "devicePath": "", "message": ""})
+            return 0
+        return auto_connect_locked()
+
+
+def reconnect_device(device_path: str) -> int:
+    if not valid_device(device_path):
+        emit({"ok": False, "message": "Bluetooth device path is invalid."})
+        return 2
+
+    device = device_from_snapshot(device_path)
+    if device is None or not device.get("paired") or not device.get("connected"):
+        emit({"ok": False, "message": "This Bluetooth device is not currently connected."})
+        return 1
+
+    code, out, err = busctl_call(device_path, DEVICE, "Disconnect", timeout=12.0)
+    if code != 0:
+        emit({"ok": False, "message": friendly_error(err or out, "Couldn’t disconnect this device.")})
+        return 1
+    if not wait_for_connected(device_path, False, 8.0):
+        emit({"ok": False, "message": "Bluetooth did not confirm the disconnect."})
+        return 1
+
+    code, out, err = busctl_call(device_path, DEVICE, "Connect", timeout=18.0)
+    if code != 0:
+        emit({"ok": False, "message": friendly_error(err or out, "Couldn’t reconnect this device.")})
+        return 1
+    if not wait_for_connected(device_path, True, 15.0):
+        emit({"ok": False, "message": "Bluetooth did not confirm the reconnection."})
+        return 1
+
+    remember_manual_connection(device_path, True)
+    emit({"ok": True, "message": "Reconnected."})
+    return 0
+
+
 def action(argv: list[str]) -> int:
     if not shutil.which("busctl"):
         emit({"ok": False, "message": "systemd busctl is unavailable."})
@@ -326,6 +614,10 @@ def action(argv: list[str]) -> int:
         return 2
 
     command = argv[0]
+
+    if command == "reconnect" and len(argv) == 2:
+        with connection_operation(blocking=True):
+            return reconnect_device(argv[1])
 
     if command == "toggle" and len(argv) == 3 and argv[2] in ("on", "off"):
         adapter_path = argv[1]
@@ -347,14 +639,11 @@ def action(argv: list[str]) -> int:
             timeout=8.0,
         )
         ok = code == 0
-        emit(
-            {
-                "ok": ok,
-                "message": ("Bluetooth enabled." if argv[2] == "on" else "Bluetooth disabled.")
-                if ok
-                else friendly_error(err or out, "Couldn’t change Bluetooth state."),
-            }
-        )
+        emit({
+            "ok": ok,
+            "message": ("Bluetooth enabled." if argv[2] == "on" else "Bluetooth disabled.")
+            if ok else friendly_error(err or out, "Couldn’t change Bluetooth state."),
+        })
         return 0 if ok else 1
 
     if command in ("scan-start", "scan-stop") and len(argv) == 2:
@@ -365,32 +654,47 @@ def action(argv: list[str]) -> int:
         method = "StartDiscovery" if command == "scan-start" else "StopDiscovery"
         code, out, err = busctl_call(adapter_path, ADAPTER, method, timeout=10.0)
         ok = code == 0
-        emit(
-            {
-                "ok": ok,
-                "message": ("Looking for nearby devices…" if command == "scan-start" else "Discovery stopped.")
-                if ok
-                else friendly_error(err or out, "Couldn’t change Bluetooth discovery."),
-            }
-        )
+        emit({
+            "ok": ok,
+            "message": ("Looking for nearby devices…" if command == "scan-start" else "Discovery stopped.")
+            if ok else friendly_error(err or out, "Couldn’t change Bluetooth discovery."),
+        })
         return 0 if ok else 1
 
-    if command in ("connect", "disconnect", "pair") and len(argv) == 2:
+    if command in ("connect", "disconnect") and len(argv) == 2:
         device_path = argv[1]
         if not valid_device(device_path):
             emit({"ok": False, "message": "Bluetooth device path is invalid."})
             return 2
-        method = {"connect": "Connect", "disconnect": "Disconnect", "pair": "Pair"}[command]
-        timeout = 45.0 if command == "pair" else 18.0
-        code, out, err = busctl_call(device_path, DEVICE, method, timeout=timeout)
-        ok = code == 0
-        success = {"connect": "Connected.", "disconnect": "Disconnected.", "pair": "Paired."}[command]
+        method = {"connect": "Connect", "disconnect": "Disconnect"}[command]
+        expected_connected = command == "connect"
+        with connection_operation(blocking=True):
+            code, out, err = busctl_call(device_path, DEVICE, method, timeout=18.0)
+            ok = code == 0 and wait_for_connected(device_path, expected_connected, 15.0)
+            if ok:
+                remember_manual_connection(device_path, expected_connected)
+        success = {"connect": "Connected.", "disconnect": "Disconnected."}[command]
         failure = {
             "connect": "Couldn’t connect to this device.",
             "disconnect": "Couldn’t disconnect this device.",
-            "pair": "Pairing failed.",
         }[command]
-        emit({"ok": ok, "message": success if ok else friendly_error(err or out, failure)})
+        if ok:
+            message = success
+        elif code == 0:
+            message = "Bluetooth did not confirm the connection state."
+        else:
+            message = friendly_error(err or out, failure)
+        emit({"ok": ok, "message": message})
+        return 0 if ok else 1
+
+    if command == "pair" and len(argv) == 2:
+        device_path = argv[1]
+        if not valid_device(device_path):
+            emit({"ok": False, "message": "Bluetooth device path is invalid."})
+            return 2
+        code, out, err = busctl_call(device_path, DEVICE, "Pair", timeout=45.0)
+        ok = code == 0
+        emit({"ok": ok, "message": "Paired." if ok else friendly_error(err or out, "Pairing failed.")})
         return 0 if ok else 1
 
     if command == "forget" and len(argv) == 3:
@@ -403,12 +707,10 @@ def action(argv: list[str]) -> int:
             return 2
         code, out, err = busctl_call(adapter_path, ADAPTER, "RemoveDevice", "o", device_path, timeout=12.0)
         ok = code == 0
-        emit(
-            {
-                "ok": ok,
-                "message": "Device forgotten." if ok else friendly_error(err or out, "Couldn’t forget this device."),
-            }
-        )
+        emit({
+            "ok": ok,
+            "message": "Device forgotten." if ok else friendly_error(err or out, "Couldn’t forget this device."),
+        })
         return 0 if ok else 1
 
     emit({"ok": False, "message": "Unsupported Bluetooth action."})
@@ -421,6 +723,8 @@ def main() -> int:
         return 2
     if sys.argv[1] == "snapshot":
         return snapshot()
+    if sys.argv[1] == "auto-connect":
+        return auto_connect()
     if sys.argv[1] == "action":
         return action(sys.argv[2:])
     emit({"ok": False, "message": "Unknown Bluetooth command."})

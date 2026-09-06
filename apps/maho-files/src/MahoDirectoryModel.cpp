@@ -111,6 +111,17 @@ MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
     navigate(QUrl::fromLocalFile(QDir::homePath()), true);
 }
 
+MahoDirectoryModel::~MahoDirectoryModel()
+{
+    // KCoreDirLister emits clear() from its destructor. Because m_lister is
+    // declared before the item arrays, C++ destroys those arrays first unless
+    // callbacks are severed while every member is still alive. The old order
+    // let the clear lambda access freed QList storage during normal shutdown.
+    disconnect(&m_lister, nullptr, this, nullptr);
+    cancelRecentJob();
+    cancelSearchJob();
+}
+
 int MahoDirectoryModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : m_items.size();

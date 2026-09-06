@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${MAHO_LINK_CONFIG:-$ROOT/config/quickshell/maho-link/shell.qml}"
+INSTANCE_HELPER="$ROOT/lib/runtime-instance.sh"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOCK="$RUNTIME_DIR/maho-link.lock"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-link.log"
@@ -11,6 +12,13 @@ MODE="${1:-wifi}"
 
 case "$MODE" in
     wifi|bluetooth) ;;
+    auto-connect-policy)
+        if [ "$#" -gt 1 ]; then
+            echo "maho-link: too many arguments" >&2
+            exit 2
+        fi
+        exec python3 "$ROOT/config/quickshell/maho-link/bluetooth.py" auto-connect
+        ;;
     *)
         echo "maho-link: mode must be wifi or bluetooth" >&2
         exit 2
@@ -32,10 +40,42 @@ command -v flock >/dev/null 2>&1 || {
     exit 1
 }
 
+[ -r "$INSTANCE_HELPER" ] || {
+    echo "maho-link: runtime identity helper is missing" >&2
+    exit 1
+}
+
+source "$INSTANCE_HELPER"
+RUNTIME_IDENTITY="$(maho_runtime_identity "$ROOT")"
+export MAHO_RUNTIME_IDENTITY="$RUNTIME_IDENTITY"
+
+link_pids() {
+    maho_quickshell_config_pids "/quickshell/maho-link/shell.qml"
+}
+
+retire_stale_links() {
+    local pid identity
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        identity="$(maho_process_runtime_identity "$pid" 2>/dev/null || true)"
+        [ "$identity" = "$RUNTIME_IDENTITY" ] && continue
+        quickshell ipc --pid "$pid" call link retire "$RUNTIME_IDENTITY" >/dev/null 2>&1 || true
+        if ! maho_wait_for_process_exit "$pid" 20; then
+            kill -TERM "$pid" 2>/dev/null || true
+            maho_wait_for_process_exit "$pid" 10 || {
+                echo "maho-link: stale runtime instance $pid did not retire" >&2
+                return 1
+            }
+        fi
+    done < <(link_pids)
+}
+
 [ -r "$CONFIG" ] || {
     echo "maho-link: configuration missing: $CONFIG" >&2
     exit 1
 }
+
+retire_stale_links
 
 mkdir -p "$RUNTIME_DIR" "$(dirname "$LOG")"
 exec 9>"$LOCK"
@@ -43,13 +83,13 @@ if ! flock -n 9; then
     # Maho Link is one product process. A second Edge request changes the
     # active connectivity mode in that process instead of being discarded by
     # the singleton lock.
-    for _ in 1 2 3 4; do
-        if quickshell -p "$CONFIG" ipc call link showMode "$MODE" >/dev/null 2>&1; then
+    while read -r pid; do
+        [ "$(maho_process_runtime_identity "$pid" 2>/dev/null || true)" = "$RUNTIME_IDENTITY" ] || continue
+        if quickshell ipc --pid "$pid" call link showMode "$MODE" >/dev/null 2>&1; then
             exit 0
         fi
-        sleep 0.025
-    done
-    echo "maho-link: running instance did not accept mode switch" >&2
+    done < <(link_pids)
+    echo "maho-link: lock owner does not match the current runtime identity" >&2
     exit 1
 fi
 

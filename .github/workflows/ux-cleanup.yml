@@ -16,6 +16,7 @@ on:
       - 'tests/launcher-qml-contracts.sh'
       - 'tests/clipboard-contracts.sh'
       - 'tests/clipboard-history-contracts.sh'
+      - 'tests/tst-clipboard-pin-glyph.qml'
       - 'tests/ux-cleanup-contracts.sh'
       - '.github/workflows/ux-cleanup.yml'
 
@@ -25,7 +26,17 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    container: archlinux:latest
     steps:
+      - name: Install Arch test dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            diffutils \
+            python \
+            qt6-base \
+            qt6-declarative
+
       - uses: actions/checkout@v4
 
       - name: Shell syntax
@@ -46,6 +57,18 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/clipboard-contracts.sh
+
+      - name: Clipboard pin glyph render contract
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set -euo pipefail
+          QMLTESTRUNNER="$(command -v qmltestrunner || true)"
+          if [ -z "$QMLTESTRUNNER" ] && [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
+            QMLTESTRUNNER=/usr/lib/qt6/bin/qmltestrunner
+          fi
+          [ -n "$QMLTESTRUNNER" ] || { echo 'Qt QML test runner is unavailable' >&2; exit 1; }
+          "$QMLTESTRUNNER" -input tests/tst-clipboard-pin-glyph.qml
 
       - name: Clipboard history contracts
         run: |

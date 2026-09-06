@@ -68,6 +68,11 @@ require_text "$WINDOW" 'const authoritativeRow = backend.itemAt(index)' "activat
 require_text "$WINDOW" 'backend.activate(authoritativeRow)' "authoritative row does not reach the backend"
 require_text "$WINDOW" 'activateItem(resultList.currentIndex)' "Enter does not use canonical activation"
 require_text "$WINDOW" 'root.activateItem(rowIndex)' "pointer activation does not use canonical activation"
+require_text "$WINDOW" 'root.resetResultsToTop()' "fresh models do not reset selection to the top result"
+require_text "$WINDOW" 'pointerMovementThreshold: 4' "passive pointer gating has no small movement threshold"
+require_text "$WINDOW" 'PointerSelectionPolicy.hoverIndex(' "hover selection does not respect input authority"
+require_text "$WINDOW" 'resetPointerAuthority()' "keyboard navigation cannot reclaim selection authority"
+require_text "$ROW" 'onPointChanged:' "actual pointer motion cannot claim selection authority"
 require_text "$ROW" 'LauncherAppIcon' "rows no longer use the real-artwork resolver"
 reject_text "$ROW" 'monogram' "synthetic monogram placeholder returned"
 reject_text "$ROW" 'visible: !root.iconReady' "synthetic failed-icon placeholder returned"
@@ -79,6 +84,12 @@ require_text "$APPICON" 'status === Image.Error' "failed real artwork does not a
 reject_text "$APPICON" 'application-x-executable' "generic executable placeholder returned"
 reject_text "$WINDOW" 'mascot' "old launcher mascot returned"
 reject_text "$WINDOW" 'to launch' "tutorial footer returned"
+QMLTESTRUNNER="$(command -v qmltestrunner || true)"
+if [ -z "$QMLTESTRUNNER" ] && [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
+    QMLTESTRUNNER=/usr/lib/qt6/bin/qmltestrunner
+fi
+[ -n "$QMLTESTRUNNER" ] || fail "Qt QML test runner is unavailable"
+QT_QPA_PLATFORM=offscreen "$QMLTESTRUNNER" -input "$ROOT/tests/tst-maho-launcher-pointer-policy.qml"
 echo "PASS"
 
 echo "=== launcher navigation and browsing UX ==="
@@ -186,6 +197,8 @@ require_text "$QML/shell.qml" 'IpcHandler' "graceful launcher IPC is missing"
 require_text "$QML/shell.qml" 'function close(): bool' "graceful close IPC is missing"
 require_text "$LAUNCHER" 'quickshell ipc --pid "$pid" call launcher close' "wrapper does not request animated close"
 require_text "$LAUNCHER" 'flock -n 9' "single-instance lock is missing"
+require_text "$LAUNCHER" 'retire_stale_launchers' "Launcher can focus a stale runtime process"
+require_text "$QML/shell.qml" 'MAHO_RUNTIME_IDENTITY' "Launcher does not expose immutable runtime identity"
 echo "PASS"
 
 echo "=== backend behavior ==="

@@ -16,6 +16,7 @@ Scope {
     property bool networksReady: false
     property bool snapshotReady: false
     property bool scanning: false
+    property string activeAction: ""
     readonly property bool busy: actionProcess.running || scanning
 
     property string pendingPassword: ""
@@ -63,6 +64,7 @@ Scope {
         errorText = ""
         pendingPassword = password || ""
         actionIsScan = Boolean(isScan)
+        activeAction = args && args.length > 0 ? String(args[0]) : ""
         if (actionIsScan)
             scanning = true
         actionProcess.exec(["python", backendPath(), "action"].concat(args))
@@ -79,6 +81,12 @@ Scope {
 
     function disconnect() {
         return runAction(["disconnect", device], "", false)
+    }
+
+    function reconnect() {
+        if (!currentNetwork || !device)
+            return false
+        return runAction(["reconnect"], "", false)
     }
 
     function connectNetwork(ssid, password, hidden) {
@@ -167,6 +175,7 @@ Scope {
                 }
                 if (state.actionIsScan && !succeeded)
                     state.scanning = false
+                state.activeAction = ""
                 refreshDelay.restart()
             }
         }
