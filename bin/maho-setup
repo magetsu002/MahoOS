@@ -297,6 +297,27 @@ assert manifest.get("source_revision") == expected_revision
 assert provenance == expected_revision
 PY_EXISTING_RELEASE
 
+    existing_hash="$(
+      cd "$final"
+      find . -type f ! -path './manifest.json' -print0 |
+        sort -z |
+        xargs -0 sha256sum |
+        sha256sum |
+        awk '{print $1}'
+    )"
+
+    [ "$existing_hash" = "$hash" ] || {
+      rm -rf -- "$stage"
+      die "existing immutable release payload does not match its content identity: $final"
+      return 1
+    }
+
+    if find "$final" -perm /222 -print -quit | grep -q .; then
+      rm -rf -- "$stage"
+      die "existing immutable release contains writable paths: $final"
+      return 1
+    fi
+
     rm -rf -- "$stage"
   else
     python - "$stage/manifest.json" "$hash" "$revision" <<'PY_NEW_RELEASE'
@@ -315,7 +336,7 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2, sort_keys=True) + "\n")
 PY_NEW_RELEASE
 
-    chmod -R u=rwX,go=rX "$stage"
+    chmod -R a-w,u+rX,go+rX "$stage"
     mv -- "$stage" "$final"
   fi
 

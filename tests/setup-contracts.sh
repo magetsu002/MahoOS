@@ -3,7 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+cleanup_tmp() {
+  chmod -R u+w "$TMP" 2>/dev/null || true
+  rm -rf -- "$TMP"
+}
+trap cleanup_tmp EXIT
 
 export HOME="$TMP/home"
 export XDG_CONFIG_HOME="$TMP/config"
@@ -307,6 +311,19 @@ assert release.name == manifest['content_sha256']
 PY_RUNTIME_PROVENANCE
 
 FIRST_RELEASE="$NEW_RELEASE"
+
+if find "$NEW_RELEASE" -perm /222 -print -quit | grep -q .; then
+  fail 'immutable release contains writable paths'
+fi
+
+rm -rf "$NEW_RELEASE/lib/__pycache__" 2>/dev/null || true
+
+python "$NEW_RELEASE/lib/security_boundary.py" doctor >/dev/null
+
+if find "$NEW_RELEASE" -type d -name __pycache__ -print -quit | grep -q .; then
+  fail 'runtime security import created bytecode inside immutable release'
+fi
+
 bash "$ROOT/bin/maho-setup" install >/dev/null
 [ "$(readlink -f "$CURRENT")" = "$FIRST_RELEASE" ] ||
   fail 'identical source revision did not reuse deterministic runtime release'
