@@ -143,10 +143,13 @@ require_text "$MODEL" 'function pinItem(item)' "Dock model lost pin API"
 require_text "$MODEL" 'function unpinItem(item)' "Dock model lost unpin API"
 echo PASS
 
-echo "=== shared application identity ==="
+echo "=== shared application identity and activation ==="
 require_text "$LAUNCHER_BACKEND" 'from maho_app_model import (' "Launcher does not use the shared Maho app model"
 require_text "$APP_MODEL" '"startupWmClass"' "shared app model does not expose StartupWMClass"
 require_text "$APP_MODEL" '"aliases"' "shared app model does not publish canonical aliases"
+require_text "$APP_MODEL" 'focus_existing_app(desktop_id)' "normal app launches do not prefer an existing toplevel"
+require_text "$APP_MODEL" 'sub.add_parser("launch-new")' "shared app model has no explicit new-instance path"
+require_text "$MODEL" 'newInstance ? "launch-new" : "launch-app"' "Dock does not preserve explicit New Window semantics"
 require_text "$MODEL" 'root.aliasToId[normalized]' "Dock does not match windows through canonical aliases"
 require_text "$MODEL" 'clean(ipc.class)' "Dock does not consider Hyprland class"
 require_text "$MODEL" 'clean(ipc.initialClass)' "Dock does not consider Hyprland initialClass"
@@ -161,6 +164,7 @@ identity = text[start:end]
 if ".title" in identity or "title)" in identity:
     raise SystemExit("FAIL: Dock matches app identity using window title")
 PY
+python3 "$ROOT/tests/test_maho_app_model.py"
 echo PASS
 
 echo "=== event-driven Hyprland session model ==="
