@@ -46,8 +46,8 @@ grep -Fq 'function showMode(mode: string): bool' "$SHELL_QML" \
     || fail 'Edge cannot switch the running Link process between modes'
 grep -Fq 'return root.showMode(mode, false)' "$SHELL_QML" \
     || fail 'IPC mode switch does not reach the mode-keyed placement loader'
-grep -Fq 'ipc call link showMode "$MODE"' "$ROOT/bin/maho-link" \
-    || fail 'singleton wrapper still discards a second Edge mode request'
+grep -Fq 'quickshell ipc --pid "$pid" call link showMode "$MODE"' "$ROOT/bin/maho-link" \
+    || fail 'singleton wrapper does not address the exact same-runtime process'
 if grep -Fq 'maho-link: already running' "$ROOT/bin/maho-link"; then
     fail 'singleton wrapper still reports success after dropping a mode request'
 fi

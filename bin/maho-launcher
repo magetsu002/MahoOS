@@ -7,11 +7,20 @@ CONFIG_DIR="${MAHO_LAUNCHER_CONFIG_DIR:-$ROOT/config/quickshell/maho-launcher}"
 CONFIG="$CONFIG_DIR/shell.qml"
 BACKDROP="$CONFIG_DIR/LauncherBackdrop.qml"
 BACKEND="$ROOT/lib/maho_launcher_backend.py"
+INSTANCE_HELPER="$ROOT/lib/runtime-instance.sh"
 PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
 RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}/maho-launcher-qml-${UID}"
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/launcher-qml"
 LOG_FILE="$CACHE_ROOT/launcher.log"
 LOCK_FILE="$RUNTIME_ROOT/launcher.lock"
+
+[ -r "$INSTANCE_HELPER" ] || {
+    echo "maho-launcher: runtime identity helper is missing" >&2
+    exit 1
+}
+source "$INSTANCE_HELPER"
+RUNTIME_IDENTITY="$(maho_runtime_identity "$ROOT")"
+export MAHO_RUNTIME_IDENTITY="$RUNTIME_IDENTITY"
 
 mkdir -p "$RUNTIME_ROOT" "$CACHE_ROOT"
 chmod 0700 "$RUNTIME_ROOT" "$CACHE_ROOT" 2>/dev/null || true
@@ -21,25 +30,16 @@ log_event() {
 }
 
 launcher_pids() {
-    local pid argument matched
-
-    while read -r pid; do
-        [ -r "/proc/$pid/cmdline" ] || continue
-        matched=0
-        while read -r argument; do
-            case "$argument" in
-                "$CONFIG"|*/quickshell/maho-launcher/shell.qml)
-                    matched=1
-                    break
-                    ;;
-            esac
-        done < <(tr '\0' '\n' < "/proc/$pid/cmdline")
-        [ "$matched" -eq 1 ] && printf '%s\n' "$pid"
-    done < <({ pgrep -x quickshell 2>/dev/null; pgrep -x qs 2>/dev/null; } | sort -u)
+    maho_quickshell_config_pids "/quickshell/maho-launcher/shell.qml"
 }
 
 launcher_pid() {
-    launcher_pids | head -1
+    local pid
+    while read -r pid; do
+        [ "$(maho_process_runtime_identity "$pid" 2>/dev/null || true)" = "$RUNTIME_IDENTITY" ] || continue
+        printf '%s\n' "$pid"
+        return 0
+    done < <(launcher_pids)
 }
 
 launcher_running() {
@@ -150,6 +150,23 @@ ipc_focus() {
     quickshell ipc --pid "$pid" call launcher focus >/dev/null 2>&1
 }
 
+retire_stale_launchers() {
+    local pid identity
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        identity="$(maho_process_runtime_identity "$pid" 2>/dev/null || true)"
+        [ "$identity" = "$RUNTIME_IDENTITY" ] && continue
+        ipc_close "$pid" || true
+        if ! maho_wait_for_process_exit "$pid" 20; then
+            kill -TERM "$pid" 2>/dev/null || true
+            maho_wait_for_process_exit "$pid" 10 || {
+                echo "maho-launcher: stale runtime instance $pid did not retire" >&2
+                return 1
+            }
+        fi
+    done < <(launcher_pids)
+}
+
 cleanup() {
     set_hyprland_material_rule off
 }
@@ -182,6 +199,8 @@ run_launcher() {
         return 1
     }
 
+    retire_stale_launchers || return 1
+
     exec 9> "$LOCK_FILE"
     if ! flock -n 9; then
         pid="$(launcher_pid)"
@@ -213,6 +232,7 @@ run_launcher() {
 
 open_launcher() {
     local pid
+    retire_stale_launchers || return 1
     pid="$(launcher_pid)"
     if [ -n "$pid" ]; then
         ipc_focus "$pid" || true

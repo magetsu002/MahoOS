@@ -27,6 +27,7 @@ ShellRoot {
     property bool placementValid: false
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
+    readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
     property bool bluetoothGeometryReady: true
     property string modeAfterPlacementSave: ""
     property real requestedPlacementX: -1
@@ -319,6 +320,18 @@ ShellRoot {
         function showMode(mode: string): bool {
             return root.showMode(mode, false)
         }
+
+        function runtimeIdentity(): string { return root.runtimeIdentity }
+
+        function retire(nextIdentity: string): bool {
+            if (nextIdentity === root.runtimeIdentity)
+                return false
+            root.backdropActive = false
+            root.overlayOpen = false
+            root.presented = false
+            retireTimer.restart()
+            return true
+        }
     }
 
     // Escape is an overlay-level command, not a child-focus command. The old
@@ -333,6 +346,12 @@ ShellRoot {
     }
 
     Component.onCompleted: openDelay.restart()
+
+    Timer {
+        id: retireTimer
+        interval: 1
+        onTriggered: Qt.quit()
+    }
 
     Timer {
         id: openDelay

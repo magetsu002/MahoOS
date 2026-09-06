@@ -149,6 +149,8 @@ python -m py_compile "$BACKEND" "$BT_BACKEND"
 bash -n "$ROOT/bin/maho-link"
 require_text "$BACKEND" '"--rescan", "auto"' "snapshot no longer permits NetworkManager to refresh stale discovery"
 require_text "$ROOT/bin/maho-link" 'wifi|bluetooth' "Maho Link launcher does not constrain focused modes"
+require_text "$ROOT/bin/maho-link" 'retire_stale_links' "Maho Link can preserve a stale runtime singleton"
+require_text "$LINK/shell.qml" 'MAHO_RUNTIME_IDENTITY' "Maho Link does not expose immutable runtime identity"
 echo "PASS"
 
 echo "=== deterministic NetworkManager snapshot ==="

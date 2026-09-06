@@ -197,6 +197,8 @@ require_text "$QML/shell.qml" 'IpcHandler' "graceful launcher IPC is missing"
 require_text "$QML/shell.qml" 'function close(): bool' "graceful close IPC is missing"
 require_text "$LAUNCHER" 'quickshell ipc --pid "$pid" call launcher close' "wrapper does not request animated close"
 require_text "$LAUNCHER" 'flock -n 9' "single-instance lock is missing"
+require_text "$LAUNCHER" 'retire_stale_launchers' "Launcher can focus a stale runtime process"
+require_text "$QML/shell.qml" 'MAHO_RUNTIME_IDENTITY' "Launcher does not expose immutable runtime identity"
 echo "PASS"
 
 echo "=== backend behavior ==="

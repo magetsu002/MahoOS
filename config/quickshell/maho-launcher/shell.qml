@@ -5,6 +5,7 @@ import Quickshell.Io
 
 ShellRoot {
     id: root
+    readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
 
     // Separate non-interactive compositor plane. It ignores other shell
     // exclusion zones and sits below Overlay-layer Maho Edge, so launcher blur
@@ -29,5 +30,7 @@ ShellRoot {
             launcher.focusSearch()
             return true
         }
+
+        function runtimeIdentity(): string { return root.runtimeIdentity }
     }
 }
