@@ -15,6 +15,14 @@ hl.bind(
 )
 -- maho-notify-bind:end
 
+-- Clipboard history.
+-- maho-clipboard-bind:begin
+hl.bind(
+    mainMod .. " + V",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-clipboard"]])
+)
+-- maho-clipboard-bind:end
+
 hl.bind(
     mainMod .. " + W",
     hl.dsp.exec_cmd([["$HOME/.local/bin/qs-wallpaper-picker"]])
