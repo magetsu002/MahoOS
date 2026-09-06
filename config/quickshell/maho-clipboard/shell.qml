@@ -148,7 +148,7 @@ ShellRoot {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             theme: theme
-            state: clipboard
+            clipboardState: clipboard
             shown: root.overlayOpen
             onCloseRequested: root.closeOverlay()
         }

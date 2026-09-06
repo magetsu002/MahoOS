@@ -4,7 +4,7 @@ Item {
     id: root
 
     required property var theme
-    required property var state
+    required property var clipboardState
     property bool shown: false
     property string query: ""
     property var filteredItems: []
@@ -70,6 +70,41 @@ Item {
         )
     }
 
+    component PinGlyph: Canvas {
+        id: pinGlyph
+        required property color glyphColor
+
+        antialiasing: true
+        onGlyphColorChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+
+        onPaint: {
+            const ctx = getContext("2d")
+            const w = width
+            const h = height
+            ctx.reset()
+            ctx.strokeStyle = glyphColor
+            ctx.fillStyle = glyphColor
+            ctx.lineWidth = Math.max(1.2, w * 0.075)
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+            ctx.beginPath()
+            ctx.moveTo(w * 0.34, h * 0.20)
+            ctx.lineTo(w * 0.66, h * 0.20)
+            ctx.lineTo(w * 0.61, h * 0.44)
+            ctx.lineTo(w * 0.72, h * 0.56)
+            ctx.lineTo(w * 0.28, h * 0.56)
+            ctx.lineTo(w * 0.39, h * 0.44)
+            ctx.closePath()
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(w * 0.50, h * 0.57)
+            ctx.lineTo(w * 0.50, h * 0.86)
+            ctx.stroke()
+        }
+    }
+
     function resetSelectionToBeginning() {
         Qt.callLater(function() {
             if (root.filteredItems.length === 0) {
@@ -84,7 +119,7 @@ Item {
 
     function rebuildFilter() {
         const needle = String(query || "").trim().toLowerCase()
-        const source = state.items || []
+        const source = root.clipboardState.items || []
         if (needle === "") {
             filteredItems = source.slice(0)
         } else {
@@ -109,13 +144,13 @@ Item {
     function activateSelection() {
         if (list.currentIndex < 0 || list.currentIndex >= filteredItems.length)
             return
-        state.selectItem(filteredItems[list.currentIndex].id)
+        root.clipboardState.selectItem(filteredItems[list.currentIndex].id)
     }
 
     onQueryChanged: rebuildFilter()
 
     Connections {
-        target: state
+        target: root.clipboardState
         function onItemsChanged() { root.rebuildFilter() }
     }
 
@@ -239,6 +274,37 @@ Item {
         }
 
         Rectangle {
+            id: clearButton
+            anchors.right: closeButton.left
+            anchors.rightMargin: 5
+            anchors.verticalCenter: parent.verticalCenter
+            width: 50
+            height: 30
+            radius: 10
+            color: clearHover.containsMouse ? theme.alpha(root.textSecondary, 0.038) : "transparent"
+            opacity: root.clipboardState.mutating ? 0.45 : 1
+
+            Text {
+                anchors.centerIn: parent
+                text: "Clear"
+                color: theme.alpha(root.textSecondary, clearHover.containsMouse ? 0.96 : 0.76)
+                font.family: "Inter"
+                font.pixelSize: 11
+                font.weight: Font.Medium
+            }
+
+            MouseArea {
+                id: clearHover
+                anchors.fill: parent
+                enabled: !root.clipboardState.mutating
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.clipboardState.clearUnpinned()
+            }
+        }
+
+        Rectangle {
+            id: closeButton
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             width: 30
@@ -388,6 +454,7 @@ Item {
 
         ListView {
             id: list
+            property var clipboardState: root.clipboardState
             anchors.fill: parent
             model: root.filteredItems
             currentIndex: root.filteredItems.length > 0 ? 0 : -1
@@ -461,7 +528,7 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 65
                     anchors.right: parent.right
-                    anchors.rightMargin: 18
+                    anchors.rightMargin: 58
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 4
 
@@ -483,6 +550,48 @@ Item {
                         elide: Text.ElideRight
                         font.family: "Inter"
                         font.pixelSize: 10
+                    }
+                }
+
+                Rectangle {
+                    id: pinButton
+                    z: 3
+                    anchors.right: parent.right
+                    anchors.rightMargin: 13
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 34
+                    height: 34
+                    radius: 11
+                    color: row.modelData.pinned
+                        ? theme.alpha(root.mix(root.accent, root.textSecondary, 0.24), 0.13)
+                        : pinHover.containsMouse
+                            ? theme.alpha(root.textSecondary, 0.045)
+                            : "transparent"
+                    border.width: row.modelData.pinned ? 1 : 0
+                    border.color: row.modelData.pinned
+                        ? theme.alpha(root.accent, 0.26)
+                        : "transparent"
+                    opacity: ListView.view.clipboardState.mutating ? 0.48 : 1
+
+                    PinGlyph {
+                        anchors.centerIn: parent
+                        width: 17
+                        height: 17
+                        glyphColor: row.modelData.pinned
+                            ? theme.alpha(root.textPrimary, 0.96)
+                            : theme.alpha(root.textSecondary, pinHover.containsMouse ? 0.84 : 0.58)
+                    }
+
+                    MouseArea {
+                        id: pinHover
+                        anchors.fill: parent
+                        enabled: !ListView.view.clipboardState.mutating
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            list.currentIndex = row.index
+                            ListView.view.clipboardState.togglePin(row.modelData)
+                        }
                     }
                 }
 
@@ -513,11 +622,11 @@ Item {
         Column {
             anchors.centerIn: parent
             spacing: 7
-            visible: !state.loading && root.filteredItems.length === 0
+            visible: !root.clipboardState.loading && root.filteredItems.length === 0
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: state.errorText !== "" ? state.errorText : "No clipboard items"
+                text: root.clipboardState.errorText !== "" ? root.clipboardState.errorText : "No clipboard items"
                 color: root.textSecondary
                 font.family: "Inter"
                 font.pixelSize: 12
@@ -525,7 +634,7 @@ Item {
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: state.errorText === "" && root.query !== ""
+                visible: root.clipboardState.errorText === "" && root.query !== ""
                 text: "Try a different filter"
                 color: theme.alpha(root.textSecondary, 0.58)
                 font.family: "Inter"
@@ -535,7 +644,7 @@ Item {
     }
 
     Connections {
-        target: state
+        target: root.clipboardState
         function onSelectionCopied() { root.closeRequested() }
     }
 
@@ -544,7 +653,7 @@ Item {
             query = ""
             searchInput.text = ""
             searchInput.forceActiveFocus()
-            state.refresh()
+            root.clipboardState.refresh()
             resetSelectionToBeginning()
         }
     }
