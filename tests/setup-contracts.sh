@@ -220,6 +220,65 @@ capture_live_state "$TMP/after-post-switch-failure"
 cmp -s "$TMP/before-post-switch-failure" "$TMP/after-post-switch-failure" || fail 'post-switch failure did not restore exact pre-install wiring'
 echo PASS
 
+echo '=== rollback restore never exposes a present target as missing ==='
+ATOMIC_TX="$TMP/atomic-restore"
+ATOMIC_TARGET="$TMP/atomic-target/session.lua"
+ATOMIC_GAP="$TMP/atomic-restore-gap"
+ATOMIC_DONE="$TMP/atomic-restore-done"
+
+mkdir -p "$ATOMIC_TX" "$(dirname "$ATOMIC_TARGET")"
+
+printf '%s\n' old >"$ATOMIC_TX/001"
+printf '%s\n' new >"$ATOMIC_TARGET"
+printf 'p\t%s\t001\n' "$ATOMIC_TARGET" >"$ATOMIC_TX/manifest"
+
+REAL_CP="$(command -v cp)"
+
+cat >"$TMP/fake-bin/cp" <<EOF_CP
+#!/usr/bin/env bash
+sleep 0.25
+exec "$REAL_CP" "\$@"
+EOF_CP
+chmod +x "$TMP/fake-bin/cp"
+
+(
+  while [ ! -e "$ATOMIC_DONE" ]; do
+    if [ ! -e "$ATOMIC_TARGET" ] && [ ! -L "$ATOMIC_TARGET" ]; then
+      : >"$ATOMIC_GAP"
+      break
+    fi
+    sleep 0.005
+  done
+) &
+WATCH_PID=$!
+
+set +e
+bash -c '
+  set -euo pipefail
+  script="$1"
+  tx="$2"
+  set -- __test_source__
+  source "$script" >/dev/null
+  restore_all "$tx"
+' _ "$ROOT/bin/maho-setup" "$ATOMIC_TX"
+RESTORE_RC=$?
+set -e
+
+: >"$ATOMIC_DONE"
+wait "$WATCH_PID" 2>/dev/null || true
+rm -f "$TMP/fake-bin/cp"
+
+[ "$RESTORE_RC" -eq 0 ] ||
+  fail 'atomic restore helper failed'
+
+[ ! -e "$ATOMIC_GAP" ] ||
+  fail 'rollback temporarily exposed a present target as missing'
+
+grep -Fxq old "$ATOMIC_TARGET" ||
+  fail 'atomic rollback did not restore original content'
+
+echo PASS
+
 echo '=== successful durable V1 migration ==='
 : >"$SYSTEMCTL_LOG"
 bash "$ROOT/bin/maho-setup" install >/dev/null

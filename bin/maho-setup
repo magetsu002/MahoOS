@@ -325,9 +325,41 @@ snapshot_all() {
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do path="$UNIT_DIR/$wants/$name"; index=$((index+1)); snapshot_one "$tx" "$manifest" "$path" "$index"; done; done
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$PREVIOUS" "$index"
 }
+restore_present_atomic() {
+  local source="$1" target="$2" parent tmp
+
+  parent="$(dirname -- "$target")"
+  mkdir -p "$parent"
+
+  while :; do
+    tmp="$parent/.maho-restore.$$.$RANDOM"
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] && break
+  done
+
+  if ! cp -a --no-dereference "$source" "$tmp"; then
+    rm -rf -- "$tmp"
+    return 1
+  fi
+
+  if ! mv -Tf -- "$tmp" "$target"; then
+    rm -rf -- "$tmp"
+    return 1
+  fi
+}
+
 restore_all() {
-  local tx="$1" state path key; [ -f "$tx/manifest" ] || return 0
-  while IFS=$'\t' read -r state path key; do [ -d "$path" ] && [ ! -L "$path" ] && continue; rm -f -- "$path"; [ "$state" = p ] && { mkdir -p "$(dirname -- "$path")"; cp -a --no-dereference "$tx/$key" "$path"; }; done <"$tx/manifest"
+  local tx="$1" state path key
+  [ -f "$tx/manifest" ] || return 0
+
+  while IFS=$'\t' read -r state path key; do
+    [ -d "$path" ] && [ ! -L "$path" ] && continue
+
+    if [ "$state" = p ]; then
+      restore_present_atomic "$tx/$key" "$path"
+    else
+      rm -f -- "$path"
+    fi
+  done <"$tx/manifest"
 }
 wire_runtime() {
   local name
