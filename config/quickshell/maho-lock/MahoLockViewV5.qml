@@ -11,6 +11,7 @@ FocusScope {
     required property var auth
     property bool surfaceReady: false
     property bool previewMode: false
+    property bool suppressBuiltinAvatar: false
 
     property real introProgress: 0
     property real errorPulse: 0
@@ -221,8 +222,8 @@ FocusScope {
         verticalRadius: height * 0.56
         verticalOffset: -height * 0.02
         gradient: Gradient {
-            GradientStop { position: 0.00; color: Qt.rgba(0.031, 0.106, 0.227, 0.14) }
-            GradientStop { position: 0.52; color: Qt.rgba(0.031, 0.106, 0.227, 0.060) }
+            GradientStop { position: 0.00; color: Qt.rgba(0.025, 0.086, 0.190, 0.19) }
+            GradientStop { position: 0.52; color: Qt.rgba(0.025, 0.086, 0.190, 0.085) }
             GradientStop { position: 0.78; color: Qt.rgba(0.031, 0.106, 0.227, 0.000) }
             GradientStop { position: 1.00; color: Qt.rgba(0.031, 0.106, 0.227, 0.000) }
         }
@@ -239,7 +240,7 @@ FocusScope {
 
         Row {
             anchors.top: parent.top
-            anchors.topMargin: 25 * root.uiScale
+            anchors.topMargin: 35 * root.uiScale
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 8 * root.uiScale
             opacity: root.stage(0.00, 0.45)
@@ -248,29 +249,29 @@ FocusScope {
             }
 
             MahoIconV2 {
-                width: 15 * root.uiScale
-                height: 15 * root.uiScale
+                width: 16 * root.uiScale
+                height: 16 * root.uiScale
                 anchors.verticalCenter: parent.verticalCenter
                 name: "lock"
-                iconOpacity: 0.84
+                iconOpacity: 0.92
             }
 
             Text {
                 text: "Screen locked"
                 color: root.textSecondary
-                font.pixelSize: 13 * root.uiScale
+                font.pixelSize: 16 * root.uiScale
                 font.family: root.uiFontFamily
                 font.weight: root.uiBodyWeight
                 font.variableAxes: ({ "wght": root.uiAxisWeight })
                 anchors.verticalCenter: parent.verticalCenter
                 style: Text.Raised
-                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
+                styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.26)
             }
         }
 
         Row {
             anchors.top: parent.top
-            anchors.topMargin: 22 * root.uiScale
+            anchors.topMargin: 32 * root.uiScale
             anchors.right: parent.right
             anchors.rightMargin: 28 * root.uiScale
             spacing: 14 * root.uiScale
@@ -293,20 +294,28 @@ FocusScope {
                 spacing: 5 * root.uiScale
 
                 MahoIconV2 {
+                    id: batteryStatusIcon
                     width: 22 * root.uiScale
                     height: 22 * root.uiScale
                     anchors.verticalCenter: parent.verticalCenter
                     name: "battery"
                     iconOpacity: 0.90
+                    statusLabelWidth: batteryPercentageLabel.visible
+                        ? batteryPercentageLabel.implicitWidth
+                        : 0
+                    statusLabelGap: batteryPercentageLabel.visible
+                        ? 5 * root.uiScale
+                        : 0
                 }
 
                 Text {
+                    id: batteryPercentageLabel
                     visible: root.lockState.batteryPercentageValid
                     text: root.lockState.batteryPercentageValid
                         ? root.lockState.batteryPercentage + "%"
                         : ""
                     color: root.textPrimary
-                    font.pixelSize: 13 * root.uiScale
+                    font.pixelSize: 15 * root.uiScale
                     font.family: root.uiFontFamily
                     font.weight: root.uiBodyWeight
                     font.variableAxes: ({ "wght": root.uiAxisWeight })
@@ -328,7 +337,7 @@ FocusScope {
                 Text {
                     text: root.lockState.keyboardLayout
                     color: root.textPrimary
-                    font.pixelSize: 13 * root.uiScale
+                    font.pixelSize: 15 * root.uiScale
                     font.family: root.uiFontFamily
                     font.weight: root.uiBodyWeight
                     font.variableAxes: ({ "wght": root.uiAxisWeight })
@@ -371,9 +380,12 @@ FocusScope {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.currentTime
                 color: root.textPrimary
-                font.pixelSize: 106 * root.uiScale
+                font.pixelSize: 122 * root.uiScale
+                font.family: root.classicUiFontFamily
                 font.weight: Font.Light
                 font.letterSpacing: -1.8 * root.uiScale
+                font.hintingPreference: Font.PreferFullHinting
+                renderType: Text.NativeRendering
                 opacity: root.stage(0.04, 0.48)
                 style: Text.Raised
                 styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.11)
@@ -385,7 +397,7 @@ FocusScope {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.currentDate
                 color: root.textSecondary
-                font.pixelSize: 18 * root.uiScale
+                font.pixelSize: 22 * root.uiScale
                 font.family: root.uiFontFamily
                 font.weight: root.uiBodyWeight
                 font.variableAxes: ({ "wght": root.uiAxisWeight })
@@ -400,7 +412,7 @@ FocusScope {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.greeting
                 color: root.textPrimary
-                font.pixelSize: 19 * root.uiScale
+                font.pixelSize: 23 * root.uiScale
                 font.family: root.uiFontFamily
                 font.weight: root.uiBodyWeight
                 font.variableAxes: ({ "wght": root.uiAxisWeight })
@@ -412,10 +424,11 @@ FocusScope {
             Item {
                 id: avatar
                 anchors.top: parent.top
-                anchors.topMargin: 322 * root.uiScale
+                anchors.topMargin: 310 * root.uiScale
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: 112 * root.uiScale
+                width: 152 * root.uiScale
                 height: width
+                visible: !root.suppressBuiltinAvatar
                 opacity: root.stage(0.22, 0.72)
                 scale: 0.88 + root.stage(0.22, 0.72) * 0.12
 
@@ -465,10 +478,10 @@ FocusScope {
             Item {
                 id: authRegion
                 anchors.top: parent.top
-                anchors.topMargin: 456 * root.uiScale
+                anchors.topMargin: 477 * root.uiScale
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: 444 * root.uiScale
-                height: 186 * root.uiScale
+                width: 504 * root.uiScale
+                height: 192 * root.uiScale
                 opacity: root.stage(0.28, 0.86)
 
                 transform: Translate {
@@ -489,7 +502,7 @@ FocusScope {
                     anchors.top: parent.top
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width
-                    height: 62 * root.uiScale
+                    height: 74 * root.uiScale
                     theme: root.theme
                     focused: passwordInput.activeFocus
                     errorAmount: root.errorPulse
@@ -497,18 +510,34 @@ FocusScope {
                     MahoIconV2 {
                         id: fieldLockIcon
                         anchors.left: parent.left
-                        anchors.leftMargin: 21 * root.uiScale
+                        anchors.leftMargin: 28 * root.uiScale
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 17 * root.uiScale
-                        height: 17 * root.uiScale
+                        width: 18 * root.uiScale
+                        height: 18 * root.uiScale
                         name: "lock"
-                        iconOpacity: passwordInput.activeFocus ? 0.96 : 0.84
+                        iconOpacity: passwordInput.activeFocus ? 1.0 : 0.90
+                    }
+
+                    Rectangle {
+                        id: fieldDivider
+                        anchors.left: fieldLockIcon.right
+                        anchors.leftMargin: 16 * root.uiScale
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.max(1, root.uiScale)
+                        height: 30 * root.uiScale
+                        radius: width / 2
+                        color: Qt.rgba(0.92, 0.97, 1.00,
+                            passwordInput.activeFocus ? 0.30 : 0.20)
+
+                        Behavior on color {
+                            ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                        }
                     }
 
                     TextInput {
                         id: passwordInput
-                        anchors.left: fieldLockIcon.right
-                        anchors.leftMargin: 13 * root.uiScale
+                        anchors.left: fieldDivider.right
+                        anchors.leftMargin: 17 * root.uiScale
                         anchors.right: eyeButton.left
                         anchors.rightMargin: 11 * root.uiScale
                         anchors.verticalCenter: parent.verticalCenter
@@ -517,7 +546,7 @@ FocusScope {
                         color: root.textPrimary
                         selectionColor: theme.alpha(theme.accent, 0.36)
                         selectedTextColor: root.textPrimary
-                        font.pixelSize: 14 * root.uiScale
+                        font.pixelSize: 16 * root.uiScale
                         font.family: root.uiFontFamily
                         font.weight: root.uiBodyWeight
                         font.variableAxes: ({ "wght": root.uiAxisWeight })
@@ -538,7 +567,7 @@ FocusScope {
                             color: passwordInput.activeFocus
                                 ? root.textSecondary
                                 : root.textTertiary
-                            font.pixelSize: 14 * root.uiScale
+                            font.pixelSize: 16 * root.uiScale
                             font.family: root.uiFontFamily
                             font.weight: root.uiBodyWeight
                             font.variableAxes: ({ "wght": root.uiAxisWeight })
@@ -589,8 +618,8 @@ FocusScope {
 
                         MahoIconV2 {
                             anchors.centerIn: parent
-                            width: 19 * root.uiScale
-                            height: 19 * root.uiScale
+                            width: 20 * root.uiScale
+                            height: 20 * root.uiScale
                             name: "eye"
                             iconOpacity: root.passwordVisible
                                 ? 0
@@ -603,8 +632,8 @@ FocusScope {
 
                         MahoIconV2 {
                             anchors.centerIn: parent
-                            width: 19 * root.uiScale
-                            height: 19 * root.uiScale
+                            width: 20 * root.uiScale
+                            height: 20 * root.uiScale
                             name: "eye-off"
                             iconOpacity: root.passwordVisible
                                 ? (eyePointer.containsMouse ? 1.0 : 0.92)
@@ -633,8 +662,8 @@ FocusScope {
                     anchors.top: passwordShell.bottom
                     anchors.topMargin: 17 * root.uiScale
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 216 * root.uiScale
-                    height: 56 * root.uiScale
+                    width: 232 * root.uiScale
+                    height: 60 * root.uiScale
                     theme: root.theme
                     strong: true
                     hovered: unlockPointer.containsMouse
@@ -644,7 +673,7 @@ FocusScope {
                         anchors.centerIn: parent
                         text: auth.authenticating ? "Checking…" : "Unlock"
                         color: root.textPrimary
-                        font.pixelSize: 14 * root.uiScale
+                        font.pixelSize: 16 * root.uiScale
                         font.family: root.uiFontFamily
                         font.weight: Font.DemiBold
                         font.variableAxes: ({ "wght": root.useRoundedTypography ? 700 : 600 })
@@ -667,7 +696,7 @@ FocusScope {
 
                 Text {
                     anchors.top: unlockButton.bottom
-                    anchors.topMargin: 11 * root.uiScale
+                    anchors.topMargin: 12 * root.uiScale
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: auth.errorText.length > 0
                         ? auth.errorText
@@ -675,11 +704,11 @@ FocusScope {
                     color: auth.errorText.length > 0
                         ? theme.alpha(theme.error, 0.95)
                         : root.textSecondary
-                    font.pixelSize: 11 * root.uiScale
+                    font.pixelSize: 13 * root.uiScale
                     font.family: root.uiFontFamily
                     font.weight: root.uiBodyWeight
                     font.variableAxes: ({ "wght": root.uiAxisWeight })
-                    opacity: 0.96
+                    opacity: 1.0
                     style: Text.Raised
                     styleColor: Qt.rgba(0.020, 0.078, 0.176, 0.18)
                 }
@@ -711,9 +740,9 @@ FocusScope {
 
             MahoActionButton {
                 anchors.left: parent.left
-                anchors.leftMargin: 28 * root.uiScale
+                anchors.leftMargin: 36 * root.uiScale
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: 25 * root.uiScale
+                anchors.bottomMargin: 30 * root.uiScale
                 theme: root.theme
                 iconName: "power"
                 label: "Sleep"
@@ -730,9 +759,9 @@ FocusScope {
 
             MahoActionButton {
                 anchors.right: parent.right
-                anchors.rightMargin: 28 * root.uiScale
+                anchors.rightMargin: 36 * root.uiScale
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: 25 * root.uiScale
+                anchors.bottomMargin: 30 * root.uiScale
                 theme: root.theme
                 iconName: "users"
                 label: "Switch user"

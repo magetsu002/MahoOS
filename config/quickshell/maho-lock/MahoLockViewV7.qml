@@ -10,7 +10,7 @@ Item {
     property bool previewMode: false
     property bool pickerOpen: false
     property string pickerMode: "avatar"
-    property real avatarReveal: 0
+    property real avatarReveal: 1
 
     readonly property bool presentationReady:
         surfaceReady && width > 0 && height > 0
@@ -20,9 +20,9 @@ Item {
         Math.min(1.18, Math.min(width / 1600, height / 1000))
     )
     readonly property real mainY: Math.max(158 * uiScale, height * 0.17)
-    readonly property real avatarSize: 112 * uiScale
+    readonly property real avatarSize: 152 * uiScale
     readonly property real avatarX: (width - avatarSize) / 2
-    readonly property real avatarY: mainY + 322 * uiScale
+    readonly property real avatarY: mainY + 310 * uiScale
 
     function openPicker(mode) {
         if (!root.previewMode)
@@ -57,6 +57,7 @@ Item {
         auth: root.auth
         surfaceReady: root.presentationReady
         previewMode: root.previewMode
+        suppressBuiltinAvatar: true
     }
 
     MahoAvatarControl {
@@ -81,8 +82,8 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 30 * root.uiScale
-        width: 146 * root.uiScale
-        height: 42 * root.uiScale
+        width: 176 * root.uiScale
+        height: 52 * root.uiScale
         radius: height / 2
         antialiasing: true
         visible: root.previewMode && !root.pickerOpen
@@ -90,11 +91,11 @@ Item {
             ? Qt.rgba(1, 1, 1, 0.15)
             : (wallpaperPointer.containsMouse
                 ? Qt.rgba(1, 1, 1, 0.11)
-                : Qt.rgba(0.06, 0.075, 0.10, 0.56))
+                : Qt.rgba(0.031, 0.106, 0.227, 0.23))
         border.width: 1
         border.color: wallpaperPointer.containsMouse
             ? Qt.rgba(1, 1, 1, 0.20)
-            : Qt.rgba(1, 1, 1, 0.14)
+            : Qt.rgba(0.90, 0.97, 1.0, 0.20)
         scale: wallpaperPointer.pressed ? 0.975 : 1
 
         Behavior on color { ColorAnimation { duration: 125 } }

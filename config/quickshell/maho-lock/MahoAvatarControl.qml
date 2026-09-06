@@ -33,13 +33,13 @@ Item {
         anchors.fill: parent
         radius: width / 2
         antialiasing: true
-        color: Qt.rgba(0.490, 0.804, 1.000, 0.14)
+        color: Qt.rgba(0.490, 0.804, 1.000, 0.18)
         border.width: Math.max(1, root.uiScale)
-        border.color: Qt.rgba(0.882, 0.961, 1.000, 0.68)
+        border.color: Qt.rgba(0.882, 0.961, 1.000, 0.76)
         layer.enabled: true
         layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowOpacity: 0.20
+            shadowOpacity: 0.24
             shadowBlur: 0.78
             shadowHorizontalOffset: 0
             shadowVerticalOffset: 5
@@ -87,7 +87,9 @@ Item {
         fillMode: Image.PreserveAspectCrop
         smooth: true
         mipmap: true
-        asynchronous: true
+        // This is a local, user-selected asset. Decode it before the first
+        // presented frame so the fallback identity never flashes underneath.
+        asynchronous: false
         cache: true
         sourceSize.width: root.avatarDecodeSize
         sourceSize.height: root.avatarDecodeSize
@@ -124,7 +126,7 @@ Item {
         border.width: Math.max(1, root.uiScale)
         border.color: Qt.rgba(
             0.882, 0.961, 1.000,
-            root.editable && root.hovered ? 0.78 : 0.62
+            root.editable && root.hovered ? 0.82 : 0.70
         )
 
         Behavior on border.color {
