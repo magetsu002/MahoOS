@@ -104,7 +104,7 @@ echo 'PASS platform recovery planning remains consent-gated and non-mutating'
   cat "$LOG" >&2
   exit 1
 }
-if grep -Ev '^(pacman\t-Q |findmnt\t-n -o )' "$LOG" | grep -q .; then
+if grep -Ev $'^(pacman\t-Q |findmnt\t-n -o )' "$LOG" | grep -q .; then
   echo 'FAIL platform doctor attempted an unexpected external operation' >&2
   cat "$LOG" >&2
   exit 1
