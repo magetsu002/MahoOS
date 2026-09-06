@@ -1,10 +1,12 @@
 import QtQuick
+import QtQuick.Window
 import QtTest
 import "../config/quickshell/maho-clipboard"
 
 TestCase {
     id: testCase
     name: "ClipboardPinRow"
+    when: host.visible
 
     QtObject {
         id: fakeTheme
@@ -49,13 +51,20 @@ TestCase {
         }
     }
 
-    ClipboardPanel {
-        id: panel
+    Window {
+        id: host
         width: 510
         height: 590
-        theme: fakeTheme
-        clipboardState: fakeState
-        shown: true
+        visible: true
+        color: "transparent"
+
+        ClipboardPanel {
+            id: panel
+            anchors.fill: parent
+            theme: fakeTheme
+            clipboardState: fakeState
+            shown: true
+        }
     }
 
     function init() {
