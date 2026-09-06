@@ -83,7 +83,14 @@ sleep 0.1
 [ "$(grep -Fc -- '--type text --watch cliphist store' "$LOG")" -eq 1 ] || fail "second owner duplicated text watcher"
 [ "$(grep -Fc -- '--type image --watch cliphist store' "$LOG")" -eq 1 ] || fail "second owner duplicated image watcher"
 
-kill "$OWNER_PID" >/dev/null 2>&1 || true
-wait "$OWNER_PID" >/dev/null 2>&1 || true
+kill "$OWNER_PID"
 
-printf 'PASS  persistent clipboard history owner is singleton and UI-independent\n'
+set +e
+wait "$OWNER_PID"
+OWNER_STATUS=$?
+set -e
+
+[ "$OWNER_STATUS" -eq 0 ] ||
+    fail "intentional history-owner shutdown exited $OWNER_STATUS instead of 0"
+
+printf 'PASS  persistent clipboard history owner is singleton, UI-independent, and stops cleanly\n'
