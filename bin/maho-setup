@@ -263,24 +263,62 @@ validate_targets() {
 }
 
 build_release() {
-  local stage hash final revision dir
+  local stage hash final revision provenance dir
   mkdir -p "$RELEASES"; stage="$RELEASES/.staging-$$"; mkdir -m 0755 "$stage"
   for dir in bin lib adapters config theme systemd share apps; do [ -e "$ROOT/$dir" ] && cp -a -- "$ROOT/$dir" "$stage/$dir"; done
   find "$stage" -type d -name __pycache__ -prune -exec rm -rf -- {} +
   find "$stage" -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.qmlls.ini' \) -delete
+
+  revision="$(release_source_revision)"
+  mkdir -p "$stage/share/maho"
+  provenance="$stage/share/maho/runtime-source-revision"
+  printf '%s\n' "$revision" >"$provenance"
+
   hash="$(cd "$stage"; find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
   final="$RELEASES/$hash"
-  if [ -d "$final" ]; then rm -rf -- "$stage"; else
-    revision="$(release_source_revision)"
-    python - "$stage/manifest.json" "$hash" "$revision" <<'PY'
-import datetime,json,pathlib,sys
+
+  if [ -d "$final" ]; then
+    python - "$final/manifest.json" "$final/share/maho/runtime-source-revision" "$hash" "$revision" <<'PY_EXISTING_RELEASE'
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+provenance_path = pathlib.Path(sys.argv[2])
+expected_hash = sys.argv[3]
+expected_revision = sys.argv[4]
+
+manifest = json.loads(manifest_path.read_text())
+provenance = provenance_path.read_text().strip()
+
+assert manifest.get("version") == 3
+assert manifest.get("content_sha256") == expected_hash
+assert manifest.get("source_revision") == expected_revision
+assert provenance == expected_revision
+PY_EXISTING_RELEASE
+
+    rm -rf -- "$stage"
+  else
+    python - "$stage/manifest.json" "$hash" "$revision" <<'PY_NEW_RELEASE'
+import datetime
+import json
+import pathlib
+import sys
+
 pathlib.Path(sys.argv[1]).write_text(json.dumps({
- "version":3,"content_sha256":sys.argv[2],"source_revision":sys.argv[3],
- "installed_at":datetime.datetime.now(datetime.timezone.utc).isoformat()
-},indent=2,sort_keys=True)+"\n")
-PY
-    chmod -R u=rwX,go=rX "$stage"; mv -- "$stage" "$final"
+    "version": 3,
+    "content_sha256": sys.argv[2],
+    "source_revision": sys.argv[3],
+    "installed_at": datetime.datetime.now(
+        datetime.timezone.utc
+    ).isoformat()
+}, indent=2, sort_keys=True) + "\n")
+PY_NEW_RELEASE
+
+    chmod -R u=rwX,go=rX "$stage"
+    mv -- "$stage" "$final"
   fi
+
   printf '%s\n' "$final"
 }
 

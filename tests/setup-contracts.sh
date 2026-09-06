@@ -287,11 +287,29 @@ NEW_RELEASE="$(readlink -f "$CURRENT")"
 [ "$NEW_RELEASE" != "$OLD_RELEASE" ] || fail 'runtime/current did not switch'
 [ -f "$NEW_RELEASE/manifest.json" ] || fail 'immutable release manifest missing'
 [ "$(readlink -f "$PREVIOUS")" = "$OLD_RELEASE" ] || fail 'previous runtime was not retained'
-python - "$NEW_RELEASE/manifest.json" <<'PY'
-import json,pathlib,sys
-p=json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert p['version']==3 and p['source_revision'] and p['content_sha256']
-PY
+[ -r "$NEW_RELEASE/share/maho/runtime-source-revision" ] ||
+  fail 'runtime source provenance stamp missing'
+
+python - "$NEW_RELEASE/manifest.json" "$NEW_RELEASE/share/maho/runtime-source-revision" "$NEW_RELEASE" <<'PY_RUNTIME_PROVENANCE'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+revision = pathlib.Path(sys.argv[2]).read_text().strip()
+release = pathlib.Path(sys.argv[3])
+
+assert manifest['version'] == 3
+assert manifest['source_revision']
+assert manifest['content_sha256']
+assert revision == manifest['source_revision']
+assert release.name == manifest['content_sha256']
+PY_RUNTIME_PROVENANCE
+
+FIRST_RELEASE="$NEW_RELEASE"
+bash "$ROOT/bin/maho-setup" install >/dev/null
+[ "$(readlink -f "$CURRENT")" = "$FIRST_RELEASE" ] ||
+  fail 'identical source revision did not reuse deterministic runtime release'
 [ -r "$NEW_RELEASE/apps/maho-files/CMakeLists.txt" ] || fail 'native Maho Files source omitted from release'
 [ -r "$NEW_RELEASE/apps/maho-files/io.maho.Files.desktop" ] || fail 'Maho Files desktop entry omitted from release'
 for name in "${COMMANDS[@]}"; do
