@@ -181,12 +181,6 @@ jobs:
           set -euo pipefail
           bash tests/security-boundaries.sh
 
-      - name: V1 setup lifecycle tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash tests/setup-contracts.sh
-
       - name: Environment observer tests
         shell: bash
         run: |
@@ -216,3 +210,27 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/shell-contracts.sh
+
+  setup-lifecycle:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install Arch setup dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            base-devel \
+            cmake \
+            ninja \
+            python \
+            qt6-base \
+            qt6-declarative \
+            kio
+
+      - uses: actions/checkout@v4
+
+      - name: V1 setup lifecycle tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/setup-contracts.sh
