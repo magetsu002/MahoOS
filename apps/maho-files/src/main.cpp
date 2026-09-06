@@ -17,6 +17,16 @@
 
 #include <KFilePlacesModel>
 
+#include <cstring>
+#include <iostream>
+
+#ifndef MAHO_FILES_SOURCE_FINGERPRINT
+#error "Maho Files must be built with an embedded source fingerprint"
+#endif
+
+[[gnu::used]] static constexpr char kMahoFilesArtifactProvenance[] =
+    "MAHO_FILES_SOURCE_FINGERPRINT=" MAHO_FILES_SOURCE_FINGERPRINT;
+
 class ThemeIconProvider final : public QQuickImageProvider
 {
 public:
@@ -202,6 +212,11 @@ private:
 
 int main(int argc, char *argv[])
 {
+    if (argc == 2 && std::strcmp(argv[1], "--source-fingerprint") == 0) {
+        std::cout << MAHO_FILES_SOURCE_FINGERPRINT << '\n';
+        return 0;
+    }
+
     QApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("MahoOS"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("maho.local"));

@@ -14,6 +14,7 @@ PALETTE_CPP="$APP/src/MahoPalette.cpp"
 MAIN_CPP="$APP/src/main.cpp"
 QML="$APP/qml/Main.qml"
 WRAPPER="$ROOT/bin/maho-files"
+FINGERPRINT="$APP/source-fingerprint.py"
 LAUNCHER_BACKEND="$ROOT/lib/maho_launcher_backend.py"
 
 fail() {
@@ -37,7 +38,7 @@ reject_text() {
     fi
 }
 
-for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER" "$LAUNCHER_BACKEND"; do
+for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER" "$LAUNCHER_BACKEND" "$FINGERPRINT"; do
     [ -f "$file" ] || fail "missing Maho Files file: $file"
 done
 
@@ -185,6 +186,10 @@ echo "=== wrapper safety ==="
 bash -n "$WRAPPER"
 require_text "$WRAPPER" 'MAHO_FILES_BUILD_DIR' "isolated build override is missing"
 require_text "$WRAPPER" 'cmake --build' "wrapper cannot build the native app"
+require_text "$WRAPPER" 'verified_binary' "runtime does not verify selected native artifact provenance"
+require_text "$WRAPPER" 'binary_fingerprint' "runtime trusts binary existence instead of embedded identity"
+require_text "$CMAKE" 'MAHO_FILES_SOURCE_FINGERPRINT' "native build does not embed source identity"
+require_text "$MAIN_CPP" 'MAHO_FILES_SOURCE_FINGERPRINT=' "native executable lacks an inspectable provenance marker"
 if grep -Eq '^[[:space:]]*(sudo[[:space:]]+)?pacman[[:space:]]+-S' "$WRAPPER"; then
     fail "wrapper must never mutate packages automatically"
 fi

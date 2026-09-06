@@ -7,6 +7,7 @@ PACKAGED_BINARY="$SOURCE/prebuilt/maho-files"
 CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 BUILD="${MAHO_FILES_BUILD_DIR:-$CACHE_HOME/maho/files-qml-build}"
 BUILD_BINARY="$BUILD/maho-files"
+FINGERPRINT_HELPER="$SOURCE/source-fingerprint.py"
 
 usage() {
     cat <<'EOF'
@@ -35,20 +36,71 @@ selected_binary() {
     fi
 }
 
-doctor() {
-    local failed=0 binary
+source_fingerprint() {
+    [ -r "$FINGERPRINT_HELPER" ] || {
+        echo "maho-files: source fingerprint helper is missing" >&2
+        return 1
+    }
+    python3 "$FINGERPRINT_HELPER" "$SOURCE"
+}
+
+binary_fingerprint() {
+    local binary="$1" marker
+    [ -x "$binary" ] || return 1
+    marker="$(LC_ALL=C grep -aoEm1 'MAHO_FILES_SOURCE_FINGERPRINT=[0-9a-f]{64}' "$binary" 2>/dev/null || true)"
+    [ -n "$marker" ] || return 1
+    printf '%s\n' "${marker#MAHO_FILES_SOURCE_FINGERPRINT=}"
+}
+
+verified_binary() {
+    local binary expected actual=""
     binary="$(selected_binary)"
+    expected="$(source_fingerprint)" || return 1
+    actual="$(binary_fingerprint "$binary" 2>/dev/null || true)"
+
+    if [ "$actual" = "$expected" ]; then
+        printf '%s\n' "$binary"
+        return 0
+    fi
+
+    if [ "$binary" = "$BUILD_BINARY" ] && [ -z "${MAHO_FILES_BINARY:-}" ] \
+        && [ ! -x "$PACKAGED_BINARY" ]; then
+        if [ -x "$binary" ]; then
+            echo "INFO  cached Maho Files artifact does not match current source; rebuilding" >&2
+        fi
+        build >&2
+        actual="$(binary_fingerprint "$binary" 2>/dev/null || true)"
+        if [ "$actual" = "$expected" ]; then
+            printf '%s\n' "$binary"
+            return 0
+        fi
+        echo "maho-files: source build did not produce the expected artifact identity" >&2
+        return 1
+    fi
+
+    echo "maho-files: refusing native binary with stale or missing source identity: $binary" >&2
+    echo "maho-files: expected source fingerprint $expected" >&2
+    echo "maho-files: actual source fingerprint ${actual:-missing}" >&2
+    return 1
+}
+
+doctor() {
+    local failed=0 binary expected actual=""
+    binary="$(selected_binary)"
+    expected="$(source_fingerprint 2>/dev/null || true)"
+    actual="$(binary_fingerprint "$binary" 2>/dev/null || true)"
 
     echo "Maho Files native frontend doctor"
     echo
 
-    if [ -x "$binary" ]; then
+    if [ -x "$binary" ] && [ -n "$expected" ] && [ "$actual" = "$expected" ]; then
         printf 'PASS  %-14s %s\n' "native binary" "$binary"
+        printf 'PASS  %-14s %s\n' "source identity" "$expected"
     elif [ -x "$PACKAGED_BINARY" ] || [ -n "${MAHO_FILES_BINARY:-}" ]; then
-        printf 'FAIL  %-14s %s is not executable\n' "native binary" "$binary"
+        printf 'FAIL  %-14s %s has stale or missing provenance\n' "native binary" "$binary"
         failed=1
     else
-        echo "INFO  native binary  no packaged binary; source build required"
+        echo "INFO  native binary  no verified packaged/cache binary; source build required"
         for command in cmake ninja; do
             if need_command "$command"; then
                 printf 'PASS  %-14s %s\n' "$command" "$(command -v "$command")"
@@ -110,15 +162,7 @@ build() {
 
 run() {
     local binary
-    binary="$(selected_binary)"
-    if [ ! -x "$binary" ]; then
-        if [ "$binary" != "$BUILD_BINARY" ]; then
-            echo "maho-files: configured native binary is not executable: $binary" >&2
-            return 1
-        fi
-        build
-        binary="$BUILD_BINARY"
-    fi
+    binary="$(verified_binary)" || return 1
     exec "$binary" "$@"
 }
 
