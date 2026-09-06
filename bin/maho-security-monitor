@@ -326,8 +326,8 @@ watch() {
 
 doctor() {
     echo "Maho security monitor"
-    [ -r "$PROBE" ] && python -m py_compile "$PROBE" >/dev/null 2>&1 && echo "PASS  security probe" || echo "FAIL  security probe unavailable"
-    [ -r "$BOUNDARY" ] && python -m py_compile "$BOUNDARY" >/dev/null 2>&1 && echo "PASS  privilege/network boundary observer" || echo "FAIL  privilege/network boundary observer"
+    [ -r "$PROBE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PROBE" >/dev/null 2>&1 && echo "PASS  security probe" || echo "FAIL  security probe unavailable"
+    [ -r "$BOUNDARY" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$BOUNDARY" >/dev/null 2>&1 && echo "PASS  privilege/network boundary observer" || echo "FAIL  privilege/network boundary observer"
     [ -r "$PROVENANCE" ] && echo "PASS  package provenance engine" || echo "FAIL  package provenance engine"
     [ -r "$SECURITY" ] && echo "PASS  security finding pipeline" || echo "FAIL  security finding pipeline"
     [ -r "$GUARD" ] && echo "PASS  incident shadow-prevention guard" || echo "FAIL  incident shadow-prevention guard"

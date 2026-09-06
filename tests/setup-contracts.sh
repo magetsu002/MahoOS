@@ -320,8 +320,16 @@ rm -rf "$NEW_RELEASE/lib/__pycache__" 2>/dev/null || true
 
 python "$NEW_RELEASE/lib/security_boundary.py" doctor >/dev/null
 
+MAHO_ROOT="$NEW_RELEASE" bash "$NEW_RELEASE/bin/maho-security-monitor" doctor >"$TMP/security-monitor-doctor.txt"
+
+grep -Fq 'PASS  security probe' "$TMP/security-monitor-doctor.txt" ||
+  fail 'security monitor doctor rejected probe in immutable release'
+
+grep -Fq 'PASS  privilege/network boundary observer' "$TMP/security-monitor-doctor.txt" ||
+  fail 'security monitor doctor rejected boundary observer in immutable release'
+
 if find "$NEW_RELEASE" -type d -name __pycache__ -print -quit | grep -q .; then
-  fail 'runtime security import created bytecode inside immutable release'
+  fail 'runtime security inspection created bytecode inside immutable release'
 fi
 
 bash "$ROOT/bin/maho-setup" install >/dev/null
