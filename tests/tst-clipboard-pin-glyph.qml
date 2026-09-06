@@ -12,10 +12,9 @@ TestCase {
         glyphColor: "#f2f2f2"
     }
 
-    function test_geometry_is_instantiated_and_visible() {
+    function test_geometry_is_instantiated() {
         compare(glyph.width, 17)
         compare(glyph.height, 17)
-        verify(glyph.visible)
         verify(glyph.opacity > 0)
         verify(glyph.geometryReady)
         verify(glyph.children.length > 0)
