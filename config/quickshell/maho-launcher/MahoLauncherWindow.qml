@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Widgets
+import "PointerSelectionPolicy.js" as PointerSelectionPolicy
 
 PanelWindow {
     id: root
@@ -31,10 +32,7 @@ PanelWindow {
         query: searchInput.text
         onCloseRequested: root.closeLauncher()
         onModelChanged: Qt.callLater(function() {
-            resultPageScroll.stop()
-            resultList.currentIndex = resultList.count > 0 ? 0 : -1
-            if (resultList.currentIndex >= 0)
-                resultList.positionViewAtBeginning()
+            root.resetResultsToTop()
         })
     }
 
@@ -44,10 +42,54 @@ PanelWindow {
     property bool quickActionsOpen: false
     property int pendingMode: 0
     property int previousMode: 0
+    property bool pointerSelectionEnabled: false
+    property bool pointerAnchorValid: false
+    property real pointerAnchorX: 0
+    property real pointerAnchorY: 0
+    readonly property real pointerMovementThreshold: 4
 
     readonly property real resultMaxY: Math.max(0, resultList.contentHeight - resultList.height)
     readonly property bool resultsScrollable: resultMaxY > 6
     readonly property bool resultsAtBottom: resultsScrollable && resultList.contentY >= resultMaxY - 10
+
+    function resetPointerAuthority() {
+        pointerSelectionEnabled = false
+        if (pointerTracker.hovered) {
+            pointerAnchorX = pointerTracker.point.position.x
+            pointerAnchorY = pointerTracker.point.position.y
+            pointerAnchorValid = true
+        } else {
+            pointerAnchorValid = false
+        }
+    }
+
+    function resetResultsToTop() {
+        resultPageScroll.stop()
+        resetPointerAuthority()
+        resultList.currentIndex = PointerSelectionPolicy.topIndex(resultList.count)
+        if (resultList.currentIndex >= 0)
+            resultList.positionViewAtBeginning()
+    }
+
+    function observePointer(pointerX, pointerY) {
+        if (!shown || closing)
+            return
+        if (!pointerAnchorValid) {
+            pointerAnchorX = pointerX
+            pointerAnchorY = pointerY
+            pointerAnchorValid = true
+            return
+        }
+        if (!pointerSelectionEnabled && PointerSelectionPolicy.movedEnough(
+                pointerAnchorX, pointerAnchorY, pointerX, pointerY,
+                pointerMovementThreshold))
+            pointerSelectionEnabled = true
+    }
+
+    function acceptPointerHover(rowIndex) {
+        resultList.currentIndex = PointerSelectionPolicy.hoverIndex(
+            resultList.currentIndex, rowIndex, pointerSelectionEnabled)
+    }
 
     function closeLauncher() {
         if (closing)
@@ -135,6 +177,7 @@ PanelWindow {
         quickActionsOpen = false
         if (resultList.count <= 0)
             return
+        resetPointerAuthority()
         const current = Math.max(0, resultList.currentIndex)
         const next = Math.max(0, Math.min(resultList.count - 1, current + delta))
         resultList.currentIndex = next
@@ -146,7 +189,7 @@ PanelWindow {
         const authoritativeRow = backend.itemAt(index)
         if (!authoritativeRow)
             return
-        resultList.currentIndex = index
+        resultList.currentIndex = PointerSelectionPolicy.clickIndex(index)
         backend.activate(authoritativeRow)
     }
 
@@ -174,7 +217,7 @@ PanelWindow {
         onTriggered: {
             backend.mode = root.pendingMode
             searchInput.text = ""
-            resultList.currentIndex = resultList.count > 0 ? 0 : -1
+            root.resetResultsToTop()
             root.modeChanging = false
             Qt.callLater(function() { searchInput.forceActiveFocus() })
         }
@@ -183,6 +226,7 @@ PanelWindow {
     Component.onCompleted: {
         root.pendingMode = backend.mode
         Qt.callLater(function() {
+            root.resetResultsToTop()
             root.shown = true
             searchInput.forceActiveFocus()
         })
@@ -194,6 +238,11 @@ PanelWindow {
         color: Qt.rgba(0, 0, 0, root.shown ? 0.045 : 0)
         Behavior on color {
             ColorAnimation { duration: root.shown ? 255 : 180; easing.type: Easing.OutCubic }
+        }
+
+        HoverHandler {
+            id: pointerTracker
+            onPointChanged: root.observePointer(point.position.x, point.position.y)
         }
     }
 
@@ -639,7 +688,7 @@ PanelWindow {
                                 width: ListView.view.width
                                 theme: theme
                                 selected: ListView.isCurrentItem
-                                onHovered: function(rowIndex) { resultList.currentIndex = rowIndex }
+                                onHovered: function(rowIndex) { root.acceptPointerHover(rowIndex) }
                                 onActivated: function(rowIndex) {
                                     root.activateItem(rowIndex)
                                 }
