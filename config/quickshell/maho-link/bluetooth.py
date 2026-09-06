@@ -9,6 +9,8 @@ busctl JSON and actions are sent directly to org.bluez D-Bus interfaces.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,9 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Iterable
-
-import fcntl
+from typing import Any, Iterable, Iterator
 
 BLUEZ = "org.bluez"
 OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
@@ -179,6 +179,36 @@ def unavailable_snapshot(error: str) -> dict[str, Any]:
     }
 
 
+def merge_device_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse duplicate BlueZ objects by stable adapter/address identity."""
+    merged: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        identity = safe_string(row.get("address")).upper() or safe_string(row.get("path"))
+        current = merged.get(identity)
+        if current is None:
+            merged[identity] = dict(row)
+            continue
+
+        def priority(candidate: dict[str, Any]) -> tuple[bool, bool, bool, bool]:
+            return (
+                bool(candidate.get("paired")),
+                bool(candidate.get("bonded")),
+                bool(candidate.get("connected")),
+                bool(candidate.get("discovered")),
+            )
+
+        preferred, other = (row, current) if priority(row) > priority(current) else (current, row)
+        combined = dict(preferred)
+        for field in ("paired", "bonded", "trusted", "connected", "discovered"):
+            combined[field] = bool(current.get(field)) or bool(row.get(field))
+        if combined.get("rssi") is None and other.get("rssi") is not None:
+            combined["rssi"] = other["rssi"]
+            combined["quality"] = other.get("quality", "")
+        combined["available"] = combined["connected"] or combined["discovered"]
+        merged[identity] = combined
+    return list(merged.values())
+
+
 def snapshot_payload() -> dict[str, Any]:
     objects, error = managed_objects()
     if objects is None:
@@ -200,9 +230,7 @@ def snapshot_payload() -> dict[str, Any]:
     enabled = bool(property_value(adapter_props, "Powered", False))
     discovering = bool(property_value(adapter_props, "Discovering", False))
 
-    paired: list[dict[str, Any]] = []
-    nearby: list[dict[str, Any]] = []
-    connected: list[dict[str, Any]] = []
+    device_rows: list[dict[str, Any]] = []
     auto_connect_eligible: list[str] = []
 
     for path, interfaces in objects.items():
@@ -223,10 +251,13 @@ def snapshot_payload() -> dict[str, Any]:
         except (TypeError, ValueError):
             klass = None
         type_label, kind = device_kind(icon, klass)
+        address = safe_string(property_value(props, "Address")).upper()
         paired_flag = bool(property_value(props, "Paired", False))
+        bonded_flag = bool(property_value(props, "Bonded", False))
         connected_flag = bool(property_value(props, "Connected", False))
         trusted_flag = bool(property_value(props, "Trusted", False))
         rssi = property_value(props, "RSSI")
+        discovered_flag = isinstance(rssi, (int, float))
         battery_props = interfaces.get(BATTERY)
         battery = None
         if isinstance(battery_props, dict):
@@ -236,13 +267,16 @@ def snapshot_payload() -> dict[str, Any]:
             except (TypeError, ValueError):
                 battery = None
 
-        reachable = connected_flag or isinstance(rssi, (int, float))
+        reachable = connected_flag or discovered_flag
         row = {
             "path": path,
+            "address": address,
             "name": name,
             "paired": paired_flag,
+            "bonded": bonded_flag,
             "connected": connected_flag,
             "trusted": trusted_flag,
+            "discovered": discovered_flag,
             "available": reachable,
             "type": type_label,
             "kind": kind,
@@ -251,16 +285,21 @@ def snapshot_payload() -> dict[str, Any]:
             "rssi": int(rssi) if isinstance(rssi, (int, float)) else None,
             "quality": quality_from_rssi(rssi),
         }
+        device_rows.append(row)
 
-        if paired_flag:
+    paired: list[dict[str, Any]] = []
+    nearby: list[dict[str, Any]] = []
+    connected: list[dict[str, Any]] = []
+    for row in merge_device_rows(device_rows):
+        if row["paired"]:
             paired.append(row)
-        elif enabled:
+        elif enabled and row["discovered"]:
             nearby.append(row)
-        if connected_flag:
+        if row["connected"]:
             connected.append(row)
-        if (enabled and paired_flag and trusted_flag and not connected_flag
-                and reachable and kind in ("headphones", "speaker")):
-            auto_connect_eligible.append(path)
+        if (enabled and row["paired"] and row["trusted"] and not row["connected"]
+                and row["available"] and row["kind"] in ("headphones", "speaker")):
+            auto_connect_eligible.append(row["path"])
 
     paired.sort(key=lambda row: (not row["connected"], row["name"].casefold(), row["path"]))
     nearby.sort(
@@ -309,6 +348,8 @@ def friendly_error(raw: str, fallback: str) -> str:
         (("notconnected", "not connected"), "Device is not connected."),
         (("inprogress", "in progress"), "Another Bluetooth operation is already in progress."),
         (("notready", "not ready"), "Bluetooth is not ready."),
+        (("br-connection-unknown", "host is down", "no matching connection"),
+         "Device is not reachable or not accepting a connection."),
         (("connectionattemptfailed", "connection attempt failed"), "Couldn’t connect to this device."),
         (("failed",), fallback),
     )
@@ -334,6 +375,28 @@ def session_state_path() -> Path:
 
 def auto_connect_lock_path() -> Path:
     return session_state_path().with_name("link-bluetooth-auto-connect.lock")
+
+
+@contextmanager
+def connection_operation(*, blocking: bool) -> Iterator[bool]:
+    """Serialize every connect/disconnect sequence across Maho processes."""
+    lock_path = auto_connect_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path.parent.chmod(0o700)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = False
+    try:
+        flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(descriptor, flags)
+            acquired = True
+        except BlockingIOError:
+            acquired = False
+        yield acquired
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def empty_session_state() -> dict[str, Any]:
@@ -486,19 +549,11 @@ def auto_connect_locked() -> int:
 
 def auto_connect() -> int:
     """Run one policy evaluation without racing another Maho surface."""
-    lock_path = auto_connect_lock_path()
-    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    lock_path.parent.chmod(0o700)
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+    with connection_operation(blocking=False) as acquired:
+        if not acquired:
             emit({"ok": True, "status": "busy", "devicePath": "", "message": ""})
             return 0
         return auto_connect_locked()
-    finally:
-        os.close(descriptor)
 
 
 def device_from_snapshot(device_path: str) -> dict[str, Any] | None:
@@ -564,7 +619,8 @@ def action(argv: list[str]) -> int:
     command = argv[0]
 
     if command == "reconnect" and len(argv) == 2:
-        return reconnect_device(argv[1])
+        with connection_operation(blocking=True):
+            return reconnect_device(argv[1])
 
     if command == "toggle" and len(argv) == 3 and argv[2] in ("on", "off"):
         adapter_path = argv[1]
@@ -614,24 +670,40 @@ def action(argv: list[str]) -> int:
         )
         return 0 if ok else 1
 
-    if command in ("connect", "disconnect", "pair") and len(argv) == 2:
+    if command in ("connect", "disconnect") and len(argv) == 2:
         device_path = argv[1]
         if not valid_device(device_path):
             emit({"ok": False, "message": "Bluetooth device path is invalid."})
             return 2
-        method = {"connect": "Connect", "disconnect": "Disconnect", "pair": "Pair"}[command]
-        timeout = 45.0 if command == "pair" else 18.0
-        code, out, err = busctl_call(device_path, DEVICE, method, timeout=timeout)
-        ok = code == 0
-        if ok and command in ("connect", "disconnect"):
-            remember_manual_connection(device_path, command == "connect")
-        success = {"connect": "Connected.", "disconnect": "Disconnected.", "pair": "Paired."}[command]
+        method = {"connect": "Connect", "disconnect": "Disconnect"}[command]
+        expected_connected = command == "connect"
+        with connection_operation(blocking=True):
+            code, out, err = busctl_call(device_path, DEVICE, method, timeout=18.0)
+            ok = code == 0 and wait_for_connected(device_path, expected_connected, 15.0)
+            if ok:
+                remember_manual_connection(device_path, expected_connected)
+        success = {"connect": "Connected.", "disconnect": "Disconnected."}[command]
         failure = {
             "connect": "Couldn’t connect to this device.",
             "disconnect": "Couldn’t disconnect this device.",
-            "pair": "Pairing failed.",
         }[command]
-        emit({"ok": ok, "message": success if ok else friendly_error(err or out, failure)})
+        if ok:
+            message = success
+        elif code == 0:
+            message = "Bluetooth did not confirm the connection state."
+        else:
+            message = friendly_error(err or out, failure)
+        emit({"ok": ok, "message": message})
+        return 0 if ok else 1
+
+    if command == "pair" and len(argv) == 2:
+        device_path = argv[1]
+        if not valid_device(device_path):
+            emit({"ok": False, "message": "Bluetooth device path is invalid."})
+            return 2
+        code, out, err = busctl_call(device_path, DEVICE, "Pair", timeout=45.0)
+        ok = code == 0
+        emit({"ok": ok, "message": "Paired." if ok else friendly_error(err or out, "Pairing failed.")})
         return 0 if ok else 1
 
     if command == "forget" and len(argv) == 3:

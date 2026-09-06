@@ -20,13 +20,20 @@ ADAPTER = "/org/bluez/hci0"
 HEADPHONES = ADAPTER + "/dev_AA_BB_CC_DD_EE_01"
 KEYBOARD = ADAPTER + "/dev_AA_BB_CC_DD_EE_02"
 UNKNOWN = ADAPTER + "/dev_AA_BB_CC_DD_EE_03"
+GALAXY = ADAPTER + "/dev_5C_5E_0A_18_45_BD"
+GALAXY_SCAN_SHADOW = ADAPTER + "/dev_5C_5E_0A_18_45_BE"
 
 
-def device(path, name, *, paired, trusted, connected=False, icon="audio-headphones", rssi=-52):
+def device(path, name, *, paired, trusted, bonded=None, connected=False,
+           icon="audio-headphones", rssi=-52, address=None):
+    if address is None:
+        address = path.rsplit("/dev_", 1)[-1].replace("_", ":")
     properties = {
         "Adapter": ADAPTER,
+        "Address": address,
         "Alias": name,
         "Paired": paired,
+        "Bonded": paired if bonded is None else bonded,
         "Trusted": trusted,
         "Connected": connected,
         "Icon": icon,
@@ -58,6 +65,21 @@ with tempfile.TemporaryDirectory() as temporary:
     MODULE.time.time = lambda: now[0]
     MODULE.shutil.which = lambda name: "/usr/bin/" + name
 
+    # Fixture the typed busctl ObjectManager envelope used by the live system,
+    # not only the already-unwrapped dictionaries below.
+    typed_payload = {
+        "type": "a{oa{sa{sv}}}",
+        "data": [{ADAPTER: {MODULE.ADAPTER: {
+            "Powered": {"type": "b", "data": True},
+            "Discovering": {"type": "b", "data": False},
+        }}}],
+    }
+    original_run = MODULE.run
+    MODULE.run = lambda *_args, **_kwargs: (0, json.dumps(typed_payload), "")
+    parsed, parse_error = MODULE.managed_objects()
+    assert parse_error == "" and parsed[ADAPTER][MODULE.ADAPTER]["Powered"] is True
+    MODULE.run = original_run
+
     def fake_call(path, interface, method, *arguments, timeout=12.0):
         calls.append((path, interface, method, arguments, timeout))
         if method == "Connect" and connect_results:
@@ -88,6 +110,34 @@ with tempfile.TemporaryDirectory() as temporary:
     assert payload["paired"][0]["trusted"] is True
     assert payload["paired"][0]["available"] is True
     assert payload["autoConnectEligible"] == [HEADPHONES]
+
+    # Exact observed Galaxy Buds state: a paired/bonded but untrusted device
+    # that is also discovered must remain one known device. A transient scan
+    # object with the same address cannot turn it into a Pair target.
+    current_objects = objects_with(
+        device(GALAXY, "Galaxy Buds Core", paired=True, bonded=True,
+               trusted=False, connected=False, rssi=-48),
+        device(GALAXY_SCAN_SHADOW, "Galaxy Buds Core", paired=False,
+               bonded=False, trusted=False, connected=False, rssi=-43,
+               address="5C:5E:0A:18:45:BD"),
+        device(UNKNOWN, "Stale unknown", paired=False, bonded=False,
+               trusted=False, rssi=None),
+    )
+    payload = MODULE.snapshot_payload()
+    assert len(payload["paired"]) == 1
+    galaxy = payload["paired"][0]
+    assert galaxy["address"] == "5C:5E:0A:18:45:BD"
+    assert galaxy["paired"] is True and galaxy["bonded"] is True
+    assert galaxy["trusted"] is False and galaxy["connected"] is False
+    assert galaxy["discovered"] is True
+    assert payload["availableDevices"] == []
+    assert payload["autoConnectEligible"] == []
+
+    current_objects = objects_with(
+        device(HEADPHONES, "Studio Headset", paired=True, trusted=True),
+        device(KEYBOARD, "Keyboard", paired=True, trusted=True, icon="input-keyboard"),
+        device(UNKNOWN, "Unknown Buds", paired=False, trusted=False),
+    )
 
     # One failed request enters backoff. Repeated policy evaluations cannot
     # spam BlueZ before the retry deadline.
@@ -131,6 +181,7 @@ with tempfile.TemporaryDirectory() as temporary:
     # A successful explicit disconnect is remembered for this login session.
     # It suppresses all later automatic attempts but never changes pairing or
     # trust and can be cleared by an explicit manual Connect.
+    MODULE.wait_for_connected = lambda _path, _expected, _timeout: True
     result, response = invoke(MODULE.action, ["disconnect", HEADPHONES])
     assert result == 0 and response["ok"] is True
     persisted = MODULE.load_session_state()

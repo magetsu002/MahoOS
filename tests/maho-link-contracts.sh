@@ -323,6 +323,7 @@ require_text "$BACKEND" '"connection", "down", "id", profile' "Wi-Fi reconnect d
 require_text "$BACKEND" '"connection", "up", "id", profile, "ifname", device' "Wi-Fi reconnect does not reactivate the saved profile"
 require_text "$BT_BACKEND" 'wait_for_connected(device_path, False, 8.0)' "Bluetooth reconnect does not confirm disconnect"
 require_text "$BT_BACKEND" 'wait_for_connected(device_path, True, 15.0)' "Bluetooth reconnect does not confirm reconnection"
+require_text "$BT_BACKEND" 'wait_for_connected(device_path, expected_connected, 15.0)' "manual Bluetooth action does not confirm authoritative state"
 python3 "$ROOT/tests/maho-link-reconnect-tests.py"
 echo "PASS"
 

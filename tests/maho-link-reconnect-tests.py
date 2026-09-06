@@ -40,14 +40,16 @@ with tempfile.TemporaryDirectory() as temporary:
         {"path": DEVICE, "paired": True, "connected": True},
     ])
     BLUETOOTH.device_from_snapshot = lambda path: next(device_states)
+    BLUETOOTH.shutil.which = lambda _name: "/usr/bin/busctl"
     BLUETOOTH.busctl_call = lambda path, interface, method, *args, timeout=12.0: (
         bluetooth_calls.append((path, interface, method, timeout)) or (0, "", "")
     )
     BLUETOOTH.time.sleep = lambda _seconds: None
 
-    result, response = invoke(BLUETOOTH.reconnect_device, DEVICE)
+    result, response = invoke(BLUETOOTH.action, ["reconnect", DEVICE])
     assert result == 0 and response == {"ok": True, "message": "Reconnected."}
     assert [call[2] for call in bluetooth_calls] == ["Disconnect", "Connect"]
+    assert DEVICE not in BLUETOOTH.load_session_state()["suppressed"]
 
     # A Connect request is never sent until authoritative state confirms the
     # disconnect. This is a failure, not optimistic success.
@@ -56,10 +58,24 @@ with tempfile.TemporaryDirectory() as temporary:
         "path": DEVICE, "paired": True, "connected": True
     }
     BLUETOOTH.wait_for_connected = lambda path, expected, timeout: False
-    result, response = invoke(BLUETOOTH.reconnect_device, DEVICE)
+    result, response = invoke(BLUETOOTH.action, ["reconnect", DEVICE])
     assert result == 1
     assert response["message"] == "Bluetooth did not confirm the disconnect."
     assert [call[2] for call in bluetooth_calls] == ["Disconnect"]
+    assert DEVICE not in BLUETOOTH.load_session_state()["suppressed"]
+
+    # Failure releases the shared operation lock and cannot poison a later
+    # explicit Connect. Manual actions and the session auto-connect worker use
+    # the same lock, so they serialize instead of sending duplicate requests.
+    bluetooth_calls.clear()
+    BLUETOOTH.wait_for_connected = lambda path, expected, timeout: True
+    result, response = invoke(BLUETOOTH.action, ["connect", DEVICE])
+    assert result == 0 and response == {"ok": True, "message": "Connected."}
+    assert [call[2] for call in bluetooth_calls] == ["Connect"]
+    assert DEVICE not in BLUETOOTH.load_session_state()["suppressed"]
+    assert BLUETOOTH.friendly_error(
+        "org.bluez.Error.Failed br-connection-unknown", "fallback"
+    ) == "Device is not reachable or not accepting a connection."
 
     wifi_calls = []
     active_profile = {
