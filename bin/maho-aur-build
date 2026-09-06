@@ -215,7 +215,7 @@ PY
 
 doctor_command() {
     echo "Maho isolated AUR build"
-    [ -r "$PREFLIGHT" ] && python -m py_compile "$PREFLIGHT" >/dev/null 2>&1 && echo "PASS  static preflight" || echo "FAIL  static preflight"
+    [ -r "$PREFLIGHT" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PREFLIGHT" >/dev/null 2>&1 && echo "PASS  static preflight" || echo "FAIL  static preflight"
     [ -n "$BWRAP" ] && [ -x "$BWRAP" ] && echo "AVAILABLE  bubblewrap: $BWRAP" || echo "UNAVAILABLE bubblewrap"
     [ -n "$MAKEPKG" ] && [ -x "$MAKEPKG" ] && echo "AVAILABLE  makepkg: $MAKEPKG" || echo "UNAVAILABLE makepkg"
     echo "INFO  host root: read-only"

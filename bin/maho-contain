@@ -164,7 +164,7 @@ case "${1:-}" in
     list) list_command ;;
     doctor)
         echo "Maho containment"
-        [ -r "$ENGINE" ] && python -m py_compile "$ENGINE" >/dev/null 2>&1 && echo "PASS  containment engine" || echo "FAIL  containment engine"
+        [ -r "$ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$ENGINE" >/dev/null 2>&1 && echo "PASS  containment engine" || echo "FAIL  containment engine"
         echo "INFO  scope: visible processes owned by the current user only"
         echo "INFO  mechanism: reversible SIGSTOP / SIGCONT"
         echo "INFO  finding gate: exact installed version + confidence=confirmed"

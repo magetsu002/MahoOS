@@ -530,7 +530,7 @@ case "${1:-}" in
         [ -d "$DB_ROOT" ] && echo "PASS  pacman local database" || echo "INFO  pacman local database unavailable"
         [ -r "$POLICY" ] && echo "PASS  security policy" || echo "FAIL  security policy unavailable"
         [ -r "$EXECUTOR" ] && echo "PASS  adaptation executor" || echo "FAIL  adaptation executor unavailable"
-        [ -r "$PROBE" ] && python -m py_compile "$PROBE" >/dev/null 2>&1 && echo "PASS  integrity/impact/persistence probe" || echo "FAIL  security probe unavailable"
+        [ -r "$PROBE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PROBE" >/dev/null 2>&1 && echo "PASS  integrity/impact/persistence probe" || echo "FAIL  security probe unavailable"
         echo "INFO  response mode: $(response_mode)"
         echo "INFO  supported finding type: package-version (exact versions only)"
         echo "INFO  critical-file integrity: local pacman mtree comparison"

@@ -328,6 +328,45 @@ grep -Fq 'PASS  security probe' "$TMP/security-monitor-doctor.txt" ||
 grep -Fq 'PASS  privilege/network boundary observer' "$TMP/security-monitor-doctor.txt" ||
   fail 'security monitor doctor rejected boundary observer in immutable release'
 
+DOCTOR_HASH_BEFORE="$(
+  cd "$NEW_RELEASE"
+  find . -type f ! -path './manifest.json' -print0 |
+    sort -z |
+    xargs -0 sha256sum |
+    sha256sum |
+    awk '{print $1}'
+)"
+
+MAHO_ROOT="$NEW_RELEASE" bash "$NEW_RELEASE/bin/maho-security" doctor >"$TMP/security-doctor.txt"
+grep -Fq 'PASS  integrity/impact/persistence probe' "$TMP/security-doctor.txt" ||
+  fail 'maho-security doctor rejected immutable runtime probe'
+
+MAHO_ROOT="$NEW_RELEASE" bash "$NEW_RELEASE/bin/maho-guard" doctor >"$TMP/guard-doctor.txt"
+grep -Fq 'PASS  incident correlation engine' "$TMP/guard-doctor.txt" ||
+  fail 'maho-guard doctor rejected immutable incident engine'
+grep -Fq 'PASS  static package preflight engine' "$TMP/guard-doctor.txt" ||
+  fail 'maho-guard doctor rejected immutable preflight engine'
+
+MAHO_ROOT="$NEW_RELEASE" bash "$NEW_RELEASE/bin/maho-contain" doctor >"$TMP/contain-doctor.txt"
+grep -Fq 'PASS  containment engine' "$TMP/contain-doctor.txt" ||
+  fail 'maho-contain doctor rejected immutable containment engine'
+
+MAHO_ROOT="$NEW_RELEASE" bash "$NEW_RELEASE/bin/maho-aur-build" doctor >"$TMP/aur-doctor.txt"
+grep -Fq 'PASS  static preflight' "$TMP/aur-doctor.txt" ||
+  fail 'maho-aur-build doctor rejected immutable preflight engine'
+
+DOCTOR_HASH_AFTER="$(
+  cd "$NEW_RELEASE"
+  find . -type f ! -path './manifest.json' -print0 |
+    sort -z |
+    xargs -0 sha256sum |
+    sha256sum |
+    awk '{print $1}'
+)"
+
+[ "$DOCTOR_HASH_BEFORE" = "$DOCTOR_HASH_AFTER" ] ||
+  fail 'runtime doctor suite mutated immutable release'
+
 if find "$NEW_RELEASE" -type d -name __pycache__ -print -quit | grep -q .; then
   fail 'runtime security inspection created bytecode inside immutable release'
 fi

@@ -177,8 +177,8 @@ aur_build_command() {
 
 doctor_command() {
     echo "Maho security guard"
-    [ -r "$INCIDENT_ENGINE" ] && python -m py_compile "$INCIDENT_ENGINE" >/dev/null 2>&1 && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
-    [ -r "$PREFLIGHT_ENGINE" ] && python -m py_compile "$PREFLIGHT_ENGINE" >/dev/null 2>&1 && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
+    [ -r "$INCIDENT_ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$INCIDENT_ENGINE" >/dev/null 2>&1 && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
+    [ -r "$PREFLIGHT_ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PREFLIGHT_ENGINE" >/dev/null 2>&1 && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
