@@ -19,9 +19,10 @@ ICON="$LOCK/MahoIconV2.qml"
 LAUNCHER="$ROOT/bin/maho-lock"
 ROUNDED_FONT="$LOCK/assets/Nunito-Variable.ttf"
 ROUNDED_LICENSE="$LOCK/assets/Nunito-OFL.txt"
+FALLBACK_WALLPAPER="$LOCK/assets/maho-lock-dusk.jpg"
 fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
 pass(){ printf 'PASS  %s\n' "$*"; }
-for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$GLASS" "$ACTION" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER" "$ROUNDED_FONT" "$ROUNDED_LICENSE"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
+for f in "$SHELL" "$SURFACE" "$VIEW" "$BASE" "$AVATAR" "$GLASS" "$ACTION" "$PICKER" "$STATE" "$PROBE" "$BROWSER" "$PREVIEW" "$AUTH" "$ICON" "$LAUNCHER" "$ROUNDED_FONT" "$ROUNDED_LICENSE" "$FALLBACK_WALLPAPER"; do [ -r "$f" ] || fail "missing ${f#$ROOT/}"; done
 bash -n "$LAUNCHER"
 python3 - "$PROBE" "$BROWSER" <<'PY'
 import ast
@@ -79,11 +80,16 @@ grep -Fq 'Qt.rgba(0.973, 0.984, 1.000, 0.98)' "$BASE" || fail "primary foregroun
 grep -Fq 'Qt.rgba(0.957, 0.976, 1.000, 0.94)' "$BASE" || fail "secondary foreground contrast drifted"
 grep -Fq 'Qt.rgba(0.933, 0.965, 1.000, 0.82)' "$BASE" || fail "tertiary foreground contrast drifted"
 grep -Fq 'RadialGradient {' "$BASE" || fail "central atmospheric focus veil missing"
-grep -Fq 'root.focused ? 0.27 : 0.21' "$GLASS" || fail "password glass definition drifted"
-grep -Fq 'root.strong ? 0.40 : 0.46' "$GLASS" || fail "glass edge hierarchy drifted"
+grep -Fq 'root.focused ? 0.31 : 0.24' "$GLASS" || fail "password glass definition drifted"
+grep -Fq 'root.strong ? 0.50 : 0.46' "$GLASS" || fail "glass edge hierarchy drifted"
 grep -Fq 'shadowEnabled: true' "$GLASS" || fail "glass separation shadow missing"
-grep -Fq 'root.editable && root.hovered ? 0.78 : 0.62' "$AVATAR" || fail "avatar separation ring drifted"
-grep -Fq 'Qt.rgba(0.031, 0.106, 0.227, 0.13)' "$ACTION" || fail "corner action glass treatment missing"
+grep -Fq 'root.editable && root.hovered ? 0.82 : 0.70' "$AVATAR" || fail "avatar separation ring drifted"
+grep -Fq 'Qt.rgba(0.031, 0.106, 0.227, 0.20)' "$ACTION" || fail "corner action glass treatment missing"
+grep -Fq 'id: contentRow' "$ACTION" || fail "corner action icon and label are not grouped geometrically"
+grep -Fq 'anchors.centerIn: parent' "$ACTION" || fail "corner action content is not centered in its pill"
+grep -Fq 'spacing: 14' "$ACTION" || fail "corner action icon-to-label spacing drifted"
+grep -Fq 'id: fieldDivider' "$BASE" || fail "password field divider missing"
+grep -Fq 'statusLabelWidth: batteryPercentageLabel.visible' "$BASE" || fail "battery hover does not measure the complete percentage label"
 pass "focused contrast and glass hierarchy"
 
 grep -Fq 'mipmap: false' "$BASE" || fail "wallpaper texture filtering can re-soften the image"
@@ -97,11 +103,19 @@ grep -Fq 'useRoundedTypography ? 600 : 400' "$BASE" || fail "rounded typography 
 grep -Fq 'font.variableAxes: ({ "wght": root.uiAxisWeight })' "$BASE" || fail "rounded variable-font weight is not pinned"
 pass "native wallpaper fidelity and reversible rounded typography"
 
+jpeg_magic="$(od -An -tx1 -N3 "$FALLBACK_WALLPAPER" | tr -d ' \n')"
+[[ "$jpeg_magic" == "ffd8ff" ]] || fail "fallback wallpaper is not valid JPEG data"
+[[ "$(stat -c %s "$FALLBACK_WALLPAPER")" -gt 100000 ]] \
+    || fail "fallback wallpaper is suspiciously truncated"
+pass "decodable fallback wallpaper asset"
+
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V7 lost accepted base hierarchy"
 grep -Fq 'MahoAvatarControl {' "$VIEW" || fail "geometric avatar control missing"
 grep -Fq 'MahoImagePicker {' "$VIEW" || fail "in-app image picker missing"
 grep -Fq 'onEditRequested: root.openPicker("avatar")' "$VIEW" || fail "PFP click not dedicated to PFP"
 grep -Fq 'onClicked: root.openPicker("wallpaper")' "$VIEW" || fail "wallpaper lacks separate affordance"
+grep -Fq 'suppressBuiltinAvatar: true' "$VIEW" || fail "accepted view can flash the base fallback avatar"
+grep -Fq 'visible: !root.suppressBuiltinAvatar' "$BASE" || fail "base avatar cannot be suppressed by the accepted view"
 pass "separated personalization surfaces"
 
 grep -Fq 'badgeCenterOffset: avatarRadius / Math.SQRT2' "$AVATAR" || fail "edit badge is not geometrically placed on circumference"
@@ -110,6 +124,8 @@ grep -Fq 'y: root.badgeCenterY - height / 2' "$AVATAR" || fail "badge y-center f
 grep -Fq 'anchors.centerIn: parent' "$AVATAR" || fail "edit glyph is not centered in badge"
 grep -Fq 'sourceSize.width: root.avatarDecodeSize' "$AVATAR" || fail "high-resolution avatar decode missing"
 grep -Fq 'Math.max(1024, Math.ceil(width * 6))' "$AVATAR" || fail "avatar quality floor missing"
+grep -Fq 'asynchronous: false' "$AVATAR" || fail "selected avatar can miss the first presented frame"
+grep -Fq 'property string avatarPath: profile.avatarPath' "$STATE" || fail "selected avatar is not loaded synchronously from profile state"
 python3 - <<'PY'
 import math
 avatar_size = 112.0

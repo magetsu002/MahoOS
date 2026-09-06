@@ -1,60 +1,84 @@
-# Maho Lock visual fidelity QA
+# Lock Screen Fidelity QA
 
-- Original lock target: `/home/magetsu/Downloads/maho-lock-target.png`
-- Wallpaper source visual truth: `/home/magetsu/Downloads/rize3.png`
-- User-reported blurred baseline: `/tmp/codex-clipboard-4660f51b-de23-4aa7-b9fe-f0d078f17552.png`
-- Installed implementation screenshot: `/home/magetsu/Downloads/maho-lock-final-installed-sharp-rounded-20260905.png`
-- Baseline vs installed comparison: `/home/magetsu/Downloads/maho-lock-before-vs-sharp-rounded-20260905.png`
-- Source vs installed full comparison: `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-20260905.png`
-- Source vs installed focused comparison: `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-focus-20260905.png`
-- Rounded vs classic typography comparison: `/home/magetsu/Downloads/maho-lock-rounded-vs-classic-font-20260905.png`
-- Real viewport: 1600 × 1000 logical pixels at 1.6 output scale; 2560 × 1600 captured pixels
-- Wallpaper source pixels: 1672 × 941 (16:9)
-- Implementation pixels: 2560 × 1600 (16:10)
-- Normalization: the source was center-cropped to 1506 × 941 using the production `PreserveAspectCrop` rule, then both source and implementation were resized to 1280 × 800 for equal-size comparison. The focused cloud region is 450 × 260 in each half.
-- State: customization preview, password field focused, default controls visible. The avatar changed through user personalization during this iteration, so avatar content is intentionally excluded from this wallpaper/type QA.
+## Evidence
 
-## Full-view comparison evidence
+- Source visual truth: `/home/magetsu/Downloads/target-lock2.png`
+- Native implementation capture: `/home/magetsu/.codex/visualizations/2026/09/01/01a05dbc-4cec-7bd1-a571-3f5ffb1de79d/lock-screen-refinement/final-2560x1600.png`
+- Full-view comparison: `/home/magetsu/.codex/visualizations/2026/09/01/01a05dbc-4cec-7bd1-a571-3f5ffb1de79d/lock-screen-refinement/full-comparison-3344x941.png`
+- Focused authentication comparison: `/home/magetsu/.codex/visualizations/2026/09/01/01a05dbc-4cec-7bd1-a571-3f5ffb1de79d/lock-screen-refinement/auth-comparison-1520x520.png`
+- Secure-parity refinement capture: `/home/magetsu/.codex/visualizations/2026/09/01/01a05dbc-4cec-7bd1-a571-3f5ffb1de79d/lock-screen-refinement/live-parity-fixes.png`
+- Final bottom-action geometry capture: `/home/magetsu/.codex/visualizations/2026/09/01/01a05dbc-4cec-7bd1-a571-3f5ffb1de79d/lock-screen-refinement/final-action-icon-geometry-settled.png`
+- Recovered PR branch capture: `/home/magetsu/Downloads/maho-lock-pr17-restored-centered-20260906.png`
+- Explicit bundled-fallback decode capture: `/home/magetsu/Downloads/maho-lock-pr17-explicit-fallback-20260906.png`
+- Source pixels: 1672 x 941 at 1x image density.
+- Implementation pixels: 2560 x 1600 captured from the 1600 x 1000 logical-pixel eDP-1 output at 1.6x display scale.
+- Comparison normalization: the native capture was scaled to 1672 x 941 to compare proportional placement against the 16:9 concept image. The untouched 16:10 native capture remains the authority for runtime sharpness and layout safety.
+- State: settled preview, password focused and empty, avatar loaded, personalization controls idle, no picker open.
 
-The source and installed views now retain the same cloud contours, fine sky streaks, character edges, crop, saturation relationship, and reflected horizon structure. The implementation remains modestly darker because the existing foreground-contrast veil is intentional. The prior baseline visibly spread every cloud edge and character silhouette; the installed view no longer does.
+## Full-view comparison
 
-On the same 900 × 520 top-left region, a Laplacian edge-deviation check increased from `0.0172671` in the blurred baseline to `0.0763066` in the installed render (4.42×). This metric is supporting evidence only; the equal-size visual comparison confirms that the added detail is real source detail rather than sharpening halos.
+The implementation preserves the target's centered clock/date/greeting hierarchy, right-side character composition, centered authentication cluster, top status row, and bottom-left/center/right utility actions. The source and implementation differ in displayed time and time-dependent greeting by design; the real clock state is authoritative.
 
-## Focused comparison evidence
+## Focused comparison
 
-The equal-size cloud crop shows that the installed render preserves the source's stepped painted cloud boundaries and thin white streaks. No visible blur halo, ringing, compression block, or texture duplication remains. The installed output is still an upscale because the 1672 × 941 source is smaller than the physical 2560 × 1600 panel, but it is no longer deliberately degraded by the lock renderer.
-
-The typography comparison confirms that Nunito at the explicit `wght=600` axis has rounded terminals and more visual weight than the classic Noto Sans/normal path. The clock is excluded from the font override and retains its previous family, weight, letter spacing, geometry, and two-dot colon. `MAHO_LOCK_TYPOGRAPHY=classic` successfully launched the previous Noto Sans/normal body-text path.
-
-## Required fidelity surfaces
-
-- Fonts and typography: non-clock UI now uses the bundled OFL Nunito variable font at weight axis 600; primary labels use the stronger rounded treatment. Sizes, line heights, wrapping, and positions are unchanged. The clock remains untouched. The previous Noto Sans/normal path is retained behind the `classic` environment override.
-- Spacing and layout rhythm: no frame positions, margins, component sizes, field geometry, radii, vertical rhythm, or wallpaper crop rule changed.
-- Colors and visual tokens: the established off-white hierarchy, glass opacity, focus veil, borders, and shadows are unchanged in this iteration.
-- Image quality and asset fidelity: the redundant logical-size decode, mipmap softening, `ShaderEffectSource`, and full-screen `MultiEffect` blur were removed. The wallpaper now renders directly from the user's original source with smooth aspect-crop scaling.
-- Copy and content: all visible labels and status text are unchanged.
+The focused crop confirms that the clock scale, date and greeting hierarchy, avatar diameter and ring, password-field width and height, lock/divider/text alignment, eye control, and cool glass treatment now follow the source proportions closely. The crop was necessary because the small icons, divider, and text weight were not reliably judgeable in the full-view composite.
 
 ## Comparison history
 
-1. Original contrast fidelity pass — passed.
-   - Earlier P1/P2 findings covered washed-out text/glass, avatar separation, and disappearing corner actions.
-   - Those fixes and the clean single-capsule corner actions remain intact.
-2. Wallpaper/font baseline — blocked.
-   - P1: the wallpaper was decoded at the 1600 × 1000 logical UI size and then passed through a full-screen blur with `blur=0.34` and `blurMax=32`, before the compositor scaled it to 2560 × 1600.
-   - P2: the first rounded-font trial resolved the variable font's ExtraLight alias, producing rounded but thinner text than requested.
-3. Wallpaper quality fix — passed.
-   - Fix: direct native-source `Image` rendering, no logical `sourceSize`, no full-screen effect texture, and `mipmap: false`; crop and transition animation were preserved.
-   - Post-fix evidence: `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-20260905.png` and `/home/magetsu/Downloads/maho-lock-source-vs-sharp-rounded-focus-20260905.png`.
-4. Typography correction — passed.
-   - Fix: resolve the loaded family explicitly as `Nunito`, pin rounded body text to variable axis 600, keep the clock outside the override, and preserve the exact classic body family/weight path.
-   - Post-fix evidence: `/home/magetsu/Downloads/maho-lock-rounded-vs-classic-font-20260905.png` plus successful installed-runtime launches for default and `MAHO_LOCK_TYPOGRAPHY=classic` modes.
+### Pass 1 — blocked
 
-## Findings
+- P2: The avatar was visibly smaller than the source and read as detached from the input.
+- P2: The password field was too narrow, too transparent over clouds, and had no divider after the lock icon.
+- P2: The clock and supporting text were underscaled relative to the source.
+- P2: Helper text and bottom utility actions had insufficient contrast.
 
-No actionable P0, P1, or P2 difference remains in the wallpaper-quality and rounded-type scope. The unavoidable source-to-panel upscale is a source-resolution constraint, not a rendering regression.
+Fixes: enlarged and optically recentered the avatar; widened and raised the password capsule; added a focus-responsive divider; strengthened glass fill, edge, and shadow tokens; increased the clock and supporting type scale; clarified the helper line; and unified the bottom action sizes and glass weights.
+
+### Pass 2 — passed
+
+Post-fix evidence is recorded in the full-view and focused comparison files listed above. No actionable P0, P1, or P2 visual differences remain.
+
+### Pass 3 — passed
+
+The secure-parity follow-up confirms the selected avatar is present on the first captured frame and the password-field divider remains visible. Battery hover geometry now measures the complete rendered percentage label, including the three-digit `100%` state, instead of assuming a two-digit fixed width. The accepted composition and density are unchanged.
+
+### Pass 4 — passed
+
+The bottom-corner actions retain their accepted pill sizes and screen anchors. Their icon and label are now centered as one measured visual group, so the power icon moves farther inward for the short `Sleep` label while the wider `Switch user` group receives the smaller optical correction appropriate to its label width.
+
+### Pass 5 — passed
+
+The exact nine-file polished runtime was recovered from `/home/magetsu/Projects/MahoOS-guardian`, matched against the live deployed runtime, and promoted into PR #17. The centered bottom action group, larger glass controls, first-frame avatar loading, battery-label hover geometry, and accepted 2560 × 1600 composition are present in the recovered branch capture. The corrupt 12 KB fallback blob was replaced with a valid 1672 × 941 sRGB JPEG, and a JPEG-signature/truncation contract now prevents recurrence.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed. The clean native-rendered clock, bundled Nunito UI face, optical weights, and hierarchy align with the target. Dynamic time and greeting content intentionally remain real.
+- Spacing and layout rhythm: passed. The original composition is unchanged; the avatar, input, button, helper line, and bottom utilities now match the target's visual proportions and grouping.
+- Colors and visual tokens: passed. The central veil is stronger without becoming a card, and glass/foreground contrast remains cool, translucent, and wallpaper-aware.
+- Image quality and asset fidelity: passed. The active wallpaper crop and right-side character placement are preserved; the avatar uses the existing high-resolution masked source and SVG icon family. The bundled fallback is now valid JPEG data and launches without the previous decode error.
+- Copy and content: passed. Labels match the target's functional wording, while live time, greeting, keyboard layout, battery, and network values remain system-driven.
+- Interaction states: passed by native preview and lock contracts. Initial password focus was confirmed in runtime logs; hover/press/focus/error behaviors remain wired through the existing components.
+- Accessibility: passed for this scope. Contrast and target sizes improved, the password field retains keyboard focus and Enter/Escape behavior, and no persistent controls overlap at the native 1600 x 1000 logical viewport.
 
 ## Follow-up polish
 
-- P3: for literal 1:1 panel detail, use a wallpaper at least 2560 × 1600 (or larger with a compatible crop). The current 1672 × 941 source now receives the best faithful scaling available without inventing detail.
+- P3: The 16:9 source and the user's native 16:10 display necessarily show slightly different vertical whitespace; the hierarchy and anchors remain equivalent.
+
+## Implementation checklist
+
+- [x] Preserve wallpaper and composition.
+- [x] Strengthen the central atmospheric veil.
+- [x] Improve clock, supporting text, and top-status clarity.
+- [x] Enlarge and integrate the avatar.
+- [x] Improve password glass, icons, divider, and alignment.
+- [x] Strengthen the unlock control and helper line.
+- [x] Unify bottom utility pills.
+- [x] Run all Maho Lock contract tests.
+- [x] Eliminate first-frame fallback-avatar flash.
+- [x] Size the battery hover surface from the complete percentage label.
+- [x] Verify source/runtime parity through the permanent installer.
+- [x] Geometrically center the bottom action icon-and-label groups.
+- [x] Recover the exact polished runtime into PR #17.
+- [x] Replace the invalid fallback blob with decodable JPEG data and a regression contract.
 
 final result: passed

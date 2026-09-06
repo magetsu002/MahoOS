@@ -12,6 +12,8 @@ Item {
     property string statusTitle: ""
     property string statusDetail: ""
     property real chargingPulse: 1
+    property real statusLabelWidth: 0
+    property real statusLabelGap: 0
 
     readonly property bool hovered: pointer.containsMouse
     readonly property bool pressed: pointer.pressed
@@ -39,6 +41,8 @@ Item {
     readonly property bool statusInteractive:
         name === "wifi" || name === "battery" || name === "keyboard"
     readonly property bool statusParticipant: statusInteractive
+    readonly property real statusContentWidth:
+        width + Math.max(0, statusLabelGap) + Math.max(0, statusLabelWidth)
 
     // The visible glyphs move apart slightly, but layout remains anchored to
     // the accepted compact target composition.
@@ -57,7 +61,7 @@ Item {
     // clear negative space between Wi-Fi, battery and keyboard.
     readonly property real interactionWidth: {
         if (name === "battery")
-            return 64
+            return Math.max(64, statusContentWidth + 14)
         if (name === "keyboard")
             return 52
         if (name === "wifi")
@@ -77,7 +81,7 @@ Item {
 
     readonly property real hoverWidth: {
         if (name === "battery")
-            return 58
+            return Math.max(58, statusContentWidth + 8)
         if (name === "keyboard")
             return 46
         if (name === "wifi")

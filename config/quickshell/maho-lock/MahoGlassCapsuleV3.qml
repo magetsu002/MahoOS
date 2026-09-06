@@ -12,8 +12,8 @@ Rectangle {
     property real errorAmount: 0
 
     readonly property real fillAlpha: root.strong
-        ? (root.pressed ? 0.28 : (root.hovered ? 0.25 : 0.22))
-        : (root.focused ? 0.27 : 0.21)
+        ? (root.pressed ? 0.32 : (root.hovered ? 0.29 : 0.26))
+        : (root.focused ? 0.31 : 0.24)
 
     readonly property color neutral: Qt.rgba(0.804, 0.910, 1.000, 1)
     readonly property color calmTint: root.theme.mix(
@@ -33,13 +33,13 @@ Rectangle {
     border.color: root.errorAmount > 0.01
         ? root.theme.alpha(root.theme.error, 0.42 * root.errorAmount)
         : (root.focused
-            ? Qt.rgba(0.882, 0.953, 1.000, 0.55)
-            : Qt.rgba(0.882, 0.953, 1.000, root.strong ? 0.40 : 0.46))
+            ? Qt.rgba(0.882, 0.953, 1.000, 0.64)
+            : Qt.rgba(0.882, 0.953, 1.000, root.strong ? 0.50 : 0.46))
 
     layer.enabled: true
     layer.effect: MultiEffect {
         shadowEnabled: true
-        shadowOpacity: root.strong ? 0.15 : 0.19
+        shadowOpacity: root.strong ? 0.18 : 0.22
         shadowBlur: 0.82
         shadowHorizontalOffset: 0
         shadowVerticalOffset: 5

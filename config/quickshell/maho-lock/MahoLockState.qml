@@ -24,12 +24,15 @@ Scope {
     property string networkName: ""
     property string keyboardLayout: "US"
     property var switchUserCommand: []
-    property string selectedLockWallpaperPath: ""
-    property string avatarPath: ""
+    // Profile choices are tiny local JSON and must be available before the
+    // secure surface presents its first frame. The slower ambient probe still
+    // refreshes network/layout data afterward.
+    property string selectedLockWallpaperPath: profile.wallpaperPath
+    property string avatarPath: profile.avatarPath
     property var avatarCandidates: []
 
-    property string avatarBrowsePath: ""
-    property string wallpaperBrowsePath: ""
+    property string avatarBrowsePath: profile.avatarBrowsePath
+    property string wallpaperBrowsePath: profile.wallpaperBrowsePath
     property string browserMode: "avatar"
     property string browserPath: ""
     property string browserParent: ""
@@ -182,6 +185,21 @@ Scope {
     function switchUser() {
         if (switchUserCommand.length > 0 && !switchUserProcess.running)
             switchUserProcess.exec(switchUserCommand)
+    }
+
+    FileView {
+        path: state.stateHome() + "/maho/lock/profile.json"
+        watchChanges: true
+        blockLoading: true
+        onFileChanged: reload()
+
+        JsonAdapter {
+            id: profile
+            property string wallpaperPath: ""
+            property string avatarPath: ""
+            property string avatarBrowsePath: ""
+            property string wallpaperBrowsePath: ""
+        }
     }
 
     FileView {
