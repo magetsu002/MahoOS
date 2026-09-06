@@ -41,7 +41,12 @@ for suite in "${SUITES[@]}"; do
   fi
 done
 
-python - "$OUT/report.json" "$results" "$pass_markers" "${GITHUB_SHA:-unknown}" <<'PY'
+source_revision="${MAHO_SOURCE_REVISION:-${GITHUB_SHA:-}}"
+if [ -z "$source_revision" ]; then
+  source_revision="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+fi
+
+python - "$OUT/report.json" "$results" "$pass_markers" "$source_revision" <<'PY'
 import json
 import pathlib
 import sys
