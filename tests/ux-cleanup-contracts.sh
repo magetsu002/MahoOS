@@ -5,11 +5,13 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CLIP_BACKEND="$ROOT/config/quickshell/maho-clipboard/clipboard.py"
 CLIP_STATE="$ROOT/config/quickshell/maho-clipboard/ClipboardState.qml"
 CLIP_PANEL="$ROOT/config/quickshell/maho-clipboard/ClipboardPanel.qml"
+CLIP_PIN_GLYPH="$ROOT/config/quickshell/maho-clipboard/ClipboardPinGlyph.qml"
 LAUNCHER_ROW="$ROOT/config/quickshell/maho-launcher/LauncherResultRow.qml"
 LAUNCHER_WINDOW="$ROOT/config/quickshell/maho-launcher/MahoLauncherWindow.qml"
 LAUNCHER_SHELL="$ROOT/config/quickshell/maho-launcher/shell.qml"
 LAUNCHER_BACKDROP="$ROOT/config/quickshell/maho-launcher/LauncherBackdrop.qml"
 LAUNCHER_BIN="$ROOT/bin/maho-launcher"
+MAHO_SHELL="$ROOT/config/quickshell/maho-shell/shell.qml"
 
 fail() {
     printf 'FAIL  %s\n' "$*" >&2
@@ -78,6 +80,13 @@ assert "line two" in rows["8"]["search"]
 PY
 printf '%s\n' 'PASS  Clipboard short/multiline/leading-newline/whitespace previews'
 
+printf '%s\n' '=== Clipboard pin discoverability contract ==='
+require_text "$CLIP_PANEL" 'ClipboardPinGlyph {' 'clipboard row pin affordance is missing'
+require_text "$CLIP_PANEL" 'root.clipboardState.togglePin(row.modelData)' 'clipboard pin affordance is not actionable'
+require_text "$CLIP_PIN_GLYPH" 'Math.max(0.90, glyphColor.a)' 'unpinned glyph can fade below readable opacity'
+require_text "$CLIP_PIN_GLYPH" 'Math.max(1.7, geometry.width * 0.10)' 'pin geometry regressed to hairline weight'
+printf '%s\n' 'PASS  Clipboard pin action stays visibly discoverable'
+
 printf '%s\n' '=== Launcher canonical activation contract ==='
 # activateItem(index) performs the authoritative backend lookup. Both Enter
 # and a single left click feed only an index into that same path.
@@ -92,6 +101,11 @@ require_text "$LAUNCHER_ROW" 'root.hovered(root.index)' 'click does not update v
 require_text "$LAUNCHER_ROW" 'root.activated(root.index)' 'row does not publish its clicked index'
 reject_text "$LAUNCHER_ROW" 'modelData' 'delegate-local model data can still bypass authoritative lookup'
 printf '%s\n' 'PASS  keyboard and mouse converge on authoritative activateItem'
+
+printf '%s\n' '=== Maho Edge launcher routing contract ==='
+require_text "$MAHO_SHELL" '/.local/bin/maho-launcher' 'Maho Edge does not route Launcher through the managed current runtime'
+reject_text "$MAHO_SHELL" 'maho-rice-launcher' 'Maho Edge still routes to the obsolete rice launcher'
+printf '%s\n' 'PASS  Maho Edge and keyboard route to the managed Maho Launcher'
 
 printf '%s\n' '=== Launcher full-output blur contract ==='
 for edge in 'top: true' 'bottom: true' 'left: true' 'right: true'; do
