@@ -62,6 +62,57 @@ ApplicationWindow {
         })
     }
 
+    function closeSearch() {
+        searchField.text = ""
+        directoryModel.searchQuery = ""
+        searchVisible = false
+        Qt.callLater(function() {
+            if (root.viewMode === "grid")
+                grid.forceActiveFocus()
+            else
+                listView.forceActiveFocus()
+        })
+    }
+
+    function textEntryHasFocus() {
+        const active = root.activeFocusItem
+        return active === searchField || active === pathField || active === nameField
+    }
+
+    function handleBrowseKey(event) {
+        if (event.accepted || root.textEntryHasFocus() || namePopup.opened
+                || morePopup.opened || contextPopup.opened)
+            return
+
+        if (event.key === Qt.Key_Escape && root.searchVisible) {
+            root.closeSearch()
+            event.accepted = true
+            return
+        }
+
+        const blockedModifiers = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+        if ((event.modifiers & blockedModifiers) !== 0)
+            return
+
+        const typed = String(event.text || "")
+        if (typed.length === 0 || typed.charCodeAt(0) < 0x20
+                || typed.charCodeAt(0) === 0x7f)
+            return
+
+        if (!root.searchVisible)
+            searchField.text = typed
+        else
+            searchField.text += typed
+        root.searchVisible = true
+        directoryModel.searchQuery = searchField.text
+        event.accepted = true
+
+        Qt.callLater(function() {
+            searchField.forceActiveFocus()
+            searchField.cursorPosition = searchField.text.length
+        })
+    }
+
     readonly property color familyShell: mix(surfaceElevated, baseBackground, lightMode ? 0.28 : 0.48)
     readonly property color shellFill: alpha(familyShell, lightMode ? 0.72 : 0.60)
     readonly property color sidebarFill: alpha(mix(surfaceElevated, baseBackground, 0.55), lightMode ? 0.48 : 0.42)
@@ -609,6 +660,8 @@ ApplicationWindow {
         border.color: root.quietRim
         clip: true
 
+        Keys.onPressed: function(event) { root.handleBrowseKey(event) }
+
         Rectangle {
             anchors.fill: parent
             radius: shell.radius
@@ -807,9 +860,7 @@ ApplicationWindow {
                         selectByMouse: true
                         onTextEdited: directoryModel.searchQuery = text
                         Keys.onEscapePressed: {
-                            text = ""
-                            directoryModel.searchQuery = ""
-                            root.searchVisible = false
+                            root.closeSearch()
                         }
                     }
                 }

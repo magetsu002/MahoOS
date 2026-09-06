@@ -142,6 +142,17 @@ for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X'
 done
 echo PASS
 
+echo "=== type-to-search ownership ==="
+require_text "$QML" 'function handleBrowseKey(event)' "shared printable-key search handoff is missing"
+require_text "$QML" 'Keys.onPressed: function(event) { root.handleBrowseKey(event) }' "browse surfaces do not route unhandled keys to search"
+require_text "$QML" 'root.textEntryHasFocus()' "type-to-search can steal focus from an existing text field"
+require_text "$QML" 'namePopup.opened' "type-to-search can interfere with rename/new-folder editing"
+require_text "$QML" 'Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier' "type-to-search does not protect keyboard shortcuts"
+require_text "$QML" 'searchField.text = typed' "first printable character is not inserted atomically"
+require_text "$QML" 'searchField.cursorPosition = searchField.text.length' "search cursor is not placed after the handed-off character"
+require_text "$QML" 'function closeSearch()' "Escape search cleanup is not shared"
+echo PASS
+
 echo "=== canonical desktop identity ==="
 require_text "$MAIN_CPP" 'setDesktopFileName(QStringLiteral("io.maho.Files"))' "Wayland desktop identity drifted from io.maho.Files"
 require_text "$DESKTOP" 'Name=Maho Files' "desktop entry is not branded as Maho Files"
