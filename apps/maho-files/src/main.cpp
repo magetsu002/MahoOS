@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QCommandLineOption>
 #include <QFileInfo>
 #include <QIcon>
 #include <QImage>
@@ -13,6 +14,7 @@
 #include <QQmlContext>
 #include <QQuickImageProvider>
 #include <QQuickStyle>
+#include <QTimer>
 #include <QUrl>
 
 #include <KFilePlacesModel>
@@ -217,11 +219,12 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    QApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("MahoOS"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("maho.local"));
     QCoreApplication::setApplicationName(QStringLiteral("Maho Files"));
     QApplication::setDesktopFileName(QStringLiteral("io.maho.Files"));
+
+    QApplication application(argc, argv);
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
@@ -229,6 +232,10 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(QStringLiteral("Maho Files — native QML frontend over KDE KIO"));
     parser.addHelpOption();
     parser.addVersionOption();
+    const QCommandLineOption shutdownTestOption(
+        QStringLiteral("test-shutdown-after-load"),
+        QStringLiteral("Exit after the initial model load for shutdown diagnostics."));
+    parser.addOption(shutdownTestOption);
     parser.addPositionalArgument(QStringLiteral("location"), QStringLiteral("Folder or KIO URL to open."), QStringLiteral("[location]"));
     parser.process(application);
 
@@ -253,5 +260,7 @@ int main(int argc, char *argv[])
                      Qt::QueuedConnection);
 
     engine.loadFromModule(QStringLiteral("Maho.Files"), QStringLiteral("Main"));
+    if (parser.isSet(shutdownTestOption))
+        QTimer::singleShot(350, &application, &QCoreApplication::quit);
     return application.exec();
 }

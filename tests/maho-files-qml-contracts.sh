@@ -157,10 +157,12 @@ echo PASS
 echo "=== canonical desktop identity ==="
 require_text "$MAIN_CPP" 'setDesktopFileName(QStringLiteral("io.maho.Files"))' "Wayland desktop identity drifted from io.maho.Files"
 require_text "$DESKTOP" 'Name=Maho Files' "desktop entry is not branded as Maho Files"
-require_text "$DESKTOP" 'Exec=maho-files run %U' "desktop entry does not route through the bounded wrapper"
+require_text "$DESKTOP" 'Exec=maho-files %U' "standalone desktop entry does not launch the native binary directly"
 require_text "$DESKTOP" 'MimeType=inode/directory;' "desktop entry does not advertise directory capability"
 require_text "$CMAKE" 'io.maho.Files.desktop' "desktop identity is not installed with the native app"
 require_text "$CMAKE" '${CMAKE_INSTALL_DATADIR}/applications' "desktop entry install target is not XDG applications"
+require_text "$MODEL_H" '~MahoDirectoryModel() override' "directory model has no explicit safe shutdown"
+require_text "$MODEL_CPP" 'disconnect(&m_lister, nullptr, this, nullptr)' "KIO callbacks survive into destroyed item storage"
 reject_text "$WRAPPER" 'xdg-mime default' "preview/install wrapper must not silently change the user's default file manager"
 echo PASS
 

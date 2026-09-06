@@ -51,6 +51,8 @@ jobs:
           pacman -Qip "$package"
           bsdtar -tf "$package" | sed 's#^\./##' > /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-install' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/bin/maho-files' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/share/applications/io.maho.Files.desktop' /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-platform' /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-recovery' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/bin/maho-setup' /tmp/maho-package-files.txt
@@ -75,6 +77,8 @@ jobs:
           package="$(find dist -maxdepth 1 -type f -name 'maho-os-*.pkg.tar.*' ! -name 'maho-os-debug-*' -print -quit)"
           pacman -Udd --noconfirm "$package"
           test -x /usr/bin/maho-install
+          test -x /usr/bin/maho-files
+          test -r /usr/share/applications/io.maho.Files.desktop
           test -x /usr/bin/maho-platform
           test -x /usr/bin/maho-recovery
           test -r /usr/lib/maho/bin/maho-setup

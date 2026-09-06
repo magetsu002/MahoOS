@@ -347,8 +347,8 @@ grep -Fq 'MAHO_NOTIFY_CONFIG_DIR="$MAHO_ROOT/config/quickshell/maho-notify"' "$H
 grep -Fq live-notify-owner "$NOTIFY_TARGET/owner.txt" || fail 'live-owned Notify directory was modified'
 [ -L "$SHELL_TARGET" ] && [ "$(readlink "$SHELL_TARGET")" = "$CURRENT/config/quickshell/maho-shell" ] || fail 'Shell does not route through runtime/current'
 [ -L "$HYPR_SESSION" ] && [ "$(readlink "$HYPR_SESSION")" = "$CURRENT/config/hypr/maho/core/session.lua" ] || fail 'Hyprland session hook does not route through runtime/current'
-[ -L "$FILES_DESKTOP_TARGET" ] && [ "$(readlink "$FILES_DESKTOP_TARGET")" = "$CURRENT/apps/maho-files/io.maho.Files.desktop" ] || fail 'Files desktop entry does not route through runtime/current'
-grep -Fq 'Exec=maho-files run %U' "$FILES_DESKTOP_TARGET" || fail 'Files desktop command regressed'
+[ -f "$FILES_DESKTOP_TARGET" ] && [ ! -L "$FILES_DESKTOP_TARGET" ] || fail 'Files desktop entry is not a portal-resolvable generated file'
+grep -Fqx "Exec=$HOME/.local/bin/maho-files run %U" "$FILES_DESKTOP_TARGET" || fail 'Files desktop command is not absolute'
 grep -Fq 'StartupWMClass=io.maho.Files' "$FILES_DESKTOP_TARGET" || fail 'Files desktop identity regressed'
 for unit in "${UNITS[@]}"; do target="$UNIT_DIR/$unit"; [ -L "$target" ] || fail "unit not runtime-managed: $unit"; [ "$(readlink "$target")" = "$CURRENT/systemd/user/$unit" ] || fail "unit bypasses runtime/current: $unit"; done
 for unit in "${CORE_UNITS[@]}"; do
@@ -380,7 +380,11 @@ capture_live_state "$TMP/before-unmanaged-files"
 if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer overwrote unrelated Files desktop entry'; fi
 capture_live_state "$TMP/after-unmanaged-files"
 cmp -s "$TMP/before-unmanaged-files" "$TMP/after-unmanaged-files" || fail 'failed Files validation mutated wiring'
-rm -f "$FILES_DESKTOP_TARGET"; ln -s "$CURRENT/apps/maho-files/io.maho.Files.desktop" "$FILES_DESKTOP_TARGET"
+rm -f "$FILES_DESKTOP_TARGET"
+awk -v command="$HOME/.local/bin/maho-files" '
+  /^Exec=/ { print "Exec=" command " run %U"; next }
+  { print }
+' "$ROOT/apps/maho-files/io.maho.Files.desktop" >"$FILES_DESKTOP_TARGET"
 echo PASS
 
 echo '=== static session contracts ==='
