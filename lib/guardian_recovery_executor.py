@@ -105,6 +105,17 @@ def execute_guardian_recovery(
             reason="Certified service is not loaded in the user systemd manager; no restart was attempted.",
         )
 
+    failed = _run(runner, ("systemctl", "--user", "is-failed", "--quiet", target))
+    if failed.returncode != 0:
+        return RecoveryExecution(
+            action=action,
+            target=target,
+            attempted=False,
+            verified=False,
+            status="precondition-failed",
+            reason="Certified service has not reached systemd failed state; Guardian will not race systemd or restart a healthy unit.",
+        )
+
     restart = _run(runner, ("systemctl", "--user", "restart", target))
     if restart.returncode != 0:
         return RecoveryExecution(
@@ -133,7 +144,7 @@ def execute_guardian_recovery(
         attempted=True,
         verified=True,
         status="verified",
-        reason="Certified service restart completed and the active-state postcondition was verified.",
+        reason="Certified failed service restart completed and the active-state postcondition was verified.",
     )
 
 

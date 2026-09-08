@@ -63,9 +63,18 @@ def main() -> None:
 
     runner = FakeRunner([result(0, "loaded\n"), result(1)])
     execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
+    check(
+        "healthy or recovering service is never restarted",
+        execution.status == "precondition-failed"
+        and not execution.attempted
+        and runner.calls[-1] == ("systemctl", "--user", "is-failed", "--quiet", "maho-notify.service"),
+    )
+
+    runner = FakeRunner([result(0, "loaded\n"), result(0), result(1)])
+    execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
     check("failed restart is attempted but never verified", execution.status == "action-failed" and execution.attempted and not execution.verified)
 
-    runner = FakeRunner([result(0, "loaded\n"), result(0), result(3)])
+    runner = FakeRunner([result(0, "loaded\n"), result(0), result(0), result(3)])
     execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
     history = recovery_history_record(execution)
     check(
@@ -76,7 +85,7 @@ def main() -> None:
         and history["verified"] is False,
     )
 
-    runner = FakeRunner([result(0, "loaded\n"), result(0), result(0)])
+    runner = FakeRunner([result(0, "loaded\n"), result(0), result(0), result(0)])
     execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
     history = recovery_history_record(execution)
     check(
@@ -90,6 +99,7 @@ def main() -> None:
         "executor uses only exact bounded systemd argv",
         runner.calls == [
             ("systemctl", "--user", "show", "maho-notify.service", "--property=LoadState", "--value"),
+            ("systemctl", "--user", "is-failed", "--quiet", "maho-notify.service"),
             ("systemctl", "--user", "restart", "maho-notify.service"),
             ("systemctl", "--user", "is-active", "--quiet", "maho-notify.service"),
         ],

@@ -25,6 +25,7 @@ def main() -> None:
         entry is not None
         and entry.action == "restart-service"
         and entry.max_consecutive_failures == 2
+        and entry.precondition == "systemd-user-failed"
         and entry.postcondition == "systemd-user-active",
     )
     check("external service cannot self-certify", certified_service_recovery("external.service") is None)

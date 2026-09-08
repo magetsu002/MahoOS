@@ -16,6 +16,7 @@ class CertifiedServiceRecovery:
     unit: str
     action: str
     max_consecutive_failures: int
+    precondition: str
     postcondition: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -27,6 +28,7 @@ _SERVICE_RECOVERIES = {
         unit="maho-notify.service",
         action="restart-service",
         max_consecutive_failures=2,
+        precondition="systemd-user-failed",
         postcondition="systemd-user-active",
     ),
 }
