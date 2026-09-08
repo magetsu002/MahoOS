@@ -67,6 +67,21 @@ def _journal_argv(cursor: str) -> list[str]:
     return argv
 
 
+def _decode_chunk(buffer: bytes, chunk: bytes) -> tuple[bytes, list[dict]]:
+    """Drain every complete JSON line already delivered by journalctl."""
+    parts = (buffer + chunk).split(b"\n")
+    remainder = parts.pop()
+    rows = []
+    for line in parts:
+        try:
+            raw = json.loads(line)
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(raw, dict):
+            rows.append(raw)
+    return remainder, rows
+
+
 def _startup_reconcile(store: ServiceIncidentStore, boot_id: str) -> None:
     now = time.time()
     for unit in certified_service_units():
@@ -105,35 +120,32 @@ def watch(root: Path) -> int:
     _startup_reconcile(store, _boot_id())
     process = subprocess.Popen(
         _journal_argv(cursor), stdout=subprocess.PIPE, stderr=sys.stderr,
-        text=True, bufsize=1,
+        bufsize=0,
     )
     if process.stdout is None:
         return 1
+    buffer = b""
     try:
         while True:
-            _verify_due(store)
             deadline = store.next_deadline()
             timeout = 30.0 if deadline is None else max(0.0, min(30.0, deadline - time.time()))
             ready, _, _ = select.select([process.stdout], [], [], timeout)
             if not ready:
+                _verify_due(store)
                 if process.poll() is not None:
                     return process.returncode or 1
                 continue
-            line = process.stdout.readline()
-            if not line:
+            chunk = os.read(process.stdout.fileno(), 65536)
+            if not chunk:
                 return process.wait() or 1
-            try:
-                raw = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(raw, dict):
-                continue
-            event = normalize_journal_event(raw)
-            if event is not None:
-                store.process(event, now=time.time())
-            event_cursor = raw.get("__CURSOR")
-            if isinstance(event_cursor, str) and event_cursor:
-                _atomic_private(cursor_path, event_cursor + "\n")
+            buffer, rows = _decode_chunk(buffer, chunk)
+            for raw in rows:
+                event = normalize_journal_event(raw)
+                if event is not None:
+                    store.process(event, now=time.time())
+                event_cursor = raw.get("__CURSOR")
+                if isinstance(event_cursor, str) and event_cursor:
+                    _atomic_private(cursor_path, event_cursor + "\n")
     finally:
         if process.poll() is None:
             process.terminate()

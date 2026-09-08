@@ -19,7 +19,7 @@ from guardian_service_incident import (  # noqa: E402
     incident_identity,
     normalize_journal_event,
 )
-from guardian_service_watcher import _journal_argv  # noqa: E402
+from guardian_service_watcher import _decode_chunk, _journal_argv  # noqa: E402
 
 BOOT_A = "a" * 32
 BOOT_B = "b" * 32
@@ -71,6 +71,9 @@ def main():
     watcher_source = (ROOT / "lib/guardian_service_watcher.py").read_text()
     incident_source = (ROOT / "lib/guardian_service_incident.py").read_text()
     check("delegated watcher contains no direct restart command", '"restart"' not in watcher_source and '"restart"' not in incident_source)
+    burst = b"prefix" + b' suffix"}\n{"one":1}\n{"two":2}\npartial'
+    remainder, rows = _decode_chunk(b'{"zero":0,"text":"', burst)
+    check("one readable journal burst drains every complete event", rows == [{"zero": 0, "text": "prefix suffix"}, {"one": 1}, {"two": 2}] and remainder == b"partial")
     check("identity is deterministic", incident_identity(BOOT_A, "maho-notify.service", FAILED_A) == incident_identity(BOOT_A, "maho-notify.service", FAILED_A))
     check("different failed invocation is distinct", incident_identity(BOOT_A, "maho-notify.service", FAILED_A) != incident_identity(BOOT_A, "maho-notify.service", FAILED_B))
     check("new boot is a separate namespace", incident_identity(BOOT_A, "maho-notify.service", FAILED_A) != incident_identity(BOOT_B, "maho-notify.service", FAILED_A))
