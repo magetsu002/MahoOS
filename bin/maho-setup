@@ -276,14 +276,15 @@ validate_targets() {
 }
 
 build_release() {
-  local stage hash final revision provenance dir native_build
+  local stage hash final revision provenance dir native_build source_key
   mkdir -p "$RELEASES"; stage="$RELEASES/.staging-$$"; mkdir -m 0755 "$stage"
   for dir in bin lib adapters config theme systemd share apps; do [ -e "$ROOT/$dir" ] && cp -a -- "$ROOT/$dir" "$stage/$dir"; done
   find "$stage" -type d -name __pycache__ -prune -exec rm -rf -- {} +
   find "$stage" -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.qmlls.ini' \) -delete
 
   if [ ! -x "$stage/apps/maho-files/prebuilt/maho-files" ]; then
-    native_build="${XDG_CACHE_HOME:-$HOME/.cache}/maho/files-release-build"
+    source_key="$(printf '%s\n' "$ROOT/apps/maho-files" | sha256sum | awk '{print $1}')"
+    native_build="${XDG_CACHE_HOME:-$HOME/.cache}/maho/files-release-build-$source_key"
     if ! cmake -S "$ROOT/apps/maho-files" -B "$native_build" -G Ninja -DCMAKE_BUILD_TYPE=Release >&2 ||
        ! cmake --build "$native_build" --parallel >&2; then
       rm -rf -- "$stage"

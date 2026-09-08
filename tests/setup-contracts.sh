@@ -215,10 +215,14 @@ export MAHO_SDDM_ALLOW_UNPRIVILEGED=1
 export MAHO_SDDM_THEME_ROOT="$TMP/sddm/themes"
 export MAHO_SDDM_CONFIG_ROOT="$TMP/sddm/config"
 export MAHO_SDDM_STATE_ROOT="$TMP/sddm/state"
+LEGACY_NATIVE_BUILD="$XDG_CACHE_HOME/maho/files-release-build"
+mkdir -p "$LEGACY_NATIVE_BUILD"
+printf '%s\n' 'CMAKE_HOME_DIRECTORY:INTERNAL=/definitely/foreign/checkout/apps/maho-files' >"$LEGACY_NATIVE_BUILD/CMakeCache.txt"
 bash "$ROOT/bin/maho-setup" install --with-sddm >/dev/null
 [ -x "$HOME/.local/bin/maho-lock-sddm-install" ] || fail 'SDDM installer command was omitted from the managed runtime'
 grep -Fxq 'Current=maho-lock' "$MAHO_SDDM_CONFIG_ROOT/90-maho-lock.conf" || \
   fail 'explicit setup did not persist the Maho Lock SDDM theme'
+[ -f "$LEGACY_NATIVE_BUILD/CMakeCache.txt" ] || fail 'setup unexpectedly consumed legacy global Maho Files CMake cache'
 bash "$ROOT/bin/maho-lock-sddm-install" status >/dev/null || \
   fail 'explicit setup left SDDM integration unverifiable'
 unset MAHO_SDDM_ALLOW_UNPRIVILEGED MAHO_SDDM_THEME_ROOT MAHO_SDDM_CONFIG_ROOT MAHO_SDDM_STATE_ROOT
