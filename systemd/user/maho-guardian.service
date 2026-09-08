@@ -1,0 +1,11 @@
+[Unit]
+Description=Maho Guardian delegated service recovery observer
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-guardian-watch watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

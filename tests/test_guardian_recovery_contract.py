@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_engine import evaluate_guardian  # noqa: E402
 from maho_recovery_policy import decide_recovery  # noqa: E402
+from test_guardian_service_incident import main as service_incident_contracts  # noqa: E402
 
 
 def effective_automatic_mutation(guardian_state: dict, recovery_state: dict) -> bool:
@@ -143,6 +144,8 @@ def main() -> None:
         "L4 never becomes automatic mutation even with a known fallback",
         not effective_automatic_mutation(catastrophic, kernel_fallback),
     )
+
+    service_incident_contracts()
 
     print("ALL GUARDIAN/RECOVERY COMPATIBILITY CONTRACTS PASS")
 

@@ -23,12 +23,12 @@ FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
 
 COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
-  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard
+  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-clipboard
   maho-clipboard-history maho-setup
 )
-CORE_UNITS=(maho-observe.service maho-security.service)
+CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 GRAPHICAL_UNITS=(
   maho-awww-daemon.service
   maho-wallpaper.service
@@ -251,6 +251,7 @@ preflight() {
   python_parse_only \
     "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" "$ROOT/lib/security_incident.py" \
     "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
+    "$ROOT/lib/guardian_service_incident.py" "$ROOT/lib/guardian_service_watcher.py" \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
@@ -259,7 +260,7 @@ preflight() {
     "$ROOT/lib/decision.sh" "$ROOT/lib/policy.sh" "$ROOT/lib/cycle.sh" "$ROOT/lib/transaction.sh" \
     "$ROOT/adapters/appearance/wallpaper-theme.sh" >/dev/null 2>&1 || { echo "FAIL  shared shell syntax"; failed=1; }
   [ "$failed" -eq 0 ] && echo "PASS  preflight"
-  for name in quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
+  for name in journalctl quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
   return "$failed"
 }
 

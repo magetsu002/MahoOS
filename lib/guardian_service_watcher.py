@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""Event-driven Guardian watcher for certified delegated service recovery."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import sys
+import time
+
+ROOT = Path(os.environ.get("MAHO_ROOT", Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(ROOT / "lib"))
+
+from guardian_recovery_registry import certified_service_recovery, certified_service_units  # noqa: E402
+from guardian_service_incident import (  # noqa: E402
+    ServiceIncidentStore,
+    ServiceSnapshot,
+    _atomic_private,
+    normalize_journal_event,
+)
+
+
+def state_root() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "maho/security"
+
+
+def snapshot(unit: str) -> ServiceSnapshot:
+    argv = [
+        "systemctl", "--user", "show", unit,
+        "--property=LoadState", "--property=ActiveState", "--property=SubState",
+        "--property=Result", "--property=InvocationID", "--property=Restart",
+    ]
+    result = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=10)
+    values = {}
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            key, separator, value = line.partition("=")
+            if separator:
+                values[key] = value
+    return ServiceSnapshot(
+        unit=unit,
+        load_state=values.get("LoadState", "unknown"),
+        active_state=values.get("ActiveState", "unknown"),
+        sub_state=values.get("SubState", "unknown"),
+        result=values.get("Result", "unknown"),
+        invocation_id=values.get("InvocationID", ""),
+        restart=values.get("Restart", "unknown"),
+    )
+
+
+def _boot_id() -> str:
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip().replace("-", "")
+
+
+def _cursor_path(root: Path) -> Path:
+    return root / "guardian" / "service-events" / "journal.cursor"
+
+
+def _journal_argv(cursor: str) -> list[str]:
+    argv = ["journalctl", "--user", "--follow", "--output=json", "--no-pager"]
+    for unit in certified_service_units():
+        argv.extend(["--unit", unit])
+    argv.append(f"--after-cursor={cursor}" if cursor else "--lines=0")
+    return argv
+
+
+def _startup_reconcile(store: ServiceIncidentStore, boot_id: str) -> None:
+    now = time.time()
+    for unit in certified_service_units():
+        current = snapshot(unit)
+        contract = certified_service_recovery(unit)
+        if (
+            contract is not None
+            and current.load_state == "loaded"
+            and current.active_state == "activating"
+            and current.sub_state == "auto-restart"
+            and current.result not in {"", "success"}
+            and len(current.invocation_id) == 32
+        ):
+            base = {
+                "unit": unit,
+                "boot_id": boot_id,
+                "invocation_id": current.invocation_id,
+                "result": current.result,
+                "timestamp_usec": "0",
+                "cursor": "",
+            }
+            store.process({**base, "kind": "failed"}, now=now)
+            store.process({**base, "kind": "recovering"}, now=now)
+
+
+def _verify_due(store: ServiceIncidentStore) -> None:
+    now = time.time()
+    for state in store.due_verifications(now):
+        store.verify(state, snapshot(str(state["unit"])))
+
+
+def watch(root: Path) -> int:
+    store = ServiceIncidentStore(root)
+    cursor_path = _cursor_path(root)
+    cursor = cursor_path.read_text().strip() if cursor_path.is_file() else ""
+    _startup_reconcile(store, _boot_id())
+    process = subprocess.Popen(
+        _journal_argv(cursor), stdout=subprocess.PIPE, stderr=sys.stderr,
+        text=True, bufsize=1,
+    )
+    if process.stdout is None:
+        return 1
+    try:
+        while True:
+            _verify_due(store)
+            deadline = store.next_deadline()
+            timeout = 30.0 if deadline is None else max(0.0, min(30.0, deadline - time.time()))
+            ready, _, _ = select.select([process.stdout], [], [], timeout)
+            if not ready:
+                if process.poll() is not None:
+                    return process.returncode or 1
+                continue
+            line = process.stdout.readline()
+            if not line:
+                return process.wait() or 1
+            try:
+                raw = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            event = normalize_journal_event(raw)
+            if event is not None:
+                store.process(event, now=time.time())
+            event_cursor = raw.get("__CURSOR")
+            if isinstance(event_cursor, str) and event_cursor:
+                _atomic_private(cursor_path, event_cursor + "\n")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+
+
+def doctor() -> int:
+    failed = False
+    print("Maho Guardian delegated recovery watcher")
+    journal_available = shutil_which("journalctl") is not None
+    print("PASS  event source journalctl structured follow" if journal_available else "FAIL  event source journalctl unavailable")
+    failed = failed or not journal_available
+    for unit in certified_service_units():
+        contract = certified_service_recovery(unit)
+        current = snapshot(unit)
+        valid = contract is not None and current.load_state == "loaded" and current.restart == contract.expected_restart
+        print(("PASS  " if valid else "FAIL  ") + f"delegated contract {unit}")
+        failed = failed or not valid
+    print("INFO  Guardian issues no restart for delegated systemd-user recovery")
+    return 1 if failed else 0
+
+
+def shutil_which(name: str) -> str | None:
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = Path(directory) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="maho-guardian-watch")
+    parser.add_argument("command", choices=("watch", "doctor"))
+    parser.add_argument("--state-root", type=Path, default=state_root())
+    args = parser.parse_args()
+    return watch(args.state_root) if args.command == "watch" else doctor()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

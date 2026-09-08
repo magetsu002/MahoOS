@@ -35,12 +35,12 @@ chmod +x "$TMP/fake-bin/quickshell"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
-  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard
+  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-clipboard
   maho-clipboard-history maho-setup
 )
-CORE_UNITS=(maho-observe.service maho-security.service)
+CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 GRAPHICAL_UNITS=(maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service)
 SESSION_TARGET_UNIT=maho-hyprland-session.target
 UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "$SESSION_TARGET_UNIT")
@@ -180,7 +180,7 @@ ln -s "$CURRENT/config/quickshell/maho-shell" "$SHELL_TARGET"
 ln -s "$CURRENT/config/hypr/maho/core/session.lua" "$HYPR_SESSION"
 mkdir -p "$NOTIFY_TARGET"; printf '%s\n' live-notify-owner >"$NOTIFY_TARGET/owner.txt"; printf '%s\n' '// live Notify directory' >"$NOTIFY_TARGET/shell.qml"
 cp "$ROOT/apps/maho-files/io.maho.Files.desktop" "$FILES_DESKTOP_TARGET"
-for unit in maho-observe.service maho-security.service maho-dock.service maho-clipboard-history.service; do ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/default.target.wants/$unit"; done
+for unit in maho-observe.service maho-security.service maho-guardian.service maho-dock.service maho-clipboard-history.service; do ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/default.target.wants/$unit"; done
 for unit in maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-notify.service; do ln -s "$UNIT_DIR/$unit" "$UNIT_DIR/graphical-session.target.wants/$unit"; done
 printf '%s\n' '[Unit]' 'Description=Unrelated Waybar theme watcher' >"$UNIT_DIR/maho-waybar-theme.path"
 ln -s "$UNIT_DIR/maho-waybar-theme.path" "$UNIT_DIR/default.target.wants/maho-waybar-theme.path"
