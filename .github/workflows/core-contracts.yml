@@ -228,6 +228,7 @@ jobs:
             qt6-declarative \
             qt6-5compat \
             kio
+          useradd -m maho-ci
 
       - uses: actions/checkout@v4
 
@@ -235,4 +236,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash tests/setup-contracts.sh
+          runuser -u maho-ci -- env HOME=/home/maho-ci bash tests/setup-contracts.sh
