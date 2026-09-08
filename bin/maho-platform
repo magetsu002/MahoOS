@@ -160,6 +160,7 @@ import pathlib
 import sys
 
 module_path = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(module_path.parent))
 spec = importlib.util.spec_from_file_location("maho_recovery_policy", module_path)
 module = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
