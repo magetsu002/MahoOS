@@ -3,6 +3,13 @@ set -euo pipefail
 
 ROOT="${MAHO_PACKAGED_ROOT:-/usr/lib/maho}"
 SETUP="$ROOT/bin/maho-setup"
+WITH_SDDM=()
+
+case "${1:-}" in
+  "") ;;
+  --with-sddm) WITH_SDDM=(--with-sddm) ;;
+  *) echo "usage: maho-install [--with-sddm]" >&2; exit 2 ;;
+esac
 
 if [ ! -r "$SETUP" ]; then
   echo "maho-install: packaged MahoOS payload is missing: $SETUP" >&2
@@ -18,7 +25,7 @@ Unrelated user configuration is left untouched.
 EOF
 
 echo
-bash "$SETUP" install --adopt-live
+bash "$SETUP" install --adopt-live "${WITH_SDDM[@]}"
 
 echo
 if [ -x "$HOME/.local/bin/maho-setup" ]; then

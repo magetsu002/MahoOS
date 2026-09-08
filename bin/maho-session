@@ -37,6 +37,35 @@ wayland_ready() {
     [ -n "$display" ] && [ -S "$runtime/$display" ]
 }
 
+archive_hyprland_log() {
+    local signature runtime state boot source target temporary
+
+    signature="${HYPRLAND_INSTANCE_SIGNATURE:-$(systemctl --user show-environment 2>/dev/null | sed -n 's/^HYPRLAND_INSTANCE_SIGNATURE=//p')}"
+    case "$signature" in
+        ""|*[!A-Za-z0-9._-]*) return 0 ;;
+    esac
+
+    runtime="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+    source="$runtime/hypr/$signature/hyprland.log"
+    [ -r "$source" ] || return 0
+
+    boot="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
+    case "$boot" in
+        ""|*[!A-Fa-f0-9-]*) return 0 ;;
+    esac
+
+    state="${XDG_STATE_HOME:-$HOME/.local/state}/maho/session"
+    install -d -m 0700 "$state"
+    target="$state/hyprland-$boot.log"
+    temporary="$(mktemp "$state/.hyprland-$boot.XXXXXX")"
+    if tail -c 2097152 -- "$source" >"$temporary"; then
+        chmod 0600 "$temporary"
+        mv -f -- "$temporary" "$target"
+    else
+        rm -f -- "$temporary"
+    fi
+}
+
 start_session() {
     systemd_available || {
         echo "maho-session: systemd user manager unavailable" >&2
@@ -63,6 +92,7 @@ start_session() {
 
 stop_session() {
     systemd_available || return 0
+    archive_hyprland_log
     systemctl --user stop "$TARGET"
 
     systemctl --user unset-environment \

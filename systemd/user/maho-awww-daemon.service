@@ -6,7 +6,7 @@ ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=exec
-ExecStart=/usr/bin/awww-daemon
+ExecStart=/usr/bin/awww-daemon --no-cache
 ExecStartPost=%h/.local/bin/maho-session wait-awww
 Restart=on-failure
 RestartSec=2

@@ -66,7 +66,7 @@ PY
     img)
         path="${!#}"
         printf '%s\n' "$path" > "$MAHO_TEST_AWWW_STATE"
-        printf 'awww img %s\n' "$path" >> "$MAHO_TEST_COMMAND_LOG"
+        printf 'awww img %s\n' "$*" >> "$MAHO_TEST_COMMAND_LOG"
         ;;
     clear)
         rm -f "$MAHO_TEST_AWWW_STATE"
@@ -77,6 +77,23 @@ PY
         ;;
 esac
 EOF_AWWW
+
+cat > "$TMP/bin/ffmpeg" <<'EOF_FFMPEG'
+#!/usr/bin/env bash
+set -euo pipefail
+output="${!#}"
+source=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = -i ]; then
+        source="$2"
+        break
+    fi
+    shift
+done
+[ -n "$source" ]
+printf 'poster for %s\n' "$source" > "$output"
+printf 'ffmpeg %s\n' "$source" >> "$MAHO_TEST_COMMAND_LOG"
+EOF_FFMPEG
 
 cat > "$TMP/bin/mpvpaper" <<'EOF_MPV'
 #!/usr/bin/env bash
@@ -121,7 +138,7 @@ echo "=== image restore ==="
 write_state awww image "$IMAGE"
 bash "$ROOT/bin/maho-wallpaper-session" restore
 [ "$(cat "$MAHO_TEST_AWWW_STATE")" = "$IMAGE" ] || fail "image was not restored"
-grep -Fq "awww img $IMAGE" "$MAHO_TEST_COMMAND_LOG" || fail "awww image adapter did not run"
+grep -Fq "awww img --transition-type none $IMAGE" "$MAHO_TEST_COMMAND_LOG" || fail "image restore was not immediate"
 maho_event_last appearance | python -c '
 import json, sys
 e=json.load(sys.stdin)
@@ -168,6 +185,13 @@ write_state mpvpaper video "$VIDEO"
 : > "$MAHO_TEST_COMMAND_LOG"
 bash "$ROOT/bin/maho-wallpaper-session" restore
 grep -Fq "mpvpaper $VIDEO" "$MAHO_TEST_COMMAND_LOG" || fail "mpvpaper restore adapter did not run"
+BOOTSTRAP="$XDG_STATE_HOME/maho/wallpaper/bootstrap.jpg"
+[ -s "$BOOTSTRAP" ] || fail "video boot poster was not prepared"
+grep -Fq "awww img --transition-type none $BOOTSTRAP" "$MAHO_TEST_COMMAND_LOG" || fail "video poster was not shown before mpvpaper"
+! grep -Fq "awww clear" "$MAHO_TEST_COMMAND_LOG" || fail "video restore discarded its matching fallback poster"
+poster_line="$(grep -nF "awww img --transition-type none $BOOTSTRAP" "$MAHO_TEST_COMMAND_LOG" | cut -d: -f1)"
+video_line="$(grep -nF "mpvpaper $VIDEO" "$MAHO_TEST_COMMAND_LOG" | cut -d: -f1)"
+[ "$poster_line" -lt "$video_line" ] || fail "mpvpaper started before its matching poster"
 maho_event_last appearance | python -c '
 import json, sys
 e=json.load(sys.stdin)
@@ -175,6 +199,20 @@ assert e["kind"] == "wallpaper.restored"
 assert e["status"] == "verified"
 assert e["details"]["kind"] == "video"
 '
+echo "PASS"
+
+echo "=== stale video poster is regenerated ==="
+printf 'changed video\n' >> "$VIDEO"
+: > "$MAHO_TEST_COMMAND_LOG"
+bash "$ROOT/bin/maho-wallpaper-session" prepare
+grep -Fq "ffmpeg $VIDEO" "$MAHO_TEST_COMMAND_LOG" || fail "changed video reused a stale boot poster"
+echo "PASS"
+
+echo "=== daemon cannot replay its private cache ==="
+grep -Fq 'ExecStart=/usr/bin/awww-daemon --no-cache' "$ROOT/systemd/user/maho-awww-daemon.service" || \
+    fail "awww service can still replay an unrelated cached wallpaper"
+grep -Fq 'awww-daemon --no-cache' "$ROOT/bin/maho-wallpaper-session" || \
+    fail "fallback awww launch can still replay an unrelated cached wallpaper"
 echo "PASS"
 
 echo "ALL WALLPAPER RESTORE CONTRACTS PASS"

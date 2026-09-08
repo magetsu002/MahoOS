@@ -77,12 +77,37 @@ require_text "$SESSION_BIN" 'systemctl --user stop "$TARGET"' \
     "Maho session stop no longer stops its target"
 require_text "$SESSION_BIN" 'systemctl --user unset-environment' \
     "session shutdown no longer clears graphical environment"
+require_text "$SESSION_BIN" 'archive_hyprland_log' \
+    "session shutdown no longer preserves compositor evidence"
+require_text "$SESSION_BIN" 'tail -c 2097152 -- "$source"' \
+    "compositor evidence is no longer bounded"
 require_text "$SESSION_BIN" 'XDG_SESSION_DESKTOP' \
     "session desktop environment propagation was dropped"
 require_text "$SESSION_BIN" 'wait-awww)' \
     "awww readiness command was dropped"
 require_text "$SESSION_BIN" 'awww query' \
     "awww readiness command no longer probes the socket"
+echo "PASS"
+
+echo "=== failed-boot evidence survives the next login ==="
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/bin" "$TMP/runtime/hypr/test-signature" "$TMP/state"
+printf '%s\n' 'renderer probe from failed session' >"$TMP/runtime/hypr/test-signature/hyprland.log"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$TMP/bin/systemctl"
+chmod +x "$TMP/bin/systemctl"
+PATH="$TMP/bin:$PATH" \
+HOME="$TMP/home" \
+XDG_RUNTIME_DIR="$TMP/runtime" \
+XDG_STATE_HOME="$TMP/state" \
+HYPRLAND_INSTANCE_SIGNATURE=test-signature \
+    "$SESSION_BIN" stop
+BOOT_ID="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
+ARCHIVE="$TMP/state/maho/session/hyprland-$BOOT_ID.log"
+[ -f "$ARCHIVE" ] || fail "Hyprland log was not preserved across session shutdown"
+[ "$(stat -c '%a' "$ARCHIVE")" = 600 ] || fail "preserved Hyprland log is not private"
+grep -Fq 'renderer probe from failed session' "$ARCHIVE" \
+    || fail "preserved Hyprland log lost the compositor evidence"
 echo "PASS"
 
 echo "=== single graphical session target authority ==="
@@ -126,6 +151,8 @@ done
 
 require_text "$AWWW_UNIT" 'ExecStartPost=%h/.local/bin/maho-session wait-awww' \
     "awww service no longer waits for socket readiness"
+require_text "$AWWW_UNIT" 'ExecStart=/usr/bin/awww-daemon --no-cache' \
+    "awww service can replay an unrelated private cache at login"
 require_text "$WALLPAPER_UNIT" 'Requires=maho-awww-daemon.service' \
     "wallpaper service no longer requires awww"
 require_text "$SHELL_UNIT" 'SuccessExitStatus=143' \

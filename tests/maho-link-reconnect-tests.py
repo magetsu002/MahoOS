@@ -6,7 +6,9 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -119,5 +121,26 @@ with tempfile.TemporaryDirectory() as temporary:
         ["nmcli", "--wait", "15", "connection", "down", "uuid", PROFILE_UUID],
         ["nmcli", "--wait", "20", "connection", "up", "uuid", PROFILE_UUID, "ifname", "wlan0"],
     ]
+
+    # A password typed for an already-saved network must replace the stored
+    # secret before activation. Otherwise nmcli --ask silently reuses it.
+    wifi_calls.clear()
+    replaced = []
+    WIFI.matching_security = lambda _ssid: {
+        "ssid": "School Wi-Fi", "enterprise": False
+    }
+    WIFI.replace_saved_psk = lambda ssid, password: (
+        replaced.append((ssid, password)) or (PROFILE_UUID, "")
+    )
+    with mock.patch.object(sys, "stdin", io.StringIO("new-password\n")):
+        result, response = invoke(WIFI.action, ["connect", "School Wi-Fi"])
+    assert result == 0
+    assert response == {"ok": True, "message": "Connected to School Wi-Fi."}
+    assert replaced == [("School Wi-Fi", "new-password")]
+    assert wifi_calls == [[
+        "nmcli", "--wait", "20", "connection", "up", "uuid", PROFILE_UUID,
+        "ifname", "wlan0",
+    ]]
+    assert all("new-password" not in argument for call in wifi_calls for argument in call)
 
 print("PASS  Bluetooth confirmation and Wi-Fi reconnect use exact confirmed state")

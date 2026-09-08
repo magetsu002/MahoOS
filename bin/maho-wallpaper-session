@@ -5,6 +5,8 @@ set -u
 ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/wallpaper"
 LOG="$STATE/watch.log"
+BOOTSTRAP="$STATE/bootstrap.jpg"
+BOOTSTRAP_META="$STATE/bootstrap.json"
 AUTHORITY="$ROOT/lib/authority.sh"
 INTENT="$ROOT/lib/intent.sh"
 EVENTS="$ROOT/lib/events.sh"
@@ -130,7 +132,7 @@ ensure_awww() {
         return 0
     fi
 
-    awww-daemon >> "$LOG" 2>&1 &
+    awww-daemon --no-cache >> "$LOG" 2>&1 &
 
     local i
     for i in $(seq 1 20); do
@@ -172,22 +174,108 @@ restore_image() {
     pkill -x mpvpaper >/dev/null 2>&1 || true
 
     awww img \
-        --transition-type fade \
-        --transition-duration 0.4 \
+        --transition-type none \
         "$path" >/dev/null 2>&1 || return 1
 
     verify_awww_image "$path"
 }
 
+prepare_video_bootstrap() {
+    local path="$1" tmp_meta tmp_image
+
+    command -v ffmpeg >/dev/null 2>&1 || return 1
+
+    if python - "$path" "$BOOTSTRAP" "$BOOTSTRAP_META" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+image = Path(sys.argv[2])
+metadata = Path(sys.argv[3])
+try:
+    stat = source.stat()
+    saved = json.loads(metadata.read_text())
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+expected = {
+    "version": 1,
+    "source": os.path.realpath(source),
+    "size": stat.st_size,
+    "mtime_ns": stat.st_mtime_ns,
+}
+raise SystemExit(0 if saved == expected and image.is_file() and image.stat().st_size > 0 else 1)
+PY
+    then
+        printf '%s\n' "$BOOTSTRAP"
+        return 0
+    fi
+
+    tmp_image="$STATE/.bootstrap.$$.jpg"
+    tmp_meta="$STATE/.bootstrap.$$.json"
+    rm -f "$tmp_image" "$tmp_meta"
+    if ! ffmpeg -loglevel error -y -i "$path" -frames:v 1 -q:v 2 "$tmp_image"; then
+        rm -f "$tmp_image" "$tmp_meta"
+        return 1
+    fi
+    [ -s "$tmp_image" ] || {
+        rm -f "$tmp_image" "$tmp_meta"
+        return 1
+    }
+
+    python - "$path" "$tmp_meta" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+stat = source.stat()
+Path(sys.argv[2]).write_text(json.dumps({
+    "version": 1,
+    "source": os.path.realpath(source),
+    "size": stat.st_size,
+    "mtime_ns": stat.st_mtime_ns,
+}, sort_keys=True) + "\n")
+PY
+    mv "$tmp_image" "$BOOTSTRAP"
+    mv "$tmp_meta" "$BOOTSTRAP_META"
+    printf '%s\n' "$BOOTSTRAP"
+}
+
+prepare_saved_bootstrap() {
+    local state provider kind path
+
+    state="$(saved_state)" || return 0
+    mapfile -t fields < <(
+        printf '%s' "$state" | python -c '
+import json, sys
+d=json.load(sys.stdin)
+print(d["provider"])
+print(d["kind"])
+print(d["path"])
+'
+    )
+    provider="${fields[0]}"
+    kind="${fields[1]}"
+    path="${fields[2]}"
+
+    [ "$provider:$kind" = "mpvpaper:video" ] || return 0
+    prepare_video_bootstrap "$path" >/dev/null
+}
+
 restore_video() {
-    local path="$1"
+    local path="$1" bootstrap
 
     command -v mpvpaper >/dev/null 2>&1 || return 1
+    ensure_awww || return 1
+    bootstrap="$(prepare_video_bootstrap "$path")" || return 1
 
     pkill -x mpvpaper >/dev/null 2>&1 || true
-    if command -v awww >/dev/null 2>&1; then
-        awww clear >/dev/null 2>&1 || true
-    fi
+    awww img --transition-type none "$bootstrap" >/dev/null 2>&1 || return 1
+    verify_awww_image "$bootstrap" || return 1
 
     mpvpaper \
         -o 'loop --no-audio --hwdec=auto --profile=high-quality --video-sync=display-resample --interpolation --tscale=oversample --panscan=1.0 --video-unscaled=no' \
@@ -308,6 +396,9 @@ run_session() {
 }
 
 case "${1:-run}" in
+    prepare)
+        prepare_saved_bootstrap
+        ;;
     restore)
         wait_for_graphical_session
         restore_saved
@@ -316,7 +407,7 @@ case "${1:-run}" in
         run_session
         ;;
     *)
-        echo "usage: maho-wallpaper-session [restore|run]" >&2
+        echo "usage: maho-wallpaper-session [prepare|restore|run]" >&2
         exit 1
         ;;
 esac

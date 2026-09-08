@@ -74,13 +74,11 @@ TestCase {
         wait(0)
     }
 
-    function test_real_delegate_contains_visible_clickable_pin() {
+    function test_real_delegate_reveals_clickable_pin_only_on_row_hover() {
         var glyph = findChild(panel, "clipboardPinGlyph")
         tryVerify(function() { return glyph !== null }, 1000,
                   "real ClipboardPanel delegate never instantiated its pin glyph")
 
-        verify(glyph.visible)
-        verify(glyph.opacity > 0.9)
         verify(glyph.geometryReady)
         compare(glyph.width, 17)
         compare(glyph.height, 17)
@@ -90,7 +88,13 @@ TestCase {
         compare(button.width, 34)
         compare(button.height, 34)
         verify(button.visible)
-        verify(button.opacity > 0.9)
+        tryVerify(function() { return button.opacity < 0.05 }, 500,
+                  "pin action remains visible while its row is idle")
+
+        var row = button.parent
+        mouseMove(row, row.width / 2, row.height / 2)
+        tryVerify(function() { return button.opacity > 0.9 }, 500,
+                  "pin action did not appear when its row was hovered")
 
         mouseClick(button, button.width / 2, button.height / 2, Qt.LeftButton)
         compare(fakeState.toggleCalls, 1)

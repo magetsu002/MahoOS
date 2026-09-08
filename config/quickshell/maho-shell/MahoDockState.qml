@@ -6,8 +6,8 @@ Scope {
     id: root
 
     readonly property int maximumPins: 24
-    property var pins: sanitize(adapter.pins)
-    property bool seeded: Boolean(adapter.seeded)
+    property var pins: []
+    property bool seeded: false
 
     signal pinsChangedByUser()
 
@@ -29,18 +29,38 @@ Scope {
 
     function publish(nextPins, userChange) {
         const clean = sanitize(nextPins)
-        adapter.pins = clean
         root.pins = clean.slice(0)
+        persist()
         if (userChange)
             root.pinsChangedByUser()
+    }
+
+    function hydrate(text) {
+        if (!text || String(text).trim().length === 0)
+            return
+        try {
+            const payload = JSON.parse(String(text))
+            root.pins = sanitize(payload.pins)
+            root.seeded = Boolean(payload.seeded)
+        } catch (error) {
+            console.warn("Maho Dock state load failed:", error)
+        }
+    }
+
+    function persist() {
+        stateFile.setText(JSON.stringify({
+            "version": 1,
+            "seeded": root.seeded,
+            "pins": sanitize(root.pins)
+        }, null, 4) + "\n")
     }
 
     function seedPins(ids) {
         if (root.seeded)
             return
-        publish(ids, false)
-        adapter.seeded = true
+        root.pins = sanitize(ids)
         root.seeded = true
+        persist()
     }
 
     function contains(id) {
@@ -79,28 +99,12 @@ Scope {
         id: stateFile
         path: Quickshell.statePath("maho-dock.json")
         blockLoading: true
+        blockWrites: true
         watchChanges: true
         atomicWrites: true
         onFileChanged: reload()
-        onAdapterUpdated: writeAdapter()
-
-        JsonAdapter {
-            id: adapter
-            property int version: 1
-            property bool seeded: false
-            property var pins: []
-        }
+        onTextChanged: root.hydrate(text())
     }
 
-    Component.onCompleted: {
-        const clean = sanitize(adapter.pins)
-        const serializedCurrent = JSON.stringify(Array.isArray(adapter.pins) ? adapter.pins : [])
-        const serializedClean = JSON.stringify(clean)
-        if (adapter.version !== 1)
-            adapter.version = 1
-        if (serializedCurrent !== serializedClean)
-            adapter.pins = clean
-        root.pins = clean.slice(0)
-        root.seeded = Boolean(adapter.seeded)
-    }
+    Component.onCompleted: root.hydrate(stateFile.text())
 }

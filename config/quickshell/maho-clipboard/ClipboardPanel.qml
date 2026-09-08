@@ -434,6 +434,7 @@ Item {
                 width: ListView.view.width
                 height: 70
                 readonly property bool selected: ListView.isCurrentItem
+                readonly property bool revealPin: rowHover.containsMouse || pinHover.containsMouse
 
                 Rectangle {
                     anchors.fill: parent
@@ -536,7 +537,13 @@ Item {
                     border.color: row.modelData.pinned
                         ? theme.alpha(root.accent, 0.26)
                         : theme.alpha(theme.foreground, pinHover.containsMouse ? 0.075 : 0.035)
-                    opacity: root.clipboardState.mutating ? 0.48 : 1
+                    opacity: row.revealPin
+                        ? (root.clipboardState.mutating ? 0.48 : 1)
+                        : 0
+                    scale: row.revealPin ? 1 : 0.82
+
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+                    Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
                     ClipboardPinGlyph {
                         anchors.centerIn: parent

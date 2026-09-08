@@ -26,7 +26,7 @@ COMMANDS=(
   maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-clipboard
-  maho-clipboard-history maho-setup
+  maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 GRAPHICAL_UNITS=(
@@ -500,9 +500,37 @@ install_runtime() (
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
   committed=1; rm -rf -- "$tx"; trap - EXIT
   echo "PASS  runtime $CURRENT -> $release"
+  if MAHO_ROOT="$CURRENT" bash "$CURRENT/bin/maho-wallpaper-session" prepare; then
+    echo "PASS  selected wallpaper boot asset prepared"
+  else
+    echo "WARN  selected video boot poster could not be prepared" >&2
+  fi
   echo "INFO  running graphical services were not restarted"
   echo "INFO  activate the new graphical runtime with: maho-session stop && maho-session start"
 )
+
+install_sddm() {
+  local account runtime installer
+
+  [ "$(id -u)" -ne 0 ] || {
+    die "run maho-setup as the desktop user; --with-sddm requests root only for the SDDM files"
+    return 1
+  }
+  command -v sudo >/dev/null 2>&1 || {
+    die "--with-sddm requires sudo"
+    return 1
+  }
+  runtime="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  [ -n "$runtime" ] && [ -d "$runtime" ] || {
+    die "installed runtime is unavailable for SDDM integration"
+    return 1
+  }
+  installer="$runtime/bin/maho-lock-sddm-install"
+  account="$(id -un)"
+
+  sudo env MAHO_SDDM_USER="$account" bash "$installer" install
+  sudo env MAHO_SDDM_USER="$account" bash "$installer" status
+}
 
 status() {
   local failed=0 name
@@ -544,7 +572,21 @@ uninstall() {
 }
 
 case "${1:-}" in
-  install) shift; case "${1:-}" in ""|--adopt-live) ;; *) die "unknown install option: $1"; exit 2 ;; esac; install_runtime ;;
+  install)
+    shift
+    with_sddm=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --adopt-live) ;;
+        --with-sddm) with_sddm=1 ;;
+        *) die "unknown install option: $1"; exit 2 ;;
+      esac
+      shift
+    done
+    [ "$with_sddm" -eq 0 ] || bash "$ROOT/bin/maho-lock-sddm-install" preflight
+    install_runtime
+    [ "$with_sddm" -eq 0 ] || install_sddm
+    ;;
   preflight) preflight ;;
   status) status ;;
   rollback) rollback ;;
@@ -554,7 +596,7 @@ Maho OS durable V1 runtime setup
 
 Usage:
   bash bin/maho-setup preflight
-  bash bin/maho-setup install [--adopt-live]
+  bash bin/maho-setup install [--adopt-live] [--with-sddm]
   maho-setup status
   maho-setup rollback
   maho-setup uninstall
@@ -570,6 +612,8 @@ preserved and the managed Notify wrapper explicitly uses the immutable runtime
 configuration.
 
 --adopt-live is retained for compatibility and does not bypass validation.
+--with-sddm explicitly installs and verifies the persistent Maho Lock greeter
+without restarting SDDM or the current graphical session.
 HELP
   ;;
 esac

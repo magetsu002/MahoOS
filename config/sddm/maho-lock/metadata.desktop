@@ -9,3 +9,4 @@ MainScript=Main.qml
 ConfigFile=theme.conf
 Theme-Id=maho-lock
 Theme-API=2.0
+QtVersion=6

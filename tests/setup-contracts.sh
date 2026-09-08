@@ -38,7 +38,7 @@ COMMANDS=(
   maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-clipboard
-  maho-clipboard-history maho-setup
+  maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 GRAPHICAL_UNITS=(maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service)
@@ -203,6 +203,26 @@ capture_live_state() {
 
 echo '=== preflight ==='
 bash "$ROOT/bin/maho-setup" preflight >/dev/null
+echo PASS
+
+echo '=== explicit SDDM integration ==='
+cat >"$TMP/fake-bin/sudo" <<'EOF_SUDO'
+#!/usr/bin/env bash
+exec "$@"
+EOF_SUDO
+chmod +x "$TMP/fake-bin/sudo"
+export MAHO_SDDM_ALLOW_UNPRIVILEGED=1
+export MAHO_SDDM_THEME_ROOT="$TMP/sddm/themes"
+export MAHO_SDDM_CONFIG_ROOT="$TMP/sddm/config"
+export MAHO_SDDM_STATE_ROOT="$TMP/sddm/state"
+bash "$ROOT/bin/maho-setup" install --with-sddm >/dev/null
+[ -x "$HOME/.local/bin/maho-lock-sddm-install" ] || fail 'SDDM installer command was omitted from the managed runtime'
+grep -Fxq 'Current=maho-lock' "$MAHO_SDDM_CONFIG_ROOT/90-maho-lock.conf" || \
+  fail 'explicit setup did not persist the Maho Lock SDDM theme'
+bash "$ROOT/bin/maho-lock-sddm-install" status >/dev/null || \
+  fail 'explicit setup left SDDM integration unverifiable'
+unset MAHO_SDDM_ALLOW_UNPRIVILEGED MAHO_SDDM_THEME_ROOT MAHO_SDDM_CONFIG_ROOT MAHO_SDDM_STATE_ROOT
+rm -f "$TMP/fake-bin/sudo"
 echo PASS
 
 echo '=== validation failure is non-mutating ==='

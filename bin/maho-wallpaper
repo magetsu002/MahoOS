@@ -337,6 +337,10 @@ process_state() {
     path="${fields[2]}"
 
     persist_observation "$state"
+    if [ "$provider:$kind" = "mpvpaper:video" ]; then
+        bash "$ROOT/bin/maho-wallpaper-session" prepare >/dev/null 2>&1 || \
+            log "WARN could not prepare the selected video's boot poster"
+    fi
     log "observed $provider|$kind|$path"
 
     cycle="$(maho_cycle_new appearance 2>/dev/null || true)"
