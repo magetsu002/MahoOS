@@ -16,8 +16,14 @@ Item {
     property date now: new Date()
     property bool hovered: hitArea.containsMouse
 
+    GuardianState {
+        id: guardianState
+        enabled: edge.visible
+    }
+
     readonly property string mode:
-        brightness && brightness.overlayOpen ? "brightness"
+        guardianState.active ? "guardian"
+        : brightness && brightness.overlayOpen ? "brightness"
         : audio && audio.overlayOpen ? "volume"
         : workspaceFlash ? "workspace"
         : "idle"
@@ -61,7 +67,7 @@ Item {
     MouseArea {
         id: hitArea
         anchors.fill: parent
-        enabled: edge.enabled
+        enabled: edge.enabled && edge.mode !== "guardian"
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.MiddleButton
@@ -91,6 +97,38 @@ Item {
                 edge.openMahoLink()
             else
                 edge.openRequested()
+        }
+    }
+
+    Item {
+        id: guardianView
+        anchors.fill: parent
+        opacity: edge.mode === "guardian" ? 1 : 0
+        visible: opacity > 0.01
+
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+
+        GuardianWheel {
+            id: guardianWheel
+            anchors.centerIn: parent
+            width: 30
+            height: 30
+            active: guardianState.active
+            targetSeverity: guardianState.highestSeverity
+        }
+
+        Connections {
+            target: guardianState
+
+            function onHighestSeverityChanged() {
+                // The accepted Wheel only advances during one incident. If the
+                // aggregate severity falls, reset while hidden/transitioning so
+                // the visual never lies by remaining at a stale higher level.
+                if (guardianState.highestSeverity < guardianState.previousSeverity) {
+                    guardianWheel.resetHidden()
+                    guardianWheel.advanceIfNeeded()
+                }
+            }
         }
     }
 

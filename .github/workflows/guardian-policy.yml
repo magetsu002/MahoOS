@@ -12,11 +12,19 @@ on:
       - 'lib/guardian_engine.py'
       - 'lib/guardian_incident.py'
       - 'lib/maho_recovery_policy.py'
+      - 'config/quickshell/maho-shell/GuardianState.qml'
+      - 'config/quickshell/maho-shell/GuardianWheel.qml'
+      - 'config/quickshell/maho-shell/maho-guardian-rotor.png'
+      - 'config/quickshell/maho-shell/sounds/**'
+      - 'config/quickshell/maho-shell/EdgeBar.qml'
+      - 'config/quickshell/maho-shell/SideEdgeBar.qml'
       - 'tests/test_guardian_severity.py'
       - 'tests/test_guardian_engine.py'
       - 'tests/test_guardian_incident.py'
       - 'tests/test_guardian_recovery_contract.py'
+      - 'tests/guardian-wheel-contracts.sh'
       - 'tests/security-incidents.sh'
+      - 'tests/shell-contracts.sh'
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
   pull_request:
@@ -26,11 +34,19 @@ on:
       - 'lib/guardian_engine.py'
       - 'lib/guardian_incident.py'
       - 'lib/maho_recovery_policy.py'
+      - 'config/quickshell/maho-shell/GuardianState.qml'
+      - 'config/quickshell/maho-shell/GuardianWheel.qml'
+      - 'config/quickshell/maho-shell/maho-guardian-rotor.png'
+      - 'config/quickshell/maho-shell/sounds/**'
+      - 'config/quickshell/maho-shell/EdgeBar.qml'
+      - 'config/quickshell/maho-shell/SideEdgeBar.qml'
       - 'tests/test_guardian_severity.py'
       - 'tests/test_guardian_engine.py'
       - 'tests/test_guardian_incident.py'
       - 'tests/test_guardian_recovery_contract.py'
+      - 'tests/guardian-wheel-contracts.sh'
       - 'tests/security-incidents.sh'
+      - 'tests/shell-contracts.sh'
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
 
@@ -46,7 +62,7 @@ jobs:
       - name: Syntax
         run: |
           set -euo pipefail
-          bash -n bin/maho-guard
+          bash -n bin/maho-guard tests/guardian-wheel-contracts.sh
           python -m py_compile \
             lib/guardian_severity.py \
             lib/guardian_engine.py \
@@ -78,10 +94,20 @@ jobs:
           set -euo pipefail
           python tests/test_guardian_recovery_contract.py
 
+      - name: Guardian Wheel integration contracts
+        run: |
+          set -euo pipefail
+          bash tests/guardian-wheel-contracts.sh
+
       - name: Existing security incident integration
         run: |
           set -euo pipefail
           bash tests/security-incidents.sh
+
+      - name: Existing shell contracts
+        run: |
+          set -euo pipefail
+          bash tests/shell-contracts.sh
 
       - name: Existing recovery policy regression
         run: |
