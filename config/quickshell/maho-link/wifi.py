@@ -311,8 +311,11 @@ def replace_saved_psk(ssid: str, password: str):
 
         gi.require_version("NM", "1.0")
         from gi.repository import NM
-    except (ImportError, ValueError) as exc:
-        return "", "NetworkManager's secure profile API is unavailable: " + str(exc)
+    except (ImportError, ValueError):
+        # The optional libnm Python bindings are not required for ordinary
+        # connection attempts. Fall back to nmcli --ask, which still receives
+        # the password on stdin and never places it in process arguments.
+        return "", ""
 
     try:
         client = NM.Client.new(None)
