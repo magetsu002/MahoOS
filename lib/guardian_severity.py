@@ -75,9 +75,12 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
     ``context``
         maintenance, expected_transition
 
+    Repetition is evidence, not a severity policy by itself. ``persistent`` and
+    ``correlated_failures`` must be supplied by the normalization/reasoning
+    layer from meaningful state, rather than inferred from a crash counter.
+
     Unknown or malformed values fail closed. Severity may still be surfaced for
-    user awareness, but autonomous recovery is permitted only for Maho-owned,
-    high-confidence, explicitly certified recovery paths.
+    user awareness, but the classifier never chooses a concrete recovery action.
     """
 
     incident = _mapping(state.get("incident"))
@@ -113,7 +116,7 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
     occurrences = max(0, _int(incident, "occurrence_count", 0))
     correlated = max(0, _int(incident, "correlated_failures", 0))
     previous_failures = max(0, _int(recovery, "previous_failures", 0))
-    persistent = _bool(incident, "persistent") or occurrences >= 3
+    persistent = _bool(incident, "persistent")
     resolved = _bool(incident, "resolved")
     certified_path = _bool(recovery, "certified_path")
     recovery_verified = _bool(recovery, "verified")
@@ -122,9 +125,6 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
     evidence_rank = _CONFIDENCE[evidence]
     recovery_rank = _RECOVERY_CONFIDENCE[recovery_confidence]
 
-    # Verification closes an incident only when the normalized incident itself
-    # is also resolved. A stale "verified" recovery flag must not hide current
-    # catastrophic evidence.
     if recovery_verified and resolved:
         return GuardianAssessment(
             level=0,
@@ -135,7 +135,6 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
             reason="Recovery and incident resolution were both verified; Guardian de-escalates.",
         )
 
-    # Completely empty/malformed input is not itself an anomaly.
     if (
         impact_rank == _IMPACT["none"]
         and occurrences == 0
@@ -152,8 +151,6 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
             reason="No actionable degradation is present.",
         )
 
-    # L4 is diagnosis/handoff only. Weak evidence can never throw the wheel
-    # into catastrophic mode, and L4 never grants automatic recovery.
     if (
         scope in {"system", "boot"}
         and impact_rank >= _IMPACT["catastrophic"]
@@ -168,9 +165,6 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
             reason="High-confidence catastrophic system/boot impact requires explicit recovery handoff.",
         )
 
-    # L3 is reserved for correlated Maho session/runtime failure after a
-    # narrower recovery already failed. The broader path must itself be
-    # certified before Guardian may present this as L3.
     l3_candidate = (
         ownership == "maho"
         and scope in {"session", "runtime", "system"}
@@ -179,22 +173,24 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
         and impact_rank >= _IMPACT["degraded"]
         and evidence_rank >= _CONFIDENCE["high"]
     )
-    if l3_candidate and certified_path:
-        automatic = recovery_rank >= _RECOVERY_CONFIDENCE["certified"]
+    if l3_candidate:
+        automatic = certified_path and recovery_rank >= _RECOVERY_CONFIDENCE["certified"]
         return GuardianAssessment(
             level=3,
             label=LEVEL_LABELS[3],
             suppressed=False,
             automatic_recovery_allowed=automatic,
-            recovery_handoff_required=not automatic,
+            recovery_handoff_required=False,
             reason=(
                 "Correlated Maho session/runtime failure persisted after a narrower recovery; "
-                "the broader recovery path is explicitly certified."
+                + (
+                    "the broader recovery path is explicitly certified."
+                    if automatic
+                    else "the broader path is not certified for autonomous recovery and requires confirmation."
+                )
             ),
         )
 
-    # Repeated high-confidence degradation becomes L2. Unknown or user
-    # ownership may still be surfaced, but can never authorize Maho mutation.
     l2_candidate = (
         impact_rank >= _IMPACT["degraded"]
         and persistent
@@ -216,17 +212,11 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
             reason="Persistent high-confidence degradation warrants bounded L2 attention.",
         )
 
-    # L1 is a transient or weakly evidenced anomaly. A tiny, certified,
-    # Maho-owned correction may run automatically; L1 never authorizes a
-    # disruptive or uncertified recovery.
     if impact_rank > _IMPACT["none"] or occurrences > 0 or correlated > 0 or persistent:
         automatic = (
             ownership == "maho"
             and scope == "component"
             and impact_rank <= _IMPACT["minor"]
-            and evidence_rank >= _CONFIDENCE["high"]
-            and certified_path
-            and recovery_rank >= _RECOVERY_CONFIDENCE["certified"]
         )
         return GuardianAssessment(
             level=1,

@@ -8,16 +8,20 @@ on:
       - 'feat/guardian-severity-policy-prep'
     paths:
       - 'lib/guardian_severity.py'
+      - 'lib/guardian_engine.py'
       - 'lib/maho_recovery_policy.py'
       - 'tests/test_guardian_severity.py'
+      - 'tests/test_guardian_engine.py'
       - 'tests/test_guardian_recovery_contract.py'
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
   pull_request:
     paths:
       - 'lib/guardian_severity.py'
+      - 'lib/guardian_engine.py'
       - 'lib/maho_recovery_policy.py'
       - 'tests/test_guardian_severity.py'
+      - 'tests/test_guardian_engine.py'
       - 'tests/test_guardian_recovery_contract.py'
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
@@ -26,7 +30,7 @@ permissions:
   contents: read
 
 jobs:
-  severity-policy:
+  guardian-policy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +40,10 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             lib/guardian_severity.py \
+            lib/guardian_engine.py \
             lib/maho_recovery_policy.py \
             tests/test_guardian_severity.py \
+            tests/test_guardian_engine.py \
             tests/test_guardian_recovery_contract.py \
             tests/recovery-policy.py
 
@@ -45,6 +51,11 @@ jobs:
         run: |
           set -euo pipefail
           python tests/test_guardian_severity.py
+
+      - name: Guardian authority combiner tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_engine.py
 
       - name: Guardian recovery compatibility tests
         run: |
