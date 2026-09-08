@@ -19,15 +19,15 @@ safe_restart={
 }
 l1={"incident":{"scope":"component","ownership":"maho","impact":"minor","evidence_confidence":"medium","occurrence_count":1}}
 r=g(l1,safe_restart)
-check("L1 Maho-owned bounded recovery is automatic", r.severity["level"]==1 and r.execution_mode=="automatic" and r.mutating_recovery_allowed)
+check("L1 Maho-owned recovery is delegated without Guardian mutation", r.severity["level"]==1 and r.execution_mode=="delegated" and not r.mutating_recovery_allowed)
 
 l2_uncert={"incident":{"scope":"component","ownership":"maho","impact":"degraded","evidence_confidence":"high","persistent":True},"recovery":{"confidence":"high","certified_path":False}}
 r=g(l2_uncert,safe_restart)
-check("L2 uncertified path cannot mutate",r.severity["level"]==2 and r.execution_mode=="observe" and not r.mutating_recovery_allowed)
+check("L2 delegated provider remains non-mutating",r.severity["level"]==2 and r.execution_mode=="delegated" and not r.mutating_recovery_allowed)
 
 l2_cert={"incident":{"scope":"component","ownership":"maho","impact":"degraded","evidence_confidence":"high","persistent":True},"recovery":{"confidence":"certified","certified_path":True}}
 r=g(l2_cert,safe_restart)
-check("L2 certified bounded path may mutate",r.severity["level"]==2 and r.execution_mode=="automatic" and r.mutating_recovery_allowed)
+check("L2 certified provider still does not grant Guardian mutation",r.severity["level"]==2 and r.execution_mode=="delegated" and not r.mutating_recovery_allowed)
 
 runtime_auto={
     "failure":{"domain":"maho-runtime","transaction_in_progress":True,"graphical_available":True},

@@ -17,6 +17,7 @@ _NON_MUTATING_ACTIONS = {
     "diagnose-only",
     "diagnose-service-incident",
     "open-recovery-console",
+    "observe-service-recovery",
 }
 
 @dataclass(frozen=True)
@@ -41,6 +42,11 @@ def evaluate_guardian(
     assessment = assess_guardian(guardian_state)
     recovery = decide_recovery(recovery_state)
     mutating = _action_is_mutating(recovery.action)
+    delegated = (
+        recovery.action == "observe-service-recovery"
+        and recovery.provider == "systemd-user"
+        and recovery.recovery_mode == "delegated"
+    )
 
     automatic_mutation = (
         mutating
@@ -52,6 +58,9 @@ def evaluate_guardian(
 
     if assessment.recovery_handoff_required or assessment.level >= 4:
         mode = "handoff"
+        automatic_mutation = False
+    elif delegated:
+        mode = "delegated"
         automatic_mutation = False
     elif recovery.requires_confirmation or (
         assessment.level == 3 and not assessment.automatic_recovery_allowed

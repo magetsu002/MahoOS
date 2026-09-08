@@ -90,35 +90,37 @@ check(
 )
 
 check(
-    "single certified Maho Notify failure is silent",
+    "certified Maho Notify failure delegates recovery to systemd-user",
     {
         "failure": {"domain": "service", "graphical_available": True},
         "service": {"name": "maho-notify.service", "consecutive_failures": 1, "restart_safe": False},
     },
-    action="restart-service",
+    action="observe-service-recovery",
     target="maho-notify.service",
     scope="service",
     automatic_allowed=True,
-    surface="silent",
+    surface="incident",
+    provider="systemd-user",
+    recovery_mode="delegated",
 )
 
 check(
-    "bounded second Maho Notify failure remains certified",
+    "second Maho Notify invocation remains a delegated event, not a threshold",
     {
         "failure": {"domain": "service", "graphical_available": True},
         "service": {"name": "maho-notify.service", "consecutive_failures": 2},
     },
-    action="restart-service",
+    action="observe-service-recovery",
     automatic_allowed=True,
 )
 
 check(
-    "repeated service crashes become one incident",
+    "runtime crash counters do not revoke or grant provider certification",
     {
         "failure": {"domain": "service", "graphical_available": True},
         "service": {"name": "maho-notify.service", "consecutive_failures": 3, "restart_safe": True},
     },
-    action="diagnose-service-incident",
+    action="observe-service-recovery",
     surface="incident",
 )
 
@@ -131,6 +133,16 @@ check(
     action="diagnose-service-incident",
     automatic_allowed=True,
     target="external.service",
+)
+
+check(
+    "exhausted delegated provider becomes diagnosis only",
+    {
+        "failure": {"domain": "service"},
+        "service": {"name": "maho-notify.service", "provider_recovery_unresolved": True},
+    },
+    action="diagnose-service-incident",
+    automatic_allowed=True,
 )
 
 check(

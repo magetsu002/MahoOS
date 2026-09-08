@@ -26,6 +26,8 @@ class RecoveryDecision:
     preserves_personal_files: bool
     reason: str
     target: str | None = None
+    provider: str | None = None
+    recovery_mode: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -128,26 +130,28 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
 
     if domain == "service":
         name = service.get("name") if isinstance(service.get("name"), str) else "service"
-        failures = max(0, _int(service, "consecutive_failures", 1))
+        provider_unresolved = _bool(service, "provider_recovery_unresolved", False)
         certified = certified_service_recovery(name)
         if (
             certified is not None
-            and certified.action == "restart-service"
-            and 1 <= failures <= certified.max_consecutive_failures
-            and failures < service_failure_threshold
+            and certified.provider == "systemd-user"
+            and certified.mode == "delegated"
+            and not provider_unresolved
         ):
             return RecoveryDecision(
-                action="restart-service",
+                action="observe-service-recovery",
                 scope="service",
                 requires_confirmation=False,
                 automatic_allowed=True,
-                surface="silent",
+                surface="incident",
                 preserves_personal_files=True,
                 reason=(
-                    f"{name} failed {failures} time(s) and has an exact product-owned "
-                    "Guardian V1 restart certification with bounded post-action verification."
+                    f"{name} has an exact product-owned delegated recovery contract; "
+                    "systemd-user owns restart-on-failure and Guardian must only verify it."
                 ),
                 target=name,
+                provider=certified.provider,
+                recovery_mode=certified.mode,
             )
         return RecoveryDecision(
             action="diagnose-service-incident",
@@ -157,8 +161,8 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
             surface="incident",
             preserves_personal_files=True,
             reason=(
-                f"{name} is not eligible for a certified silent restart; correlate failures "
-                "into one incident instead of trusting runtime self-certification or retrying indefinitely."
+                f"{name} has no currently successful certified provider recovery; diagnose the "
+                "incident instead of trusting runtime self-certification or retrying indefinitely."
             ),
             target=name if name != "service" else None,
         )

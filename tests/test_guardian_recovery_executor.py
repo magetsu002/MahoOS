@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_recovery_executor import execute_guardian_recovery, recovery_history_record  # noqa: E402
+from guardian_recovery_registry import CertifiedGuardianRestart  # noqa: E402
 
 
 def decision(target: str, *, mode: str = "automatic", allowed: bool = True) -> dict:
@@ -35,6 +36,12 @@ def result(code=0, stdout=""):
     return subprocess.CompletedProcess(args=(), returncode=code, stdout=stdout, stderr="")
 
 
+def future_registry(target):
+    if target == "maho-future.service":
+        return CertifiedGuardianRestart(unit=target)
+    return None
+
+
 def check(name: str, condition: bool) -> None:
     if not condition:
         raise AssertionError(name)
@@ -53,29 +60,33 @@ def main() -> None:
     execution = execute_guardian_recovery(decision("external.service"), runner=runner)
     check("executor refuses unregistered service without touching systemd", execution.status == "refused" and not runner.calls)
 
-    runner = FakeRunner([result(0, "not-found\n")])
+    runner = FakeRunner([])
     execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
+    check("delegated Notify never reaches direct executor", execution.status == "refused" and not runner.calls)
+
+    runner = FakeRunner([result(0, "not-found\n")])
+    execution = execute_guardian_recovery(decision("maho-future.service"), runner=runner, registry_lookup=future_registry)
     check(
         "missing service fails precondition before restart",
         execution.status == "precondition-failed"
-        and runner.calls == [("systemctl", "--user", "show", "maho-notify.service", "--property=LoadState", "--value")],
+        and runner.calls == [("systemctl", "--user", "show", "maho-future.service", "--property=LoadState", "--value")],
     )
 
     runner = FakeRunner([result(0, "loaded\n"), result(1)])
-    execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
+    execution = execute_guardian_recovery(decision("maho-future.service"), runner=runner, registry_lookup=future_registry)
     check(
         "healthy or recovering service is never restarted",
         execution.status == "precondition-failed"
         and not execution.attempted
-        and runner.calls[-1] == ("systemctl", "--user", "is-failed", "--quiet", "maho-notify.service"),
+        and runner.calls[-1] == ("systemctl", "--user", "is-failed", "--quiet", "maho-future.service"),
     )
 
     runner = FakeRunner([result(0, "loaded\n"), result(0), result(1)])
-    execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
+    execution = execute_guardian_recovery(decision("maho-future.service"), runner=runner, registry_lookup=future_registry)
     check("failed restart is attempted but never verified", execution.status == "action-failed" and execution.attempted and not execution.verified)
 
     runner = FakeRunner([result(0, "loaded\n"), result(0), result(0), result(3)])
-    execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
+    execution = execute_guardian_recovery(decision("maho-future.service"), runner=runner, registry_lookup=future_registry)
     history = recovery_history_record(execution)
     check(
         "postcondition failure cannot enter history as successful",
@@ -86,7 +97,7 @@ def main() -> None:
     )
 
     runner = FakeRunner([result(0, "loaded\n"), result(0), result(0), result(0)])
-    execution = execute_guardian_recovery(decision("maho-notify.service"), runner=runner)
+    execution = execute_guardian_recovery(decision("maho-future.service"), runner=runner, registry_lookup=future_registry)
     history = recovery_history_record(execution)
     check(
         "verified active postcondition is required for success history",
@@ -98,10 +109,10 @@ def main() -> None:
     check(
         "executor uses only exact bounded systemd argv",
         runner.calls == [
-            ("systemctl", "--user", "show", "maho-notify.service", "--property=LoadState", "--value"),
-            ("systemctl", "--user", "is-failed", "--quiet", "maho-notify.service"),
-            ("systemctl", "--user", "restart", "maho-notify.service"),
-            ("systemctl", "--user", "is-active", "--quiet", "maho-notify.service"),
+            ("systemctl", "--user", "show", "maho-future.service", "--property=LoadState", "--value"),
+            ("systemctl", "--user", "is-failed", "--quiet", "maho-future.service"),
+            ("systemctl", "--user", "restart", "maho-future.service"),
+            ("systemctl", "--user", "is-active", "--quiet", "maho-future.service"),
         ],
     )
 

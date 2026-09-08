@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 import subprocess
 from typing import Any, Callable, Mapping, Sequence
 
-from guardian_recovery_registry import certified_service_recovery
+from guardian_recovery_registry import CertifiedGuardianRestart, certified_guardian_restart
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,7 @@ class RecoveryExecution:
 
 
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+RegistryLookup = Callable[[object], CertifiedGuardianRestart | None]
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
@@ -53,6 +54,7 @@ def execute_guardian_recovery(
     decision: Mapping[str, Any],
     *,
     runner: Runner = _default_runner,
+    registry_lookup: RegistryLookup = certified_guardian_restart,
 ) -> RecoveryExecution:
     """Execute only an already-authorized, exactly registered recovery path."""
 
@@ -80,7 +82,7 @@ def execute_guardian_recovery(
             reason="No V1 executor is certified for this recovery action.",
         )
 
-    certified = certified_service_recovery(target)
+    certified = registry_lookup(target)
     if certified is None or certified.action != action:
         return RecoveryExecution(
             action=action,

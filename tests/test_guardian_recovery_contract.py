@@ -9,19 +9,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from guardian_severity import assess_guardian  # noqa: E402
+from guardian_engine import evaluate_guardian  # noqa: E402
 from maho_recovery_policy import decide_recovery  # noqa: E402
 
 
 def effective_automatic_mutation(guardian_state: dict, recovery_state: dict) -> bool:
-    assessment = assess_guardian(guardian_state)
-    decision = decide_recovery(recovery_state)
-    return (
-        assessment.automatic_recovery_allowed
-        and decision.automatic_allowed
-        and not decision.requires_confirmation
-        and assessment.level < 4
-    )
+    return evaluate_guardian(guardian_state, recovery_state).mutating_recovery_allowed
 
 
 def check(name: str, condition: bool) -> None:
@@ -51,14 +44,16 @@ def main() -> None:
     }
     decision = decide_recovery(safe_service_recovery)
     check(
-        "recovery planner selects only the explicitly registered Maho Notify restart",
-        decision.action == "restart-service"
+        "recovery planner selects only the explicitly registered Maho Notify provider",
+        decision.action == "observe-service-recovery"
         and decision.target == "maho-notify.service"
+        and decision.provider == "systemd-user"
+        and decision.recovery_mode == "delegated"
         and decision.automatic_allowed,
     )
     check(
-        "Guardian and recovery planner jointly permit certified tiny self-heal",
-        effective_automatic_mutation(tiny_maho_incident, safe_service_recovery),
+        "delegated provider recovery never grants Guardian mutation",
+        not effective_automatic_mutation(tiny_maho_incident, safe_service_recovery),
     )
 
     spoofed_service_recovery = {
