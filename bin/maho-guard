@@ -9,6 +9,9 @@ FS_ROOT="${MAHO_FS_ROOT:-/}"
 PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
 INCIDENT_ENGINE="$ROOT/lib/security_incident.py"
 PREFLIGHT_ENGINE="$ROOT/lib/security_preflight.py"
+GUARDIAN_INCIDENT="$ROOT/lib/guardian_incident.py"
+GUARDIAN_POLICY="$ROOT/lib/guardian_severity.py"
+GUARDIAN_ENGINE="$ROOT/lib/guardian_engine.py"
 AUR_BUILD="$ROOT/bin/maho-aur-build"
 INTENT="$ROOT/lib/intent.sh"
 EVENTS="$ROOT/lib/events.sh"
@@ -75,16 +78,50 @@ PY
 )
 }
 
-pretty_reconcile() {
-    python - "$1" <<'PY'
+emit_guardian_changes() {
+    local result="$1" kind risk payload summary status
+    while IFS=$'\t' read -r kind risk payload; do
+        [ -n "$kind" ] || continue
+        case "$kind" in
+            created)
+                summary="Guardian classified a new normalized incident"
+                status="observed"
+                ;;
+            updated)
+                summary="Guardian reclassified an incident after meaningful evidence changed"
+                status="observed"
+                ;;
+            resolved)
+                summary="Guardian recorded verified incident resolution in history"
+                status="verified"
+                ;;
+            *) continue ;;
+        esac
+        maho_event_emit security "guardian.$kind" "$status" "$risk" "$summary" guardian.assessment maho-guard "$payload" >/dev/null 2>&1 || true
+    done < <(python - "$result" <<'PY'
 import json,sys
 r=json.loads(sys.argv[1])
+risk_for={0:"info",1:"low",2:"medium",3:"high",4:"critical"}
+for kind in ("created","updated","resolved"):
+    for item in r.get(kind,[]):
+        level=((item.get("decision") or {}).get("severity") or {}).get("level",0)
+        print(kind+"\t"+risk_for.get(level,"info")+"\t"+json.dumps(item,sort_keys=True,separators=(",",":")))
+PY
+)
+}
+
+pretty_reconcile() {
+    python - "$1" "$2" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+g=json.loads(sys.argv[2])
 print("Maho security guard")
 print("Prevention:  ",r.get("prevention_mode"))
 print("Autonomy:    ",r.get("autonomy_level"))
 print("Active:      ",r.get("active",0))
 print("Highest risk:",r.get("highest_risk","info"))
-print("System mutation: none (shadow policy)")
+print("Guardian L:  ",g.get("highest_level",0))
+print("System mutation: none (detector/frontend); Guardian only records permitted recovery posture")
 changes=len(r.get("created",[]))+len(r.get("updated",[]))+len(r.get("resolved",[]))
 print("Incident changes:",changes)
 PY
@@ -92,7 +129,8 @@ PY
 
 reconcile_command() {
     [ -r "$INCIDENT_ENGINE" ] || { echo "maho-guard: incident engine unavailable" >&2; return 1; }
-    local mode level result
+    [ -r "$GUARDIAN_INCIDENT" ] || { echo "maho-guard: Guardian incident adapter unavailable" >&2; return 1; }
+    local mode level result guardian_result
     mode="$(prevention_mode)"
     level="$(autonomy_level)"
     result="$(python "$INCIDENT_ENGINE" reconcile \
@@ -103,8 +141,11 @@ reconcile_command() {
         --uid "$(id -u)" \
         --prevention-mode "$mode" \
         --autonomy-level "$level")" || return 1
+    guardian_result="$(printf '%s' "$result" | python "$GUARDIAN_INCIDENT" security-reconcile \
+        --state-root "$SEC_STATE" --input -)" || return 1
     emit_incident_changes "$result"
-    pretty_reconcile "$result"
+    emit_guardian_changes "$guardian_result"
+    pretty_reconcile "$result" "$guardian_result"
 }
 
 status_command() {
@@ -116,7 +157,7 @@ import json,sys
 mode,level=sys.argv[1:3]; rows=json.loads(sys.argv[3])
 print("Maho security guard status")
 print(f"Prevention: {mode}   Autonomy target: {level}")
-print("Enforcement: shadow only; no automatic system mutation")
+print("Enforcement: detector remains shadow-only; Guardian recovery is separately authority-gated")
 print()
 if not rows:
     print("No active correlated security incidents.")
@@ -125,6 +166,33 @@ else:
         s=r.get("subject",{})
         print(f"{r.get('risk','info').upper():8} {r.get('score',0):3}  {r.get('incident_id')}  {s.get('type')}:{s.get('id')}")
         print(f"          confidence={r.get('confidence')}  would={r.get('shadow_action')}  attention={r.get('attention')}")
+PY
+}
+
+guardian_status_command() {
+    [ -r "$GUARDIAN_INCIDENT" ] || { echo "maho-guard: Guardian incident adapter unavailable" >&2; return 1; }
+    local rows
+    rows="$(python "$GUARDIAN_INCIDENT" list --state-root "$SEC_STATE")" || return 1
+    if [ "${1:-}" = "--json" ]; then
+        printf '%s\n' "$rows"
+        return 0
+    fi
+    python - "$rows" <<'PY'
+import json,sys
+rows=json.loads(sys.argv[1])
+print("Maho Guardian status")
+print()
+if not rows:
+    print("No active Guardian assessments.")
+else:
+    for row in rows:
+        decision=row.get("decision") or {}
+        sev=decision.get("severity") or {}
+        rec=decision.get("recovery") or {}
+        subject=row.get("subject") or {}
+        print(f"L{sev.get('level',0)} {sev.get('label','normal'):<12} {row.get('incident_id')}")
+        print(f"   subject={subject.get('type')}:{subject.get('id')}  mode={decision.get('execution_mode')}  recovery={rec.get('action')}")
+        print(f"   {sev.get('reason','')}")
 PY
 }
 
@@ -179,39 +247,45 @@ doctor_command() {
     echo "Maho security guard"
     [ -r "$INCIDENT_ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$INCIDENT_ENGINE" >/dev/null 2>&1 && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
     [ -r "$PREFLIGHT_ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PREFLIGHT_ENGINE" >/dev/null 2>&1 && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
+    [ -r "$GUARDIAN_POLICY" ] && python -m py_compile "$GUARDIAN_POLICY" >/dev/null 2>&1 && echo "PASS  Guardian severity policy" || echo "FAIL  Guardian severity policy"
+    [ -r "$GUARDIAN_ENGINE" ] && python -m py_compile "$GUARDIAN_ENGINE" >/dev/null 2>&1 && echo "PASS  Guardian recovery authority combiner" || echo "FAIL  Guardian recovery authority combiner"
+    [ -r "$GUARDIAN_INCIDENT" ] && python -m py_compile "$GUARDIAN_INCIDENT" >/dev/null 2>&1 && echo "PASS  Guardian incident normalizer/history" || echo "FAIL  Guardian incident normalizer/history"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
     echo "INFO  autonomy target: $(autonomy_level)"
     echo "INFO  unit of reasoning: correlated incident"
     echo "INFO  default interruption: silent; critical confirmed incidents may warrant one notification"
-    echo "INFO  automatic system mutation: none; shadow prevention only"
-    echo "INFO  explicit containment remains separately confirmed and execution-time revalidated"
+    echo "INFO  automatic system mutation: none (security detector / maho-guard frontend)"
+    echo "INFO  Guardian mutation authority: severity policy AND recovery policy must independently permit it"
+    echo "INFO  Guardian execution adapters: not invoked by maho-guard in this milestone"
 }
 
 case "${1:-}" in
     reconcile) reconcile_command ;;
     status) status_command ;;
+    guardian-status) guardian_status_command "${2:-}" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
     aur-build) aur_build_command "$@" ;;
     doctor) doctor_command ;;
     *)
         cat <<'HELP'
-Maho incident-oriented shadow prevention guard
+Maho incident-oriented security guard with Guardian severity/recovery reasoning
 
 Usage:
   maho-guard reconcile
   maho-guard status
+  maho-guard guardian-status [--json]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
   maho-guard aur-build /path/to/aur/source [--confirm-risk]
   maho-guard doctor
 
-V1 guard policy is intentionally frictionless and shadow-only. It correlates
-current finding, package-file integrity, persistence, privilege, runtime and
-network evidence into incidents, scores confidence/risk/reversibility, and
-records what Maho would do without automatically mutating the system.
+The security detector remains shadow-only and never mutates the host. Guardian
+normalizes correlated incidents, classifies L0-L4, asks the independent
+recovery planner what is permitted, and persists an explanation/history record.
+No Guardian recovery adapter is executed by this frontend in this milestone.
 PKGBUILD static preflight never executes untrusted instructions. Optional AUR
 execution uses the separate bounded Bubblewrap build path and never installs
 the produced package automatically.

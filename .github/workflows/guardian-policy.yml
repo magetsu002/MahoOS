@@ -7,22 +7,30 @@ on:
       - 'integration/**'
       - 'feat/guardian-severity-policy-prep'
     paths:
+      - 'bin/maho-guard'
       - 'lib/guardian_severity.py'
       - 'lib/guardian_engine.py'
+      - 'lib/guardian_incident.py'
       - 'lib/maho_recovery_policy.py'
       - 'tests/test_guardian_severity.py'
       - 'tests/test_guardian_engine.py'
+      - 'tests/test_guardian_incident.py'
       - 'tests/test_guardian_recovery_contract.py'
+      - 'tests/security-incidents.sh'
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
   pull_request:
     paths:
+      - 'bin/maho-guard'
       - 'lib/guardian_severity.py'
       - 'lib/guardian_engine.py'
+      - 'lib/guardian_incident.py'
       - 'lib/maho_recovery_policy.py'
       - 'tests/test_guardian_severity.py'
       - 'tests/test_guardian_engine.py'
+      - 'tests/test_guardian_incident.py'
       - 'tests/test_guardian_recovery_contract.py'
+      - 'tests/security-incidents.sh'
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
 
@@ -35,15 +43,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Python syntax
+      - name: Syntax
         run: |
           set -euo pipefail
+          bash -n bin/maho-guard
           python -m py_compile \
             lib/guardian_severity.py \
             lib/guardian_engine.py \
+            lib/guardian_incident.py \
             lib/maho_recovery_policy.py \
             tests/test_guardian_severity.py \
             tests/test_guardian_engine.py \
+            tests/test_guardian_incident.py \
             tests/test_guardian_recovery_contract.py \
             tests/recovery-policy.py
 
@@ -57,10 +68,20 @@ jobs:
           set -euo pipefail
           python tests/test_guardian_engine.py
 
+      - name: Guardian real-incident normalization tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_incident.py
+
       - name: Guardian recovery compatibility tests
         run: |
           set -euo pipefail
           python tests/test_guardian_recovery_contract.py
+
+      - name: Existing security incident integration
+        run: |
+          set -euo pipefail
+          bash tests/security-incidents.sh
 
       - name: Existing recovery policy regression
         run: |
