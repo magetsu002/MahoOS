@@ -1,0 +1,13 @@
+Maho Guardian sound prototype
+
+guardian-stage.wav
+Original local filename:
+freesound_community-stainless-steel-drip-tray-45073.mp3
+
+guardian-catastrophic.wav
+Original local filename:
+freesound_community-hard-steel-chain-plate-drop-106251.mp3
+
+NOTE:
+Before public release, confirm and record the exact source URLs,
+authors, and licenses for both samples.
