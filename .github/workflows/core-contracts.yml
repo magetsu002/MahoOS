@@ -221,10 +221,12 @@ jobs:
             git \
             base-devel \
             cmake \
+            imagemagick \
             ninja \
             python \
             qt6-base \
             qt6-declarative \
+            qt6-5compat \
             kio
 
       - uses: actions/checkout@v4
