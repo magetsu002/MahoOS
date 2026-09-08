@@ -1,63 +1,75 @@
-# Maho OS
+# MahoOS
 
-Maho OS is an Arch-based operating-system project built around a strong,
-modular and adaptive foundation.
+MahoOS is an Arch-based desktop operating system built around Hyprland and Quickshell.
+It provides its own shell, launcher, connectivity panel, notifications, lock screen,
+file manager, power controls, wallpaper system, and recovery tooling.
 
-The goal is not to create another static Arch rice.
+MahoOS is still in development. The desktop is usable, but V1 installation,
+updates, boot recovery, and full system recovery are not finished yet.
 
-Maho OS is intended to observe system state, make policy-driven adaptations,
-verify their effects, recover safely from failure, and always preserve manual
-user authority.
+## Desktop
 
-## Maho Shell
+The current desktop includes:
 
-Maho also ships an experimental Quickshell desktop surface. It is not a second
-static bar layered on top of the adaptation engine: it is the human-facing
-surface for that engine.
+- **Maho Edge** — compact system surface and control center
+- **Maho Dock** — pinned and running applications
+- **Maho Launcher** — applications, files, and commands
+- **Maho Link** — Wi-Fi and Bluetooth controls
+- **Maho Notify** — notifications, history, and Do Not Disturb
+- **Maho Lock** — secure Wayland lock screen and SDDM theme
+- **Maho Files** — native Qt/QML file manager using KDE KIO
+- **Maho Power** — lock, sleep, log out, restart, and shutdown
+- **Maho Clipboard** — clipboard history and pinning
+- **Maho Wallpaper** — wallpaper changes and palette generation
 
-The collapsed shell stays deliberately small and edge-fused. The same surface
-morphs when context matters:
+## How it works
 
-- workspace changes arrive directly from Hyprland instead of a slow polling loop
-- PipeWire volume changes produce an immediate in-shell OSD
-- brightness changes produce the same transient feedback language
-- clicking the shell opens large, usable controls instead of tiny status targets
-- scrolling the collapsed shell changes volume and middle-click toggles mute
-- Wi-Fi, Bluetooth, battery, volume, brightness, wallpaper and media state live
-  in one control center without duplicating controls
-- every surface reads `~/.cache/maho/theme/active.json` directly, so wallpaper
-  adaptation recolors the shell without a Waybar/CSS bridge
-- if Maho Shell exits, its runtime wrapper restores Waybar as a session fallback
+MahoOS keeps observation, decisions, and system changes separate.
 
-The shell source is packaged under `config/quickshell/maho-shell/` and is wired
-by `maho-setup` when Quickshell is available. Existing unmanaged Quickshell
-configuration is never overwritten.
+```text
+system state
+    ↓
+observers
+    ↓
+policy and Guardian
+    ↓
+certified recovery or system action
+    ↓
+verification
+```
 
-The interaction and future docking model is documented in
-[`docs/MAHO-SHELL.md`](docs/MAHO-SHELL.md). Gesture and geometry details remain
-experimental until they are runtime-tested on the target Hyprland session.
-Shell-specific CI contracts protect the palette watcher, native PipeWire and
-Hyprland event paths, staged close behavior, slider semantics and known QML
-property footguns before a change reaches that live validation gate.
+Normal component crashes are left to the service manager when it already owns
+recovery. Guardian observes the incident, verifies that recovery worked, records
+the result, and only escalates when the normal recovery path cannot restore a
+healthy state.
 
-## Core principles
+System changes are expected to be bounded, reversible, and verified after they
+run. Unknown failures do not receive guessed repair commands.
 
-- stable core behavior
-- modular configuration
-- explicit system state
-- policy separated from mutation
-- reversible adapters
-- verification after mutation
-- automatic rollback
-- explainable adaptation
-- manual override
-- reproducible deployment
+## Repository layout
 
-## Current status
+```text
+apps/        Native applications
+bin/         MahoOS commands and runtime entry points
+config/      Hyprland, Quickshell, SDDM, and platform configuration
+lib/         Shared policy, recovery, security, and application logic
+systemd/     User services
+packaging/   Arch package files
+adapters/    Bounded system adapters
+tests/       Contract, regression, and policy tests
+docs/        Architecture and component documentation
+```
 
-Foundation development.
+## Documentation
 
-- M0: known-good system baseline
-- M1: modular Hyprland configuration
-- M2: source of truth and safe configuration control
-- M3: adaptive theme engine and Maho Shell integration in active development
+- [Architecture](docs/ARCHITECTURE.md)
+- [Maho Shell](docs/MAHO-SHELL.md)
+- [Maho Notify](docs/MAHO-NOTIFY.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Theme engine](theme/README.md)
+
+## V1 direction
+
+V1 is focused on making the current desktop installable and recoverable as a
+complete operating system: packaging, installer, boot generations, Btrfs
+recovery, signed updates, Guardian integration, and failure testing.

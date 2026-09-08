@@ -1,25 +1,30 @@
 # Maho Files
 
-Maho Files is a native Qt/QML file-management frontend for MahoOS. The visible application is owned by Maho; mature file semantics come from KDE Frameworks/KIO.
+Maho Files is the native file manager for MahoOS. The interface is built with Qt
+Quick while KDE Frameworks/KIO provides file listing, metadata, navigation, and
+file operations.
 
-## M0 boundary
+## Features
 
-Implemented now:
-
-- `KCoreDirLister` directory listing and live updates
-- `KFileItem` metadata and icon identity
-- `KFilePlacesModel` places/devices source
-- native Qt Quick shell and Palette V2 bridge
 - local and KIO URL navigation
-- standard desktop-file opening through Qt
+- back, forward, up, and home navigation
+- live directory updates
+- KDE places and device entries
+- file and folder icons from the desktop theme
+- hidden-file toggle
+- recursive search from the current location
+- create folder
+- rename
+- move to trash
+- copy, cut, and paste
+- native file drag-out
+- wallpaper-derived Maho colors
 
-Intentionally not implemented in M0:
+File operations go through KIO rather than a parallel filesystem implementation.
 
-- copy/move/rename/trash/create-folder actions
-- search
-- tabs/split view
-- thumbnails/preview jobs
-- device mount/eject controls
-- default-file-manager or Dock/Launcher routing
+## Source
 
-Those features must be added by calling the appropriate KIO/KFilePlacesModel APIs rather than implementing parallel filesystem semantics.
+```text
+qml/    Interface
+src/    Qt/KIO models and controllers
+```

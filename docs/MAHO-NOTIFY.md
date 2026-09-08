@@ -1,99 +1,85 @@
 # Maho Notify
 
-Maho Notify is Maho OS's independent Quickshell notification surface. It owns
-desktop notification protocol objects and renders a compact top-right overlay;
-it does not render through Maho Edge or reserve compositor layout space.
+Maho Notify is the MahoOS notification service and notification center.
+It runs independently from Maho Edge and owns the desktop notification protocol.
 
-## N1 behavior
+## Popups
 
-- At most three 324 px cards are visible. Additional notifications wait in a
-  memory-only queue until a visible slot opens.
-- Body text is rendered as plain text and clamped to three lines. Icons and
-  images are bounded to 26 px in the popup.
-- Normal notifications default to seven seconds, low urgency to four seconds,
-  and critical notifications to fourteen seconds. Application expiry hints are
-  honored within bounded ranges: 3–12 seconds normally and 10–20 seconds for
-  critical notifications. Zero, negative, and pathological hints use these
-  bounded defaults rather than creating a permanent wall.
-- Hover pauses the current card timer. The close control calls the protocol
-  dismissal path. At most two app-provided actions are shown, and no actions are
-  invented.
-- Body markup, hyperlinks, body images, action icons, inline reply, and
-  persistence are not advertised. Notification content is never logged or
-  persisted in N1.
-- Colors are read directly from `~/.cache/maho/theme/active.json`, with local
-  fallbacks when the active palette is unavailable.
+- up to three notification cards are visible at once
+- extra notifications wait in a bounded in-memory queue
+- low, normal, and critical notifications use bounded expiry times
+- hovering pauses expiry
+- app-provided actions are preserved without inventing new actions
+- notification body text is displayed as plain text
+- critical notifications remain visible longer and bypass Do Not Disturb
+- colors come from the active Maho palette
+
+Maho Notify does not expose inline replies, arbitrary markup, or unbounded
+persistent popups.
+
+## History and Do Not Disturb
+
+Notification history is stored as private JSON under:
+
+```text
+$XDG_STATE_HOME/maho/notify/state.json
+```
+
+with `~/.local/state/maho/notify/state.json` as the fallback path.
+
+History is bounded by age and entry count. Transient notifications are not
+persisted. Malformed state is isolated instead of preventing Notify from starting.
+
+Do Not Disturb suppresses low and normal popups while keeping their history.
+Critical notifications still appear.
+
+Useful commands:
+
+```text
+maho-notify dnd on
+maho-notify dnd off
+maho-notify dnd toggle
+maho-notify dnd status
+maho-notify history clear
+```
+
+## Notification Center
+
+The notification center is a separate right-side overlay. It provides:
+
+- unread state
+- Do Not Disturb control
+- grouped history
+- relative timestamps
+- expandable notification bodies
+- keyboard navigation
+- clear and read controls
+
+Opening the center marks displayed history as read.
+Historical entries do not expose live application actions.
+
+## Maho Edge integration
+
+Notify publishes a small private runtime status file containing only:
+
+- unread count
+- Do Not Disturb state
+- whether Notify is active
+- the live Quickshell process ID
+
+Maho Edge uses this metadata to open the existing notification center and show
+unread/DND state. It never reads notification bodies or the persistent history
+file.
 
 ## Runtime
 
-`maho-notify` provides `run`, `start`, `stop`, `restart`, `reload`, `status`,
-`doctor`, and bounded `logs` commands. The runtime refuses to start if another
-process owns `org.freedesktop.Notifications`; it never stops or disables that
-process.
+`maho-notify` supports:
 
-`maho-setup install` packages the command, Quickshell configuration, and user
-unit, but intentionally leaves `maho-notify.service` disabled and inactive for
-the N1 handoff. Activation remains an explicit user choice after controlled
-runtime validation.
+```text
+run  start  stop  restart  reload  status  doctor  logs  center
+```
 
-## N2 history foundation
+The service refuses to take over when another process already owns
+`org.freedesktop.Notifications`.
 
-History uses stable plain-data snapshots rather than retaining notification
-protocol objects. State is stored as atomically replaced JSON below
-`$XDG_STATE_HOME/maho/notify/state.json` (falling back to
-`~/.local/state/maho/notify/state.json`). The directory is mode `0700` and the
-file is mode `0600`. Persistence retains at most 500 non-transient entries and
-prunes entries older than seven days. Malformed state is isolated as one private
-`.corrupt` file and startup continues with an empty history.
-
-Writes are coalesced, notification content is transferred to the persistence
-helper over stdin, and status output exposes counts only. Summaries, bodies,
-arbitrary hints, and notification content never enter command arguments or
-runtime logs.
-
-Normal notifications from the same application received within six seconds
-share one popup slot and show a count; the previous live protocol object is
-released after its history snapshot is taken. Critical notifications never use
-this grouping path. The popup surface remains capped at three visible groups
-plus 100 queued groups, for at most 103 retained popup protocol objects.
-When that queue is full, normal/low popup work is released while its history
-snapshot remains. A new critical notification replaces the oldest queued
-lower-urgency popup, or the oldest queued critical popup when every queued item
-is critical, so the newest critical state remains visible without breaking the
-hard live-object bound.
-
-DND is persisted with history. Low and normal notifications are archived but
-their popup work is immediately released while DND is on. Critical
-notifications explicitly bypass DND. `maho-notify dnd on|off|toggle|status` and
-`maho-notify history clear` manage this state without printing notification
-content; `status --json` exposes counts, DND, and bounded popup metadata only.
-
-The N2.1 Notification Center is an independent 432 px right-side overlay with a
-height capped at 704 px and the current monitor's safe area. Its adaptive Maho
-material, compact header, unread badge, DND pill, subtle time sections, relative
-timestamps, focus rail, and restrained slide/fade motion all derive from the
-active semantic palette. It uses a virtualized, reusable `ListView`, dense
-grouped history rows, two-line collapsed bodies, eight-line expanded bodies,
-DND/read/clear controls, keyboard navigation, and Escape to close. Opening the
-center marks displayed history read. Historical snapshots do not expose live
-app-action buttons. `maho-notify center` opens the surface.
-
-## N2.2 Maho Edge bridge
-
-Maho Notify atomically publishes only `version`, `unread_count`, `dnd`, `active`,
-and its live Quickshell `pid` to
-`$XDG_RUNTIME_DIR/maho/notify-status.json`. Its directory is mode `0700` and the
-file is mode `0600`. No application name, title, summary, body,
-hint, history entry, or action crosses this bridge. The sidecar becomes inactive
-on a clean Notify shutdown and is recreated from live state on startup.
-
-Maho Edge watches this small runtime file reactively only for a compact
-Notifications entry inside its expanded control center. The live PID lets Edge
-address Notify's existing IPC instance even when it was launched directly from
-a development worktree. The collapsed Edge is
-unchanged and shows no notification glyph or badge. The expanded entry reports
-unread/DND state and invokes live Notify IPC, with the managed
-`maho-notify center` path retained as the stopped-instance fallback.
-Edge never reads the persistent history file and remains functional when the
-metadata is missing, malformed, stale, or inactive. Maho Notify continues to
-operate independently when Maho Edge is absent.
+Logs and status output do not include notification content.

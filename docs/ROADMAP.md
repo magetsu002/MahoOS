@@ -1,23 +1,41 @@
-# Maho OS Roadmap
+# Roadmap
 
-## Foundation
+MahoOS V1 is focused on turning the current desktop into a complete system that
+can be installed, updated, recovered, and tested as one product.
 
-- [x] M0 — Known-Good Baseline
-- [x] M1 — Modular Hyprland
-- [ ] M2 — Source of Truth + mahoctl
-- [ ] M3 — Canonical Dynamic Theme Engine
-- [ ] M4 — Maho Desktop Shell
-- [ ] M5 — Reliability and Recovery Layer
+## Already in the V1 line
 
-## Adaptation
+- Maho Edge and control center
+- Maho Dock
+- Maho Launcher
+- Maho Link
+- Maho Notify
+- Maho Lock and SDDM theme
+- Maho Files
+- Maho Power
+- Maho Clipboard
+- wallpaper-based palette generation
+- immutable Maho runtime releases
+- security observation and containment tools
+- Guardian severity and service-recovery verification
 
-- [ ] M6 — System State Engine
-- [ ] M7 — Policy Engine
-- [ ] M8 — System Adapters
-- [ ] M9 — Verification and Self-Recovery
-- [ ] M10 — Adaptive UX and Explainability
+## Before V1
 
-## Distribution
+- finish Guardian acceptance and recovery history
+- standardize component manifests and installation ownership
+- finish Arch/CachyOS platform packaging
+- add transactional Btrfs system recovery
+- add current, previous, and recovery boot generations
+- integrate Limine with verified fallback entries
+- build the installation flow
+- build the ArchISO image
+- add signed transactional updates
+- connect Guardian to system/runtime recovery providers
+- run controlled failure and rollback testing
+- finish release packaging, documentation, and final acceptance
 
-- [ ] M11 — Reproducible Machine Bootstrap
-- [ ] M12 — Packages, Installer, ISO and Update Channels
+## After V1
+
+Planned work after the first stable release includes broader personalization,
+Maho Themes, more recovery providers, deeper Guardian diagnosis, and additional
+hardware and multi-monitor coverage.
