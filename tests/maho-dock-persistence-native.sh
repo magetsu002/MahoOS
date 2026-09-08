@@ -20,7 +20,8 @@ cp "$PROBE_SOURCE" "$sandbox/config/shell.qml"
 
 run_probe() {
     local pin="${1:-}" log="$2"
-    XDG_STATE_HOME="$sandbox/state" \
+    QT_QPA_PLATFORM=offscreen \
+        XDG_STATE_HOME="$sandbox/state" \
         MAHO_DOCK_PROBE_PIN="$pin" \
         timeout 5s "$QUICKSHELL" -vv -p "$sandbox/config/shell.qml" --no-color \
         >"$log" 2>&1
