@@ -33,9 +33,11 @@ jobs:
           pacman -Syu --noconfirm --needed \
             git \
             diffutils \
+            imagemagick \
             python \
             qt6-base \
-            qt6-declarative
+            qt6-declarative \
+            qt6-5compat
 
       - uses: actions/checkout@v4
 
