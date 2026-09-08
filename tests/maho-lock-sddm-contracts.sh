@@ -87,6 +87,27 @@ export MAHO_SDDM_THEME_ROOT="$sandbox/themes"
 export MAHO_SDDM_CONFIG_ROOT="$sandbox/config"
 export MAHO_SDDM_STATE_ROOT="$sandbox/state"
 
+# Keep profile discovery inside the sandbox. The real installer resolves the
+# invoking account through getent, so the test supplies the same account with a
+# temporary home instead of depending on the runner's or developer's profile.
+account="$(id -un)"
+uid="$(id -u)"
+gid="$(id -g)"
+mkdir -p "$sandbox/fake-bin" "$sandbox/home"
+real_getent="$(command -v getent)"
+cat >"$sandbox/fake-bin/getent" <<EOF_GETENT
+#!/usr/bin/env bash
+if [ "\${1:-}" = passwd ] && [ "\${2:-}" = "$account" ]; then
+    printf '%s\n' '$account:x:$uid:$gid:Maho Lock test:$sandbox/home:/bin/bash'
+    exit 0
+fi
+exec "$real_getent" "\$@"
+EOF_GETENT
+chmod +x "$sandbox/fake-bin/getent"
+export PATH="$sandbox/fake-bin:$PATH"
+
+# No selected avatar is a supported state: SDDM must use the user initial and
+# must not advertise a missing image as available.
 bash "$INSTALLER" install >/dev/null
 bash "$INSTALLER" status >/dev/null
 grep -Fxq '# managed-by: maho-lock-sddm v1' "$sandbox/config/90-maho-lock.conf" \
@@ -95,12 +116,28 @@ grep -Fxq 'Current=maho-lock' "$sandbox/config/90-maho-lock.conf" \
     || fail "persistent SDDM theme selection missing"
 [ -s "$sandbox/themes/maho-lock/assets/wallpaper" ] \
     || fail "staged wallpaper missing"
+[ ! -e "$sandbox/themes/maho-lock/assets/avatar.png" ] \
+    || fail "avatar asset was invented without a selected source"
+grep -Fxq 'avatarAvailable=false' "$sandbox/themes/maho-lock/theme.conf" \
+    || fail "missing avatar did not select the user-initial fallback"
+pass "sandbox install supports user-initial avatar fallback"
+
+# A selected avatar must be converted to the renderer-independent high-density
+# circular asset used by the real greeter.
+profile_dir="$sandbox/home/.local/state/maho/lock"
+mkdir -p "$profile_dir"
+fixture_avatar="$ROOT/config/quickshell/maho-lock/assets/maho-lock-dusk.jpg"
+printf '{"avatarPath":"%s"}\n' "$fixture_avatar" >"$profile_dir/profile.json"
+bash "$INSTALLER" install >/dev/null
+bash "$INSTALLER" status >/dev/null
 [ -s "$sandbox/themes/maho-lock/assets/avatar.png" ] \
-    || fail "staged rounded avatar missing"
+    || fail "selected avatar was not staged"
 magick identify "$sandbox/themes/maho-lock/assets/avatar.png" | grep -Fq '1024x1024' \
     || fail "staged avatar is not the high-resolution square contract"
 magick identify -verbose "$sandbox/themes/maho-lock/assets/avatar.png" | grep -Fq 'Alpha:' \
     || fail "staged avatar lost its circular alpha mask"
+grep -Fxq 'avatarAvailable=true' "$sandbox/themes/maho-lock/theme.conf" \
+    || fail "selected avatar was not advertised to the greeter"
 grep -Fxq 'managed-by-maho-lock-sddm-v1' \
     "$sandbox/themes/maho-lock/.managed-by-maho-lock-sddm" \
     || fail "managed theme marker missing"
