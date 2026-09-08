@@ -46,17 +46,32 @@ def main() -> None:
         "service": {
             "name": "maho-notify.service",
             "consecutive_failures": 1,
-            "restart_safe": True,
+            "restart_safe": False,
         },
     }
     decision = decide_recovery(safe_service_recovery)
     check(
-        "existing recovery planner still selects bounded safe service restart",
-        decision.action == "restart-service" and decision.automatic_allowed,
+        "recovery planner selects only the explicitly registered Maho Notify restart",
+        decision.action == "restart-service"
+        and decision.target == "maho-notify.service"
+        and decision.automatic_allowed,
     )
     check(
         "Guardian and recovery planner jointly permit certified tiny self-heal",
         effective_automatic_mutation(tiny_maho_incident, safe_service_recovery),
+    )
+
+    spoofed_service_recovery = {
+        "failure": {"domain": "service", "graphical_available": True},
+        "service": {
+            "name": "external.service",
+            "consecutive_failures": 1,
+            "restart_safe": True,
+        },
+    }
+    check(
+        "runtime restart_safe flag cannot self-certify an external service",
+        decide_recovery(spoofed_service_recovery).action == "diagnose-service-incident",
     )
 
     unknown_owner = {

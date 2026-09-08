@@ -11,6 +11,8 @@ on:
       - 'lib/guardian_severity.py'
       - 'lib/guardian_engine.py'
       - 'lib/guardian_incident.py'
+      - 'lib/guardian_recovery_registry.py'
+      - 'lib/guardian_recovery_executor.py'
       - 'lib/maho_recovery_policy.py'
       - 'config/quickshell/maho-shell/GuardianState.qml'
       - 'config/quickshell/maho-shell/GuardianWheel.qml'
@@ -21,6 +23,8 @@ on:
       - 'tests/test_guardian_severity.py'
       - 'tests/test_guardian_engine.py'
       - 'tests/test_guardian_incident.py'
+      - 'tests/test_guardian_recovery_registry.py'
+      - 'tests/test_guardian_recovery_executor.py'
       - 'tests/test_guardian_recovery_contract.py'
       - 'tests/guardian-wheel-contracts.sh'
       - 'tests/security-incidents.sh'
@@ -33,6 +37,8 @@ on:
       - 'lib/guardian_severity.py'
       - 'lib/guardian_engine.py'
       - 'lib/guardian_incident.py'
+      - 'lib/guardian_recovery_registry.py'
+      - 'lib/guardian_recovery_executor.py'
       - 'lib/maho_recovery_policy.py'
       - 'config/quickshell/maho-shell/GuardianState.qml'
       - 'config/quickshell/maho-shell/GuardianWheel.qml'
@@ -43,6 +49,8 @@ on:
       - 'tests/test_guardian_severity.py'
       - 'tests/test_guardian_engine.py'
       - 'tests/test_guardian_incident.py'
+      - 'tests/test_guardian_recovery_registry.py'
+      - 'tests/test_guardian_recovery_executor.py'
       - 'tests/test_guardian_recovery_contract.py'
       - 'tests/guardian-wheel-contracts.sh'
       - 'tests/security-incidents.sh'
@@ -67,10 +75,14 @@ jobs:
             lib/guardian_severity.py \
             lib/guardian_engine.py \
             lib/guardian_incident.py \
+            lib/guardian_recovery_registry.py \
+            lib/guardian_recovery_executor.py \
             lib/maho_recovery_policy.py \
             tests/test_guardian_severity.py \
             tests/test_guardian_engine.py \
             tests/test_guardian_incident.py \
+            tests/test_guardian_recovery_registry.py \
+            tests/test_guardian_recovery_executor.py \
             tests/test_guardian_recovery_contract.py \
             tests/recovery-policy.py
 
@@ -88,6 +100,16 @@ jobs:
         run: |
           set -euo pipefail
           python tests/test_guardian_incident.py
+
+      - name: Guardian certified recovery registry tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_recovery_registry.py
+
+      - name: Guardian verified recovery executor tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_recovery_executor.py
 
       - name: Guardian recovery compatibility tests
         run: |

@@ -90,15 +90,26 @@ check(
 )
 
 check(
-    "single safe service crash is silent",
+    "single certified Maho Notify failure is silent",
     {
         "failure": {"domain": "service", "graphical_available": True},
-        "service": {"name": "maho-notify.service", "consecutive_failures": 1, "restart_safe": True},
+        "service": {"name": "maho-notify.service", "consecutive_failures": 1, "restart_safe": False},
     },
     action="restart-service",
+    target="maho-notify.service",
     scope="service",
     automatic_allowed=True,
     surface="silent",
+)
+
+check(
+    "bounded second Maho Notify failure remains certified",
+    {
+        "failure": {"domain": "service", "graphical_available": True},
+        "service": {"name": "maho-notify.service", "consecutive_failures": 2},
+    },
+    action="restart-service",
+    automatic_allowed=True,
 )
 
 check(
@@ -112,12 +123,14 @@ check(
 )
 
 check(
-    "unsafe service never gets automatic restart",
+    "external service cannot self-certify automatic restart",
     {
         "failure": {"domain": "service"},
-        "service": {"name": "external.service", "consecutive_failures": 1, "restart_safe": False},
+        "service": {"name": "external.service", "consecutive_failures": 1, "restart_safe": True},
     },
     action="diagnose-service-incident",
+    automatic_allowed=True,
+    target="external.service",
 )
 
 check(
@@ -133,7 +146,6 @@ check(
     surface="text-console",
 )
 
-# A stable JSON representation is useful for future Recovery/Guardian projection.
 sample = decide_recovery({"failure": {"domain": "unknown"}}).as_dict()
 encoded = json.dumps(sample, sort_keys=True, separators=(",", ":"))
 assert json.loads(encoded) == sample
