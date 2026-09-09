@@ -247,13 +247,16 @@ aur_build_command() {
 
 doctor_command() {
     echo "Maho security guard"
-    [ -r "$INCIDENT_ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$INCIDENT_ENGINE" >/dev/null 2>&1 && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
-    [ -r "$PREFLIGHT_ENGINE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PREFLIGHT_ENGINE" >/dev/null 2>&1 && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
-    [ -r "$GUARDIAN_POLICY" ] && python -m py_compile "$GUARDIAN_POLICY" >/dev/null 2>&1 && echo "PASS  Guardian severity policy" || echo "FAIL  Guardian severity policy"
-    [ -r "$GUARDIAN_ENGINE" ] && python -m py_compile "$GUARDIAN_ENGINE" >/dev/null 2>&1 && echo "PASS  Guardian recovery authority combiner" || echo "FAIL  Guardian recovery authority combiner"
-    [ -r "$GUARDIAN_INCIDENT" ] && python -m py_compile "$GUARDIAN_INCIDENT" >/dev/null 2>&1 && echo "PASS  Guardian incident normalizer/history" || echo "FAIL  Guardian incident normalizer/history"
-    [ -r "$GUARDIAN_SERVICE" ] && python -m py_compile "$GUARDIAN_SERVICE" >/dev/null 2>&1 && echo "PASS  Guardian service incident lifecycle" || echo "FAIL  Guardian service incident lifecycle"
-    [ -r "$GUARDIAN_WATCHER" ] && python -m py_compile "$GUARDIAN_WATCHER" >/dev/null 2>&1 && echo "PASS  Guardian event watcher" || echo "FAIL  Guardian event watcher"
+    parse_python() {
+        [ -r "$1" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$1" >/dev/null 2>&1
+    }
+    parse_python "$INCIDENT_ENGINE" && echo "PASS  incident correlation engine" || echo "FAIL  incident correlation engine"
+    parse_python "$PREFLIGHT_ENGINE" && echo "PASS  static package preflight engine" || echo "FAIL  static package preflight engine"
+    parse_python "$GUARDIAN_POLICY" && echo "PASS  Guardian severity policy" || echo "FAIL  Guardian severity policy"
+    parse_python "$GUARDIAN_ENGINE" && echo "PASS  Guardian recovery authority combiner" || echo "FAIL  Guardian recovery authority combiner"
+    parse_python "$GUARDIAN_INCIDENT" && echo "PASS  Guardian incident normalizer/history" || echo "FAIL  Guardian incident normalizer/history"
+    parse_python "$GUARDIAN_SERVICE" && echo "PASS  Guardian service incident lifecycle" || echo "FAIL  Guardian service incident lifecycle"
+    parse_python "$GUARDIAN_WATCHER" && echo "PASS  Guardian event watcher" || echo "FAIL  Guardian event watcher"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"

@@ -142,4 +142,21 @@ grep -q 'automatic system mutation: none' <<< "$DOCTOR"
 grep -q 'default interruption: silent' <<< "$DOCTOR"
 echo "PASS"
 
+echo "=== guard doctor is read-only on immutable runtime trees ==="
+IMMUTABLE="$TMP/immutable-runtime"
+mkdir -p "$IMMUTABLE"
+cp -a "$ROOT/lib" "$IMMUTABLE/lib"
+cp -a "$ROOT/bin" "$IMMUTABLE/bin"
+find "$IMMUTABLE" -type d -name __pycache__ -prune -exec rm -rf {} +
+find "$IMMUTABLE" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+find "$IMMUTABLE" -type d -exec chmod 0555 {} +
+find "$IMMUTABLE" -type f -exec chmod 0444 {} +
+IMMUTABLE_DOCTOR="$(MAHO_ROOT="$IMMUTABLE" bash "$IMMUTABLE/bin/maho-guard" doctor)"
+for label in   'incident correlation engine'   'static package preflight engine'   'Guardian severity policy'   'Guardian recovery authority combiner'   'Guardian incident normalizer/history'   'Guardian service incident lifecycle'   'Guardian event watcher'; do
+  grep -Fq "PASS  $label" <<< "$IMMUTABLE_DOCTOR" || fail "immutable doctor failed: $label"
+done
+[ -z "$(find "$IMMUTABLE" -type d -name __pycache__ -print -quit)" ] || fail "doctor attempted bytecode writes in immutable runtime"
+chmod -R u+w "$IMMUTABLE"
+echo "PASS"
+
 echo "ALL SECURITY INCIDENT CONTRACTS PASS"
