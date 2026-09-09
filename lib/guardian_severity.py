@@ -199,7 +199,7 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
     if l2_candidate:
         automatic = (
             ownership == "maho"
-            and scope == "component"
+            and scope in {"component", "runtime"}
             and certified_path
             and recovery_rank >= _RECOVERY_CONFIDENCE["certified"]
         )
