@@ -33,8 +33,10 @@ while [ "$#" -gt 0 ]; do
 done
 case "$field:$target" in
   FSTYPE:/) printf 'btrfs\n' ;;
-  SOURCE:/) printf '/dev/mapper/maho-root[/@]\n' ;;
-  SOURCE:/home) printf '/dev/mapper/maho-root[/@home]\n' ;;
+  SOURCE:/) printf '/dev/mapper/maho-root\n' ;;
+  FSROOT:/) printf '/@\n' ;;
+  SOURCE:/home) printf '/dev/mapper/maho-root\n' ;;
+  FSROOT:/home) printf '/@home\n' ;;
   FSTYPE:/boot) printf 'vfat\n' ;;
   SOURCE:/boot) printf '/dev/nvme0n1p1\n' ;;
   *) exit 1 ;;
@@ -59,8 +61,10 @@ assert data['policy']['fallback_kernel'] == 'linux-cachyos-lts'
 assert data['policy']['fallback_visibility'] == 'recovery-or-advanced-only'
 x = data['detected']
 assert x['root_fstype'] == 'btrfs'
-assert x['root_source'].endswith('[/@]')
-assert x['home_source'].endswith('[/@home]')
+assert x['root_source'] == '/dev/mapper/maho-root'
+assert x['root_fsroot'] == '/@'
+assert x['home_source'] == '/dev/mapper/maho-root'
+assert x['home_fsroot'] == '/@home'
 assert x['home_separate_from_root'] is True
 assert x['boot_fstype'] == 'vfat'
 assert x['boot_source'] == '/dev/nvme0n1p1'
