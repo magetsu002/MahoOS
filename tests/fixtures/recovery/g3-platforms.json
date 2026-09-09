@@ -1,0 +1,15 @@
+{
+  "healthy": {},
+  "no-snapper": {"missing_packages": ["snapper"]},
+  "wrong-snapper-config": {"snapper_config_name": "system"},
+  "incomplete-snapshot": {"snapshot_overrides": {"20": {"date": "not-a-date"}}},
+  "missing-limine-relationship": {"manifest_missing": true},
+  "mismatched-boot-state": {"manifest_overrides": {"20": {"filesVerified": false, "artifactsCoherent": false}}},
+  "kernel-mismatch": {"kernel_package_overrides": {"20": "linux-zen"}},
+  "no-lts": {"missing_packages": ["linux-cachyos-lts"]},
+  "home-included": {"home_scope": "included"},
+  "home-unknown": {"home_scope": "unknown"},
+  "malformed-tool-output": {"malformed_snapper_list": true},
+  "missing-commands": {"all_commands_missing": true},
+  "broken-package-link": {"snapshot_overrides": {"20": {"type": "post", "pre-number": 999}}}
+}
