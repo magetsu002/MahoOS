@@ -107,10 +107,14 @@ def build_fixture(spec: dict[str, Any]) -> dict[str, Any]:
     elif home_scope == "unknown":
         commands.pop(home_command)
 
+    manifest = {"filesystemUuid": FSUUID, "snapshotEntries": entries}
+    if spec.get("manifest_filesystem_uuid_missing"):
+        manifest.pop("filesystemUuid")
+
     files: dict[str, Any] = {
         "/etc/machine-id": MID + "\n",
         "/etc/default/limine": f"ESP_PATH=/boot\nSNAPPER_CONFIG_NAME={spec.get('snapper_config_name', 'root')}\n",
-        MANIFEST_PATH: {"filesystemUuid": FSUUID, "snapshotEntries": entries},
+        MANIFEST_PATH: manifest,
     }
     if spec.get("manifest_missing"):
         files.pop(MANIFEST_PATH)
@@ -156,8 +160,18 @@ def main() -> None:
     check("wrong Snapper config fails closed", wrong.current_platform["snapper_config_mismatch"] is True and wrong.selected_generation_id is None)
     incomplete, _ = discover("incomplete-snapshot")
     check("incomplete snapshot metadata is rejected", not candidate(incomplete, 20).eligible and "snapshot_creation_time_invalid" in candidate(incomplete, 20).rejection_reasons)
+
+    unknown_ro, _ = discover("unknown-read-only")
+    check("unknown snapshot read-only state is rejected", not candidate(unknown_ro, 20).eligible and "snapshot_read_only_unknown" in candidate(unknown_ro, 20).rejection_reasons)
+    missing_subvolume, _ = discover("missing-snapshot-subvolume")
+    check("missing snapshot subvolume identity is rejected", not candidate(missing_subvolume, 20).eligible and "snapshot_subvolume_unknown" in candidate(missing_subvolume, 20).rejection_reasons)
+    unknown_type, _ = discover("unknown-snapshot-type")
+    check("unknown snapshot type is rejected", not candidate(unknown_type, 20).eligible and "snapshot_type_unknown" in candidate(unknown_type, 20).rejection_reasons)
+
     missing_limine, _ = discover("missing-limine-relationship")
     check("missing Limine relationship is rejected", not candidate(missing_limine, 20).eligible and "boot_relationship_unknown" in candidate(missing_limine, 20).rejection_reasons)
+    missing_boot_fs, _ = discover("missing-boot-filesystem-identity")
+    check("missing boot filesystem identity is rejected", not candidate(missing_boot_fs, 20).eligible and "boot_filesystem_identity_unknown" in candidate(missing_boot_fs, 20).rejection_reasons)
     boot_mismatch, _ = discover("mismatched-boot-state")
     check("mismatched boot state is rejected", not candidate(boot_mismatch, 20).eligible and "kernel_initramfs_mismatch" in candidate(boot_mismatch, 20).rejection_reasons)
     kernel_mismatch, _ = discover("kernel-mismatch")
@@ -165,10 +179,15 @@ def main() -> None:
     no_lts, _ = discover("no-lts")
     check("LTS absence is represented without fabrication", no_lts.current_platform["lts_kernel_present"] is False)
     check("coherent primary-kernel generation does not require installed LTS", candidate(no_lts, 20).eligible)
+
     home_included, _ = discover("home-included")
-    check("included home is never reported preserved", candidate(home_included, 20).home_scope == "included" and home_included.planning_facts["availability"]["home_excluded_from_root_snapshot"] is False)
+    check("included home is explicit and never reported preserved", candidate(home_included, 20).eligible and candidate(home_included, 20).home_scope == "included" and home_included.planning_facts["availability"]["home_excluded_from_root_snapshot"] is False)
     home_unknown, _ = discover("home-unknown")
-    check("unknown home scope is never reported preserved", candidate(home_unknown, 20).home_scope == "unknown" and home_unknown.planning_facts["availability"]["home_excluded_from_root_snapshot"] is False)
+    check("unknown home scope fails closed", not candidate(home_unknown, 20).eligible and "personal_data_scope_unknown" in candidate(home_unknown, 20).rejection_reasons and home_unknown.selected_generation_id is None)
+
+    older_marked_good, _ = discover("known-good-older")
+    check("metadata known-good marker cannot outrank nearer eligible generation", older_marked_good.selected_generation_id == candidate(older_marked_good, 20).generation_id)
+
     malformed, _ = discover("malformed-tool-output")
     check("malformed structured tool output fails closed", malformed.selected_generation_id is None)
     missing_cmds, missing_probe = discover("missing-commands")
@@ -179,12 +198,20 @@ def main() -> None:
     all_commands = healthy_probe.commands + missing_probe.commands
     forbidden = ("rollback", "create", "delete", "remove", "set-default", "install", "-S", "-R")
     check("fixture discovery executed no mutation commands", not any(any(token in part for token in forbidden for part in cmd) for cmd in all_commands))
-    refused = False
-    try:
-        SystemProbe().run(("snapper", "--config", "root", "rollback", "20"))
-    except RuntimeError:
-        refused = True
-    check("system adapter refuses snapshot mutation commands", refused)
+
+    refused_shapes = (
+        ("snapper", "--config", "root", "rollback", "20"),
+        ("snapper", "--config", "root", "rollback", "list"),
+        ("snapper", "--jsonout", "--config", "root", "list", "rollback"),
+        ("pacman", "-Q", "snapper", "-S"),
+    )
+    for argv in refused_shapes:
+        refused = False
+        try:
+            SystemProbe().run(argv)
+        except RuntimeError:
+            refused = True
+        check(f"system adapter refuses unsafe command shape {argv!r}", refused)
 
     forward = [candidate(healthy, 10), candidate(healthy, 20), candidate(healthy, 30)]
     check("deterministic ranked view is input-order independent", [x.generation_id for x in rank_generations(forward)] == [x.generation_id for x in rank_generations(reversed(forward))])
