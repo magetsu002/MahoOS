@@ -31,7 +31,7 @@ def snapshot(unit: str) -> ServiceSnapshot:
     argv = [
         "systemctl", "--user", "show", unit,
         "--property=LoadState", "--property=ActiveState", "--property=SubState",
-        "--property=Result", "--property=InvocationID", "--property=Restart",
+        "--property=Result", "--property=InvocationID", "--property=Restart", "--property=ControlGroup",
     ]
     result = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=10)
     values = {}
@@ -40,6 +40,9 @@ def snapshot(unit: str) -> ServiceSnapshot:
             key, separator, value = line.partition("=")
             if separator:
                 values[key] = value
+    contract = certified_service_recovery(unit)
+    health_check = contract.health_check if contract is not None else "uncertified"
+    health_ok, health_evidence = _service_health(contract, values.get("ControlGroup", ""))
     return ServiceSnapshot(
         unit=unit,
         load_state=values.get("LoadState", "unknown"),
@@ -48,8 +51,33 @@ def snapshot(unit: str) -> ServiceSnapshot:
         result=values.get("Result", "unknown"),
         invocation_id=values.get("InvocationID", ""),
         restart=values.get("Restart", "unknown"),
+        health_check=health_check,
+        health_ok=health_ok,
+        health_evidence=health_evidence,
     )
 
+
+
+def _service_health(contract, control_group: str) -> tuple[bool, tuple[str, ...]]:
+    """Verify the certified runtime identity inside the unit's own cgroup."""
+    if contract is None or not control_group.startswith("/"):
+        return False, ()
+    procs = Path("/sys/fs/cgroup") / control_group.lstrip("/") / "cgroup.procs"
+    try:
+        pids = sorted({int(row) for row in procs.read_text().split() if row.isdigit()})
+    except OSError:
+        return False, ()
+    evidence: list[str] = []
+    for pid in pids:
+        try:
+            args = [os.fsdecode(part) for part in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if part]
+        except OSError:
+            continue
+        if args:
+            evidence.append(" ".join(args))
+    joined = "\n".join(evidence)
+    ok = bool(evidence) and all(pattern in joined for pattern in contract.health_process_patterns)
+    return ok, tuple(evidence)
 
 def _boot_id() -> str:
     return Path("/proc/sys/kernel/random/boot_id").read_text().strip().replace("-", "")

@@ -53,8 +53,8 @@ def event(*args, **kwargs):
     return value
 
 
-def snap(invocation=REPLACEMENT, *, active="active", sub="running", restart="on-failure"):
-    return ServiceSnapshot("maho-notify.service", "loaded", active, sub, "success", invocation, restart)
+def snap(invocation=REPLACEMENT, *, active="active", sub="running", restart="on-failure", health_ok=True):
+    return ServiceSnapshot("maho-notify.service", "loaded", active, sub, "success", invocation, restart, "quickshell-notify-runtime", health_ok, ("quickshell -p /config/maho-notify/shell.qml",))
 
 
 def check(name, condition):
@@ -107,7 +107,7 @@ def main():
         check("verification is not due early", store.due_verifications(105.99) == [])
         due = store.due_verifications(106.0)
         check("verification becomes due after stability interval", len(due) == 1 and due[0]["incident_id"] == iid)
-        check("active/running exact replacement verifies", store.verify(due[0], snap(), timestamp="2027-01-15T08:00:03+00:00"))
+        check("active/running exact replacement and service health verifies", store.verify(due[0], snap(), timestamp="2027-01-15T08:00:03+00:00"))
         history_path = root / "guardian/recovery-history" / f"{iid}.json"
         history = json.loads(history_path.read_text())
         check("verified history attributes recovery to systemd", history["status"] == "succeeded" and history["verified"] is True and history["provider"] == "systemd-user" and history["guardian_mutation"] is False and history["guardian_severity"]["level"] == 1 and history["terminal_guardian_severity"]["level"] == 0)
@@ -130,6 +130,13 @@ def main():
         check("unresolved recovery stays visible", unresolved["service_recovery"]["lifecycle"] == "unresolved" and history["status"] == "unresolved" and history["verified"] is False)
         check("exhausted provider becomes diagnosis-only L2", unresolved["decision"]["severity"]["level"] == 2 and unresolved["decision"]["execution_mode"] == "diagnose" and unresolved["decision"]["recovery"]["action"] == "diagnose-service-incident")
         check("no success record exists without verification", not list((Path(tmp) / "guardian/archive").glob("*.json")))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = ServiceIncidentStore(Path(tmp))
+        store.process(event(UNIT_FAILED), now=250.0)
+        store.process(event(RESTART_SCHEDULED), now=251.0)
+        verifying = store.process(event(UNIT_STARTED, REPLACEMENT), now=252.0)
+        check("service-specific failed postcondition cannot pass", not store.verify(verifying, snap(health_ok=False)))
 
     with tempfile.TemporaryDirectory() as tmp:
         store = ServiceIncidentStore(Path(tmp))

@@ -31,6 +31,9 @@ class ServiceSnapshot:
     result: str
     invocation_id: str
     restart: str
+    health_check: str = "unavailable"
+    health_ok: bool = False
+    health_evidence: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -270,6 +273,7 @@ class ServiceIncidentStore:
                             "sub_state": contract.healthy_sub_state,
                             "replacement_timeout_seconds": contract.replacement_timeout_seconds,
                             "stability_seconds": contract.stability_seconds,
+                            "health_check": contract.health_check,
                         },
                         "observed": None,
                     },
@@ -302,6 +306,7 @@ class ServiceIncidentStore:
                         "sub_state": contract.healthy_sub_state,
                         "replacement_timeout_seconds": contract.replacement_timeout_seconds,
                         "stability_seconds": contract.stability_seconds,
+                        "health_check": contract.health_check,
                     },
                     "observed": None,
                 },
@@ -331,6 +336,7 @@ class ServiceIncidentStore:
                         "active_state": contract.healthy_active_state,
                         "sub_state": contract.healthy_sub_state,
                         "stability_seconds": contract.stability_seconds,
+                        "health_check": contract.health_check,
                     },
                     "observed": None,
                 },
@@ -381,6 +387,8 @@ class ServiceIncidentStore:
             and snapshot.invocation_id == state.get("replacement_invocation_id")
             and snapshot.invocation_id != state.get("failed_invocation_id")
             and snapshot.restart == contract.expected_restart
+            and snapshot.health_check == contract.health_check
+            and snapshot.health_ok is True
         )
         stamp = timestamp or utc_now()
         state["updated_at"] = stamp
