@@ -15,56 +15,13 @@ Item {
     property int workspaceEventSerial: 0
     property date now: new Date()
     property bool hovered: hitArea.containsMouse
-    property bool guardianPresentationActive: false
-    property int lastGuardianGeneration: 0
-
-    GuardianState {
-        id: guardianState
-        enabled: edge.visible
-    }
-
     readonly property string mode:
-        edge.guardianPresentationActive ? "guardian"
-        : brightness && brightness.overlayOpen ? "brightness"
+        brightness && brightness.overlayOpen ? "brightness"
         : audio && audio.overlayOpen ? "volume"
         : workspaceFlash ? "workspace"
         : "idle"
 
     signal openRequested()
-    signal catastrophicLocked()
-
-    function guardianPresentationDuration(severity) {
-        if (severity >= 4) return 5600
-        if (severity === 3) return 3600
-        if (severity === 2) return 2700
-        return 1800
-    }
-
-    function presentGuardian() {
-        if (!guardianState.active) {
-            guardianPresentationTimer.stop()
-            guardianPresentationActive = false
-            guardianWheel.resetHidden()
-            return
-        }
-
-        if (guardianState.generation <= lastGuardianGeneration)
-            return
-
-        lastGuardianGeneration = guardianState.generation
-        guardianPresentationActive = true
-        guardianPresentationTimer.interval = guardianPresentationDuration(guardianState.highestSeverity)
-        guardianPresentationTimer.restart()
-        guardianWheel.resetHidden()
-        guardianWheel.advanceIfNeeded()
-    }
-
-    Timer {
-        id: guardianPresentationTimer
-        interval: 2800
-        repeat: false
-        onTriggered: edge.guardianPresentationActive = false
-    }
 
     function networkGlyph() {
         if (system && system.networkKind === "wifi") return "󰖩"
@@ -102,7 +59,7 @@ Item {
     MouseArea {
         id: hitArea
         anchors.fill: parent
-        enabled: edge.enabled && edge.mode !== "guardian"
+        enabled: edge.enabled
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.MiddleButton
@@ -131,46 +88,6 @@ Item {
                 edge.openMahoLink()
             else
                 edge.openRequested()
-        }
-    }
-
-    Item {
-        id: guardianView
-        anchors.fill: parent
-        opacity: edge.mode === "guardian" ? 1 : 0
-        visible: opacity > 0.01
-
-        Behavior on opacity { NumberAnimation { duration: 120 } }
-
-        GuardianWheel {
-            id: guardianWheel
-            anchors.centerIn: parent
-            width: 30
-            height: 30
-            active: edge.guardianPresentationActive
-            targetSeverity: guardianState.highestSeverity
-            catastrophicTransitionSerial: guardianState.catastrophicTransitionSerial
-            onCatastrophicLocked: edge.catastrophicLocked()
-        }
-
-        Connections {
-            target: guardianState
-
-            function onGenerationChanged() {
-                edge.presentGuardian()
-            }
-
-            function onHighestSeverityChanged() {
-                if (!guardianState.active) {
-                    guardianPresentationTimer.stop()
-                    edge.guardianPresentationActive = false
-                    guardianWheel.resetHidden()
-                } else if (edge.guardianPresentationActive) {
-                    guardianPresentationTimer.interval = guardianState.highestSeverity >= 4 ? 4600 : 2800
-                    guardianPresentationTimer.restart()
-                    guardianWheel.advanceIfNeeded()
-                }
-            }
         }
     }
 

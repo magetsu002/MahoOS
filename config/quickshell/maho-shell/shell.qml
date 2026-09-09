@@ -23,6 +23,11 @@ ShellRoot {
         id: guardianBackdropPulse
     }
 
+    GuardianOverlay {
+        id: guardianOverlay
+        onCatastrophicLocked: root.handleGuardianCatastrophicLocked()
+    }
+
     function handleGuardianCatastrophicLocked() {
         guardianBackdropPulse.trigger()
         guardianCatastrophicHookTimer.restart()
@@ -588,7 +593,6 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
-                    onCatastrophicLocked: root.handleGuardianCatastrophicLocked()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
@@ -610,7 +614,6 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
-                    onCatastrophicLocked: root.handleGuardianCatastrophicLocked()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
