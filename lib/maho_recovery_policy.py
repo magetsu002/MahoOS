@@ -13,7 +13,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
-from guardian_recovery_registry import certified_service_recovery
+from guardian_recovery_registry import certified_runtime_recovery, certified_service_recovery
 
 
 @dataclass(frozen=True)
@@ -108,15 +108,37 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
         )
 
     if domain == "maho-runtime":
+        certified = certified_runtime_recovery(domain)
+        domain_confidence = failure.get("domain_confidence")
+        if certified is None or domain_confidence != "confirmed":
+            return RecoveryDecision(
+                action="open-recovery-console",
+                scope="diagnostic",
+                requires_confirmation=False,
+                automatic_allowed=True,
+                surface="graphical-recovery" if graphical_available else "text-console",
+                preserves_personal_files=True,
+                reason="The Maho runtime failure domain is not confirmed, so no mutating recovery is authorized.",
+            )
         if _bool(availability, "previous_runtime_verified", False):
             return RecoveryDecision(
-                action="rollback-maho-runtime",
-                scope="maho-runtime",
+                action=certified.action,
+                scope=certified.scope,
                 requires_confirmation=not transaction_in_progress,
                 automatic_allowed=transaction_in_progress,
                 surface="graphical-recovery" if graphical_available else "text-console",
-                preserves_personal_files=True,
-                reason="The Maho runtime failed verification and a previously verified immutable runtime is available.",
+                preserves_personal_files=certified.preserves_personal_files,
+                reason=(
+                    "The Maho runtime failed verification and a previously verified immutable runtime is available; "
+                    + (
+                        "the active Maho activation transaction may restore it."
+                        if transaction_in_progress
+                        else "outside the activation transaction the rollback requires confirmation."
+                    )
+                ),
+                target="previous-runtime",
+                provider=certified.provider,
+                recovery_mode=certified.mode,
             )
         return RecoveryDecision(
             action="open-recovery-console",

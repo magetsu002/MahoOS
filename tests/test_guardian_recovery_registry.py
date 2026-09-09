@@ -7,6 +7,8 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_recovery_registry import (  # noqa: E402
     certified_guardian_restart,
+    certified_runtime_domains,
+    certified_runtime_recovery,
     certified_service_recovery,
     certified_service_units,
 )
@@ -21,7 +23,7 @@ def check(name: str, condition: bool) -> None:
 def main() -> None:
     entry = certified_service_recovery("maho-notify.service")
     check(
-        "registry contains exactly one initial V1 recovery",
+        "registry preserves exactly one delegated service recovery",
         certified_service_units() == ("maho-notify.service",),
     )
     check(
@@ -38,8 +40,29 @@ def main() -> None:
         and entry.replacement_timeout_seconds == 5.0
         and entry.stability_seconds == 3.0,
     )
+    runtime = certified_runtime_recovery("maho-runtime")
+    check(
+        "registry contains exactly one Maho runtime recovery contract",
+        certified_runtime_domains() == ("maho-runtime",),
+    )
+    check(
+        "Maho runtime rollback is a distinct transactional provider contract",
+        runtime is not None
+        and runtime.ownership == "maho"
+        and runtime.provider == "maho-runtime"
+        and runtime.mode == "transactional"
+        and runtime.action == "rollback-previous"
+        and runtime.scope == "maho-runtime"
+        and runtime.executor == "maho-setup"
+        and runtime.preserves_personal_files
+        and runtime.previous_runtime_required
+        and runtime.automatic_only_in_transaction
+        and runtime.postcondition == "verified-previous-is-current-and-managed-wiring-matches-current",
+    )
     check("external service cannot self-certify", certified_service_recovery("external.service") is None)
     check("malformed service identity fails closed", certified_service_recovery(True) is None)
+    check("unknown runtime domain cannot self-certify", certified_runtime_recovery("system-userspace") is None)
+    check("malformed runtime identity fails closed", certified_runtime_recovery(True) is None)
     check("delegated Notify contract grants no direct Guardian restart", certified_guardian_restart("maho-notify.service") is None)
     print("ALL GUARDIAN RECOVERY REGISTRY TESTS PASS")
 

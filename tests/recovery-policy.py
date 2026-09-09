@@ -67,26 +67,66 @@ check(
 check(
     "runtime activation transaction may rollback automatically",
     {
-        "failure": {"domain": "maho-runtime", "transaction_in_progress": True, "graphical_available": True},
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "confirmed",
+            "transaction_in_progress": True,
+            "graphical_available": True,
+        },
         "availability": {"previous_runtime_verified": True},
     },
-    action="rollback-maho-runtime",
+    action="rollback-previous",
     scope="maho-runtime",
     requires_confirmation=False,
     automatic_allowed=True,
     preserves_personal_files=True,
+    target="previous-runtime",
+    provider="maho-runtime",
+    recovery_mode="transactional",
 )
 
 check(
     "post-transaction runtime rollback asks first",
     {
-        "failure": {"domain": "maho-runtime", "transaction_in_progress": False, "graphical_available": False},
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "confirmed",
+            "transaction_in_progress": False,
+            "graphical_available": False,
+        },
         "availability": {"previous_runtime_verified": True},
     },
-    action="rollback-maho-runtime",
+    action="rollback-previous",
     requires_confirmation=True,
     automatic_allowed=False,
     surface="text-console",
+    provider="maho-runtime",
+    recovery_mode="transactional",
+)
+
+check(
+    "unconfirmed runtime domain fails closed even with a previous runtime",
+    {
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "high",
+            "transaction_in_progress": True,
+        },
+        "availability": {"previous_runtime_verified": True},
+    },
+    action="open-recovery-console",
+    scope="diagnostic",
+    automatic_allowed=True,
+)
+
+check(
+    "missing runtime confidence fails closed",
+    {
+        "failure": {"domain": "maho-runtime", "transaction_in_progress": True},
+        "availability": {"previous_runtime_verified": True},
+    },
+    action="open-recovery-console",
+    scope="diagnostic",
 )
 
 check(
