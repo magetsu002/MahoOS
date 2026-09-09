@@ -22,6 +22,8 @@ class CertifiedServiceRecovery:
     failure_identity: str
     healthy_active_state: str
     healthy_sub_state: str
+    health_check: str
+    health_process_patterns: tuple[str, ...]
     replacement_timeout_seconds: float
     stability_seconds: float
 
@@ -41,17 +43,60 @@ class CertifiedGuardianRestart:
 
 _SERVICE_RECOVERIES = {
     "maho-notify.service": CertifiedServiceRecovery(
-        unit="maho-notify.service",
-        ownership="maho",
-        provider="systemd-user",
-        mode="delegated",
-        provider_action="restart-on-failure",
-        expected_restart="on-failure",
-        failure_identity="boot-id+unit+invocation-id",
-        healthy_active_state="active",
-        healthy_sub_state="running",
-        replacement_timeout_seconds=5.0,
-        stability_seconds=3.0,
+        unit="maho-notify.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="quickshell-notify-runtime", health_process_patterns=("quickshell", "maho-notify"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
+    ),
+    "maho-shell.service": CertifiedServiceRecovery(
+        unit="maho-shell.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="quickshell-shell-runtime", health_process_patterns=("quickshell", "maho-shell/shell.qml"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
+    ),
+    "maho-dock.service": CertifiedServiceRecovery(
+        unit="maho-dock.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="quickshell-dock-runtime", health_process_patterns=("quickshell", "maho-shell/dock-shell.qml"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
+    ),
+    "maho-wallpaper.service": CertifiedServiceRecovery(
+        unit="maho-wallpaper.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="wallpaper-watch-runtime", health_process_patterns=("maho-wallpaper", "watch"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
+    ),
+    "maho-awww-daemon.service": CertifiedServiceRecovery(
+        unit="maho-awww-daemon.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="awww-daemon-runtime", health_process_patterns=("awww-daemon", "--no-cache"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
+    ),
+    "maho-security.service": CertifiedServiceRecovery(
+        unit="maho-security.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="security-monitor-runtime", health_process_patterns=("maho-security-monitor", "watch"),
+        replacement_timeout_seconds=8.0, stability_seconds=3.0,
+    ),
+    "maho-observe.service": CertifiedServiceRecovery(
+        unit="maho-observe.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-on-failure", expected_restart="on-failure",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="observer-watch-runtime", health_process_patterns=("maho-observe", "watch"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
+    ),
+    "maho-clipboard-history.service": CertifiedServiceRecovery(
+        unit="maho-clipboard-history.service", ownership="maho", provider="systemd-user", mode="delegated",
+        provider_action="restart-always", expected_restart="always",
+        failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
+        health_check="clipboard-history-owner", health_process_patterns=("maho-clipboard-history", "serve", "wl-paste", "--watch"),
+        replacement_timeout_seconds=5.0, stability_seconds=3.0,
     ),
 }
 
