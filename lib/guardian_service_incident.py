@@ -162,6 +162,13 @@ class ServiceIncidentStore:
         if contract is None:
             raise ValueError("service lost its certified recovery contract")
         unresolved = state.get("lifecycle") == "unresolved"
+        superseded = state.get("lifecycle") == "superseded"
+        superseded_service = state.get("superseded_by_service")
+        supersession_verified = (
+            superseded
+            and isinstance(superseded_service, Mapping)
+            and superseded_service.get("health_ok") is True
+        )
         normalized = {
             "incident": {
                 "scope": "component",
@@ -177,7 +184,7 @@ class ServiceIncidentStore:
                 "confidence": "certified",
                 "certified_path": True,
                 "previous_failures": 0,
-                "verified": bool(resolved and state.get("verified")),
+                "verified": bool(resolved and (state.get("verified") or supersession_verified)),
             },
             "context": {"maintenance": False, "expected_transition": False},
         }
@@ -202,7 +209,14 @@ class ServiceIncidentStore:
             "service_recovery": dict(state),
             "opened_at": state.get("opened_at"),
             "updated_at": state.get("updated_at"),
-            "resolved_at": state.get("recovered_at") if resolved else None,
+            "resolved_at": (state.get("recovered_at") or state.get("superseded_at")) if resolved else None,
+            "resolution": (
+                {
+                    "kind": "superseded-by-verified-service-invocation",
+                    "service": state.get("superseded_by_service"),
+                }
+                if resolved and state.get("lifecycle") == "superseded" else None
+            ),
         }
 
     def _persist(self, state: dict[str, Any], *, active: bool = True) -> None:
@@ -212,9 +226,12 @@ class ServiceIncidentStore:
             _atomic_private(self._active_path(state["incident_id"]), self._guardian_record(state, resolved=False))
 
     def _history_record(self, state: Mapping[str, Any]) -> dict[str, Any]:
-        incident_decision = self._guardian_record(state, resolved=False)["decision"]
+        incident_state = dict(state)
+        if state.get("lifecycle") == "superseded":
+            incident_state["lifecycle"] = "unresolved"
+        incident_decision = self._guardian_record(incident_state, resolved=False)["decision"]
         terminal_decision = self._guardian_record(
-            state, resolved=bool(state.get("verified"))
+            state, resolved=bool(state.get("verified") or state.get("lifecycle") == "superseded")
         )["decision"]
         contract = certified_service_recovery(state.get("unit"))
         return {
@@ -240,8 +257,46 @@ class ServiceIncidentStore:
             "postcondition": state.get("postcondition"),
             "opened_at": state.get("opened_at"),
             "recovered_at": state.get("recovered_at"),
+            "superseded_at": state.get("superseded_at"),
+            "superseded_by_service": state.get("superseded_by_service"),
+            "supersession": state.get("supersession"),
             "updated_at": state.get("updated_at"),
         }
+
+    def arm_supersession(
+        self, *, unit: str, boot_id: str, invocation_id: str, now: float, timestamp: str | None = None
+    ) -> list[str]:
+        """Arm bounded verification that may retire stale unresolved active incidents.
+
+        This does not make the original delegated recovery successful. A later
+        service invocation must remain independently healthy for the normal
+        stability window before the old active latch can be archived as
+        superseded.
+        """
+        contract = certified_service_recovery(unit)
+        if contract is None or not _valid_identity(invocation_id):
+            return []
+        armed: list[str] = []
+        stamp = timestamp or utc_now()
+        for state in self._states():
+            if (
+                state.get("unit") != unit
+                or state.get("boot_id") != boot_id
+                or state.get("lifecycle") != "unresolved"
+                or invocation_id == state.get("failed_invocation_id")
+            ):
+                continue
+            state["supersession"] = {
+                "candidate_invocation_id": invocation_id,
+                "verify_after_epoch": now + contract.stability_seconds,
+                "stability_seconds": contract.stability_seconds,
+                "health_check": contract.health_check,
+                "armed_at": stamp,
+            }
+            state["updated_at"] = stamp
+            self._persist(state)
+            armed.append(str(state["incident_id"]))
+        return armed
 
     def process(self, event: Mapping[str, str], *, now: float) -> dict[str, Any] | None:
         contract = certified_service_recovery(event.get("unit"))
@@ -322,26 +377,33 @@ class ServiceIncidentStore:
                 and row.get("lifecycle") == "recovering"
                 and row.get("failed_invocation_id") != event["invocation_id"]
             ]
-            if not candidates:
-                return None
-            state = max(candidates, key=lambda row: str(row.get("updated_at") or ""))
-            state.update({
-                "lifecycle": "verifying",
-                "replacement_invocation_id": event["invocation_id"],
-                "verify_after_epoch": now + contract.stability_seconds,
-                "updated_at": timestamp,
-                "postcondition": {
-                    "expected": {
-                        "replacement_differs": True,
-                        "active_state": contract.healthy_active_state,
-                        "sub_state": contract.healthy_sub_state,
-                        "stability_seconds": contract.stability_seconds,
-                        "health_check": contract.health_check,
+            state = None
+            if candidates:
+                state = max(candidates, key=lambda row: str(row.get("updated_at") or ""))
+                state.update({
+                    "lifecycle": "verifying",
+                    "replacement_invocation_id": event["invocation_id"],
+                    "verify_after_epoch": now + contract.stability_seconds,
+                    "updated_at": timestamp,
+                    "postcondition": {
+                        "expected": {
+                            "replacement_differs": True,
+                            "active_state": contract.healthy_active_state,
+                            "sub_state": contract.healthy_sub_state,
+                            "stability_seconds": contract.stability_seconds,
+                            "health_check": contract.health_check,
+                        },
+                        "observed": None,
                     },
-                    "observed": None,
-                },
-            })
-            self._persist(state)
+                })
+                self._persist(state)
+            self.arm_supersession(
+                unit=event["unit"],
+                boot_id=event["boot_id"],
+                invocation_id=event["invocation_id"],
+                now=now,
+                timestamp=timestamp,
+            )
             return state
         return None
 
@@ -356,29 +418,71 @@ class ServiceIncidentStore:
                 row.get("lifecycle") == "verifying"
                 and isinstance(row.get("verify_after_epoch"), (int, float))
                 and float(row["verify_after_epoch"]) <= now
+            ) or (
+                row.get("lifecycle") == "unresolved"
+                and isinstance(row.get("supersession"), Mapping)
+                and isinstance(row["supersession"].get("verify_after_epoch"), (int, float))
+                and float(row["supersession"]["verify_after_epoch"]) <= now
             )
         ]
 
     def next_deadline(self) -> float | None:
-        values = [
-            float(row["recover_by_epoch"] if row.get("lifecycle") in {"detected", "recovering"} else row["verify_after_epoch"])
-            for row in self._states()
-            if (
-                row.get("lifecycle") in {"detected", "recovering"}
-                and isinstance(row.get("recover_by_epoch"), (int, float))
-            ) or (
-                row.get("lifecycle") == "verifying"
-                and isinstance(row.get("verify_after_epoch"), (int, float))
-            )
-        ]
+        values: list[float] = []
+        for row in self._states():
+            if row.get("lifecycle") in {"detected", "recovering"} and isinstance(row.get("recover_by_epoch"), (int, float)):
+                values.append(float(row["recover_by_epoch"]))
+            elif row.get("lifecycle") == "verifying" and isinstance(row.get("verify_after_epoch"), (int, float)):
+                values.append(float(row["verify_after_epoch"]))
+            elif row.get("lifecycle") == "unresolved" and isinstance(row.get("supersession"), Mapping):
+                deadline = row["supersession"].get("verify_after_epoch")
+                if isinstance(deadline, (int, float)):
+                    values.append(float(deadline))
         return min(values) if values else None
 
     def verify(self, state: dict[str, Any], snapshot: ServiceSnapshot, *, timestamp: str | None = None) -> bool:
-        if state.get("lifecycle") not in {"detected", "recovering", "verifying"}:
-            return bool(state.get("lifecycle") == "succeeded" and state.get("verified"))
         contract = certified_service_recovery(state.get("unit"))
         if contract is None:
             return False
+        if state.get("lifecycle") == "unresolved":
+            supersession = state.get("supersession")
+            if not isinstance(supersession, Mapping):
+                return False
+            candidate = supersession.get("candidate_invocation_id")
+            healthy_later = (
+                snapshot.unit == state["unit"]
+                and snapshot.load_state == "loaded"
+                and snapshot.active_state == contract.healthy_active_state
+                and snapshot.sub_state == contract.healthy_sub_state
+                and snapshot.invocation_id == candidate
+                and snapshot.invocation_id != state.get("failed_invocation_id")
+                and snapshot.restart == contract.expected_restart
+                and snapshot.health_check == contract.health_check
+                and snapshot.health_ok is True
+            )
+            stamp = timestamp or utc_now()
+            if not healthy_later:
+                state.pop("supersession", None)
+                state["updated_at"] = stamp
+                self._persist(state)
+                return False
+            state.update({
+                "lifecycle": "superseded",
+                "verified": False,
+                "updated_at": stamp,
+                "superseded_at": stamp,
+                "superseded_by_service": snapshot.as_dict(),
+            })
+            state.pop("supersession", None)
+            self._persist(state, active=False)
+            try:
+                self._active_path(state["incident_id"]).unlink()
+            except FileNotFoundError:
+                pass
+            resolved = self._guardian_record(state, resolved=True)
+            _atomic_private(self.archive / f"{state['incident_id']}-superseded.json", resolved)
+            return False
+        if state.get("lifecycle") not in {"detected", "recovering", "verifying"}:
+            return bool(state.get("lifecycle") == "succeeded" and state.get("verified"))
         healthy = (
             snapshot.unit == state["unit"]
             and snapshot.load_state == "loaded"

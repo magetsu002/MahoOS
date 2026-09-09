@@ -26,6 +26,8 @@ BOOT_B = "b" * 32
 FAILED_A = "1" * 32
 FAILED_B = "2" * 32
 REPLACEMENT = "3" * 32
+LATER = "4" * 32
+LATER_2 = "5" * 32
 
 
 def raw(message_id, invocation=FAILED_A, *, boot=BOOT_A, result="signal"):
@@ -71,6 +73,7 @@ def main():
     watcher_source = (ROOT / "lib/guardian_service_watcher.py").read_text()
     incident_source = (ROOT / "lib/guardian_service_incident.py").read_text()
     check("delegated watcher contains no direct restart command", '"restart"' not in watcher_source and '"restart"' not in incident_source)
+    check("startup reconciliation can retire stale active latches only through bounded verification", "store.arm_supersession(" in watcher_source)
     burst = b"prefix" + b' suffix"}\n{"one":1}\n{"two":2}\npartial'
     remainder, rows = _decode_chunk(b'{"zero":0,"text":"', burst)
     check("one readable journal burst drains every complete event", rows == [{"zero": 0, "text": "prefix suffix"}, {"one": 1}, {"two": 2}] and remainder == b"partial")
@@ -154,6 +157,41 @@ def main():
         failed = store.process(event(UNIT_FAILED), now=400.0)
         due = store.due_verifications(405.0)
         check("failure without a restart schedule also expires safely", len(due) == 1 and due[0]["incident_id"] == failed["incident_id"] and not store.verify(due[0], snap(invocation=FAILED_A, active="failed", sub="failed")))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = ServiceIncidentStore(root)
+        failed = store.process(event(UNIT_FAILED), now=500.0)
+        store.process(event(RESTART_SCHEDULED), now=501.0)
+        verifying = store.process(event(UNIT_STARTED, REPLACEMENT), now=502.0)
+        check("bounded provider miss creates unresolved recovery truth", not store.verify(verifying, snap(invocation=REPLACEMENT, active="activating", sub="auto-restart")))
+        iid = failed["incident_id"]
+        history_path = root / "guardian/recovery-history" / f"{iid}.json"
+        check("failed delegated recovery is recorded before supersession", json.loads(history_path.read_text())["status"] == "unresolved")
+
+        store.process(event(UNIT_STARTED, FAILED_A), now=510.0)
+        stale_state = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
+        check("failed invocation cannot supersede its own incident", stale_state.get("supersession") is None)
+
+        store.process(event(UNIT_STARTED, LATER), now=511.0)
+        armed = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
+        check("later invocation arms independent stability verification", armed["supersession"]["candidate_invocation_id"] == LATER and armed["supersession"]["verify_after_epoch"] == 514.0)
+        check("supersession is not due before the stability window", store.due_verifications(513.99) == [])
+        due = store.due_verifications(514.0)
+        check("supersession becomes due after the normal stability window", len(due) == 1 and due[0]["incident_id"] == iid)
+        check("unhealthy later invocation cannot retire stale incident", not store.verify(due[0], snap(invocation=LATER, health_ok=False)))
+        still_active = json.loads((root / "guardian/active" / f"{iid}.json").read_text())
+        check("failed supersession verification keeps original L2 active", still_active["decision"]["severity"]["level"] == 2)
+
+        store.process(event(UNIT_STARTED, LATER_2), now=520.0)
+        due = store.due_verifications(523.0)
+        check("verified later service does not rewrite original recovery as successful", not store.verify(due[0], snap(invocation=LATER_2), timestamp="2027-01-15T08:10:00+00:00"))
+        history = json.loads(history_path.read_text())
+        check("superseded history preserves failed recovery truth", history["status"] == "superseded" and history["verified"] is False and history["guardian_severity"]["level"] == 2 and history["terminal_guardian_severity"]["level"] == 0)
+        check("supersession records independently verified current service", history["superseded_by_service"]["invocation_id"] == LATER_2 and history["superseded_by_service"]["health_ok"] is True)
+        check("superseded incident no longer latches Guardian active state", not (root / "guardian/active" / f"{iid}.json").exists())
+        archived = json.loads(next((root / "guardian/archive").glob(f"{iid}-superseded.json")).read_text())
+        check("archive explains supersession instead of fake recovery success", archived["resolution"]["kind"] == "superseded-by-verified-service-invocation" and archived["decision"]["severity"]["level"] == 0)
 
     print("ALL GUARDIAN SERVICE INCIDENT TESTS PASS")
 

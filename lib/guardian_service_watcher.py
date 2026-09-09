@@ -133,6 +133,22 @@ def _startup_reconcile(store: ServiceIncidentStore, boot_id: str) -> None:
             }
             store.process({**base, "kind": "failed"}, now=now)
             store.process({**base, "kind": "recovering"}, now=now)
+        elif (
+            contract is not None
+            and current.load_state == "loaded"
+            and current.active_state == contract.healthy_active_state
+            and current.sub_state == contract.healthy_sub_state
+            and current.restart == contract.expected_restart
+            and current.health_check == contract.health_check
+            and current.health_ok is True
+            and len(current.invocation_id) == 32
+        ):
+            store.arm_supersession(
+                unit=unit,
+                boot_id=boot_id,
+                invocation_id=current.invocation_id,
+                now=now,
+            )
 
 
 def _verify_due(store: ServiceIncidentStore) -> None:
