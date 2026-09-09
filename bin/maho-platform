@@ -30,6 +30,18 @@ package_state() {
   if has_package "$1"; then printf 'installed'; else printf 'missing'; fi
 }
 
+snapper_root_config_state() {
+  if command -v snapper >/dev/null 2>&1 \
+      && snapper --jsonout --config root get-config >/dev/null 2>&1; then
+    printf 'present'
+  elif test -r "$SNAPPER_ROOT_CONFIG"; then
+    # Readable-file fallback supports offline/synthetic platform inspection.
+    printf 'present'
+  else
+    printf 'missing'
+  fi
+}
+
 mount_field() {
   local field="$1" target="$2"
   if command -v findmnt >/dev/null 2>&1; then
@@ -54,7 +66,7 @@ status_json() {
     "$(package_state snap-pac)" \
     "$(package_state limine)" \
     "$(package_state limine-snapper-sync)" \
-    "$(test -r "$SNAPPER_ROOT_CONFIG" && printf present || printf missing)" <<'PY'
+    "$(snapper_root_config_state)" <<'PY'
 import json
 import pathlib
 import sys

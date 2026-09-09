@@ -42,8 +42,16 @@ case "$field:$target" in
   *) exit 1 ;;
 esac
 EOF_FINDMNT
-chmod +x "$TMP/bin/pacman" "$TMP/bin/findmnt"
-printf 'SUBVOLUME="/"\n' >"$TMP/etc/snapper/configs/root"
+
+cat >"$TMP/bin/snapper" <<'EOF_SNAPPER'
+#!/usr/bin/env bash
+printf 'snapper\t%s\n' "$*" >>"$MAHO_TEST_PLATFORM_LOG"
+[ "$*" = '--jsonout --config root get-config' ] || { echo "unexpected snapper operation: $*" >&2; exit 99; }
+printf '{"config":{"SUBVOLUME":"/"}}\n'
+EOF_SNAPPER
+chmod +x "$TMP/bin/pacman" "$TMP/bin/findmnt" "$TMP/bin/snapper"
+# Deliberately leave MAHO_SNAPPER_ROOT_CONFIG unreadable/missing: status must
+# prefer Snapper's own read-only API, matching the live ALLOW_USERS setup.
 
 export PATH="$TMP/bin:/usr/bin:/bin"
 export MAHO_ROOT="$ROOT"
@@ -108,10 +116,16 @@ echo 'PASS platform recovery planning remains consent-gated and non-mutating'
   cat "$LOG" >&2
   exit 1
 }
-if grep -Ev $'^(pacman\t-Q |findmnt\t-n -o )' "$LOG" | grep -q .; then
+if grep -Ev $'^(pacman\t-Q |findmnt\t-n -o |snapper\t--jsonout --config root get-config$)' "$LOG" | grep -q .; then
   echo 'FAIL platform doctor attempted an unexpected external operation' >&2
   cat "$LOG" >&2
   exit 1
 fi
-echo 'PASS platform doctor issued read-only package and mount probes only'
+[ "$(grep -c $'^snapper\t--jsonout --config root get-config$' "$LOG")" -ge 2 ] || {
+  echo 'FAIL platform status did not use Snapper read-only config API' >&2
+  cat "$LOG" >&2
+  exit 1
+}
+echo 'PASS platform status uses Snapper read-only config API when direct config files are inaccessible'
+echo 'PASS platform doctor issued read-only package, mount, and Snapper probes only'
 echo 'ALL PLATFORM DOCTOR CONTRACTS PASS'
