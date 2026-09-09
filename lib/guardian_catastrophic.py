@@ -96,8 +96,8 @@ def _availability_handoffs(facts: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(options)
 
 
-def _lower_layer_available(facts: Mapping[str, Any]) -> bool:
-    lower = _mapping(facts.get("lower_layer_recovery"))
+def _lower_layer_available(lower_layer_recovery: Mapping[str, Any] | None) -> bool:
+    lower = _mapping(lower_layer_recovery)
     level = lower.get("level")
     return (
         isinstance(level, int) and not isinstance(level, bool) and level in {1, 2, 3}
@@ -105,7 +105,11 @@ def _lower_layer_available(facts: Mapping[str, Any]) -> bool:
     )
 
 
-def assess_catastrophic(facts: Mapping[str, Any]) -> CatastrophicDecision:
+def assess_catastrophic(
+    facts: Mapping[str, Any],
+    *,
+    lower_layer_recovery: Mapping[str, Any] | None = None,
+) -> CatastrophicDecision:
     """Return L4 only for qualitative, confirmed catastrophic evidence.
 
     Duplicate observations are collapsed by evidence class. Unknown state fails
@@ -168,8 +172,9 @@ def assess_catastrophic(facts: Mapping[str, Any]) -> CatastrophicDecision:
         untrusted.update(security_classes)
 
     catastrophic = bool(reasons)
+    lower_layer_available = _lower_layer_available(lower_layer_recovery)
     direct_trust_loss = bool(untrusted & {"kernel", "boot", "recovery-state", "security-provider"})
-    if catastrophic and _lower_layer_available(facts) and not direct_trust_loss:
+    if catastrophic and lower_layer_available and not direct_trust_loss:
         catastrophic = False
         reasons = []
         untrusted.clear()
@@ -177,7 +182,7 @@ def assess_catastrophic(facts: Mapping[str, Any]) -> CatastrophicDecision:
     unknown_recovery = facts.get("recovery_state_known") is False
     fail_closed = catastrophic or unknown_recovery or guardian_degraded
     handoffs = _availability_handoffs(facts) if catastrophic else ()
-    terminal = "handoff-ready" if catastrophic and handoffs else ("unresolved" if catastrophic else "resolved-by-lower-layer" if _lower_layer_available(facts) else "unresolved")
+    terminal = "handoff-ready" if catastrophic and handoffs else ("unresolved" if catastrophic else "resolved-by-lower-layer" if lower_layer_available else "unresolved")
 
     if catastrophic:
         lifecycle = "handoff-ready" if handoffs else "catastrophic"

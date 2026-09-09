@@ -26,7 +26,10 @@ r=assess_catastrophic({"signals":[{"class":"boot","status":"unknown","confidence
 check("unknown boot/recovery evidence fails closed without L4",not r.catastrophic and r.fail_closed)
 
 # A certified lower recovery remains authoritative when its trust boundary is intact.
-r=assess_catastrophic({"signals":[sig("root-filesystem","corrupt")],"recovery_state_known":True,"lower_layer_recovery":{"level":3,"available":True,"certified":True,"trusted":True}})
+r=assess_catastrophic(
+    {"signals":[sig("root-filesystem","corrupt")],"recovery_state_known":True},
+    lower_layer_recovery={"level":3,"available":True,"certified":True,"trusted":True},
+)
 check("trusted L3 path prevents unnecessary catastrophic handoff",not r.catastrophic and not r.recovery_handoff)
 
 # Never advertise an unproved recovery environment/LTS path.
@@ -39,7 +42,10 @@ check("catastrophic destructive request is prevented before execution",r.catastr
 check("destruction preview still only offers proven handoff",r.recovery_handoff==("power-down-and-investigate",))
 
 # Compromised recovery authority cannot self-certify a live repair.
-r=assess_catastrophic({"signals":[sig("security-provider","compromised")],"recovery_state_known":True,"lower_layer_recovery":{"level":3,"available":True,"certified":True,"trusted":True}})
+r=assess_catastrophic(
+    {"signals":[sig("security-provider","compromised")],"recovery_state_known":True},
+    lower_layer_recovery={"level":3,"available":True,"certified":True,"trusted":True},
+)
 check("compromised recovery provider overrides apparent lower-layer availability",r.catastrophic and "security-provider" in r.untrusted_boundaries)
 
 check("catastrophic state always bans generic mutation","generic-shell-mutation" in r.unsafe_actions and not r.automatic_host_mutation_allowed)

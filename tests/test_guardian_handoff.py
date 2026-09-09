@@ -13,15 +13,17 @@ obs={
  "runtime_identity":{"generation":"g1"},"root_filesystem_identity":{"uuid":"root"},
  "recovery_generation_evidence":[{"id":"r1","coherent":False}],
  "active_high_severity_signals":[{"class":"kernel","status":"compromised"}],
- "process_metadata":[{"pid":1,"name":"init"}]*40,
+ "process_metadata":[{"pid":1,"name":"init","cmdline":"runner --auth sk-supersecretvalue","environment":{"TOKEN":"nope"}}]*40,
  "password":"must-not-collect","browser_cookies":["nope"],
- "network_evidence":{"listener":"x","api_token":"must-not-persist"},
+ "network_evidence":{"result":"observed","api_token":"must-not-persist","note":"Bearer abcdefghijklmnop","listeners":[{"address":"0.0.0.0","port":4444,"pid":9,"exe":"/tmp/demo","cmdline":"--token=secret"}]},
 }
 dec={"untrusted_boundaries":["kernel"],"trusted_boundaries":["personal-data-scope"],"catastrophic_reasons":["kernel lost"],"safe_actions":["preserve-evidence"],"unsafe_actions":["generic-shell-mutation"],"recovery_handoff":["offline-inspection"]}
 record=build_evidence_record(obs,dec)
 check("top-level secrets are not collected","password" not in record and "browser_cookies" not in record)
 check("nested secret-like fields are omitted","api_token" not in record["network_evidence"])
 check("process evidence is bounded",len(record["process_metadata"])==24)
+check("raw process argv/environment are never preserved","cmdline" not in record["process_metadata"][0] and "environment" not in record["process_metadata"][0])
+check("network evidence uses an explicit schema","api_token" not in record["network_evidence"] and "note" not in record["network_evidence"] and "cmdline" not in record["network_evidence"]["listeners"][0])
 with tempfile.TemporaryDirectory() as td:
     path=Path(td)/"private"/"incident.json"; preserve_evidence(path,record)
     check("durable evidence written",json.loads(path.read_text())["incident_identity"]["id"]=="inc-test")

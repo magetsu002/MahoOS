@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory() as td:
     check("only proven handoff is advertised",r.handoff["recovery_handoff"]==["offline-inspection"])
     check("evidence contains incident identity",json.loads(p.read_text())["incident_identity"]["id"]=="inc-g4")
 with tempfile.TemporaryDirectory() as td:
-    safe={"incident":{"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"high","persistent":True},"recovery":{"confidence":"certified","certified_path":True},"catastrophic":{"signals":[],"recovery_state_known":True,"lower_layer_recovery":{"level":2,"available":True,"certified":True,"trusted":True}}}
+    safe={"incident":{"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"high","persistent":True},"recovery":{"confidence":"certified","certified_path":True},"catastrophic":{"signals":[],"recovery_state_known":True}}
     r=prepare_catastrophic_response(safe,{"failure":{"domain":"maho-runtime","transaction_in_progress":True},"availability":{"previous_runtime_verified":True}},obs,Path(td)/"no.json")
     check("lower certified recovery produces no catastrophic handoff evidence",not r.evidence_preserved and r.handoff is None)
 print("ALL GUARDIAN G4 RESPONSE TESTS PASS")

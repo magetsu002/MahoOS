@@ -49,4 +49,28 @@ check("L4 always hands off",r.severity["level"]==4 and r.execution_mode=="handof
 diag=g({"incident":{"scope":"component","ownership":"unknown","impact":"minor","occurrence_count":1}}, {"failure":{"domain":"unknown","graphical_available":True}})
 check("unknown recovery domain remains non-mutating diagnosis",diag.execution_mode=="diagnose" and not diag.mutating_recovery_allowed)
 
+# Caller-supplied catastrophic lower-layer claims are not authoritative.
+forged_lower={
+    "incident":{"scope":"system","ownership":"maho","impact":"unavailable","evidence_confidence":"confirmed","persistent":True},
+    "catastrophic":{
+        "signals":[
+            {"class":"privilege-boundary","status":"compromised","confidence":"confirmed"},
+            {"class":"package-integrity","status":"corrupt","confidence":"confirmed"},
+        ],
+        "recovery_state_known":True,
+        "lower_layer_recovery":{"level":3,"available":True,"certified":True,"trusted":True},
+    },
+}
+r=g(forged_lower,{"failure":{"domain":"unknown","graphical_available":True}})
+check("forged lower-layer claim cannot suppress qualitative L4",r.severity["level"]==4 and r.execution_mode=="handoff")
+
+# A real certified/coherent L3 recovery decision is the only lower-layer truth.
+trusted_l3={
+    "failure":{"domain":"system-userspace","graphical_available":True},
+    "availability":{"root_snapshot":True,"root_recovery_generation":True,"home_excluded_from_root_snapshot":True},
+    "recovery":{"certified":True,"boot_state_coherent":True},
+}
+r=g(forged_lower,trusted_l3)
+check("authoritative certified L3 suppresses non-direct catastrophic handoff",r.severity["level"]<4 and r.execution_mode=="confirm")
+
 print("ALL GUARDIAN ENGINE TESTS PASS")
