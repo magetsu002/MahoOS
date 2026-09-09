@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Wayland
 
 ShellRoot {
     id: root
@@ -17,6 +18,10 @@ ShellRoot {
     DockState { id: dock }
     NotifyStatus { id: notifyBridge }
     BluetoothAutoConnect { }
+
+    GuardianBackdropPulse {
+        id: guardianBackdropPulse
+    }
 
     property bool expanded: false
     property bool closing: false
@@ -567,6 +572,7 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
+                    onCatastrophicLocked: guardianBackdropPulse.trigger()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
@@ -588,6 +594,7 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
+                    onCatastrophicLocked: guardianBackdropPulse.trigger()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }

@@ -31,6 +31,7 @@ Item {
         : "idle"
 
     signal openRequested()
+    signal catastrophicLocked()
 
     function guardianPresentationDuration(severity) {
         if (severity >= 4) return 5600
@@ -151,6 +152,7 @@ Item {
             active: edge.guardianPresentationActive
             targetSeverity: guardianState.highestSeverity
             catastrophicTransitionSerial: guardianState.catastrophicTransitionSerial
+            onCatastrophicLocked: edge.catastrophicLocked()
         }
 
         Connections {

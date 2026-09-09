@@ -6,12 +6,13 @@ STATE="$ROOT/config/quickshell/maho-shell/GuardianState.qml"
 EDGE="$ROOT/config/quickshell/maho-shell/EdgeBar.qml"
 SIDE="$ROOT/config/quickshell/maho-shell/SideEdgeBar.qml"
 WHEEL="$ROOT/config/quickshell/maho-shell/GuardianWheel.qml"
+BACKDROP="$ROOT/config/quickshell/maho-shell/GuardianBackdropPulse.qml"
 ROTOR="$ROOT/config/quickshell/maho-shell/maho-guardian-rotor.png"
 SOUND_SOURCE="$ROOT/config/quickshell/maho-shell/sounds/SOURCE.txt"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-for path in "$STATE" "$EDGE" "$SIDE" "$WHEEL" "$ROTOR" "$SOUND_SOURCE"; do
+for path in "$STATE" "$EDGE" "$SIDE" "$WHEEL" "$BACKDROP" "$ROTOR" "$SOUND_SOURCE"; do
     [ -s "$path" ] || fail "missing Guardian surface asset: $path"
 done
 
@@ -43,7 +44,13 @@ grep -Fq 'oldSeverity < 4 && highest === 4' "$STATE" || fail "catastrophic trans
 grep -Fq 'catastrophicTransitionSerial += 1' "$STATE" || fail "catastrophic transition serial is not edge-triggered"
 for surface in "$EDGE" "$SIDE"; do
     grep -Fq 'catastrophicTransitionSerial: guardianState.catastrophicTransitionSerial' "$surface" || fail "Wheel lacks real L4 transition authority"
+    grep -Fq 'onCatastrophicLocked: edge.catastrophicLocked()' "$surface" || fail "L4 mechanical lock is not surfaced to Shell"
 done
 grep -Fq 'root.catastrophicTransitionSerial > root._handledCatastrophicSerial' "$WHEEL" || fail "L4 sound/impact is not one-shot transition gated"
 grep -Fq 'root.playLockSound(4)' "$WHEEL" || fail "catastrophic sound contract lost"
+grep -Fq 'WlrLayershell.layer: WlrLayer.Bottom' "$BACKDROP" || fail "catastrophic wallpaper pulse is not confined below application windows"
+grep -Fq 'mask: Region {}' "$BACKDROP" || fail "catastrophic wallpaper pulse must not capture input"
+grep -Fq 'to: 0.46' "$BACKDROP" || fail "catastrophic wallpaper fade-in contract lost"
+grep -Fq 'duration: 285' "$BACKDROP" || fail "catastrophic wallpaper fade-out contract lost"
+grep -Fq 'onCatastrophicLocked: guardianBackdropPulse.trigger()' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "Shell does not trigger wallpaper pulse at real L4 lock"
 echo "ALL GUARDIAN WHEEL INTEGRATION CONTRACTS PASS"
