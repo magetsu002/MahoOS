@@ -33,21 +33,32 @@ runtime_auto={
     "failure":{"domain":"maho-runtime","domain_confidence":"confirmed","transaction_in_progress":True,"graphical_available":True},
     "availability":{"previous_runtime_verified":True},
 }
+l2_runtime={"incident":{"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"confirmed","persistent":True},"recovery":{"confidence":"certified","certified_path":True}}
+r=g(l2_runtime,runtime_auto)
+check("certified in-transaction Maho runtime recovery is a real L2 automatic path",r.severity["level"]==2 and r.execution_mode=="automatic" and r.mutating_recovery_allowed)
+check("L2 runtime automatic path is the transactional Maho provider",r.recovery["action"]=="rollback-previous" and r.recovery["provider"]=="maho-runtime" and r.recovery["recovery_mode"]=="transactional")
+
+runtime_post_transaction={
+    "failure":{"domain":"maho-runtime","domain_confidence":"confirmed","transaction_in_progress":False,"graphical_available":True},
+    "availability":{"previous_runtime_verified":True},
+}
+r=g(l2_runtime,runtime_post_transaction)
+check("same L2 runtime failure outside activation remains confirmation gated",r.severity["level"]==2 and r.execution_mode=="confirm" and not r.mutating_recovery_allowed)
+
+runtime_uncertain={
+    "failure":{"domain":"maho-runtime","domain_confidence":"medium","transaction_in_progress":True,"graphical_available":True},
+    "availability":{"previous_runtime_verified":True},
+}
+r=g(l2_runtime,runtime_uncertain)
+check("unconfirmed L2 runtime domain never grants mutation",r.severity["level"]==2 and r.execution_mode=="diagnose" and not r.mutating_recovery_allowed)
+
 l3_uncert={"incident":{"scope":"runtime","ownership":"maho","impact":"unavailable","evidence_confidence":"confirmed","persistent":True,"correlated_failures":2},"recovery":{"confidence":"high","certified_path":False,"previous_failures":1}}
 r=g(l3_uncert,runtime_auto)
 check("L3 remains L3 but asks when path is uncertified",r.severity["level"]==3 and r.execution_mode=="confirm" and not r.mutating_recovery_allowed)
 
 l3_cert={"incident":{"scope":"runtime","ownership":"maho","impact":"unavailable","evidence_confidence":"confirmed","persistent":True,"correlated_failures":2},"recovery":{"confidence":"certified","certified_path":True,"previous_failures":1}}
 r=g(l3_cert,runtime_auto)
-check("L3 certified in-transaction rollback may be automatic",r.severity["level"]==3 and r.execution_mode=="automatic" and r.mutating_recovery_allowed)
-check("runtime automatic path is the transactional Maho provider",r.recovery["action"]=="rollback-previous" and r.recovery["provider"]=="maho-runtime" and r.recovery["recovery_mode"]=="transactional")
-
-runtime_uncertain={
-    "failure":{"domain":"maho-runtime","domain_confidence":"medium","transaction_in_progress":True,"graphical_available":True},
-    "availability":{"previous_runtime_verified":True},
-}
-r=g(l3_cert,runtime_uncertain)
-check("unconfirmed runtime domain never grants mutation",r.execution_mode=="diagnose" and not r.mutating_recovery_allowed)
+check("L3 certified in-transaction rollback may remain automatic",r.severity["level"]==3 and r.execution_mode=="automatic" and r.mutating_recovery_allowed)
 
 l4={"incident":{"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True},"recovery":{"confidence":"certified","certified_path":True}}
 kernel={"failure":{"domain":"kernel"},"availability":{"lts_kernel":True}}
