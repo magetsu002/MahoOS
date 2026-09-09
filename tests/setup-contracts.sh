@@ -30,6 +30,9 @@ case "$*" in
       [ ! -r "$MAHO_TEST_DAEMON_RELOAD_COUNT_FILE" ] || count="$(cat "$MAHO_TEST_DAEMON_RELOAD_COUNT_FILE")"
       count=$((count + 1))
       printf '%s\n' "$count" >"$MAHO_TEST_DAEMON_RELOAD_COUNT_FILE"
+      if [ "${MAHO_TEST_FAIL_DAEMON_RELOAD_AT:-0}" -gt 0 ] && [ "$count" -eq "$MAHO_TEST_FAIL_DAEMON_RELOAD_AT" ]; then
+        exit 1
+      fi
       if [ "${MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER:-0}" -gt 0 ] && [ "$count" -gt "$MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER" ]; then
         exit 1
       fi
@@ -491,6 +494,32 @@ active=pathlib.Path(sys.argv[1]).parent/'active'/f"{row['incident_id']}.json"
 assert active.exists()
 PY_G2_UNRESOLVED
 rm -f "$TMP/fake-bin/update-desktop-database"
+echo PASS
+
+echo '=== G2 activation daemon-reload failure is durably recovered ==='
+G2_SOURCE_THREE="$TMP/g2-source-three"
+make_g2_source "$G2_SOURCE_THREE" third-daemon-reload-failure
+: >"$TMP/daemon-reload-count"
+export MAHO_TEST_DAEMON_RELOAD_COUNT_FILE="$TMP/daemon-reload-count"
+export MAHO_TEST_FAIL_DAEMON_RELOAD_AT=1
+if bash "$G2_SOURCE_THREE/bin/maho-setup" install >/dev/null 2>"$TMP/g2-third-failure.err"; then
+  fail 'G2 daemon-reload activation failure unexpectedly succeeded'
+fi
+unset MAHO_TEST_FAIL_DAEMON_RELOAD_AT MAHO_TEST_DAEMON_RELOAD_COUNT_FILE
+[ "$(readlink -f "$CURRENT")" = "$FIRST_RELEASE" ] || fail 'G2 daemon-reload failure did not restore exact pre-activation runtime'
+grep -Fq 'Guardian verified restoration of the pre-activation Maho runtime' "$TMP/g2-third-failure.err" || fail 'G2 daemon-reload failure lacked verified rollback report'
+python - "$G2_HISTORY" <<'PY_G2_DAEMON_RELOAD'
+import json,pathlib,sys
+rows=[json.loads(p.read_text()) for p in pathlib.Path(sys.argv[1]).glob('inc-runtime-*.json')]
+matched=[r for r in rows if r.get('failure_evidence',{}).get('stage')=='wire-ownership']
+assert len(matched)==1, matched
+row=matched[0]
+assert row['status']=='recovered'
+assert row['verified'] is True
+assert row['executor']=='maho-setup'
+assert row['guardian_mutation'] is False
+assert row['postcondition']['observed']['systemd_reload_accepted_if_available'] is True
+PY_G2_DAEMON_RELOAD
 echo PASS
 
 echo '=== unmanaged Hyprland hook remains protected ==='
