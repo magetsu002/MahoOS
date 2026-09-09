@@ -65,6 +65,19 @@ check(
 )
 
 check(
+    "userspace recovery refuses restore when home scope is unknown",
+    {
+        "failure": {"domain": "system-userspace", "graphical_available": True},
+        "availability": {"root_snapshot": True},
+    },
+    action="open-recovery-console",
+    scope="diagnostic",
+    automatic_allowed=True,
+    preserves_personal_files=False,
+    surface="graphical-recovery",
+)
+
+check(
     "runtime activation transaction may rollback automatically",
     {
         "failure": {"domain": "maho-runtime", "transaction_in_progress": True, "graphical_available": True},
