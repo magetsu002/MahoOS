@@ -23,7 +23,11 @@ grep -Fq 'Preserve the last known severity' "$STATE" || fail "reader failure mus
 
 for surface in "$EDGE" "$SIDE"; do
     grep -Fq 'GuardianState {' "$surface" || fail "Edge surface lacks Guardian state"
-    grep -Fq 'guardianState.active ? "guardian"' "$surface" || fail "Guardian does not own Edge mode priority"
+    grep -Fq 'edge.guardianPresentationActive ? "guardian"' "$surface" || fail "Guardian presentation does not own Edge mode priority"
+    if grep -Fq 'guardianState.active ? "guardian"' "$surface"; then fail "active incident permanently latches Guardian presentation"; fi
+    grep -Fq 'id: guardianPresentationTimer' "$surface" || fail "Guardian presentation lacks bounded lifetime"
+    grep -Fq 'onTriggered: edge.guardianPresentationActive = false' "$surface" || fail "Guardian presentation does not retract automatically"
+    grep -Fq 'visible: guardianState.active && !edge.guardianPresentationActive' "$surface" || fail "active incident lacks compact post-ritual indicator"
     grep -Fq 'GuardianWheel {' "$surface" || fail "accepted Guardian Wheel is not mounted"
     grep -Fq 'targetSeverity: guardianState.highestSeverity' "$surface" || fail "Wheel is not driven by real severity"
     grep -Fq 'enabled: edge.enabled && edge.mode !== "guardian"' "$surface" || fail "normal wheel/middle-click controls remain active under Guardian ownership"

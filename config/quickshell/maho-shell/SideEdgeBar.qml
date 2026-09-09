@@ -15,6 +15,8 @@ Item {
     property int workspaceEventSerial: 0
     property date now: new Date()
     property bool hovered: hitArea.containsMouse
+    property bool guardianPresentationActive: false
+    property int lastGuardianGeneration: 0
 
     GuardianState {
         id: guardianState
@@ -22,13 +24,39 @@ Item {
     }
 
     readonly property string mode:
-        guardianState.active ? "guardian"
+        edge.guardianPresentationActive ? "guardian"
         : brightness && brightness.overlayOpen ? "brightness"
         : audio && audio.overlayOpen ? "volume"
         : workspaceFlash ? "workspace"
         : "idle"
 
     signal openRequested()
+
+    function presentGuardian() {
+        if (!guardianState.active) {
+            guardianPresentationTimer.stop()
+            guardianPresentationActive = false
+            guardianWheel.resetHidden()
+            return
+        }
+
+        if (guardianState.generation <= lastGuardianGeneration)
+            return
+
+        lastGuardianGeneration = guardianState.generation
+        guardianPresentationActive = true
+        guardianPresentationTimer.interval = guardianState.highestSeverity >= 4 ? 4600 : 2800
+        guardianPresentationTimer.restart()
+        guardianWheel.resetHidden()
+        guardianWheel.advanceIfNeeded()
+    }
+
+    Timer {
+        id: guardianPresentationTimer
+        interval: 2800
+        repeat: false
+        onTriggered: edge.guardianPresentationActive = false
+    }
 
     function networkGlyph() {
         if (system && system.networkKind === "wifi") return "󰖩"
@@ -111,7 +139,7 @@ Item {
             anchors.centerIn: parent
             width: 30
             height: 30
-            active: guardianState.active
+            active: edge.guardianPresentationActive
             targetSeverity: guardianState.highestSeverity
             catastrophicTransitionSerial: guardianState.catastrophicTransitionSerial
         }
@@ -119,9 +147,18 @@ Item {
         Connections {
             target: guardianState
 
+            function onGenerationChanged() {
+                edge.presentGuardian()
+            }
+
             function onHighestSeverityChanged() {
-                if (guardianState.highestSeverity < guardianState.previousSeverity) {
+                if (!guardianState.active) {
+                    guardianPresentationTimer.stop()
+                    edge.guardianPresentationActive = false
                     guardianWheel.resetHidden()
+                } else if (edge.guardianPresentationActive) {
+                    guardianPresentationTimer.interval = guardianState.highestSeverity >= 4 ? 4600 : 2800
+                    guardianPresentationTimer.restart()
                     guardianWheel.advanceIfNeeded()
                 }
             }
@@ -180,6 +217,20 @@ Item {
                 font.weight: Font.DemiBold
                 Behavior on color { ColorAnimation { duration: 360 } }
             }
+        }
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: 28
+            width: 4
+            height: 4
+            radius: 2
+            visible: guardianState.active && !edge.guardianPresentationActive
+            color: edge.theme
+                ? (guardianState.highestSeverity >= 3 ? edge.theme.error : edge.theme.primary)
+                : "white"
+            opacity: 0.82
         }
 
         Text {
