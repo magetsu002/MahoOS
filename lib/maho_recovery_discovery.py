@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Btrfs/Snapper/Limine discovery for Guardian G3.
-
-SystemProbe has an explicit allowlist and never invokes snapshot/boot mutation
-commands.  FixtureProbe uses the same interface so CI requires neither Btrfs
-nor root privileges.
-"""
+"""Read-only Btrfs/Snapper/Limine discovery for Guardian G3."""
 from __future__ import annotations
 
 import json
@@ -38,18 +33,31 @@ class Probe(Protocol):
 
 
 class SystemProbe:
-    SAFE_COMMANDS = {"findmnt", "snapper", "pacman"}
-    SAFE_PACMAN = {"-Q"}
-    SAFE_SNAPPER_COMMANDS = {"get-config", "list"}
+    """Execute only the exact read-only command shapes used by G3 discovery."""
+
+    _PACKAGE = re.compile(r"[A-Za-z0-9@._+:-]+")
+    _SNAPPER_CONFIG = re.compile(r"[A-Za-z0-9._-]+")
+    _FINDMNT_OUTPUT = "TARGET,SOURCE,FSTYPE,FSROOT,UUID"
+
+    @classmethod
+    def _allowed(cls, args: tuple[str, ...]) -> bool:
+        if len(args) == 6 and args[0:3] == ("findmnt", "--json", "--target"):
+            return args[3] in {"/", "/home"} and args[4:] == ("--output", cls._FINDMNT_OUTPUT)
+        if len(args) == 3 and args[0:2] == ("pacman", "-Q"):
+            return bool(cls._PACKAGE.fullmatch(args[2]))
+        if len(args) == 5 and args[0:3] == ("snapper", "--jsonout", "--config"):
+            return bool(cls._SNAPPER_CONFIG.fullmatch(args[3])) and args[4] == "get-config"
+        if len(args) == 6 and args[0:3] == ("snapper", "--jsonout", "--config"):
+            return (
+                bool(cls._SNAPPER_CONFIG.fullmatch(args[3]))
+                and args[4:] == ("list", "--disable-used-space")
+            )
+        return False
 
     def run(self, argv: Sequence[str]) -> ProbeResult:
         args = tuple(str(x) for x in argv)
-        if not args or args[0] not in self.SAFE_COMMANDS:
-            raise RuntimeError(f"G3 refused non-read-only command: {args!r}")
-        if args[0] == "pacman" and (len(args) < 2 or args[1] not in self.SAFE_PACMAN):
-            raise RuntimeError(f"G3 refused mutating pacman command: {args!r}")
-        if args[0] == "snapper" and not any(x in self.SAFE_SNAPPER_COMMANDS for x in args):
-            raise RuntimeError(f"G3 refused mutating snapper command: {args!r}")
+        if not self._allowed(args):
+            raise RuntimeError(f"G3 refused non-read-only command shape: {args!r}")
         try:
             proc = subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
@@ -65,6 +73,7 @@ class SystemProbe:
 
 class FixtureProbe:
     """Command/file fixture adapter; command keys use exact argv joined by NUL."""
+
     def __init__(self, fixture: Mapping[str, Any]):
         self.fixture = fixture
         self.commands: list[tuple[str, ...]] = []
@@ -106,7 +115,9 @@ def _json_result(result: ProbeResult) -> Any | None:
 
 
 def _findmnt_mount(probe: Probe, target: str) -> Mapping[str, Any] | None:
-    data = _json_result(probe.run(("findmnt", "--json", "--target", target, "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID")))
+    data = _json_result(
+        probe.run(("findmnt", "--json", "--target", target, "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID"))
+    )
     filesystems = data.get("filesystems") if isinstance(data, Mapping) else None
     if not isinstance(filesystems, list) or not filesystems or not isinstance(filesystems[0], Mapping):
         return None
@@ -145,8 +156,6 @@ def _parse_simple_config(text: str | None) -> dict[str, str]:
 def _snapper_config(probe: Probe, config_name: str) -> Mapping[str, Any] | None:
     data = _json_result(probe.run(("snapper", "--jsonout", "--config", config_name, "get-config")))
     if isinstance(data, Mapping):
-        # Current Snapper emits either a direct key/value object or a table-like
-        # object. Normalize both without accepting guessed plain-text output.
         if "SUBVOLUME" in data:
             return data
         rows = data.get(config_name) or data.get("config") or data.get("rows")
@@ -162,7 +171,9 @@ def _snapper_config(probe: Probe, config_name: str) -> Mapping[str, Any] | None:
 
 
 def _snapshots(probe: Probe, config_name: str) -> list[Mapping[str, Any]] | None:
-    data = _json_result(probe.run(("snapper", "--jsonout", "--config", config_name, "list", "--disable-used-space")))
+    data = _json_result(
+        probe.run(("snapper", "--jsonout", "--config", config_name, "list", "--disable-used-space"))
+    )
     if not isinstance(data, Mapping):
         return None
     rows = data.get(config_name)
@@ -231,9 +242,6 @@ def _home_scope(root: Mapping[str, Any] | None, home: Mapping[str, Any] | None) 
     home_source, home_fsroot = home.get("source"), home.get("fsroot")
     if not all(isinstance(x, str) and x for x in (root_source, root_fsroot, home_source, home_fsroot)):
         return "unknown"
-    # findmnt --target /home returns the containing mount. A distinct source or
-    # Btrfs FSROOT proves /home is outside the root snapshot; the same mount
-    # proves it is included in root scope.
     if (root_source, root_fsroot) != (home_source, home_fsroot):
         return "excluded"
     return "included"
@@ -295,7 +303,11 @@ def _artifact_from_config(lines: Any, needle: str) -> str | None:
     return None
 
 
-def _boot_evidence(manifest: Mapping[str, Any] | None, manifest_path: str | None, snapshot_id: int, fs_uuid: str | None) -> BootEvidence:
+def _boot_evidence(
+    manifest: Mapping[str, Any] | None,
+    manifest_path: str | None,
+    snapshot_id: int,
+) -> BootEvidence:
     if not manifest:
         return BootEvidence(source="unavailable", reason="limine-snapper-sync manifest unavailable or malformed")
     entries = manifest.get("snapshotEntries")
@@ -308,8 +320,8 @@ def _boot_evidence(manifest: Mapping[str, Any] | None, manifest_path: str | None
     if not isinstance(kernels, list) or not kernels:
         return BootEvidence(source=manifest_path or "limine-snapper-sync-manifest", snapshot_id=snapshot_id, reason="kernel entries missing")
 
-    # Prefer the primary CachyOS kernel, otherwise a documented LTS fallback.
     normalized = [k for k in kernels if isinstance(k, Mapping)]
+
     def score(k: Mapping[str, Any]) -> int:
         text = json.dumps(k, sort_keys=True).lower()
         if "linux-cachyos\"" in text or "linux-cachyos " in text:
@@ -317,6 +329,7 @@ def _boot_evidence(manifest: Mapping[str, Any] | None, manifest_path: str | None
         if "linux-cachyos-lts" in text:
             return 1
         return 0
+
     kernel = max(normalized, key=score) if normalized else {}
     lines = kernel.get("allInConfig")
     pkg = _first_str(kernel, ("package", "kernelPackage", "kernelName", "name"))
@@ -327,16 +340,13 @@ def _boot_evidence(manifest: Mapping[str, Any] | None, manifest_path: str | None
         low = pkg.lower()
         pkg = "linux-cachyos-lts" if "cachyos-lts" in low else "linux-cachyos" if "cachyos" in low else pkg
 
-    # Current manifests carry checksums/verification metadata in different
-    # versions. Fixtures use the canonical fields below; unknown live schemas
-    # fail closed instead of assuming success.
     verified = matched.get("filesVerified")
     if not isinstance(verified, bool):
         verified = kernel.get("filesVerified") if isinstance(kernel.get("filesVerified"), bool) else None
     coherent = matched.get("artifactsCoherent")
     if not isinstance(coherent, bool):
         coherent = kernel.get("artifactsCoherent") if isinstance(kernel.get("artifactsCoherent"), bool) else None
-    manifest_uuid = _first_str(manifest, ("filesystemUuid", "filesystemUUID", "fsUuid", "fsUUID")) or fs_uuid
+    manifest_uuid = _first_str(manifest, ("filesystemUuid", "filesystemUUID", "fsUuid", "fsUUID"))
     return BootEvidence(
         source=manifest_path or "limine-snapper-sync-manifest",
         entry_id=_first_str(matched, ("entryId", "name", "title")) or f"snapshot-{snapshot_id}",
@@ -433,24 +443,26 @@ def discover_recovery_generations(policy: Mapping[str, Any], probe: Probe) -> Re
         snapshot = _snapshot_evidence(config_name, row, rows or [])
         if snapshot is None:
             continue
-        boot = _boot_evidence(manifest, manifest_path, snapshot.snapshot_id, fs_uuid)
+        boot = _boot_evidence(manifest, manifest_path, snapshot.snapshot_id)
         userdata = snapshot.userdata
         known_good = userdata.get("maho.known_good", "").lower() in {"1", "yes", "true"}
-        generations.append(evaluate_generation(
-            snapshot=snapshot,
-            filesystem_uuid=fs_uuid,
-            root_source=root_source,
-            root_fsroot=root_fsroot,
-            root_fstype=root_fstype,
-            snapper_subvolume=snapper_subvolume,
-            home_scope=home_scope,
-            boot=boot,
-            current_snapshot_id=current_id,
-            lts_kernel_present=lts_present,
-            expected_kernel_packages=(primary, fallback),
-            boot_state_transaction_required=bool(boot_policy.get("boot_state_transaction_required", False)),
-            known_good=known_good,
-        ))
+        generations.append(
+            evaluate_generation(
+                snapshot=snapshot,
+                filesystem_uuid=fs_uuid,
+                root_source=root_source,
+                root_fsroot=root_fsroot,
+                root_fstype=root_fstype,
+                snapper_subvolume=snapper_subvolume,
+                home_scope=home_scope,
+                boot=boot,
+                current_snapshot_id=current_id,
+                lts_kernel_present=lts_present,
+                expected_kernel_packages=(primary, fallback),
+                boot_state_transaction_required=bool(boot_policy.get("boot_state_transaction_required", False)),
+                known_good=known_good,
+            )
+        )
 
     return build_report(
         platform=platform,
