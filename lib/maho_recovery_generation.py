@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Pure Guardian G3 recovery-generation model.
 
-A recovery generation is deliberately stronger than a Snapper snapshot.  The
+A recovery generation is deliberately stronger than a Snapper snapshot. The
 identity is derived from the Btrfs filesystem UUID, Snapper config name and
-numeric snapshot ID.  Those are the smallest platform identifiers that remain
+numeric snapshot ID. Those are the smallest platform identifiers that remain
 stable across display-name/description/time changes while avoiding collisions
 when a filesystem is recreated and snapshot numbers are reused.
 """
@@ -110,12 +110,6 @@ def _parse_time(value: str | None) -> datetime | None:
 
 
 def _package_relation(snapshot: SnapshotEvidence) -> tuple[bool, str | None]:
-    """Validate pre/post linkage when Snapper says the snapshot is transactional.
-
-    snap-pac uses pre/post Snapper snapshots.  A single snapshot can still be a
-    valid manually-created recovery state, so package linkage is not invented
-    when it is not present.
-    """
     stype = snapshot.snapshot_type
     if stype == "post" and not snapshot.pre_number:
         return False, "package_transaction_link_missing"
@@ -149,18 +143,24 @@ def evaluate_generation(
         reasons.append("root_filesystem_uuid_unknown")
     if not root_source or not root_fsroot:
         reasons.append("root_subvolume_identity_unknown")
+
     if snapper_subvolume is None:
         reasons.append("snapper_root_config_unavailable")
-    elif snapshot.subvolume and snapshot.subvolume != snapper_subvolume:
+    elif not snapshot.subvolume:
+        reasons.append("snapshot_subvolume_unknown")
+    elif snapshot.subvolume != snapper_subvolume:
         reasons.append("snapper_subvolume_mismatch")
+
     if snapshot.snapshot_id <= 0:
         reasons.append("snapshot_missing")
     if not snapshot.creation_time or _parse_time(snapshot.creation_time) is None:
         reasons.append("snapshot_creation_time_invalid")
-    if not snapshot.snapshot_type:
+    if snapshot.snapshot_type not in {"single", "pre", "post"}:
         reasons.append("snapshot_type_unknown")
     if snapshot.read_only is False:
         reasons.append("snapshot_not_read_only")
+    elif snapshot.read_only is not True:
+        reasons.append("snapshot_read_only_unknown")
     if snapshot.active is True or (current_snapshot_id is not None and snapshot.snapshot_id == current_snapshot_id):
         reasons.append("current_failed_generation")
     if current_snapshot_id is not None and snapshot.snapshot_id > current_snapshot_id:
@@ -170,12 +170,18 @@ def evaluate_generation(
     if not package_ok and package_reason:
         reasons.append(package_reason)
 
+    if home_scope not in {"excluded", "included"}:
+        home_scope = "unknown"
+        reasons.append("personal_data_scope_unknown")
+
     if boot_state_transaction_required:
         if boot.source == "unavailable" or boot.snapshot_id is None:
             reasons.append("boot_relationship_unknown")
         elif boot.snapshot_id != snapshot.snapshot_id:
             reasons.append("boot_snapshot_mismatch")
-        if boot.filesystem_uuid and filesystem_uuid and boot.filesystem_uuid.lower() != filesystem_uuid.lower():
+        if not boot.filesystem_uuid:
+            reasons.append("boot_filesystem_identity_unknown")
+        elif filesystem_uuid and boot.filesystem_uuid.lower() != filesystem_uuid.lower():
             reasons.append("boot_filesystem_mismatch")
         if not boot.kernel_package:
             reasons.append("kernel_identity_unknown")
@@ -190,23 +196,14 @@ def evaluate_generation(
         if boot.files_verified is not True:
             reasons.append("boot_files_unverified" if boot.files_verified is None else "boot_files_verification_failed")
 
-    # Personal-data scope is intentionally not an eligibility blocker: the user
-    # may still choose a recovery generation, but Maho must never claim files are
-    # preserved unless home_scope == "excluded".
-    if home_scope not in {"excluded", "included", "unknown"}:
-        home_scope = "unknown"
-
     gid = generation_identity(filesystem_uuid, snapshot.config_name, snapshot.snapshot_id)
     if gid is None:
         reasons.append("stable_generation_identity_unavailable")
 
-    # De-duplicate while preserving deterministic diagnostic order.
     reasons = list(dict.fromkeys(reasons))
     eligible = not reasons
     complete = eligible
-    boot_coherent = boot.artifacts_coherent is True and boot.files_verified is True and (
-        boot.snapshot_id == snapshot.snapshot_id
-    )
+    boot_coherent = boot.artifacts_coherent is True and boot.files_verified is True and boot.snapshot_id == snapshot.snapshot_id
     verification = "known-good" if eligible and known_good else "coherent" if eligible else "rejected"
     return RecoveryGeneration(
         generation_id=gid,
@@ -227,16 +224,17 @@ def evaluate_generation(
 
 
 def rank_generations(generations: Iterable[RecoveryGeneration]) -> tuple[RecoveryGeneration, ...]:
-    """Return deterministic view: eligible/known-good first, then nearest earlier ID.
+    """Prefer the nearest earlier complete coherent generation deterministically.
 
-    Snapshot numbers are Snapper's monotonic identity within a config.  Time is
-    only a final display-order tie breaker and is never used as proof of safety.
+    Eligibility is safety. Snapshot number is proximity within one Snapper
+    configuration. Metadata such as descriptions, timestamps, or a claimed
+    known-good marker never outranks a nearer eligible generation.
     """
     def key(item: RecoveryGeneration) -> tuple[int, int, int, str]:
         return (
             1 if item.eligible else 0,
-            1 if item.known_good else 0,
             item.snapshot.snapshot_id,
+            1 if item.known_good else 0,
             item.generation_id or "",
         )
     return tuple(sorted(generations, key=key, reverse=True))
@@ -255,8 +253,6 @@ def build_report(
     facts: dict[str, Any] = {
         "failure": {"domain": "system-userspace"},
         "availability": {
-            # Legacy bridge for the current recovery policy.  It becomes true
-            # only after G3 coherence validation, never from snapshot presence.
             "root_snapshot": selected is not None,
             "root_recovery_generation": selected is not None,
             "generation_id": selected_id,
