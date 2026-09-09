@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Explicit V1 registry of Guardian-certified recovery paths.
+"""Explicit registry of Guardian-certified recovery paths.
 
 Certification is product-owned policy. Runtime incident data may describe a
 failure, but it cannot self-certify a mutating recovery by setting a boolean.
-Only exact entries in this registry may reach an automatic executor.
+Only exact entries in this registry may reach a recovery authority boundary.
 """
 from __future__ import annotations
 
@@ -26,6 +26,24 @@ class CertifiedServiceRecovery:
     health_process_patterns: tuple[str, ...]
     replacement_timeout_seconds: float
     stability_seconds: float
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class CertifiedRuntimeRecovery:
+    domain: str
+    ownership: str
+    provider: str
+    mode: str
+    action: str
+    scope: str
+    executor: str
+    preserves_personal_files: bool
+    previous_runtime_required: bool
+    automatic_only_in_transaction: bool
+    postcondition: str
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -100,7 +118,23 @@ _SERVICE_RECOVERIES = {
     ),
 }
 
-# G1 intentionally has no Guardian-owned ordinary service restart.
+_RUNTIME_RECOVERIES = {
+    "maho-runtime": CertifiedRuntimeRecovery(
+        domain="maho-runtime",
+        ownership="maho",
+        provider="maho-runtime",
+        mode="transactional",
+        action="rollback-previous",
+        scope="maho-runtime",
+        executor="maho-setup",
+        preserves_personal_files=True,
+        previous_runtime_required=True,
+        automatic_only_in_transaction=True,
+        postcondition="verified-previous-is-current-and-managed-wiring-matches-current",
+    ),
+}
+
+# G1/G2 intentionally have no Guardian-owned ordinary service restart.
 _GUARDIAN_RESTARTS: dict[str, CertifiedGuardianRestart] = {}
 
 
@@ -114,8 +148,18 @@ def certified_service_units() -> tuple[str, ...]:
     return tuple(sorted(_SERVICE_RECOVERIES))
 
 
+def certified_runtime_recovery(domain: object) -> CertifiedRuntimeRecovery | None:
+    if not isinstance(domain, str):
+        return None
+    return _RUNTIME_RECOVERIES.get(domain)
+
+
+def certified_runtime_domains() -> tuple[str, ...]:
+    return tuple(sorted(_RUNTIME_RECOVERIES))
+
+
 def certified_guardian_restart(unit: object) -> CertifiedGuardianRestart | None:
-    """Return no direct restart path in G1.
+    """Return no direct ordinary service restart path in G2.
 
     Ordinary Notify crashes are delegated to systemd. Keeping this separate
     lookup makes it impossible for a delegated provider contract to leak into

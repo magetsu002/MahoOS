@@ -115,6 +115,7 @@ Item {
             height: 30
             active: guardianState.active
             targetSeverity: guardianState.highestSeverity
+            catastrophicTransitionSerial: guardianState.catastrophicTransitionSerial
         }
 
         Connections {

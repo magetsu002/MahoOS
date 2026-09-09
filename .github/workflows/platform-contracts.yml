@@ -55,6 +55,13 @@ jobs:
           set -euo pipefail
           bash tests/platform-doctor.sh
 
+      - name: Read-only recovery generation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/test_recovery_generations.py
+          python tests/test_recovery_cli.py
+
       - name: Text recovery console consent contracts
         shell: bash
         run: |
@@ -69,6 +76,6 @@ jobs:
           python - <<'PY'
           import ast
           import pathlib
-          for file in ('lib/maho_recovery_policy.py', 'tests/recovery-policy.py'):
+          for file in ('lib/maho_recovery_policy.py', 'lib/maho_recovery_generation.py', 'lib/maho_recovery_discovery.py', 'lib/maho_recovery_cli.py', 'tests/recovery-policy.py', 'tests/test_recovery_generations.py', 'tests/test_recovery_cli.py'):
               ast.parse(pathlib.Path(file).read_text(), filename=file)
           PY

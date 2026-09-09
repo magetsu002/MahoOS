@@ -6,11 +6,13 @@ Item {
 
     property bool active: false
     property int targetSeverity: 0
+    property int catastrophicTransitionSerial: 0
 
     property int _displayedSeverity: 0
     property real _angle: 0
     property bool _animating: false
     property bool _lockedIn: false
+    property int _handledCatastrophicSerial: 0
 
     property real _wheelScale: 1.0
     property real _impactOpacity: 0.0
@@ -198,13 +200,20 @@ Item {
         onFinished: {
             root._displayedSeverity += 1
 
-            // Audio fires on the exact indexed mechanical lock.
-            root.playLockSound(root._displayedSeverity)
-
-            if (root._displayedSeverity === 4)
-                catastrophicImpact.restart()
-            else
+            // L4 impact/audio only fires for a real observed severity transition.
+            if (root._displayedSeverity === 4) {
+                if (root.catastrophicTransitionSerial > root._handledCatastrophicSerial) {
+                    root._handledCatastrophicSerial = root.catastrophicTransitionSerial
+                    root.playLockSound(4)
+                    catastrophicImpact.restart()
+                } else {
+                    root._animating = false
+                    root.stageLocked(4)
+                }
+            } else {
+                root.playLockSound(root._displayedSeverity)
                 normalImpact.restart()
+            }
         }
     }
 

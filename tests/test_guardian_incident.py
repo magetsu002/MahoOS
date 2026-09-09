@@ -62,7 +62,7 @@ def main():
         source_diversity=1,
     )
     result=evaluate_security_incident(host)
-    check("confirmed catastrophic host incident is L4 handoff only",result["decision"]["severity"]["level"]==4 and result["decision"]["execution_mode"]=="handoff" and not result["decision"]["mutating_recovery_allowed"])
+    check("single confirmed-looking host signal cannot bypass G4 corroboration",result["decision"]["severity"]["level"]<4 and result["decision"]["execution_mode"]=="diagnose" and not result["decision"]["mutating_recovery_allowed"])
 
     repeated=incident(
         iid="inc-package-repeat",

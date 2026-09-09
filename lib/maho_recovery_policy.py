@@ -13,7 +13,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
-from guardian_recovery_registry import certified_service_recovery
+from guardian_recovery_registry import certified_runtime_recovery, certified_service_recovery
 
 
 @dataclass(frozen=True)
@@ -88,14 +88,25 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
 
     if domain == "system-userspace":
         if _bool(availability, "root_snapshot", False):
+            home_excluded = availability.get("home_excluded_from_root_snapshot")
+            if not isinstance(home_excluded, bool):
+                return RecoveryDecision(
+                    action="open-recovery-console",
+                    scope="diagnostic",
+                    requires_confirmation=False,
+                    automatic_allowed=True,
+                    surface="graphical-recovery" if graphical_available else "text-console",
+                    preserves_personal_files=False,
+                    reason="A root recovery state exists but the personal-data scope is unknown, so Maho must not authorize system-state restoration.",
+                )
             return RecoveryDecision(
                 action="restore-system-state",
                 scope="root-filesystem",
                 requires_confirmation=True,
                 automatic_allowed=False,
                 surface="graphical-recovery" if graphical_available else "text-console",
-                preserves_personal_files=_bool(availability, "home_excluded_from_root_snapshot", True),
-                reason="The booted kernel is healthy but the system userspace failed verification; a previous root snapshot is available.",
+                preserves_personal_files=home_excluded,
+                reason="The booted kernel is healthy but the system userspace failed verification; a previous root snapshot is available with explicit personal-data scope.",
             )
         return RecoveryDecision(
             action="open-recovery-console",
@@ -108,15 +119,38 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
         )
 
     if domain == "maho-runtime":
-        if _bool(availability, "previous_runtime_verified", False):
+        certified = certified_runtime_recovery(domain)
+        domain_confidence = failure.get("domain_confidence")
+        if certified is None or domain_confidence != "confirmed":
             return RecoveryDecision(
-                action="rollback-maho-runtime",
-                scope="maho-runtime",
-                requires_confirmation=not transaction_in_progress,
-                automatic_allowed=transaction_in_progress,
+                action="open-recovery-console",
+                scope="diagnostic",
+                requires_confirmation=False,
+                automatic_allowed=True,
                 surface="graphical-recovery" if graphical_available else "text-console",
                 preserves_personal_files=True,
-                reason="The Maho runtime failed verification and a previously verified immutable runtime is available.",
+                reason="The Maho runtime failure domain is not confirmed, so no mutating recovery is authorized.",
+            )
+        if _bool(availability, "previous_runtime_verified", False):
+            automatic_in_transaction = certified.automatic_only_in_transaction and transaction_in_progress
+            return RecoveryDecision(
+                action=certified.action,
+                scope=certified.scope,
+                requires_confirmation=not automatic_in_transaction,
+                automatic_allowed=automatic_in_transaction,
+                surface="graphical-recovery" if graphical_available else "text-console",
+                preserves_personal_files=certified.preserves_personal_files,
+                reason=(
+                    "The Maho runtime failed verification and a previously verified immutable runtime is available; "
+                    + (
+                        "the active Maho activation transaction may restore it."
+                        if automatic_in_transaction
+                        else "outside certified automatic transaction scope the rollback requires confirmation."
+                    )
+                ),
+                target="previous-runtime",
+                provider=certified.provider,
+                recovery_mode=certified.mode,
             )
         return RecoveryDecision(
             action="open-recovery-console",

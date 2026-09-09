@@ -103,6 +103,7 @@ def main() -> None:
     post_transaction_rollback = {
         "failure": {
             "domain": "maho-runtime",
+            "domain_confidence": "confirmed",
             "transaction_in_progress": False,
             "graphical_available": True,
         },
@@ -116,14 +117,36 @@ def main() -> None:
     in_transaction_rollback = {
         "failure": {
             "domain": "maho-runtime",
+            "domain_confidence": "confirmed",
             "transaction_in_progress": True,
             "graphical_available": True,
         },
         "availability": {"previous_runtime_verified": True},
     }
+    runtime_decision = decide_recovery(in_transaction_rollback)
+    check(
+        "runtime policy uses the certified transactional Maho provider",
+        runtime_decision.action == "rollback-previous"
+        and runtime_decision.provider == "maho-runtime"
+        and runtime_decision.recovery_mode == "transactional",
+    )
     check(
         "certified in-transaction runtime rollback may self-heal",
         effective_automatic_mutation(runtime_l3, in_transaction_rollback),
+    )
+
+    insufficient_confidence = {
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "high",
+            "transaction_in_progress": True,
+        },
+        "availability": {"previous_runtime_verified": True},
+    }
+    check(
+        "runtime domain confidence cannot be inferred for automatic mutation",
+        decide_recovery(insufficient_confidence).action == "open-recovery-console"
+        and not effective_automatic_mutation(runtime_l3, insufficient_confidence),
     )
 
     catastrophic = {

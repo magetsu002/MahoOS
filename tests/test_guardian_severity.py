@@ -68,6 +68,18 @@ def main():
     check("persistent certified Maho component failure reaches automatic L2",result.level==2 and result.automatic_recovery_allowed)
 
     result=assess(
+        incident={"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"confirmed","persistent":True},
+        recovery={"confidence":"certified","certified_path":True},
+    )
+    check("certified Maho runtime failure reaches automatic L2 posture",result.level==2 and result.automatic_recovery_allowed)
+
+    result=assess(
+        incident={"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"confirmed","persistent":True},
+        recovery={"confidence":"high","certified_path":False},
+    )
+    check("uncertified runtime L2 never authorizes mutation",result.level==2 and not result.automatic_recovery_allowed)
+
+    result=assess(
         incident={"scope":"component","ownership":"maho","impact":"degraded","evidence_confidence":"low","persistent":True,"occurrence_count":9},
         recovery={"confidence":"certified","certified_path":True},
     )
@@ -92,7 +104,7 @@ def main():
     check("uncertified broader path remains L3 but cannot automate",result.level==3 and not result.automatic_recovery_allowed and not result.recovery_handoff_required)
 
     result=assess(
-        incident={"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True},
+        incident={"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True,"catastrophic_authority_confirmed":True},
         recovery={"confidence":"certified","certified_path":True},
     )
     check("L4 is explicit handoff only",result.level==4 and result.recovery_handoff_required and not result.automatic_recovery_allowed)
@@ -104,7 +116,7 @@ def main():
     check("low-confidence catastrophic signal does not enter L4",result.level<4 and not result.automatic_recovery_allowed)
 
     result=assess(
-        incident={"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True,"resolved":False},
+        incident={"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True,"resolved":False,"catastrophic_authority_confirmed":True},
         recovery={"confidence":"certified","certified_path":True,"verified":True},
     )
     check("stale verified flag cannot hide active catastrophic evidence",result.level==4 and result.recovery_handoff_required)

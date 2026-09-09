@@ -9,6 +9,7 @@ Scope {
     property int highestSeverity: 0
     property int previousSeverity: 0
     property int generation: 0
+    property int catastrophicTransitionSerial: 0
     property string signature: ""
 
     readonly property bool active: highestSeverity > 0
@@ -41,6 +42,9 @@ Scope {
 
         state.previousSeverity = oldSeverity
         state.highestSeverity = highest
+
+        if (oldSeverity < 4 && highest === 4)
+            state.catastrophicTransitionSerial += 1
 
         if (nextSignature !== state.signature) {
             state.signature = nextSignature
