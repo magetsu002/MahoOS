@@ -32,4 +32,11 @@ done
 grep -Fq 'root.playLockSound(root._displayedSeverity)' "$WHEEL" || fail "accepted mechanical lock audio lost"
 grep -Fq 'Before public release, confirm and record the exact source URLs' "$SOUND_SOURCE" || fail "sound licensing release blocker is no longer explicit"
 
+grep -Fq 'oldSeverity < 4 && highest === 4' "$STATE" || fail "catastrophic transition is not derived from real severity state"
+grep -Fq 'catastrophicTransitionSerial += 1' "$STATE" || fail "catastrophic transition serial is not edge-triggered"
+for surface in "$EDGE" "$SIDE"; do
+    grep -Fq 'catastrophicTransitionSerial: guardianState.catastrophicTransitionSerial' "$surface" || fail "Wheel lacks real L4 transition authority"
+done
+grep -Fq 'root.catastrophicTransitionSerial > root._handledCatastrophicSerial' "$WHEEL" || fail "L4 sound/impact is not one-shot transition gated"
+grep -Fq 'root.playLockSound(4)' "$WHEEL" || fail "catastrophic sound contract lost"
 echo "ALL GUARDIAN WHEEL INTEGRATION CONTRACTS PASS"
