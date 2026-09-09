@@ -2,7 +2,7 @@ Maho Guardian sound prototype
 
 guardian-stage.wav
 Original local filename:
-freesound_community-stainless-steel-drip-tray-45073.mp3
+freesound_community-steel-chain-dragged-shower-reverb-106252.mp3
 
 guardian-catastrophic.wav
 Original local filename:
