@@ -68,6 +68,18 @@ def main():
     check("persistent certified Maho component failure reaches automatic L2",result.level==2 and result.automatic_recovery_allowed)
 
     result=assess(
+        incident={"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"confirmed","persistent":True},
+        recovery={"confidence":"certified","certified_path":True},
+    )
+    check("certified Maho runtime failure reaches automatic L2 posture",result.level==2 and result.automatic_recovery_allowed)
+
+    result=assess(
+        incident={"scope":"runtime","ownership":"maho","impact":"degraded","evidence_confidence":"confirmed","persistent":True},
+        recovery={"confidence":"high","certified_path":False},
+    )
+    check("uncertified runtime L2 never authorizes mutation",result.level==2 and not result.automatic_recovery_allowed)
+
+    result=assess(
         incident={"scope":"component","ownership":"maho","impact":"degraded","evidence_confidence":"low","persistent":True,"occurrence_count":9},
         recovery={"confidence":"certified","certified_path":True},
     )
