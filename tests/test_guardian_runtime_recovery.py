@@ -54,62 +54,88 @@ def make_release(releases: Path, revision: str) -> Path:
     return final
 
 
+def make_tree_writable(root: Path) -> None:
+    for path in root.rglob("*"):
+        try:
+            if path.is_dir():
+                os.chmod(path, 0o755)
+            else:
+                os.chmod(path, 0o644)
+        except OSError:
+            pass
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as raw:
         base = Path(raw)
-        releases = base / "runtime/releases"
-        state_root = base / "state/maho/security"
-        releases.mkdir(parents=True)
-        failed = make_release(releases, "1" * 40)
-        replacement = make_release(releases, "2" * 40)
-        current = base / "runtime/current"
-        current.parent.mkdir(parents=True, exist_ok=True)
-        current.symlink_to(failed)
+        try:
+            releases = base / "runtime/releases"
+            state_root = base / "state/maho/security"
+            releases.mkdir(parents=True)
+            failed = make_release(releases, "1" * 40)
+            replacement = make_release(releases, "2" * 40)
+            current = base / "runtime/current"
+            current.parent.mkdir(parents=True, exist_ok=True)
+            current.symlink_to(failed)
 
-        store = RuntimeRecoveryStore(state_root, releases)
-        before = current.resolve()
-        started = store.begin(transaction_id="tx-success", failed=str(failed), replacement=str(replacement))
-        check("valid exact previous release authorizes L2 transactional recovery", started["automatic_authorized"] is True and started["severity"] == 2)
-        check("Guardian runtime store performs no pointer mutation", current.resolve() == before)
-        check("runtime incident begins visible in Guardian active state", (state_root / "guardian/active" / f"{started['incident_id']}.json").exists())
+            store = RuntimeRecoveryStore(state_root, releases)
+            before = current.resolve()
+            started = store.begin(transaction_id="tx-success", failed=str(failed), replacement=str(replacement))
+            check("valid exact previous release authorizes L2 transactional recovery", started["automatic_authorized"] is True and started["severity"] == 2)
+            check("Guardian runtime store performs no pointer mutation", current.resolve() == before)
+            check("runtime incident begins visible in Guardian active state", (state_root / "guardian/active" / f"{started['incident_id']}.json").exists())
 
-        current.unlink()
-        current.symlink_to(replacement)
-        finished = store.finish(
-            incident_id=started["incident_id"],
-            observed_current=str(current.resolve()),
-            wiring_verified=True,
-            systemd_reload_verified=True,
-        )
-        check("verified postcondition records recovered", finished["verified"] is True and finished["lifecycle"] == "recovered")
-        check("successful runtime recovery leaves no active incident", not (state_root / "guardian/active" / f"{started['incident_id']}.json").exists())
-        check("successful runtime recovery archives resolved assessment", (state_root / "guardian/archive" / f"{started['incident_id']}.json").exists())
-        history = json.loads((state_root / "guardian/recovery-history" / f"{started['incident_id']}.json").read_text())
-        check("history attributes execution to setup rather than Guardian", history["executor"] == "maho-setup" and history["guardian_mutation"] is False)
-        check("history records exact transactional provider", history["provider"] == "maho-runtime" and history["recovery_mode"] == "transactional")
-        check("history transitions cover recovery verification", [row["state"] for row in history["transitions"]] == ["detected", "recovering", "verifying", "recovered"])
+            current.unlink()
+            current.symlink_to(replacement)
+            finished = store.finish(
+                incident_id=started["incident_id"],
+                observed_current=str(current.resolve()),
+                wiring_verified=True,
+                systemd_reload_verified=True,
+            )
+            check("verified postcondition records recovered", finished["verified"] is True and finished["lifecycle"] == "recovered")
+            check("successful runtime recovery leaves no active incident", not (state_root / "guardian/active" / f"{started['incident_id']}.json").exists())
+            check("successful runtime recovery archives resolved assessment", (state_root / "guardian/archive" / f"{started['incident_id']}.json").exists())
+            history = json.loads((state_root / "guardian/recovery-history" / f"{started['incident_id']}.json").read_text())
+            check("history attributes execution to setup rather than Guardian", history["executor"] == "maho-setup" and history["guardian_mutation"] is False)
+            check("history records exact transactional provider", history["provider"] == "maho-runtime" and history["recovery_mode"] == "transactional")
+            check("history transitions cover recovery verification", [row["state"] for row in history["transitions"]] == ["detected", "recovering", "verifying", "recovered"])
 
-        failed2 = make_release(releases, "3" * 40)
-        replacement2 = make_release(releases, "4" * 40)
-        started2 = store.begin(transaction_id="tx-bad-postcondition", failed=str(failed2), replacement=str(replacement2))
-        failed_finish = store.finish(
-            incident_id=started2["incident_id"],
-            observed_current=str(replacement2),
-            wiring_verified=False,
-            systemd_reload_verified=True,
-        )
-        check("wiring verification failure cannot become successful history", failed_finish["verified"] is False and failed_finish["lifecycle"] == "unresolved")
-        bad_history = json.loads((state_root / "guardian/recovery-history" / f"{started2['incident_id']}.json").read_text())
-        check("failed postcondition remains visible and unverified", bad_history["verified"] is False and (state_root / "guardian/active" / f"{started2['incident_id']}.json").exists())
+            failed2 = make_release(releases, "3" * 40)
+            replacement2 = make_release(releases, "4" * 40)
+            started2 = store.begin(transaction_id="tx-bad-postcondition", failed=str(failed2), replacement=str(replacement2))
+            failed_finish = store.finish(
+                incident_id=started2["incident_id"],
+                observed_current=str(replacement2),
+                wiring_verified=False,
+                systemd_reload_verified=True,
+            )
+            check("wiring verification failure cannot become successful history", failed_finish["verified"] is False and failed_finish["lifecycle"] == "unresolved")
+            bad_history = json.loads((state_root / "guardian/recovery-history" / f"{started2['incident_id']}.json").read_text())
+            check("failed postcondition remains visible and unverified", bad_history["verified"] is False and (state_root / "guardian/active" / f"{started2['incident_id']}.json").exists())
 
-        failed3 = make_release(releases, "5" * 40)
-        replacement3 = make_release(releases, "6" * 40)
-        os.chmod(replacement3 / "bin/probe", 0o644)
-        started3 = store.begin(transaction_id="tx-unverified-previous", failed=str(failed3), replacement=str(replacement3))
-        check("unverified previous runtime never authorizes automatic recovery", started3["automatic_authorized"] is False and started3["lifecycle"] == "unresolved")
+            failed3 = make_release(releases, "5" * 40)
+            replacement3 = make_release(releases, "6" * 40)
+            os.chmod(replacement3 / "bin/probe", 0o644)
+            started3 = store.begin(transaction_id="tx-unverified-previous", failed=str(failed3), replacement=str(replacement3))
+            check("unverified previous runtime never authorizes automatic recovery", started3["automatic_authorized"] is False and started3["lifecycle"] == "unresolved")
 
-        started4 = store.begin(transaction_id="tx-same-release", failed=str(failed3), replacement=str(failed3))
-        check("current and previous same release is rejected", started4["automatic_authorized"] is False and started4["distinct_releases"] is False)
+            started4 = store.begin(transaction_id="tx-same-release", failed=str(failed3), replacement=str(failed3))
+            check("current and previous same release is rejected", started4["automatic_authorized"] is False and started4["distinct_releases"] is False)
+
+            corrupt_failed = make_release(releases, "7" * 40)
+            valid_previous = make_release(releases, "8" * 40)
+            os.chmod(corrupt_failed / "bin/probe", 0o644)
+            (corrupt_failed / "bin/probe").write_text("corrupted after activation\n")
+            os.chmod(corrupt_failed / "bin/probe", 0o444)
+            corrupt_started = store.begin(
+                transaction_id="tx-corrupt-new-runtime",
+                failed=str(corrupt_failed),
+                replacement=str(valid_previous),
+            )
+            check("identified corrupt new runtime may roll back to verified exact previous", corrupt_started["failed_runtime"]["verified"] is False and corrupt_started["failed_runtime_identified"] is True and corrupt_started["automatic_authorized"] is True)
+        finally:
+            make_tree_writable(base)
 
     print("ALL GUARDIAN RUNTIME RECOVERY TESTS PASS")
 
