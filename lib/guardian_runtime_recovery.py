@@ -128,7 +128,14 @@ class RuntimeRecoveryStore:
     def _active_path(self, iid: str) -> Path:
         return self.active / f"{iid}.json"
 
-    def begin(self, *, transaction_id: str, failed: str, replacement: str) -> dict[str, Any]:
+    def begin(
+        self,
+        *,
+        transaction_id: str,
+        failed: str,
+        replacement: str,
+        failure_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         failed_v = verify_release(failed, self.releases_root)
         replacement_v = verify_release(replacement, self.releases_root)
         failed_identified = _identified_failed_release(failed_v.reasons)
@@ -170,6 +177,7 @@ class RuntimeRecoveryStore:
             "replacement_runtime": replacement_v.as_dict(),
             "distinct_releases": distinct,
             "decision": decision.as_dict(),
+            "failure_evidence": dict(failure_evidence or {}),
             "postcondition": {
                 "expected": {
                     "current_equals_replacement": True,
@@ -291,6 +299,7 @@ class RuntimeRecoveryStore:
             "failed_runtime": state.get("failed_runtime"),
             "replacement_runtime": state.get("replacement_runtime"),
             "decision": state.get("decision"),
+            "failure_evidence": state.get("failure_evidence"),
             "postcondition": state.get("postcondition"),
             "transitions": state.get("transitions"),
             "opened_at": state.get("opened_at"),
@@ -314,6 +323,7 @@ def main() -> None:
     begin.add_argument("--transaction-id", required=True)
     begin.add_argument("--failed", required=True)
     begin.add_argument("--replacement", required=True)
+    begin.add_argument("--failure-evidence")
     finish = sub.add_parser("finish")
     finish.add_argument("--incident-id", required=True)
     finish.add_argument("--observed-current", required=True)
@@ -322,7 +332,18 @@ def main() -> None:
     args = parser.parse_args()
     store = RuntimeRecoveryStore(Path(args.state_root), Path(args.releases_root))
     if args.command == "begin":
-        result = store.begin(transaction_id=args.transaction_id, failed=args.failed, replacement=args.replacement)
+        evidence: Mapping[str, Any] | None = None
+        if args.failure_evidence:
+            raw = json.loads(Path(args.failure_evidence).read_text(encoding="utf-8"))
+            if not isinstance(raw, Mapping):
+                raise SystemExit("failure evidence must be a JSON object")
+            evidence = raw
+        result = store.begin(
+            transaction_id=args.transaction_id,
+            failed=args.failed,
+            replacement=args.replacement,
+            failure_evidence=evidence,
+        )
     else:
         result = store.finish(
             incident_id=args.incident_id,

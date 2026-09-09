@@ -24,7 +24,19 @@ cat >"$TMP/fake-bin/systemctl" <<'EOF_SYSTEMCTL'
 printf '%s\n' "$*" >>"$MAHO_TEST_SYSTEMCTL_LOG"
 case "$*" in
   '--user show-environment') exit 0 ;;
-  '--user daemon-reload') [ "${MAHO_TEST_FAIL_DAEMON_RELOAD:-0}" = 1 ] && exit 1; exit 0 ;;
+  '--user daemon-reload')
+    if [ -n "${MAHO_TEST_DAEMON_RELOAD_COUNT_FILE:-}" ]; then
+      count=0
+      [ ! -r "$MAHO_TEST_DAEMON_RELOAD_COUNT_FILE" ] || count="$(cat "$MAHO_TEST_DAEMON_RELOAD_COUNT_FILE")"
+      count=$((count + 1))
+      printf '%s\n' "$count" >"$MAHO_TEST_DAEMON_RELOAD_COUNT_FILE"
+      if [ "${MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER:-0}" -gt 0 ] && [ "$count" -gt "$MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER" ]; then
+        exit 1
+      fi
+    fi
+    [ "${MAHO_TEST_FAIL_DAEMON_RELOAD:-0}" = 1 ] && exit 1
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 EOF_SYSTEMCTL
@@ -387,6 +399,98 @@ for wants in default.target.wants graphical-session.target.wants; do [ ! -e "$UN
 [ -L "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" ] || fail 'unrelated Waybar watcher was touched'
 if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG"; then fail 'install restarted or directly activated live services'; fi
 "$HOME/.local/bin/maho-setup" status >/dev/null
+echo PASS
+
+echo '=== G2 failed activation restores exact verified runtime ==='
+make_g2_source() {
+  local destination="$1" marker="$2"
+  mkdir -p "$destination"
+  for dir in bin lib adapters config theme systemd share apps; do
+    [ ! -e "$ROOT/$dir" ] || cp -a "$ROOT/$dir" "$destination/"
+  done
+  mkdir -p "$destination/apps/maho-files/prebuilt" "$destination/share/maho"
+  cp "$FIRST_RELEASE/apps/maho-files/prebuilt/maho-files" "$destination/apps/maho-files/prebuilt/maho-files"
+  chmod +x "$destination/apps/maho-files/prebuilt/maho-files"
+  printf '%s\n' "$marker" >"$destination/share/maho/g2-activation-fixture"
+}
+
+cat >"$TMP/fake-bin/update-desktop-database" <<'EOF_UPDATE_DB'
+#!/usr/bin/env bash
+if [ "${MAHO_TEST_CORRUPT_WIRING:-0}" = 1 ]; then
+  rm -f -- "$MAHO_TEST_CORRUPT_TARGET"
+  ln -s -- /nonexistent/maho-g2-health-failure "$MAHO_TEST_CORRUPT_TARGET"
+fi
+exit 0
+EOF_UPDATE_DB
+chmod +x "$TMP/fake-bin/update-desktop-database"
+
+G2_SOURCE_ONE="$TMP/g2-source-one"
+make_g2_source "$G2_SOURCE_ONE" first-failed-activation
+export MAHO_TEST_CORRUPT_WIRING=1
+export MAHO_TEST_CORRUPT_TARGET="$SHELL_TARGET"
+if bash "$G2_SOURCE_ONE/bin/maho-setup" install >/dev/null 2>"$TMP/g2-first-failure.err"; then
+  fail 'G2 simulated bad activation unexpectedly succeeded'
+fi
+unset MAHO_TEST_CORRUPT_WIRING
+[ "$(readlink -f "$CURRENT")" = "$FIRST_RELEASE" ] || fail 'G2 did not restore exact pre-activation current runtime'
+[ -L "$SHELL_TARGET" ] && [ "$(readlink "$SHELL_TARGET")" = "$CURRENT/config/quickshell/maho-shell" ] || fail 'G2 did not restore exact managed Shell wiring'
+grep -Fq 'Guardian verified restoration of the pre-activation Maho runtime' "$TMP/g2-first-failure.err" || fail 'G2 did not report verified rollback'
+
+G2_HISTORY="$XDG_STATE_HOME/maho/security/guardian/recovery-history"
+python - "$G2_HISTORY" "$FIRST_RELEASE" <<'PY_G2_RECOVERED'
+import json,pathlib,sys
+rows=[json.loads(p.read_text()) for p in pathlib.Path(sys.argv[1]).glob('inc-runtime-*.json')]
+assert len(rows)==1, rows
+row=rows[0]
+assert row['severity']==2
+assert row['domain']=='maho-runtime'
+assert row['provider']=='maho-runtime'
+assert row['recovery_mode']=='transactional'
+assert row['executor']=='maho-setup'
+assert row['guardian_mutation'] is False
+assert row['automatic'] is True
+assert row['verified'] is True
+assert row['status']=='recovered'
+assert pathlib.Path(row['replacement_runtime']['path']).resolve()==pathlib.Path(sys.argv[2]).resolve()
+assert row['failure_evidence']['healthy'] is False
+assert row['failure_evidence']['managed_wiring_matches_current'] is False
+assert [x['state'] for x in row['transitions']]==['detected','recovering','verifying','recovered']
+assert row['postcondition']['observed']['current_equals_replacement'] is True
+assert row['postcondition']['observed']['managed_wiring_matches_current'] is True
+assert row['postcondition']['observed']['systemd_reload_accepted_if_available'] is True
+PY_G2_RECOVERED
+echo PASS
+
+echo '=== G2 failed rollback verification stays unresolved ==='
+G2_SOURCE_TWO="$TMP/g2-source-two"
+make_g2_source "$G2_SOURCE_TWO" second-failed-activation
+: >"$TMP/daemon-reload-count"
+export MAHO_TEST_DAEMON_RELOAD_COUNT_FILE="$TMP/daemon-reload-count"
+export MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER=1
+export MAHO_TEST_CORRUPT_WIRING=1
+if bash "$G2_SOURCE_TWO/bin/maho-setup" install >/dev/null 2>"$TMP/g2-second-failure.err"; then
+  fail 'G2 rollback-verification failure unexpectedly succeeded'
+fi
+unset MAHO_TEST_CORRUPT_WIRING MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER MAHO_TEST_DAEMON_RELOAD_COUNT_FILE
+[ "$(readlink -f "$CURRENT")" = "$FIRST_RELEASE" ] || fail 'G2 failed-verification case did not restore pre-activation current runtime'
+grep -Fq 'Guardian could not verify the runtime rollback postcondition' "$TMP/g2-second-failure.err" || fail 'G2 failed-verification case did not remain unresolved'
+python - "$G2_HISTORY" <<'PY_G2_UNRESOLVED'
+import json,pathlib,sys
+rows=[json.loads(p.read_text()) for p in pathlib.Path(sys.argv[1]).glob('inc-runtime-*.json')]
+assert len(rows)==2, rows
+bad=[r for r in rows if r.get('verified') is False]
+assert len(bad)==1, bad
+row=bad[0]
+assert row['status']=='unresolved'
+assert row['automatic'] is True
+assert [x['state'] for x in row['transitions']]==['detected','recovering','verifying','verification-failed']
+assert row['postcondition']['observed']['current_equals_replacement'] is True
+assert row['postcondition']['observed']['managed_wiring_matches_current'] is True
+assert row['postcondition']['observed']['systemd_reload_accepted_if_available'] is False
+active=pathlib.Path(sys.argv[1]).parent/'active'/f"{row['incident_id']}.json"
+assert active.exists()
+PY_G2_UNRESOLVED
+rm -f "$TMP/fake-bin/update-desktop-database"
 echo PASS
 
 echo '=== unmanaged Hyprland hook remains protected ==='
