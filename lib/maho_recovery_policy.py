@@ -121,19 +121,20 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
                 reason="The Maho runtime failure domain is not confirmed, so no mutating recovery is authorized.",
             )
         if _bool(availability, "previous_runtime_verified", False):
+            automatic_in_transaction = certified.automatic_only_in_transaction and transaction_in_progress
             return RecoveryDecision(
                 action=certified.action,
                 scope=certified.scope,
-                requires_confirmation=not transaction_in_progress,
-                automatic_allowed=transaction_in_progress,
+                requires_confirmation=not automatic_in_transaction,
+                automatic_allowed=automatic_in_transaction,
                 surface="graphical-recovery" if graphical_available else "text-console",
                 preserves_personal_files=certified.preserves_personal_files,
                 reason=(
                     "The Maho runtime failed verification and a previously verified immutable runtime is available; "
                     + (
                         "the active Maho activation transaction may restore it."
-                        if transaction_in_progress
-                        else "outside the activation transaction the rollback requires confirmation."
+                        if automatic_in_transaction
+                        else "outside certified automatic transaction scope the rollback requires confirmation."
                     )
                 ),
                 target="previous-runtime",
