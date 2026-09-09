@@ -41,7 +41,7 @@ l3_cert={"incident":{"scope":"runtime","ownership":"maho","impact":"unavailable"
 r=g(l3_cert,runtime_auto)
 check("L3 certified in-transaction rollback may be automatic",r.severity["level"]==3 and r.execution_mode=="automatic" and r.mutating_recovery_allowed)
 
-l4={"incident":{"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True},"recovery":{"confidence":"certified","certified_path":True}}
+l4={"incident":{"scope":"boot","ownership":"maho","impact":"catastrophic","evidence_confidence":"confirmed","persistent":True},"recovery":{"confidence":"certified","certified_path":True},"catastrophic":{"signals":[{"class":"boot","status":"corrupt","confidence":"confirmed"}],"recovery_state_known":True,"handoff_availability":{"lts_kernel":True}}}
 kernel={"failure":{"domain":"kernel"},"availability":{"lts_kernel":True}}
 r=g(l4,kernel)
 check("L4 always hands off",r.severity["level"]==4 and r.execution_mode=="handoff" and not r.mutating_recovery_allowed)

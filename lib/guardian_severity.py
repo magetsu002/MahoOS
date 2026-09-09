@@ -151,10 +151,13 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
             reason="No actionable degradation is present.",
         )
 
+    catastrophic_authority_confirmed = _bool(incident, "catastrophic_authority_confirmed")
+
     if (
-        scope in {"system", "boot"}
+        catastrophic_authority_confirmed
+        and scope in {"system", "boot", "runtime", "unknown"}
         and impact_rank >= _IMPACT["catastrophic"]
-        and evidence_rank >= _CONFIDENCE["high"]
+        and evidence_rank >= _CONFIDENCE["confirmed"]
     ):
         return GuardianAssessment(
             level=4,
@@ -162,7 +165,7 @@ def assess_guardian(state: Mapping[str, Any]) -> GuardianAssessment:
             suppressed=False,
             automatic_recovery_allowed=False,
             recovery_handoff_required=True,
-            reason="High-confidence catastrophic system/boot impact requires explicit recovery handoff.",
+            reason="The dedicated G4 authority confirmed qualitative catastrophic evidence; autonomous recovery is disabled.",
         )
 
     l3_candidate = (
