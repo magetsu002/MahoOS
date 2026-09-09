@@ -41,6 +41,10 @@ class BootEvidence:
     kernel_version: str | None = None
     kernel_path: str | None = None
     initramfs_path: str | None = None
+    kernel_sha256_expected: str | None = None
+    kernel_sha256_observed: str | None = None
+    initramfs_sha256_expected: str | None = None
+    initramfs_sha256_observed: str | None = None
     snapshot_id: int | None = None
     filesystem_uuid: str | None = None
     files_verified: bool | None = None

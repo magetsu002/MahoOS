@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -43,8 +44,25 @@ def snapshot(number: int, *, active: bool = False) -> dict[str, Any]:
         "cleanup": "number",
         "description": f"snapshot {number}",
         "userdata": {},
-        "read-only": True,
     }
+
+
+def artifact_content(number: int, kind: str) -> str:
+    return f"g3-{kind}-artifact-{number}\n"
+
+
+def artifact_digest(number: int, kind: str) -> str:
+    return hashlib.sha256(artifact_content(number, kind).encode()).hexdigest()
+
+
+def artifact_raw_path(number: int, kind: str) -> str:
+    package = "linux-cachyos"
+    prefix = "vmlinuz" if kind == "kernel" else "initramfs"
+    return f"boot():/{MID}/limine_history/{prefix}-{package}_sha256_{artifact_digest(number, kind)}"
+
+
+def artifact_local_path(number: int, kind: str) -> str:
+    return "/boot/" + artifact_raw_path(number, kind)[len("boot():/"):]
 
 
 def manifest_entry(number: int) -> dict[str, Any]:
@@ -57,8 +75,8 @@ def manifest_entry(number: int) -> dict[str, Any]:
         "kernelEntries": [{
             "package": package,
             "version": "6.17.5-1-cachyos",
-            "kernelPath": f"boot():/{MID}/limine_history/vmlinuz-{package}_sha256_deadbeef",
-            "initramfsPath": f"boot():/{MID}/limine_history/initramfs-{package}_sha256_cafebabe",
+            "kernelPath": artifact_raw_path(number, "kernel"),
+            "initramfsPath": artifact_raw_path(number, "initramfs"),
             "filesVerified": True,
             "artifactsCoherent": True,
         }],
@@ -94,6 +112,13 @@ def build_fixture(spec: dict[str, Any]) -> dict[str, Any]:
         command(["snapper", "--jsonout", "--config", "root", "get-config"]): result(json.dumps({"SUBVOLUME": "/", "FSTYPE": "btrfs"})),
         command(["snapper", "--jsonout", "--config", "root", "list", "--disable-used-space"]): result(json.dumps({"root": snapshots})),
     }
+    for sid in (10, 20, 30):
+        commands[command(["btrfs", "property", "get", "-ts", f"/.snapshots/{sid}/snapshot", "ro"])] = result("ro=true\n")
+    ro20 = command(["btrfs", "property", "get", "-ts", "/.snapshots/20/snapshot", "ro"])
+    if spec.get("readonly_probe_missing"):
+        commands.pop(ro20, None)
+    if spec.get("readonly_probe_false"):
+        commands[ro20] = result("ro=false\n")
 
     if spec.get("malformed_snapper_list"):
         commands[command(["snapper", "--jsonout", "--config", "root", "list", "--disable-used-space"])] = result("{broken")
@@ -116,6 +141,13 @@ def build_fixture(spec: dict[str, Any]) -> dict[str, Any]:
         "/etc/default/limine": f"ESP_PATH=/boot\nSNAPPER_CONFIG_NAME={spec.get('snapper_config_name', 'root')}\n",
         MANIFEST_PATH: manifest,
     }
+    for sid in (10, 20, 30):
+        files[artifact_local_path(sid, "kernel")] = artifact_content(sid, "kernel")
+        files[artifact_local_path(sid, "initramfs")] = artifact_content(sid, "initramfs")
+    if spec.get("corrupt_boot_artifact"):
+        files[artifact_local_path(20, "kernel")] = "corrupted-kernel-artifact\n"
+    if spec.get("missing_boot_artifact"):
+        files.pop(artifact_local_path(20, "initramfs"), None)
     if spec.get("manifest_missing"):
         files.pop(MANIFEST_PATH)
     return {"commands": commands, "files": files}
@@ -161,8 +193,14 @@ def main() -> None:
     incomplete, _ = discover("incomplete-snapshot")
     check("incomplete snapshot metadata is rejected", not candidate(incomplete, 20).eligible and "snapshot_creation_time_invalid" in candidate(incomplete, 20).rejection_reasons)
 
+    check(
+        "Snapper JSON without read-only field is certified through Btrfs property",
+        candidate(healthy, 20).snapshot.read_only is True,
+    )
     unknown_ro, _ = discover("unknown-read-only")
     check("unknown snapshot read-only state is rejected", not candidate(unknown_ro, 20).eligible and "snapshot_read_only_unknown" in candidate(unknown_ro, 20).rejection_reasons)
+    writable, _ = discover("writable-snapshot")
+    check("writable snapshot is rejected", not candidate(writable, 20).eligible and "snapshot_not_read_only" in candidate(writable, 20).rejection_reasons)
     missing_subvolume, _ = discover("missing-snapshot-subvolume")
     check("missing snapshot subvolume identity is rejected", not candidate(missing_subvolume, 20).eligible and "snapshot_subvolume_unknown" in candidate(missing_subvolume, 20).rejection_reasons)
     unknown_type, _ = discover("unknown-snapshot-type")
@@ -172,6 +210,17 @@ def main() -> None:
     check("missing Limine relationship is rejected", not candidate(missing_limine, 20).eligible and "boot_relationship_unknown" in candidate(missing_limine, 20).rejection_reasons)
     missing_boot_fs, _ = discover("missing-boot-filesystem-identity")
     check("missing boot filesystem identity is rejected", not candidate(missing_boot_fs, 20).eligible and "boot_filesystem_identity_unknown" in candidate(missing_boot_fs, 20).rejection_reasons)
+    boot20 = candidate(healthy, 20).boot
+    check(
+        "saved boot artifacts are independently SHA-256 verified",
+        boot20.files_verified is True
+        and boot20.kernel_sha256_expected == boot20.kernel_sha256_observed
+        and boot20.initramfs_sha256_expected == boot20.initramfs_sha256_observed,
+    )
+    corrupt_boot, _ = discover("corrupt-boot-artifact")
+    check("corrupt saved boot artifact is rejected", not candidate(corrupt_boot, 20).eligible and "boot_files_verification_failed" in candidate(corrupt_boot, 20).rejection_reasons)
+    missing_boot, _ = discover("missing-boot-artifact")
+    check("missing saved boot artifact is rejected", not candidate(missing_boot, 20).eligible and "boot_files_verification_failed" in candidate(missing_boot, 20).rejection_reasons)
     boot_mismatch, _ = discover("mismatched-boot-state")
     check("mismatched boot state is rejected", not candidate(boot_mismatch, 20).eligible and "kernel_initramfs_mismatch" in candidate(boot_mismatch, 20).rejection_reasons)
     kernel_mismatch, _ = discover("kernel-mismatch")
@@ -204,6 +253,8 @@ def main() -> None:
         ("snapper", "--config", "root", "rollback", "list"),
         ("snapper", "--jsonout", "--config", "root", "list", "rollback"),
         ("pacman", "-Q", "snapper", "-S"),
+        ("btrfs", "property", "set", "-ts", "/.snapshots/20/snapshot", "ro", "false"),
+        ("btrfs", "property", "get", "-ts", "/etc/passwd", "ro"),
     )
     for argv in refused_shapes:
         refused = False

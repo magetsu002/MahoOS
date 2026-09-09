@@ -2,6 +2,7 @@
 """Read-only Btrfs/Snapper/Limine discovery for Guardian G3."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -30,6 +31,7 @@ class ProbeResult:
 class Probe(Protocol):
     def run(self, argv: Sequence[str]) -> ProbeResult: ...
     def read_text(self, path: str) -> str | None: ...
+    def read_bytes(self, path: str) -> bytes | None: ...
 
 
 class SystemProbe:
@@ -37,6 +39,7 @@ class SystemProbe:
 
     _PACKAGE = re.compile(r"[A-Za-z0-9@._+:-]+")
     _SNAPPER_CONFIG = re.compile(r"[A-Za-z0-9._-]+")
+    _SNAPSHOT_PATH = re.compile(r"/(?:[A-Za-z0-9._@+-]+/)*\.snapshots/[1-9][0-9]*/snapshot")
     _FINDMNT_OUTPUT = "TARGET,SOURCE,FSTYPE,FSROOT,UUID"
 
     @classmethod
@@ -52,6 +55,8 @@ class SystemProbe:
                 bool(cls._SNAPPER_CONFIG.fullmatch(args[3]))
                 and args[4:] == ("list", "--disable-used-space")
             )
+        if len(args) == 6 and args[0:4] == ("btrfs", "property", "get", "-ts"):
+            return bool(cls._SNAPSHOT_PATH.fullmatch(args[4])) and args[5] == "ro"
         return False
 
     def run(self, argv: Sequence[str]) -> ProbeResult:
@@ -68,6 +73,12 @@ class SystemProbe:
         try:
             return pathlib.Path(path).read_text(encoding="utf-8")
         except (OSError, UnicodeError):
+            return None
+
+    def read_bytes(self, path: str) -> bytes | None:
+        try:
+            return pathlib.Path(path).read_bytes()
+        except OSError:
             return None
 
 
@@ -103,6 +114,16 @@ class FixtureProbe:
         if isinstance(value, str):
             return value
         return json.dumps(value)
+
+    def read_bytes(self, path: str) -> bytes | None:
+        value = self.fixture.get("files", {}).get(path)
+        if value is None:
+            return None
+        if isinstance(value, bytes):
+            return value
+        if isinstance(value, str):
+            return value.encode()
+        return json.dumps(value, sort_keys=True).encode()
 
 
 def _json_result(result: ProbeResult) -> Any | None:
@@ -203,7 +224,13 @@ def _bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _snapshot_evidence(config_name: str, row: Mapping[str, Any], all_rows: list[Mapping[str, Any]]) -> SnapshotEvidence | None:
+def _snapshot_evidence(
+    config_name: str,
+    row: Mapping[str, Any],
+    all_rows: list[Mapping[str, Any]],
+    *,
+    probed_read_only: bool | None,
+) -> SnapshotEvidence | None:
     sid = _int(row.get("number"))
     if sid is None or sid <= 0:
         return None
@@ -218,6 +245,7 @@ def _snapshot_evidence(config_name: str, row: Mapping[str, Any], all_rows: list[
         package_relation = "pre-linked" if linked else "broken"
     elif stype == "single":
         package_relation = "not-applicable"
+    listed_read_only = _bool(row.get("read-only"))
     return SnapshotEvidence(
         config_name=config_name,
         snapshot_id=sid,
@@ -230,9 +258,23 @@ def _snapshot_evidence(config_name: str, row: Mapping[str, Any], all_rows: list[
         pre_number=pre,
         active=_bool(row.get("active")),
         default=_bool(row.get("default")),
-        read_only=_bool(row.get("read-only")),
+        read_only=listed_read_only if listed_read_only is not None else probed_read_only,
         package_transaction=package_relation,
     )
+
+
+def _snapshot_read_only(probe: Probe, snapper_subvolume: str | None, snapshot_id: int) -> bool | None:
+    if not isinstance(snapper_subvolume, str) or not snapper_subvolume.startswith("/"):
+        return None
+    base = snapper_subvolume.rstrip("/")
+    path = f"{base}/.snapshots/{snapshot_id}/snapshot" if base else f"/.snapshots/{snapshot_id}/snapshot"
+    result = probe.run(("btrfs", "property", "get", "-ts", path, "ro"))
+    if not result.available or result.returncode != 0:
+        return None
+    match = re.fullmatch(r"\s*ro=(true|false)\s*", result.stdout, re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).lower() == "true"
 
 
 def _home_scope(root: Mapping[str, Any] | None, home: Mapping[str, Any] | None) -> str:
@@ -303,9 +345,73 @@ def _artifact_from_config(lines: Any, needle: str) -> str | None:
     return None
 
 
+_HEX64 = re.compile(r"[0-9a-fA-F]{64}")
+_SHA256_IN_PATH = re.compile(r"(?:^|[_-])sha256[_-]([0-9a-fA-F]{64})(?:$|[._-])")
+
+
+def _boot_root(configured_root: str | None, manifest_path: str | None) -> str | None:
+    if isinstance(configured_root, str) and configured_root.startswith("/"):
+        return os.path.normpath(configured_root)
+    if not manifest_path:
+        return None
+    for prefix in ("/boot/efi", "/boot", "/efi", "/limine"):
+        if manifest_path == prefix or manifest_path.startswith(prefix + "/"):
+            return prefix
+    return None
+
+
+def _artifact_local_path(raw: str | None, boot_root: str | None) -> str | None:
+    if not raw or not boot_root:
+        return None
+    root = os.path.normpath(boot_root)
+    if raw.startswith("boot():/"):
+        candidate = os.path.normpath(os.path.join(root, raw[len("boot():/"):]))
+    elif raw.startswith("/"):
+        candidate = os.path.normpath(raw)
+    else:
+        return None
+    try:
+        if os.path.commonpath((root, candidate)) != root:
+            return None
+    except ValueError:
+        return None
+    return candidate
+
+
+def _digest_value(mapping: Mapping[str, Any], keys: Sequence[str]) -> str | None:
+    value = _first_str(mapping, keys)
+    return value.lower() if value and _HEX64.fullmatch(value) else None
+
+
+def _digest_from_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    match = _SHA256_IN_PATH.search(path)
+    return match.group(1).lower() if match else None
+
+
+def _verify_artifact(
+    probe: Probe,
+    raw_path: str | None,
+    boot_root: str | None,
+    explicit_digest: str | None,
+) -> tuple[str | None, str | None, bool | None]:
+    expected = explicit_digest or _digest_from_path(raw_path)
+    local = _artifact_local_path(raw_path, boot_root)
+    if expected is None or local is None:
+        return expected, None, None
+    data = probe.read_bytes(local)
+    if data is None:
+        return expected, None, False
+    observed = hashlib.sha256(data).hexdigest()
+    return expected, observed, observed == expected
+
+
 def _boot_evidence(
+    probe: Probe,
     manifest: Mapping[str, Any] | None,
     manifest_path: str | None,
+    configured_boot_root: str | None,
     snapshot_id: int,
 ) -> BootEvidence:
     if not manifest:
@@ -340,12 +446,36 @@ def _boot_evidence(
         low = pkg.lower()
         pkg = "linux-cachyos-lts" if "cachyos-lts" in low else "linux-cachyos" if "cachyos" in low else pkg
 
-    verified = matched.get("filesVerified")
-    if not isinstance(verified, bool):
-        verified = kernel.get("filesVerified") if isinstance(kernel.get("filesVerified"), bool) else None
-    coherent = matched.get("artifactsCoherent")
-    if not isinstance(coherent, bool):
-        coherent = kernel.get("artifactsCoherent") if isinstance(kernel.get("artifactsCoherent"), bool) else None
+    manifest_verified = matched.get("filesVerified")
+    if not isinstance(manifest_verified, bool):
+        manifest_verified = kernel.get("filesVerified") if isinstance(kernel.get("filesVerified"), bool) else None
+    manifest_coherent = matched.get("artifactsCoherent")
+    if not isinstance(manifest_coherent, bool):
+        manifest_coherent = kernel.get("artifactsCoherent") if isinstance(kernel.get("artifactsCoherent"), bool) else None
+
+    boot_root = _boot_root(configured_boot_root, manifest_path)
+    kernel_expected, kernel_observed, kernel_ok = _verify_artifact(
+        probe,
+        kernel_path,
+        boot_root,
+        _digest_value(kernel, ("kernelSha256", "kernelSHA256", "kernel_sha256")),
+    )
+    init_expected, init_observed, init_ok = _verify_artifact(
+        probe,
+        initramfs,
+        boot_root,
+        _digest_value(kernel, ("initramfsSha256", "initramfsSHA256", "initramfs_sha256", "initrdSha256")),
+    )
+    files_verified = bool(kernel_ok is True and init_ok is True and manifest_verified is not False)
+    if kernel_ok is None or init_ok is None:
+        files_verified = None
+    coherent = (
+        True
+        if files_verified is True and manifest_coherent is True
+        else False
+        if files_verified is False or manifest_coherent is False
+        else None
+    )
     manifest_uuid = _first_str(manifest, ("filesystemUuid", "filesystemUUID", "fsUuid", "fsUUID"))
     return BootEvidence(
         source=manifest_path or "limine-snapper-sync-manifest",
@@ -354,10 +484,15 @@ def _boot_evidence(
         kernel_version=version,
         kernel_path=kernel_path,
         initramfs_path=initramfs,
+        kernel_sha256_expected=kernel_expected,
+        kernel_sha256_observed=kernel_observed,
+        initramfs_sha256_expected=init_expected,
+        initramfs_sha256_observed=init_observed,
         snapshot_id=snapshot_id,
         filesystem_uuid=manifest_uuid,
-        files_verified=verified,
+        files_verified=files_verified,
         artifacts_coherent=coherent,
+        reason=None if coherent is True else "saved boot artifacts are not fully hash-verified and coherent",
     )
 
 
@@ -440,10 +575,23 @@ def discover_recovery_generations(policy: Mapping[str, Any], probe: Probe) -> Re
 
     generations = []
     for row in rows or []:
-        snapshot = _snapshot_evidence(config_name, row, rows or [])
+        sid = _int(row.get("number"))
+        probed_read_only = _snapshot_read_only(probe, snapper_subvolume, sid) if sid and sid > 0 else None
+        snapshot = _snapshot_evidence(
+            config_name,
+            row,
+            rows or [],
+            probed_read_only=probed_read_only,
+        )
         if snapshot is None:
             continue
-        boot = _boot_evidence(manifest, manifest_path, snapshot.snapshot_id)
+        boot = _boot_evidence(
+            probe,
+            manifest,
+            manifest_path,
+            lss_config.get("ESP_PATH"),
+            snapshot.snapshot_id,
+        )
         userdata = snapshot.userdata
         known_good = userdata.get("maho.known_good", "").lower() in {"1", "yes", "true"}
         generations.append(
