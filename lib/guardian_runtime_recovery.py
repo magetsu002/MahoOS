@@ -16,7 +16,7 @@ import tempfile
 from typing import Any, Mapping
 
 from guardian_engine import evaluate_guardian
-from maho_runtime_release import ReleaseVerification, verify_release
+from maho_runtime_release import verify_release
 
 
 def utc_now() -> str:
@@ -61,6 +61,16 @@ def _same_release(left: str, right: str) -> bool:
         return Path(left).resolve(strict=True) == Path(right).resolve(strict=True)
     except OSError:
         return False
+
+
+def _identified_failed_release(reasons: tuple[str, ...]) -> bool:
+    """The failed target may be corrupt, but its runtime identity must be bounded."""
+    identity_failures = {
+        "release_unavailable",
+        "release_not_direct_child",
+        "release_identity_invalid",
+    }
+    return not bool(identity_failures.intersection(reasons))
 
 
 def _normalized(*, resolved: bool, certified: bool, previous_failures: int = 0) -> dict[str, Any]:
@@ -121,7 +131,8 @@ class RuntimeRecoveryStore:
     def begin(self, *, transaction_id: str, failed: str, replacement: str) -> dict[str, Any]:
         failed_v = verify_release(failed, self.releases_root)
         replacement_v = verify_release(replacement, self.releases_root)
-        distinct = failed_v.verified and replacement_v.verified and not _same_release(failed_v.path, replacement_v.path)
+        failed_identified = _identified_failed_release(failed_v.reasons)
+        distinct = failed_identified and not _same_release(failed_v.path, replacement_v.path)
         previous_verified = bool(replacement_v.verified and distinct)
         normalized = _normalized(resolved=False, certified=previous_verified)
         decision = evaluate_guardian(
@@ -155,6 +166,7 @@ class RuntimeRecoveryStore:
             "lifecycle": "recovering" if authorized else "unresolved",
             "verified": False,
             "failed_runtime": failed_v.as_dict(),
+            "failed_runtime_identified": failed_identified,
             "replacement_runtime": replacement_v.as_dict(),
             "distinct_releases": distinct,
             "decision": decision.as_dict(),
@@ -186,8 +198,7 @@ class RuntimeRecoveryStore:
         wiring_verified: bool,
         systemd_reload_verified: bool,
     ) -> dict[str, Any]:
-        path = self._state_path(incident_id)
-        state = _read(path)
+        state = _read(self._state_path(incident_id))
         if state is None:
             raise ValueError("runtime recovery incident not found")
         replacement_raw = state.get("replacement_runtime")
@@ -227,8 +238,7 @@ class RuntimeRecoveryStore:
                 self._active_path(incident_id).unlink()
             except FileNotFoundError:
                 pass
-            terminal = self._guardian_record(state, resolved=True)
-            _atomic_private(self.archive / f"{incident_id}.json", terminal)
+            _atomic_private(self.archive / f"{incident_id}.json", self._guardian_record(state, resolved=True))
         return state
 
     def _guardian_record(self, state: Mapping[str, Any], *, resolved: bool) -> dict[str, Any]:
@@ -238,18 +248,22 @@ class RuntimeRecoveryStore:
             certified=certified and resolved,
             previous_failures=0 if resolved else (1 if state.get("lifecycle") == "unresolved" else 0),
         )
+        replacement_raw = state.get("replacement_runtime")
+        replacement = replacement_raw if isinstance(replacement_raw, Mapping) else {}
         recovery = _recovery_state(
-            previous_verified=bool((state.get("replacement_runtime") or {}).get("verified")),
+            previous_verified=bool(replacement.get("verified")),
             transaction_in_progress=bool(not resolved and state.get("lifecycle") == "recovering"),
         )
         decision = evaluate_guardian(normalized, recovery)
+        failed_raw = state.get("failed_runtime")
+        failed = failed_raw if isinstance(failed_raw, Mapping) else {}
         return {
             "version": 1,
             "kind": "guardian-runtime-assessment",
             "incident_id": state["incident_id"],
             "source_kind": "maho-runtime-activation",
             "status": "resolved" if resolved else "active",
-            "subject": {"type": "runtime", "id": str((state.get("failed_runtime") or {}).get("content_sha256") or "maho-runtime")},
+            "subject": {"type": "runtime", "id": str(failed.get("content_sha256") or Path(str(failed.get("path") or "maho-runtime")).name)},
             "normalized": normalized,
             "decision": decision.as_dict(),
             "runtime_recovery": dict(state),
