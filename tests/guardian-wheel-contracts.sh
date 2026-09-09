@@ -27,13 +27,16 @@ for surface in "$EDGE" "$SIDE"; do
     if grep -Fq 'guardianState.active ? "guardian"' "$surface"; then fail "active incident permanently latches Guardian presentation"; fi
     grep -Fq 'id: guardianPresentationTimer' "$surface" || fail "Guardian presentation lacks bounded lifetime"
     grep -Fq 'onTriggered: edge.guardianPresentationActive = false' "$surface" || fail "Guardian presentation does not retract automatically"
-    grep -Fq 'visible: guardianState.active && !edge.guardianPresentationActive' "$surface" || fail "active incident lacks compact post-ritual indicator"
+    if grep -Fq 'visible: guardianState.active && !edge.guardianPresentationActive' "$surface"; then fail "post-ritual incident dot must not remain in Edge"; fi
+    grep -Fq 'guardianPresentationDuration(severity)' "$surface" || fail "Guardian presentation duration is not severity-aware"
     grep -Fq 'GuardianWheel {' "$surface" || fail "accepted Guardian Wheel is not mounted"
     grep -Fq 'targetSeverity: guardianState.highestSeverity' "$surface" || fail "Wheel is not driven by real severity"
     grep -Fq 'enabled: edge.enabled && edge.mode !== "guardian"' "$surface" || fail "normal wheel/middle-click controls remain active under Guardian ownership"
 done
 
 grep -Fq 'root.playLockSound(root._displayedSeverity)' "$WHEEL" || fail "accepted mechanical lock audio lost"
+grep -Fq 'const turns = next === 4 ? 720 : 360' "$WHEEL" || fail "every Guardian stage does not have a visible full spin"
+grep -Fq 'root._stageTargetAngle = root._angle + turns + 90' "$WHEEL" || fail "Guardian stage spin does not end in a mechanical quarter lock"
 grep -Fq 'Before public release, confirm and record the exact source URLs' "$SOUND_SOURCE" || fail "sound licensing release blocker is no longer explicit"
 
 grep -Fq 'oldSeverity < 4 && highest === 4' "$STATE" || fail "catastrophic transition is not derived from real severity state"

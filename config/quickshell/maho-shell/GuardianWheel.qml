@@ -10,6 +10,7 @@ Item {
 
     property int _displayedSeverity: 0
     property real _angle: 0
+    property real _stageTargetAngle: 0
     property bool _animating: false
     property bool _lockedIn: false
     property int _handledCatastrophicSerial: 0
@@ -75,6 +76,7 @@ Item {
     function resetHidden() {
         _displayedSeverity = 0
         _angle = 0
+        _stageTargetAngle = 0
         _animating = false
         _lockedIn = false
 
@@ -164,8 +166,12 @@ Item {
 
         onTriggered: {
             const next = root._displayedSeverity + 1
-            turnForward.to = next * 90 + 3
-            turnForward.duration = next === 4 ? 430 : 340
+            // Every stage visibly spins before reaching its mechanical 90° lock.
+            // L1-L3: 1¼ turns. L4: 2¼ turns.
+            const turns = next === 4 ? 720 : 360
+            root._stageTargetAngle = root._angle + turns + 90
+            turnForward.to = root._stageTargetAngle + 5
+            turnForward.duration = next === 4 ? 620 : 500
             turnForward.start()
         }
     }
@@ -180,9 +186,7 @@ Item {
         easing.type: Easing.OutQuart
 
         onFinished: {
-            const exact = (root._displayedSeverity + 1) * 90
-
-            settleTurn.to = exact
+            settleTurn.to = root._stageTargetAngle
             settleTurn.start()
         }
     }

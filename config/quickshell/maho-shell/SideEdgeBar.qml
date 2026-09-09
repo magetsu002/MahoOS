@@ -32,6 +32,13 @@ Item {
 
     signal openRequested()
 
+    function guardianPresentationDuration(severity) {
+        if (severity >= 4) return 5600
+        if (severity === 3) return 3600
+        if (severity === 2) return 2700
+        return 1800
+    }
+
     function presentGuardian() {
         if (!guardianState.active) {
             guardianPresentationTimer.stop()
@@ -45,7 +52,7 @@ Item {
 
         lastGuardianGeneration = guardianState.generation
         guardianPresentationActive = true
-        guardianPresentationTimer.interval = guardianState.highestSeverity >= 4 ? 4600 : 2800
+        guardianPresentationTimer.interval = guardianPresentationDuration(guardianState.highestSeverity)
         guardianPresentationTimer.restart()
         guardianWheel.resetHidden()
         guardianWheel.advanceIfNeeded()
@@ -217,20 +224,6 @@ Item {
                 font.weight: Font.DemiBold
                 Behavior on color { ColorAnimation { duration: 360 } }
             }
-        }
-
-        Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: 28
-            width: 4
-            height: 4
-            radius: 2
-            visible: guardianState.active && !edge.guardianPresentationActive
-            color: edge.theme
-                ? (guardianState.highestSeverity >= 3 ? edge.theme.error : edge.theme.primary)
-                : "white"
-            opacity: 0.82
         }
 
         Text {
