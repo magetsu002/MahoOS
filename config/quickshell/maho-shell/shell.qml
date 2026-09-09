@@ -23,6 +23,22 @@ ShellRoot {
         id: guardianBackdropPulse
     }
 
+    function handleGuardianCatastrophicLocked() {
+        guardianBackdropPulse.trigger()
+        guardianCatastrophicHookTimer.restart()
+    }
+
+    Timer {
+        id: guardianCatastrophicHookTimer
+        interval: 700
+        repeat: false
+        onTriggered: {
+            const hook = Quickshell.env("MAHO_GUARDIAN_CATASTROPHIC_HOOK")
+            if (hook !== "")
+                Quickshell.execDetached([hook])
+        }
+    }
+
     property bool expanded: false
     property bool closing: false
     property bool controlVisible: false
@@ -572,7 +588,7 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
-                    onCatastrophicLocked: guardianBackdropPulse.trigger()
+                    onCatastrophicLocked: root.handleGuardianCatastrophicLocked()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
@@ -594,7 +610,7 @@ ShellRoot {
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
                     opacity: visible && !root.expanded && !root.closing ? 1 : 0
                     onOpenRequested: root.openPanel()
-                    onCatastrophicLocked: guardianBackdropPulse.trigger()
+                    onCatastrophicLocked: root.handleGuardianCatastrophicLocked()
 
                     Behavior on opacity { NumberAnimation { duration: 130 } }
                 }

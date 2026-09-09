@@ -48,9 +48,12 @@ for surface in "$EDGE" "$SIDE"; do
 done
 grep -Fq 'root.catastrophicTransitionSerial > root._handledCatastrophicSerial' "$WHEEL" || fail "L4 sound/impact is not one-shot transition gated"
 grep -Fq 'root.playLockSound(4)' "$WHEEL" || fail "catastrophic sound contract lost"
+grep -Fq 'onCatastrophicLocked: root.handleGuardianCatastrophicLocked()' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "Shell does not wait for the completed catastrophic wheel lock"
+grep -Fq 'interval: 700' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "post-lock catastrophic hook lacks the short pause"
+grep -Fq 'MAHO_GUARDIAN_CATASTROPHIC_HOOK' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "optional local catastrophic hook is missing"
 grep -Fq 'WlrLayershell.layer: WlrLayer.Bottom' "$BACKDROP" || fail "catastrophic wallpaper pulse is not confined below application windows"
 grep -Fq 'mask: Region {}' "$BACKDROP" || fail "catastrophic wallpaper pulse must not capture input"
 grep -Fq 'to: 0.46' "$BACKDROP" || fail "catastrophic wallpaper fade-in contract lost"
 grep -Fq 'duration: 285' "$BACKDROP" || fail "catastrophic wallpaper fade-out contract lost"
-grep -Fq 'onCatastrophicLocked: guardianBackdropPulse.trigger()' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "Shell does not trigger wallpaper pulse at real L4 lock"
+grep -Fq 'guardianBackdropPulse.trigger()' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "Shell does not trigger wallpaper pulse at real L4 lock"
 echo "ALL GUARDIAN WHEEL INTEGRATION CONTRACTS PASS"
