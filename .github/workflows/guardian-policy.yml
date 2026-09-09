@@ -14,6 +14,8 @@ on:
       - 'lib/guardian_catastrophic_response.py'
       - 'lib/guardian_handoff.py'
       - 'lib/guardian_incident.py'
+      - 'lib/guardian_service_incident.py'
+      - 'lib/guardian_service_watcher.py'
       - 'lib/guardian_recovery_registry.py'
       - 'lib/guardian_recovery_executor.py'
       - 'lib/guardian_runtime_recovery.py'
@@ -32,6 +34,7 @@ on:
       - 'tests/test_guardian_g4_adversarial.py'
       - 'tests/test_guardian_handoff.py'
       - 'tests/test_guardian_incident.py'
+      - 'tests/test_guardian_service_incident.py'
       - 'tests/test_guardian_recovery_registry.py'
       - 'tests/test_guardian_recovery_executor.py'
       - 'tests/test_guardian_recovery_contract.py'
@@ -51,6 +54,8 @@ on:
       - 'lib/guardian_catastrophic_response.py'
       - 'lib/guardian_handoff.py'
       - 'lib/guardian_incident.py'
+      - 'lib/guardian_service_incident.py'
+      - 'lib/guardian_service_watcher.py'
       - 'lib/guardian_recovery_registry.py'
       - 'lib/guardian_recovery_executor.py'
       - 'lib/guardian_runtime_recovery.py'
@@ -69,6 +74,7 @@ on:
       - 'tests/test_guardian_g4_adversarial.py'
       - 'tests/test_guardian_handoff.py'
       - 'tests/test_guardian_incident.py'
+      - 'tests/test_guardian_service_incident.py'
       - 'tests/test_guardian_recovery_registry.py'
       - 'tests/test_guardian_recovery_executor.py'
       - 'tests/test_guardian_recovery_contract.py'
@@ -100,6 +106,8 @@ jobs:
             lib/guardian_catastrophic_response.py \
             lib/guardian_handoff.py \
             lib/guardian_incident.py \
+            lib/guardian_service_incident.py \
+            lib/guardian_service_watcher.py \
             lib/guardian_recovery_registry.py \
             lib/guardian_recovery_executor.py \
             lib/guardian_runtime_recovery.py \
@@ -112,6 +120,7 @@ jobs:
             tests/test_guardian_g4_adversarial.py \
             tests/test_guardian_handoff.py \
             tests/test_guardian_incident.py \
+            tests/test_guardian_service_incident.py \
             tests/test_guardian_recovery_registry.py \
             tests/test_guardian_recovery_executor.py \
             tests/test_guardian_recovery_contract.py \
@@ -141,6 +150,11 @@ jobs:
         run: |
           set -euo pipefail
           python tests/test_guardian_incident.py
+
+      - name: Guardian delegated service recovery lifecycle tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_service_incident.py
 
       - name: Guardian certified recovery registry tests
         run: |
