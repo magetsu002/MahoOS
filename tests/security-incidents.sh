@@ -57,6 +57,22 @@ EOF_FINDING
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+echo "=== repeated copies of one evidence class do not inflate risk ==="
+python - "$ROOT" <<'PY_DUPLICATES'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "lib"))
+from security_incident import build_incident, signal
+item=signal("runtime-executable", "procfs", 25, {"pid":222,"exe":"/usr/bin/alpha (deleted)"})
+one=build_incident("host","local",[item],"shadow","confirmed",False,False)
+many=build_incident("host","local",[item for _ in range(50)],"shadow","confirmed",False,False)
+assert many["score"] == one["score"], (one,many)
+assert many["risk"] == one["risk"], (one,many)
+assert len(many["signals"]) == 1, many
+assert len(many["signals"][0].get("correlated", [])) == 8, many
+PY_DUPLICATES
+echo "PASS"
+
 echo "=== independent signals become one package incident ==="
 OUTPUT="$(bash "$ROOT/bin/maho-guard" reconcile)"
 grep -q 'Active:' <<< "$OUTPUT"

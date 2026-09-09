@@ -9,7 +9,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import stat
 import sys
 import uuid
@@ -139,19 +138,30 @@ def parse_mtree(path: Path):
         raw = gzip.open(path, "rt", errors="replace")
     except (OSError, gzip.BadGzipFile):
         return
+    defaults: dict[str, str] = {}
     try:
         for line in raw:
             line = line.strip()
-            if not line or line.startswith("#") or line.startswith("/set") or line.startswith("/unset"):
+            if not line or line.startswith("#"):
                 continue
-            try:
-                parts = shlex.split(line, posix=True)
-            except ValueError:
-                continue
+            # Pacman mtree encodes whitespace and special path bytes as octal
+            # escapes. Plain splitting preserves those backslashes until
+            # decode_mtree_path() handles them; POSIX shlex would consume them.
+            parts = line.split()
             if not parts:
                 continue
+            if parts[0] == "/set":
+                for token in parts[1:]:
+                    if "=" in token:
+                        key, value = token.split("=", 1)
+                        defaults[key] = value
+                continue
+            if parts[0] == "/unset":
+                for key in parts[1:]:
+                    defaults.pop(key, None)
+                continue
             rel = decode_mtree_path(parts[0])
-            attrs = {}
+            attrs = dict(defaults)
             for token in parts[1:]:
                 if "=" not in token:
                     continue
