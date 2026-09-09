@@ -88,13 +88,27 @@ def decide_recovery(state: Mapping[str, Any], *, service_failure_threshold: int 
 
     if domain == "system-userspace":
         if _bool(availability, "root_snapshot", False):
+            home_scope = availability.get("home_excluded_from_root_snapshot")
+            if not isinstance(home_scope, bool):
+                return RecoveryDecision(
+                    action="open-recovery-console",
+                    scope="diagnostic",
+                    requires_confirmation=False,
+                    automatic_allowed=True,
+                    surface="graphical-recovery" if graphical_available else "text-console",
+                    preserves_personal_files=False,
+                    reason=(
+                        "A system-state snapshot is available, but Maho cannot prove whether personal data is inside "
+                        "its rollback scope, so restore-system-state is not authorized."
+                    ),
+                )
             return RecoveryDecision(
                 action="restore-system-state",
                 scope="root-filesystem",
                 requires_confirmation=True,
                 automatic_allowed=False,
                 surface="graphical-recovery" if graphical_available else "text-console",
-                preserves_personal_files=_bool(availability, "home_excluded_from_root_snapshot", True),
+                preserves_personal_files=home_scope,
                 reason="The booted kernel is healthy but the system userspace failed verification; a previous root snapshot is available.",
             )
         return RecoveryDecision(
