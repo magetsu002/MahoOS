@@ -79,6 +79,7 @@ def manifest_entry(number: int) -> dict[str, Any]:
             "initramfsPath": artifact_raw_path(number, "initramfs"),
             "filesVerified": True,
             "artifactsCoherent": True,
+            "recoveryOverlayFlagged": True,
         }],
     }
 
@@ -104,7 +105,7 @@ def real_manifest_entry(number: int) -> dict[str, Any]:
             ],
             "cmdlineDetails": [{
                 "limineKey": "KERNEL_CMDLINE",
-                "snapshotCmdline": f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/{number}/snapshot",
+                "snapshotCmdline": f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/{number}/snapshot maho.recovery_snapshot=1",
             }],
         }],
     }
@@ -271,6 +272,16 @@ def main() -> None:
         and real20.boot.files_verified is True
         and real20.boot.artifacts_coherent is True,
     )
+    real_no_overlay_fixture = real_manifest_fixture()
+    real_no_overlay_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0]["snapshotCmdline"] = f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/20/snapshot"
+    real_no_overlay = candidate(discover_recovery_generations(POLICY, FixtureProbe(real_no_overlay_fixture)), 20)
+    check(
+        "real nested manifest without Maho recovery overlay flag is rejected",
+        not real_no_overlay.eligible
+        and "recovery_overlay_flag_missing" in real_no_overlay.rejection_reasons
+        and real_no_overlay.boot.recovery_overlay_flagged is False,
+    )
+
     real_bad_fixture = real_manifest_fixture()
     real_bad_fixture["files"][artifact_local_path(20, "kernel")] = "corrupted-real-kernel\n"
     real_bad = candidate(discover_recovery_generations(POLICY, FixtureProbe(real_bad_fixture)), 20)

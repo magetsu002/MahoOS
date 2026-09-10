@@ -1,0 +1,13 @@
+[Unit]
+Description=Maho recovery snapshot temporary writable overlay
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=initrd-switch-root.target
+ConditionKernelCommandLine=maho.recovery_snapshot=1
+OnFailure=emergency.target
+OnFailureJobMode=replace-irreversibly
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/maho/recovery-overlay
+RemainAfterExit=yes

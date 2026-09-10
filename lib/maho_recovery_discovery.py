@@ -412,6 +412,19 @@ def _real_snapshot_cmdline_matches(manifest: Mapping[str, Any], kernel: Mapping[
     return False
 
 
+def _real_snapshot_cmdline_has_overlay(kernel: Mapping[str, Any]) -> bool:
+    rows = kernel.get("cmdlineDetails")
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        value = row.get("snapshotCmdline")
+        if isinstance(value, str) and "maho.recovery_snapshot=1" in value.split():
+            return True
+    return False
+
+
 def _first_str(mapping: Mapping[str, Any], keys: Sequence[str]) -> str | None:
     for key in keys:
         value = mapping.get(key)
@@ -564,8 +577,11 @@ def _boot_evidence(
 
     if real_schema:
         relation_ok = _real_snapshot_cmdline_matches(manifest, kernel, snapshot_id)
+        recovery_overlay_flagged = _real_snapshot_cmdline_has_overlay(kernel)
         coherent = True if files_verified is True and relation_ok else False
     else:
+        raw_overlay = kernel.get("recoveryOverlayFlagged")
+        recovery_overlay_flagged = raw_overlay if isinstance(raw_overlay, bool) else None
         coherent = (
             True
             if files_verified is True and manifest_coherent is True
@@ -590,6 +606,7 @@ def _boot_evidence(
         filesystem_uuid=manifest_uuid,
         files_verified=files_verified,
         artifacts_coherent=coherent,
+        recovery_overlay_flagged=recovery_overlay_flagged,
         reason=None if coherent is True else "saved boot artifacts are not fully hash-verified and coherent",
     )
 

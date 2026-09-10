@@ -49,6 +49,7 @@ class BootEvidence:
     filesystem_uuid: str | None = None
     files_verified: bool | None = None
     artifacts_coherent: bool | None = None
+    recovery_overlay_flagged: bool | None = None
     reason: str | None = None
 
 
@@ -199,6 +200,10 @@ def evaluate_generation(
             reasons.append("kernel_initramfs_mismatch" if boot.artifacts_coherent is False else "kernel_initramfs_coherence_unknown")
         if boot.files_verified is not True:
             reasons.append("boot_files_unverified" if boot.files_verified is None else "boot_files_verification_failed")
+        if boot.recovery_overlay_flagged is False:
+            reasons.append("recovery_overlay_flag_missing")
+        elif boot.recovery_overlay_flagged is not True:
+            reasons.append("recovery_overlay_state_unknown")
 
     gid = generation_identity(filesystem_uuid, snapshot.config_name, snapshot.snapshot_id)
     if gid is None:
@@ -207,7 +212,12 @@ def evaluate_generation(
     reasons = list(dict.fromkeys(reasons))
     eligible = not reasons
     complete = eligible
-    boot_coherent = boot.artifacts_coherent is True and boot.files_verified is True and boot.snapshot_id == snapshot.snapshot_id
+    boot_coherent = (
+        boot.artifacts_coherent is True
+        and boot.files_verified is True
+        and boot.snapshot_id == snapshot.snapshot_id
+        and boot.recovery_overlay_flagged is True
+    )
     verification = "known-good" if eligible and known_good else "coherent" if eligible else "rejected"
     return RecoveryGeneration(
         generation_id=gid,

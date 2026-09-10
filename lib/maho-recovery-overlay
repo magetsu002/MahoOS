@@ -1,0 +1,56 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+ROOT="${MAHO_RECOVERY_ROOT:-/sysroot}"
+STATE="${MAHO_RECOVERY_RUN:-/run/maho-recovery-overlay}"
+CMDLINE_FILE="${MAHO_RECOVERY_CMDLINE_FILE:-/proc/cmdline}"
+
+log() {
+    printf '%s\n' "maho-recovery-overlay: $*"
+    command -v logger >/dev/null 2>&1 && logger -t maho-recovery-overlay -- "$*" || true
+}
+
+fail() {
+    log "ERROR: $*"
+    exit 1
+}
+
+cmdline="$(cat "$CMDLINE_FILE" 2>/dev/null || true)"
+case " $cmdline " in
+    *" maho.recovery_snapshot=1 "*) ;;
+    *) exit 0 ;;
+esac
+
+[ -d "$ROOT" ] || fail "recovery root is missing: $ROOT"
+[ "$(findmnt --mountpoint "$ROOT" -no FSTYPE 2>/dev/null || true)" = "btrfs" ] || fail "flagged recovery root is not Btrfs"
+fsroot="$(findmnt --mountpoint "$ROOT" -no FSROOT 2>/dev/null || true)"
+[[ "$fsroot" =~ ^/@snapshots/[0-9]+/snapshot$ ]] || fail "flagged root is not an exact Snapper snapshot: ${fsroot:-unknown}"
+
+ro_state="$(btrfs property get -t subvol "$ROOT" ro 2>/dev/null || true)"
+[ "$ro_state" = "ro=true" ] || fail "recovery snapshot is not read-only"
+
+mkdir -p "$STATE"
+if findmnt --mountpoint "$STATE" >/dev/null 2>&1; then
+    fail "overlay state path is already mounted"
+fi
+
+mount -t tmpfs -o mode=0700,nosuid,nodev maho-recovery-overlay "$STATE" || fail "could not create temporary writable layer"
+mkdir -p "$STATE/lower" "$STATE/upper" "$STATE/work"
+
+cleanup() {
+    umount "$STATE/lower" >/dev/null 2>&1 || true
+    umount "$STATE" >/dev/null 2>&1 || true
+}
+trap cleanup ERR
+
+mount --bind "$ROOT" "$STATE/lower" || fail "could not bind immutable snapshot lower layer"
+mount -o remount,bind,ro "$STATE/lower" || fail "could not enforce read-only lower layer"
+mount -t overlay overlay \
+    -o "lowerdir=$STATE/lower,upperdir=$STATE/upper,workdir=$STATE/work" \
+    "$ROOT" || fail "could not mount temporary recovery overlay"
+
+[ "$(findmnt --mountpoint "$ROOT" -no FSTYPE 2>/dev/null || true)" = "overlay" ] || fail "overlay verification failed"
+trap - ERR
+printf '%s\n' "$fsroot" > "$STATE/source-snapshot"
+printf '%s\n' "active" > "$STATE/state"
+log "temporary writable overlay active for $fsroot; underlying snapshot remains read-only"

@@ -80,4 +80,7 @@ plan="$(bash "$ROOT/bin/maho-recovery" plan "$TMP/failure.json")"
 grep -Fxq "plan $TMP/failure.json" "$PLATFORM_LOG"
 echo 'PASS recovery planning delegates to pure policy without mutation'
 
+echo '=== recovery snapshot overlay contracts ==='
+bash "$ROOT/tests/recovery-overlay.sh"
+
 echo 'ALL RECOVERY CONSOLE CONTRACTS PASS'
