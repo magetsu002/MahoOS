@@ -198,6 +198,89 @@ else:
 PY
 }
 
+why_command() {
+    [ -r "$GUARDIAN_INCIDENT" ] || { echo "maho-guard: Guardian incident adapter unavailable" >&2; return 1; }
+    local guardian_rows security_rows wanted="${1:-}"
+    guardian_rows="$(python "$GUARDIAN_INCIDENT" list --state-root "$SEC_STATE")" || return 1
+    security_rows="$(python "$INCIDENT_ENGINE" list --state-root "$SEC_STATE" 2>/dev/null || printf '[]')"
+    python - "$guardian_rows" "$security_rows" "$wanted" <<'PY_WHY'
+import json,sys
+from datetime import datetime
+
+guardian=json.loads(sys.argv[1]); security=json.loads(sys.argv[2]); wanted=sys.argv[3]
+
+def level(row):
+    return int((((row.get("decision") or {}).get("severity") or {}).get("level") or 0))
+
+def stamp(row):
+    return str(row.get("updated_at") or row.get("opened_at") or "")
+
+rows=[r for r in guardian if r.get("status") == "active"]
+if wanted:
+    rows=[r for r in rows if r.get("incident_id") == wanted]
+if not rows:
+    print("Maho Guardian")
+    print("─────────────")
+    print("Guardian is quiet. No active assessment is driving the wheel.")
+    raise SystemExit(0)
+rows.sort(key=lambda r:(level(r), stamp(r)), reverse=True)
+r=rows[0]; d=r.get("decision") or {}; sev=d.get("severity") or {}; rec=d.get("recovery") or {}
+sub=r.get("subject") or {}; iid=r.get("incident_id") or "unknown"
+label=str(sev.get("label") or "normal")
+print("Maho Guardian")
+print("─────────────")
+print(f"Wheel      L{level(r)} {label}")
+print(f"Subject    {sub.get('type','unknown')}:{sub.get('id','unknown')}")
+
+src=next((x for x in security if x.get("incident_id") == iid), None)
+if src:
+    signals=src.get("signals") or []
+    if signals:
+        names={"persistence-drift":"startup / persistence changed","package-drift":"package state changed","runtime-anomaly":"runtime anomaly"}
+        kinds=[]
+        for sig in signals:
+            k=str(sig.get("kind") or "signal")
+            if k not in kinds: kinds.append(k)
+        print("Trigger    "+", ".join(names.get(k,k.replace("-"," ")) for k in kinds))
+        evidence=[]
+        for sig in signals:
+            details=sig.get("details") or {}
+            for key in ("added","changed","removed"):
+                vals=details.get(key) or []
+                for item in vals:
+                    if isinstance(item,dict):
+                        path=item.get("path") or item.get("unit") or item.get("package")
+                        if path: evidence.append((key,path))
+        if evidence:
+            print("Evidence")
+            for kind,path in evidence[:6]: print(f"  {kind:7} {path}")
+            if len(evidence)>6: print(f"  …       {len(evidence)-6} more")
+else:
+    svc=r.get("service_recovery") or {}
+    if svc:
+        print(f"Trigger    {svc.get('unit','service')} result={svc.get('failure_result','unknown')}")
+        observed=(svc.get("postcondition") or {}).get("observed") or {}
+        if observed:
+            print(f"Observed   {observed.get('active_state','?')}/{observed.get('sub_state','?')} result={observed.get('result','?')}")
+    else:
+        exp=r.get("explanation") or {}
+        text=exp.get("incident") or sev.get("reason")
+        if text: print(f"Trigger    {text}")
+
+why=(r.get("explanation") or {}).get("severity") or sev.get("reason")
+if why: print(f"Why        {why}")
+mode=d.get("execution_mode") or "observe"
+mutation="allowed" if d.get("mutating_recovery_allowed") else "not allowed"
+print(f"Mode       {mode}; host mutation {mutation}")
+action=rec.get("action") or "none"
+print(f"Recovery   {action}")
+if rec.get("reason"): print(f"            {rec['reason']}")
+print(f"Opened     {r.get('opened_at','unknown')}")
+print(f"Incident   {iid}")
+if len(rows)>1: print(f"Also       {len(rows)-1} other active Guardian assessment(s)")
+PY_WHY
+}
+
 incident_command() {
     local id="${1:-}"
     [ -n "$id" ] || { echo "usage: maho-guard incident INCIDENT_ID" >&2; return 1; }
@@ -272,6 +355,7 @@ case "${1:-}" in
     reconcile) reconcile_command ;;
     status) status_command ;;
     guardian-status) guardian_status_command "${2:-}" ;;
+    why) why_command "${2:-}" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
     aur-build) aur_build_command "$@" ;;
@@ -284,6 +368,7 @@ Usage:
   maho-guard reconcile
   maho-guard status
   maho-guard guardian-status [--json]
+  maho-guard why [INCIDENT_ID]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
   maho-guard aur-build /path/to/aur/source [--confirm-risk]
