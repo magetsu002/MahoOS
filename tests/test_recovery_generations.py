@@ -83,6 +83,46 @@ def manifest_entry(number: int) -> dict[str, Any]:
     }
 
 
+def real_manifest_entry(number: int) -> dict[str, Any]:
+    kernel_raw = artifact_raw_path(number, "kernel")
+    init_raw = artifact_raw_path(number, "initramfs")
+    def detail(key: str, raw: str, filename: str) -> dict[str, Any]:
+        return {
+            "limineKey": key,
+            "fileName": filename,
+            "fileHashName": Path(raw).name,
+            "snapshotFilePathLine": raw[len("boot():"):],
+            "properties": {"PATH_RESOURCE": "boot():", "HASH": ""},
+        }
+    return {
+        "snapperID": {"snapshotID": number, "properties": {"type": "single"}},
+        "kernelEntries": [{
+            "kernelVersion": "Primary",
+            "imageDetails": [
+                detail("KERNEL_PATH", kernel_raw, "vmlinuz-linux-cachyos"),
+                detail("MODULE_PATH", init_raw, "initramfs-linux-cachyos.img"),
+            ],
+            "cmdlineDetails": [{
+                "limineKey": "KERNEL_CMDLINE",
+                "snapshotCmdline": f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/{number}/snapshot",
+            }],
+        }],
+    }
+
+
+def real_manifest_fixture() -> dict[str, Any]:
+    fixture = build_fixture(copy.deepcopy(SCENARIOS["healthy"]))
+    fixture["files"][MANIFEST_PATH] = {
+        "jsonFormatVersion": "1.3.0",
+        "properties": {"SNAPSHOTS_PATH": "/@snapshots", "SUBVOLUME_PATH": "/@"},
+        "snapshotEntries": [real_manifest_entry(n) for n in (10, 20, 30)],
+        "uuid": FSUUID,
+    }
+    for sid in (10, 20, 30):
+        fixture["commands"][command(["pacman", "--root", f"/.snapshots/{sid}/snapshot", "-Q", "linux-cachyos"])] = result("linux-cachyos 6.17.5-1\n")
+    return fixture
+
+
 def build_fixture(spec: dict[str, Any]) -> dict[str, Any]:
     if spec.get("all_commands_missing"):
         return {"commands": {}, "files": {}}
@@ -217,6 +257,28 @@ def main() -> None:
         and boot20.kernel_sha256_expected == boot20.kernel_sha256_observed
         and boot20.initramfs_sha256_expected == boot20.initramfs_sha256_observed,
     )
+
+    real_probe = FixtureProbe(real_manifest_fixture())
+    real_report = discover_recovery_generations(POLICY, real_probe)
+    real20 = candidate(real_report, 20)
+    check(
+        "real limine-snapper-sync 1.31 nested manifest is fully verified",
+        real20.eligible
+        and real20.boot.snapshot_id == 20
+        and real20.boot.filesystem_uuid == FSUUID
+        and real20.boot.kernel_package == "linux-cachyos"
+        and real20.boot.kernel_version == "6.17.5-1"
+        and real20.boot.files_verified is True
+        and real20.boot.artifacts_coherent is True,
+    )
+    real_bad_fixture = real_manifest_fixture()
+    real_bad_fixture["files"][artifact_local_path(20, "kernel")] = "corrupted-real-kernel\n"
+    real_bad = candidate(discover_recovery_generations(POLICY, FixtureProbe(real_bad_fixture)), 20)
+    check("real nested manifest still rejects corrupt saved kernel", not real_bad.eligible and "boot_files_verification_failed" in real_bad.rejection_reasons)
+    real_wrong_root_fixture = real_manifest_fixture()
+    real_wrong_root_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0]["snapshotCmdline"] = f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/999/snapshot"
+    real_wrong_root = candidate(discover_recovery_generations(POLICY, FixtureProbe(real_wrong_root_fixture)), 20)
+    check("real nested manifest requires exact snapshot root cmdline", not real_wrong_root.eligible and "kernel_initramfs_mismatch" in real_wrong_root.rejection_reasons)
     corrupt_boot, _ = discover("corrupt-boot-artifact")
     check("corrupt saved boot artifact is rejected", not candidate(corrupt_boot, 20).eligible and "boot_files_verification_failed" in candidate(corrupt_boot, 20).rejection_reasons)
     missing_boot, _ = discover("missing-boot-artifact")
@@ -253,6 +315,8 @@ def main() -> None:
         ("snapper", "--config", "root", "rollback", "list"),
         ("snapper", "--jsonout", "--config", "root", "list", "rollback"),
         ("pacman", "-Q", "snapper", "-S"),
+        ("pacman", "--root", "/", "-Q", "linux-cachyos"),
+        ("pacman", "--root", "/.snapshots/20/snapshot", "-S", "linux-cachyos"),
         ("btrfs", "property", "set", "-ts", "/.snapshots/20/snapshot", "ro", "false"),
         ("btrfs", "property", "get", "-ts", "/etc/passwd", "ro"),
     )

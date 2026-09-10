@@ -48,6 +48,12 @@ class SystemProbe:
             return args[3] in {"/", "/home"} and args[4:] == ("--output", cls._FINDMNT_OUTPUT)
         if len(args) == 3 and args[0:2] == ("pacman", "-Q"):
             return bool(cls._PACKAGE.fullmatch(args[2]))
+        if len(args) == 5 and args[0:2] == ("pacman", "--root"):
+            return (
+                bool(cls._SNAPSHOT_PATH.fullmatch(args[2]))
+                and args[3] == "-Q"
+                and bool(cls._PACKAGE.fullmatch(args[4]))
+            )
         if len(args) == 5 and args[0:3] == ("snapper", "--jsonout", "--config"):
             return bool(cls._SNAPPER_CONFIG.fullmatch(args[3])) and args[4] == "get-config"
         if len(args) == 6 and args[0:3] == ("snapper", "--jsonout", "--config"):
@@ -322,7 +328,88 @@ def _manifest_snapshot_id(entry: Mapping[str, Any]) -> int | None:
         value = _int(entry.get(key))
         if value is not None:
             return value
+    snapper_id = entry.get("snapperID")
+    if isinstance(snapper_id, Mapping):
+        for key in ("snapshotId", "snapshotID", "snapshotNumber", "number", "id"):
+            value = _int(snapper_id.get(key))
+            if value is not None:
+                return value
     return None
+
+
+def _snapshot_package(probe: Probe, snapshot_id: int, name: str) -> str | None:
+    root = f"/.snapshots/{snapshot_id}/snapshot"
+    result = probe.run(("pacman", "--root", root, "-Q", name))
+    if not result.available or result.returncode != 0:
+        return None
+    parts = result.stdout.strip().split(maxsplit=1)
+    if len(parts) != 2 or parts[0] != name:
+        return None
+    return parts[1]
+
+
+def _image_detail(kernel: Mapping[str, Any], limine_key: str, *, initramfs: bool = False) -> Mapping[str, Any] | None:
+    rows = kernel.get("imageDetails")
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, Mapping) or str(row.get("limineKey") or "").upper() != limine_key:
+            continue
+        name = str(row.get("fileName") or "").lower()
+        if initramfs and not ("initramfs" in name or "initrd" in name):
+            continue
+        return row
+    return None
+
+
+def _boot_path_from_image(detail: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(detail, Mapping):
+        return None
+    raw = detail.get("snapshotFilePathLine")
+    if not isinstance(raw, str) or not raw.startswith("/"):
+        return None
+    props = detail.get("properties")
+    resource = props.get("PATH_RESOURCE") if isinstance(props, Mapping) else None
+    if resource not in {None, "", "boot():", "$boot():"}:
+        return None
+    return "boot():" + raw
+
+
+def _package_from_kernel(kernel: Mapping[str, Any]) -> str | None:
+    pkg = _first_str(kernel, ("package", "kernelPackage", "kernelName", "name"))
+    if pkg in {"linux-cachyos", "linux-cachyos-lts"}:
+        return pkg
+    detail = _image_detail(kernel, "KERNEL_PATH")
+    name = str(detail.get("fileName") or "") if isinstance(detail, Mapping) else ""
+    if name == "vmlinuz-linux-cachyos-lts":
+        return "linux-cachyos-lts"
+    if name == "vmlinuz-linux-cachyos":
+        return "linux-cachyos"
+    if pkg:
+        low = pkg.lower()
+        if "cachyos-lts" in low:
+            return "linux-cachyos-lts"
+        if "cachyos" in low:
+            return "linux-cachyos"
+    return pkg
+
+
+def _real_snapshot_cmdline_matches(manifest: Mapping[str, Any], kernel: Mapping[str, Any], snapshot_id: int) -> bool:
+    props = manifest.get("properties")
+    snapshots_path = props.get("SNAPSHOTS_PATH") if isinstance(props, Mapping) else None
+    if not isinstance(snapshots_path, str) or not snapshots_path.startswith("/"):
+        return False
+    expected = f"rootflags=subvol={snapshots_path.rstrip('/')}/{snapshot_id}/snapshot"
+    rows = kernel.get("cmdlineDetails")
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        value = row.get("snapshotCmdline")
+        if isinstance(value, str) and expected in value.split():
+            return True
+    return False
 
 
 def _first_str(mapping: Mapping[str, Any], keys: Sequence[str]) -> str | None:
@@ -429,22 +516,27 @@ def _boot_evidence(
     normalized = [k for k in kernels if isinstance(k, Mapping)]
 
     def score(k: Mapping[str, Any]) -> int:
-        text = json.dumps(k, sort_keys=True).lower()
-        if "linux-cachyos\"" in text or "linux-cachyos " in text:
-            return 2
-        if "linux-cachyos-lts" in text:
-            return 1
-        return 0
+        pkg = _package_from_kernel(k)
+        return 2 if pkg == "linux-cachyos" else 1 if pkg == "linux-cachyos-lts" else 0
 
     kernel = max(normalized, key=score) if normalized else {}
+    real_schema = isinstance(matched.get("snapperID"), Mapping)
     lines = kernel.get("allInConfig")
-    pkg = _first_str(kernel, ("package", "kernelPackage", "kernelName", "name"))
-    version = _first_str(kernel, ("version", "kernelVersion"))
-    kernel_path = _first_str(kernel, ("kernelPath", "kernel_path", "linux")) or _artifact_from_config(lines, "kernel_path")
-    initramfs = _first_str(kernel, ("initramfsPath", "initrdPath", "modulePath", "module_path")) or _artifact_from_config(lines, "module_path")
-    if pkg and pkg not in {"linux-cachyos", "linux-cachyos-lts"}:
-        low = pkg.lower()
-        pkg = "linux-cachyos-lts" if "cachyos-lts" in low else "linux-cachyos" if "cachyos" in low else pkg
+    pkg = _package_from_kernel(kernel)
+    version = _snapshot_package(probe, snapshot_id, pkg) if real_schema and pkg else _first_str(kernel, ("version", "kernelVersion"))
+
+    kernel_detail = _image_detail(kernel, "KERNEL_PATH") if real_schema else None
+    initramfs_detail = _image_detail(kernel, "MODULE_PATH", initramfs=True) if real_schema else None
+    kernel_path = (
+        _boot_path_from_image(kernel_detail)
+        if real_schema
+        else _first_str(kernel, ("kernelPath", "kernel_path", "linux")) or _artifact_from_config(lines, "kernel_path")
+    )
+    initramfs = (
+        _boot_path_from_image(initramfs_detail)
+        if real_schema
+        else _first_str(kernel, ("initramfsPath", "initrdPath", "modulePath", "module_path")) or _artifact_from_config(lines, "module_path")
+    )
 
     manifest_verified = matched.get("filesVerified")
     if not isinstance(manifest_verified, bool):
@@ -454,29 +546,35 @@ def _boot_evidence(
         manifest_coherent = kernel.get("artifactsCoherent") if isinstance(kernel.get("artifactsCoherent"), bool) else None
 
     boot_root = _boot_root(configured_boot_root, manifest_path)
-    kernel_expected, kernel_observed, kernel_ok = _verify_artifact(
-        probe,
-        kernel_path,
-        boot_root,
-        _digest_value(kernel, ("kernelSha256", "kernelSHA256", "kernel_sha256")),
+    kernel_explicit = (
+        _digest_from_path(str(kernel_detail.get("fileHashName") or ""))
+        if real_schema and isinstance(kernel_detail, Mapping)
+        else _digest_value(kernel, ("kernelSha256", "kernelSHA256", "kernel_sha256"))
     )
-    init_expected, init_observed, init_ok = _verify_artifact(
-        probe,
-        initramfs,
-        boot_root,
-        _digest_value(kernel, ("initramfsSha256", "initramfsSHA256", "initramfs_sha256", "initrdSha256")),
+    init_explicit = (
+        _digest_from_path(str(initramfs_detail.get("fileHashName") or ""))
+        if real_schema and isinstance(initramfs_detail, Mapping)
+        else _digest_value(kernel, ("initramfsSha256", "initramfsSHA256", "initramfs_sha256", "initrdSha256"))
     )
+    kernel_expected, kernel_observed, kernel_ok = _verify_artifact(probe, kernel_path, boot_root, kernel_explicit)
+    init_expected, init_observed, init_ok = _verify_artifact(probe, initramfs, boot_root, init_explicit)
     files_verified = bool(kernel_ok is True and init_ok is True and manifest_verified is not False)
     if kernel_ok is None or init_ok is None:
         files_verified = None
-    coherent = (
-        True
-        if files_verified is True and manifest_coherent is True
-        else False
-        if files_verified is False or manifest_coherent is False
-        else None
-    )
-    manifest_uuid = _first_str(manifest, ("filesystemUuid", "filesystemUUID", "fsUuid", "fsUUID"))
+
+    if real_schema:
+        relation_ok = _real_snapshot_cmdline_matches(manifest, kernel, snapshot_id)
+        coherent = True if files_verified is True and relation_ok else False
+    else:
+        coherent = (
+            True
+            if files_verified is True and manifest_coherent is True
+            else False
+            if files_verified is False or manifest_coherent is False
+            else None
+        )
+
+    manifest_uuid = _first_str(manifest, ("filesystemUuid", "filesystemUUID", "fsUuid", "fsUUID", "uuid"))
     return BootEvidence(
         source=manifest_path or "limine-snapper-sync-manifest",
         entry_id=_first_str(matched, ("entryId", "name", "title")) or f"snapshot-{snapshot_id}",
