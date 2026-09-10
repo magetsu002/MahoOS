@@ -64,4 +64,5 @@ grep -Fq 'mask: Region {}' "$BACKDROP" || fail "catastrophic wallpaper pulse mus
 grep -Fq 'to: 0.46' "$BACKDROP" || fail "catastrophic wallpaper fade-in contract lost"
 grep -Fq 'duration: 285' "$BACKDROP" || fail "catastrophic wallpaper fade-out contract lost"
 grep -Fq 'guardianBackdropPulse.trigger()' "$ROOT/config/quickshell/maho-shell/shell.qml" || fail "Shell does not trigger wallpaper pulse at real L4 lock"
+bash "$ROOT/tests/guardian-explain.sh"
 echo "ALL GUARDIAN WHEEL INTEGRATION CONTRACTS PASS"
