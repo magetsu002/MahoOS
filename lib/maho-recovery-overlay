@@ -5,6 +5,14 @@ ROOT="${MAHO_RECOVERY_ROOT:-/sysroot}"
 STATE="${MAHO_RECOVERY_RUN:-/run/maho-recovery-overlay}"
 CMDLINE_FILE="${MAHO_RECOVERY_CMDLINE_FILE:-/proc/cmdline}"
 
+last_mount_field() {
+    local target="$1" field="$2" value="" row
+    while IFS= read -r row; do
+        [ -n "$row" ] && value="$row"
+    done < <(findmnt --mountpoint "$target" -no "$field" 2>/dev/null || true)
+    printf '%s\n' "$value"
+}
+
 log() {
     printf '%s\n' "maho-recovery-overlay: $*"
     command -v logger >/dev/null 2>&1 && logger -t maho-recovery-overlay -- "$*" || true
@@ -22,8 +30,8 @@ case " $cmdline " in
 esac
 
 [ -d "$ROOT" ] || fail "recovery root is missing: $ROOT"
-[ "$(findmnt --mountpoint "$ROOT" -no FSTYPE 2>/dev/null || true)" = "btrfs" ] || fail "flagged recovery root is not Btrfs"
-fsroot="$(findmnt --mountpoint "$ROOT" -no FSROOT 2>/dev/null || true)"
+[ "$(last_mount_field "$ROOT" FSTYPE)" = "btrfs" ] || fail "flagged recovery root is not Btrfs"
+fsroot="$(last_mount_field "$ROOT" FSROOT)"
 [[ "$fsroot" =~ ^/@snapshots/[0-9]+/snapshot$ ]] || fail "flagged root is not an exact Snapper snapshot: ${fsroot:-unknown}"
 
 ro_state="$(btrfs property get -t subvol "$ROOT" ro 2>/dev/null || true)"
@@ -49,7 +57,7 @@ mount -t overlay overlay \
     -o "lowerdir=$STATE/lower,upperdir=$STATE/upper,workdir=$STATE/work" \
     "$ROOT" || fail "could not mount temporary recovery overlay"
 
-[ "$(findmnt --mountpoint "$ROOT" -no FSTYPE 2>/dev/null || true)" = "overlay" ] || fail "overlay verification failed"
+[ "$(last_mount_field "$ROOT" FSTYPE)" = "overlay" ] || fail "overlay verification failed"
 trap - ERR
 printf '%s\n' "$fsroot" > "$STATE/source-snapshot"
 printf '%s\n' "active" > "$STATE/state"

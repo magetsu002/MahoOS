@@ -28,7 +28,12 @@ cat > "$BIN/findmnt" <<'EOF'
 set -u
 args=" $* "
 if [[ "$args" == *" -no FSTYPE "* ]]; then
-    if [ -e "${FAKE_OVERLAY_ACTIVE:-/nonexistent}" ]; then echo overlay; else echo "${FAKE_FSTYPE:-btrfs}"; fi
+    if [ -e "${FAKE_OVERLAY_ACTIVE:-/nonexistent}" ]; then
+        if [ "${FAKE_STACKED_AFTER_OVERLAY:-0}" = 1 ]; then echo "${FAKE_FSTYPE:-btrfs}"; fi
+        echo overlay
+    else
+        echo "${FAKE_FSTYPE:-btrfs}"
+    fi
     exit 0
 fi
 if [[ "$args" == *" -no FSROOT "* ]]; then
@@ -118,7 +123,7 @@ pass "writable snapshot is rejected"
 CASE="$TMP/read-only"
 mkdir -p "$CASE"
 printf '%s\n' 'root=UUID=test rw rootflags=subvol=/@snapshots/42/snapshot maho.recovery_snapshot=1' > "$CASE/cmdline"
-run_helper "$CASE"
+FAKE_STACKED_AFTER_OVERLAY=1 run_helper "$CASE"
 [ -e "$CASE/overlay-active" ] || fail "read-only recovery snapshot did not activate overlay"
 grep -Fq 'mount -t tmpfs' "$CASE/mount.log" || fail "temporary writable layer was not RAM-backed"
 grep -Fq 'mount --bind' "$CASE/mount.log" || fail "immutable lower layer was not bound"
@@ -126,7 +131,7 @@ grep -Fq 'mount -o remount,bind,ro' "$CASE/mount.log" || fail "lower layer was n
 grep -Fq 'mount -t overlay overlay' "$CASE/mount.log" || fail "overlay root was not mounted"
 [ "$(cat "$CASE/run/source-snapshot")" = '/@snapshots/42/snapshot' ] || fail "source snapshot identity was not recorded"
 [ "$(cat "$CASE/run/state")" = active ] || fail "overlay state was not recorded active"
-pass "exact read-only recovery snapshot gets an ephemeral writable overlay"
+pass "stacked recovery root verifies the topmost overlay mount"
 
 # Product source must never contain authority to flip a snapshot writable.
 ! grep -Eq 'btrfs[[:space:]]+property[[:space:]]+set.*ro[[:space:]]+false|SNAPSHOT_WRITABLE=yes' \
