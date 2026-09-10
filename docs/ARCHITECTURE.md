@@ -1,75 +1,83 @@
-# Maho OS Architecture
+# Architecture
 
-## Layers
+MahoOS separates system observation, decisions, and mutation so that a failure in
+one layer cannot silently gain authority over another.
 
-### Core
+## Main layers
 
-Stable user behavior and system contracts.
+### Desktop
 
-Examples:
+Quickshell and native Qt/QML components provide the visible desktop:
+Maho Edge, Dock, Launcher, Link, Notify, Lock, Clipboard, Power, and Files.
 
-- input behavior
-- keybindings
-- window semantics
-- workspaces
-- monitor fundamentals
-
-This layer should rarely adapt automatically.
-
-### Appearance
-
-Replaceable visual behavior.
-
-Examples:
-
-- decorations
-- animation
-- effects
-- shell presentation
-
-### Theme
-
-Canonical visual palette and theme consumers.
-
-The long-term model is:
-
-wallpaper/input
-→ palette generator
-→ canonical Maho palette
-→ desktop consumers
+Desktop components read shared system state and palette data. They do not own
+arbitrary system repair.
 
 ### State
 
-Observes the system without mutating it.
+Observers collect system facts without changing the machine.
+
+Examples include service state, security findings, connectivity state, session
+state, and the active wallpaper palette.
 
 ### Policy
 
-Consumes normalized state and decides desired state.
+Policy converts normalized state into a decision.
 
-Policy does not mutate the operating system.
+Policy may recommend an action, require confirmation, or refuse to act. It does
+not perform the action itself.
 
-### Adapters
+### Adapters and recovery providers
 
-The only layer allowed to perform adaptive mutations.
+Mutating work is performed only by a known adapter or recovery provider.
+Examples include systemd service recovery, Maho runtime rollback, system-state
+recovery, and boot recovery.
 
-Every meaningful mutation should be:
+Every supported mutation should have:
 
-1. planned
-2. applied
-3. verified
-4. recorded
-5. reversible
+1. a defined owner
+2. a bounded action
+3. a precondition
+4. a postcondition
+5. a rollback or handoff path when appropriate
 
-### Recovery
+### Guardian
 
-Restores known-good state when an adaptation or configuration fails.
+Guardian coordinates failures across these layers.
 
-## Fundamental rule
+It owns incident identity, severity, recovery policy, verification, history, and
+escalation. It does not replace a recovery mechanism that already has a clear
+owner.
 
-Observation cannot mutate.
+For example, if a Maho user service crashes and systemd is configured to restart
+it, systemd performs the restart. Guardian observes the failure, correlates the
+replacement process, verifies that it remains healthy, and records the result.
 
-Policy cannot mutate.
+## Runtime layout
 
-Only adapters mutate.
+`maho-setup` builds immutable runtime releases and switches the active release
+through a managed pointer. The previous verified runtime is kept for recovery.
 
-Mutations must be verifiable and reversible.
+User services are managed by systemd. Hyprland session startup and shutdown are
+owned by Maho session tooling rather than ad-hoc autostart commands.
+
+## Theme data
+
+Wallpaper changes produce one canonical palette. Desktop components consume
+semantic roles from that palette instead of hard-coded wallpaper colors.
+
+The active palette is stored at:
+
+```text
+~/.cache/maho/theme/active.json
+```
+
+## Safety rules
+
+- observation does not mutate
+- policy does not mutate
+- runtime data cannot grant itself recovery authority
+- unknown targets do not inherit permissions by name or prefix
+- successful recovery requires a verified postcondition
+- repeated failure is evidence, not an automatic severity rule
+- catastrophic incidents are never repaired through guessed autonomous actions
