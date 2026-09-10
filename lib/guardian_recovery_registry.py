@@ -90,7 +90,7 @@ _SERVICE_RECOVERIES = {
     ),
     "maho-awww-daemon.service": CertifiedServiceRecovery(
         unit="maho-awww-daemon.service", ownership="maho", provider="systemd-user", mode="delegated",
-        provider_action="restart-on-failure", expected_restart="on-failure",
+        provider_action="restart-always", expected_restart="always",
         failure_identity="boot-id+unit+invocation-id", healthy_active_state="active", healthy_sub_state="running",
         health_check="awww-daemon-runtime", health_process_patterns=("awww-daemon", "--no-cache"),
         replacement_timeout_seconds=5.0, stability_seconds=3.0,

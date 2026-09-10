@@ -55,8 +55,12 @@ def event(*args, **kwargs):
     return value
 
 
-def snap(invocation=REPLACEMENT, *, active="active", sub="running", restart="on-failure", health_ok=True):
-    return ServiceSnapshot("maho-notify.service", "loaded", active, sub, "success", invocation, restart, "quickshell-notify-runtime", health_ok, ("quickshell -p /config/maho-notify/shell.qml",))
+def snap(invocation=REPLACEMENT, *, boot=BOOT_A, active="active", sub="running", restart="on-failure", health_ok=True):
+    return ServiceSnapshot(
+        "maho-notify.service", "loaded", active, sub, "success", invocation, restart,
+        "quickshell-notify-runtime", health_ok,
+        ("quickshell -p /config/maho-notify/shell.qml",), boot,
+    )
 
 
 def check(name, condition):
@@ -192,6 +196,31 @@ def main():
         check("superseded incident no longer latches Guardian active state", not (root / "guardian/active" / f"{iid}.json").exists())
         archived = json.loads(next((root / "guardian/archive").glob(f"{iid}-superseded.json")).read_text())
         check("archive explains supersession instead of fake recovery success", archived["resolution"]["kind"] == "superseded-by-verified-service-invocation" and archived["decision"]["severity"]["level"] == 0)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = ServiceIncidentStore(root)
+        failed = store.process(event(UNIT_FAILED, boot=BOOT_A), now=600.0)
+        store.process(event(RESTART_SCHEDULED, boot=BOOT_A), now=601.0)
+        verifying = store.process(event(UNIT_STARTED, REPLACEMENT, boot=BOOT_A), now=602.0)
+        check("old boot failed recovery becomes unresolved", not store.verify(verifying, snap(active="activating", sub="auto-restart")))
+        iid = failed["incident_id"]
+
+        store.process(event(UNIT_STARTED, LATER, boot=BOOT_B), now=610.0)
+        armed = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
+        supersession = armed["supersession"]
+        check("healthy start on a later boot arms stale incident retirement", supersession["candidate_boot_id"] == BOOT_B and supersession["candidate_invocation_id"] == LATER and supersession["verify_after_epoch"] == 613.0)
+        due = store.due_verifications(613.0)
+        check("later-boot retirement still waits for stability window", len(due) == 1 and due[0]["incident_id"] == iid)
+        check("wrong boot cannot retire stale incident", not store.verify(due[0], snap(invocation=LATER, boot=BOOT_A)))
+        check("wrong-boot verification leaves original incident active", (root / "guardian/active" / f"{iid}.json").exists())
+
+        store.process(event(UNIT_STARTED, LATER_2, boot=BOOT_B), now=620.0)
+        due = store.due_verifications(623.0)
+        check("verified current boot retires stale prior-boot L2", not store.verify(due[0], snap(invocation=LATER_2, boot=BOOT_B), timestamp="2027-01-15T08:20:00+00:00"))
+        history = json.loads((root / "guardian/recovery-history" / f"{iid}.json").read_text())
+        check("cross-boot supersession preserves original failed recovery truth", history["status"] == "superseded" and history["verified"] is False and history["superseded_by_service"]["boot_id"] == BOOT_B)
+        check("cross-boot supersession clears only active latch", not (root / "guardian/active" / f"{iid}.json").exists())
 
     print("ALL GUARDIAN SERVICE INCIDENT TESTS PASS")
 

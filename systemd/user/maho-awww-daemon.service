@@ -8,7 +8,7 @@ ConditionEnvironment=WAYLAND_DISPLAY
 Type=exec
 ExecStart=/usr/bin/awww-daemon --no-cache
 ExecStartPost=%h/.local/bin/maho-session wait-awww
-Restart=on-failure
+Restart=always
 RestartSec=2
 
 [Install]

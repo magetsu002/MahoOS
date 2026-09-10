@@ -34,6 +34,7 @@ class ServiceSnapshot:
     health_check: str = "unavailable"
     health_ok: bool = False
     health_evidence: tuple[str, ...] = ()
+    boot_id: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -269,9 +270,10 @@ class ServiceIncidentStore:
         """Arm bounded verification that may retire stale unresolved active incidents.
 
         This does not make the original delegated recovery successful. A later
-        service invocation must remain independently healthy for the normal
-        stability window before the old active latch can be archived as
-        superseded.
+        service invocation, including one from a later boot, must remain
+        independently healthy for the normal stability window before the old
+        active latch can be archived as superseded. Candidate boot identity is
+        persisted and verified with the service snapshot.
         """
         contract = certified_service_recovery(unit)
         if contract is None or not _valid_identity(invocation_id):
@@ -281,12 +283,12 @@ class ServiceIncidentStore:
         for state in self._states():
             if (
                 state.get("unit") != unit
-                or state.get("boot_id") != boot_id
                 or state.get("lifecycle") != "unresolved"
                 or invocation_id == state.get("failed_invocation_id")
             ):
                 continue
             state["supersession"] = {
+                "candidate_boot_id": boot_id,
                 "candidate_invocation_id": invocation_id,
                 "verify_after_epoch": now + contract.stability_seconds,
                 "stability_seconds": contract.stability_seconds,
@@ -447,9 +449,11 @@ class ServiceIncidentStore:
             supersession = state.get("supersession")
             if not isinstance(supersession, Mapping):
                 return False
+            candidate_boot = supersession.get("candidate_boot_id")
             candidate = supersession.get("candidate_invocation_id")
             healthy_later = (
                 snapshot.unit == state["unit"]
+                and snapshot.boot_id == candidate_boot
                 and snapshot.load_state == "loaded"
                 and snapshot.active_state == contract.healthy_active_state
                 and snapshot.sub_state == contract.healthy_sub_state
@@ -485,6 +489,7 @@ class ServiceIncidentStore:
             return bool(state.get("lifecycle") == "succeeded" and state.get("verified"))
         healthy = (
             snapshot.unit == state["unit"]
+            and snapshot.boot_id == state.get("boot_id")
             and snapshot.load_state == "loaded"
             and snapshot.active_state == contract.healthy_active_state
             and snapshot.sub_state == contract.healthy_sub_state

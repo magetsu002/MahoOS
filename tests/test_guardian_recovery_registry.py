@@ -17,7 +17,7 @@ EXPECTED = {
     "maho-shell.service": ("on-failure", "quickshell-shell-runtime"),
     "maho-dock.service": ("on-failure", "quickshell-dock-runtime"),
     "maho-wallpaper.service": ("on-failure", "wallpaper-watch-runtime"),
-    "maho-awww-daemon.service": ("on-failure", "awww-daemon-runtime"),
+    "maho-awww-daemon.service": ("always", "awww-daemon-runtime"),
     "maho-security.service": ("on-failure", "security-monitor-runtime"),
     "maho-observe.service": ("on-failure", "observer-watch-runtime"),
     "maho-clipboard-history.service": ("always", "clipboard-history-owner"),

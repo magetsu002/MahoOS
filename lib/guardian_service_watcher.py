@@ -54,6 +54,7 @@ def snapshot(unit: str) -> ServiceSnapshot:
         health_check=health_check,
         health_ok=health_ok,
         health_evidence=health_evidence,
+        boot_id=_boot_id(),
     )
 
 

@@ -153,6 +153,8 @@ require_text "$AWWW_UNIT" 'ExecStartPost=%h/.local/bin/maho-session wait-awww' \
     "awww service no longer waits for socket readiness"
 require_text "$AWWW_UNIT" 'ExecStart=/usr/bin/awww-daemon --no-cache' \
     "awww service can replay an unrelated private cache at login"
+require_text "$AWWW_UNIT" 'Restart=always' \
+    "awww service cannot self-heal zero-status fatal exits"
 require_text "$WALLPAPER_UNIT" 'Requires=maho-awww-daemon.service' \
     "wallpaper service no longer requires awww"
 require_text "$SHELL_UNIT" 'SuccessExitStatus=143' \
