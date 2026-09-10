@@ -78,6 +78,9 @@ if [[ "$args" == *" -t tmpfs "* ]]; then
 fi
 if [[ "$args" == *" -t overlay overlay "* ]]; then
     touch "${FAKE_OVERLAY_ACTIVE:?}"
+    if [ "${FAKE_SKIP_OVERLAY_MOUNTINFO:-0}" != 1 ]; then
+        printf '%s\n' "99 1 0:99 / ${MAHO_RECOVERY_ROOT:?} rw - overlay overlay rw" >> "${FAKE_MOUNTINFO:?}"
+    fi
 fi
 exit 0
 EOF
@@ -92,10 +95,13 @@ chmod +x "$BIN/umount"
 run_helper() {
     local case_dir="$1"
     mkdir -p "$case_dir/run"
+    printf '%s\n' "98 1 0:35 /@snapshots/42/snapshot $TMP/sysroot ro - btrfs /dev/fake rw" > "$case_dir/mountinfo"
     PATH="$BIN:/usr/bin:/usr/sbin" \
     MAHO_RECOVERY_ROOT="$TMP/sysroot" \
     MAHO_RECOVERY_RUN="$case_dir/run" \
     MAHO_RECOVERY_CMDLINE_FILE="$case_dir/cmdline" \
+    MAHO_RECOVERY_MOUNTINFO_FILE="$case_dir/mountinfo" \
+    FAKE_MOUNTINFO="$case_dir/mountinfo" \
     FAKE_MOUNT_LOG="$case_dir/mount.log" \
     FAKE_STATE_MOUNTED="$case_dir/state-mounted" \
     FAKE_OVERLAY_ACTIVE="$case_dir/overlay-active" \
@@ -142,6 +148,14 @@ grep -Fq 'mount -t overlay overlay' "$CASE/mount.log" || fail "overlay root was 
 [ "$(cat "$CASE/run/source-snapshot")" = '/@snapshots/42/snapshot' ] || fail "source snapshot identity was not recorded"
 [ "$(cat "$CASE/run/state")" = active ] || fail "overlay state was not recorded active"
 pass "stacked recovery root verifies the topmost overlay mount"
+
+CASE="$TMP/missing-overlay-record"
+mkdir -p "$CASE"
+printf '%s\n' 'root=UUID=test rw rootflags=subvol=/@snapshots/42/snapshot maho.recovery_snapshot=1' > "$CASE/cmdline"
+if FAKE_SKIP_OVERLAY_MOUNTINFO=1 run_helper "$CASE" >/dev/null 2>&1; then
+    fail "mount success without a kernel overlay record was accepted"
+fi
+pass "mount success without an overlay mountinfo record fails closed"
 
 # Product source must never contain authority to flip a snapshot writable.
 ! grep -Eq 'btrfs[[:space:]]+property[[:space:]]+set.*ro[[:space:]]+false|SNAPSHOT_WRITABLE=yes' \
