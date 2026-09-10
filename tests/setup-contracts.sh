@@ -567,6 +567,10 @@ awk -v command="$HOME/.local/bin/maho-files" '
 ' "$ROOT/apps/maho-files/io.maho.Files.desktop" >"$FILES_DESKTOP_TARGET"
 echo PASS
 
+echo '=== recovery overlay contracts ==='
+bash "$ROOT/tests/recovery-overlay.sh" >/dev/null
+echo PASS
+
 echo '=== static session contracts ==='
 bash "$ROOT/tests/session-contracts.sh" >/dev/null
 echo PASS
