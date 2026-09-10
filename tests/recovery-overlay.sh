@@ -6,6 +6,9 @@ HELPER="$ROOT/lib/maho-recovery-overlay"
 INSTALLER="$ROOT/bin/maho-recovery-overlay-install"
 HOOK="$ROOT/config/mkinitcpio/install/sd-maho-recovery-overlay"
 UNIT="$ROOT/config/systemd/initrd/maho-recovery-overlay.service"
+REMOUNT_GUARD="$ROOT/config/systemd/system/systemd-remount-fs.service.d/maho-recovery-overlay.conf"
+CLEANUP_GUARD="$ROOT/config/systemd/system/snapper-cleanup.service.d/maho-recovery-overlay.conf"
+TIMELINE_GUARD="$ROOT/config/systemd/system/snapper-timeline.service.d/maho-recovery-overlay.conf"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 BIN="$TMP/bin"
@@ -20,6 +23,9 @@ grep -Fq 'After=initrd-root-fs.target' "$UNIT" || fail "unit may run before root
 grep -Fq 'Before=initrd-switch-root.target' "$UNIT" || fail "unit may run after switch-root"
 grep -Fq 'initrd-switch-root.target.requires/maho-recovery-overlay.service' "$HOOK" || fail "initrd does not require overlay setup"
 grep -Fq 'add_module overlay' "$HOOK" || fail "overlay kernel module missing"
+for guard in "$REMOUNT_GUARD" "$CLEANUP_GUARD" "$TIMELINE_GUARD"; do
+    grep -Fxq 'ConditionKernelCommandLine=!maho.recovery_snapshot=1' "$guard" || fail "recovery-only systemd guard missing: $guard"
+done
 grep -Fq 'SNAPSHOT_WRITABLE", "no"' "$INSTALLER" || fail "installer can make snapshots writable"
 ! grep -Eq '/dev/nvme|efibootmgr|bootorder|BootOrder' "$INSTALLER" || fail "installer contains device/UEFI mutation authority"
 pass "static recovery overlay safety contract"
@@ -29,8 +35,12 @@ set -u
 args=" $* "
 if [[ "$args" == *" -no FSTYPE "* ]]; then
     if [ -e "${FAKE_OVERLAY_ACTIVE:-/nonexistent}" ]; then
-        if [ "${FAKE_STACKED_AFTER_OVERLAY:-0}" = 1 ]; then echo "${FAKE_FSTYPE:-btrfs}"; fi
-        echo overlay
+        if [[ "$args" == *" -T "* ]]; then
+            echo overlay
+        else
+            if [ "${FAKE_STACKED_AFTER_OVERLAY:-0}" = 1 ]; then echo "${FAKE_FSTYPE:-btrfs}"; fi
+            echo overlay
+        fi
     else
         echo "${FAKE_FSTYPE:-btrfs}"
     fi
@@ -135,7 +145,7 @@ pass "stacked recovery root verifies the topmost overlay mount"
 
 # Product source must never contain authority to flip a snapshot writable.
 ! grep -Eq 'btrfs[[:space:]]+property[[:space:]]+set.*ro[[:space:]]+false|SNAPSHOT_WRITABLE=yes' \
-    "$HELPER" "$INSTALLER" "$HOOK" "$UNIT" || fail "recovery path can mutate snapshot immutability"
+    "$HELPER" "$INSTALLER" "$HOOK" "$UNIT" "$REMOUNT_GUARD" "$CLEANUP_GUARD" "$TIMELINE_GUARD" || fail "recovery path can mutate snapshot immutability"
 pass "snapshot immutability remains authoritative"
 
 echo 'ALL RECOVERY OVERLAY CONTRACTS PASS'

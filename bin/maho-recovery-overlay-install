@@ -10,10 +10,16 @@ BACKUPS="$STATE_ROOT/backups"
 HELPER_DST="/usr/lib/maho/recovery-overlay"
 HOOK_DST="/usr/lib/initcpio/install/sd-maho-recovery-overlay"
 UNIT_DST="/usr/lib/systemd/system/maho-recovery-overlay.service"
+REMOUNT_DROPIN_DST="/usr/lib/systemd/system/systemd-remount-fs.service.d/maho-recovery-overlay.conf"
+CLEANUP_DROPIN_DST="/usr/lib/systemd/system/snapper-cleanup.service.d/maho-recovery-overlay.conf"
+TIMELINE_DROPIN_DST="/usr/lib/systemd/system/snapper-timeline.service.d/maho-recovery-overlay.conf"
 
 HELPER_SRC="$ROOT/lib/maho-recovery-overlay"
 HOOK_SRC="$ROOT/config/mkinitcpio/install/sd-maho-recovery-overlay"
 UNIT_SRC="$ROOT/config/systemd/initrd/maho-recovery-overlay.service"
+REMOUNT_DROPIN_SRC="$ROOT/config/systemd/system/systemd-remount-fs.service.d/maho-recovery-overlay.conf"
+CLEANUP_DROPIN_SRC="$ROOT/config/systemd/system/snapper-cleanup.service.d/maho-recovery-overlay.conf"
+TIMELINE_DROPIN_SRC="$ROOT/config/systemd/system/snapper-timeline.service.d/maho-recovery-overlay.conf"
 
 fail() {
     echo "maho-recovery-overlay-install: $*" >&2
@@ -28,6 +34,9 @@ require_source() {
     [ -r "$HELPER_SRC" ] || fail "missing source helper"
     [ -r "$HOOK_SRC" ] || fail "missing mkinitcpio hook"
     [ -r "$UNIT_SRC" ] || fail "missing initrd unit"
+    [ -r "$REMOUNT_DROPIN_SRC" ] || fail "missing remount recovery guard"
+    [ -r "$CLEANUP_DROPIN_SRC" ] || fail "missing Snapper cleanup recovery guard"
+    [ -r "$TIMELINE_DROPIN_SRC" ] || fail "missing Snapper timeline recovery guard"
 }
 check_layout() {
     command -v mkinitcpio >/dev/null 2>&1 || fail "mkinitcpio is unavailable"
@@ -64,6 +73,9 @@ install_files() {
     install -Dm755 "$HELPER_SRC" "$HELPER_DST"
     install -Dm644 "$HOOK_SRC" "$HOOK_DST"
     install -Dm644 "$UNIT_SRC" "$UNIT_DST"
+    install -Dm644 "$REMOUNT_DROPIN_SRC" "$REMOUNT_DROPIN_DST"
+    install -Dm644 "$CLEANUP_DROPIN_SRC" "$CLEANUP_DROPIN_DST"
+    install -Dm644 "$TIMELINE_DROPIN_SRC" "$TIMELINE_DROPIN_DST"
 }
 
 patch_config() {
@@ -121,6 +133,9 @@ verify_install() {
     cmp -s "$HELPER_SRC" "$HELPER_DST" || fail "installed recovery helper differs from source"
     cmp -s "$HOOK_SRC" "$HOOK_DST" || fail "installed mkinitcpio hook differs from source"
     cmp -s "$UNIT_SRC" "$UNIT_DST" || fail "installed initrd unit differs from source"
+    cmp -s "$REMOUNT_DROPIN_SRC" "$REMOUNT_DROPIN_DST" || fail "remount recovery guard differs from source"
+    cmp -s "$CLEANUP_DROPIN_SRC" "$CLEANUP_DROPIN_DST" || fail "Snapper cleanup recovery guard differs from source"
+    cmp -s "$TIMELINE_DROPIN_SRC" "$TIMELINE_DROPIN_DST" || fail "Snapper timeline recovery guard differs from source"
     grep -Eq '^[[:space:]]*HOOKS=\([^)]*filesystems[[:space:]]+sd-maho-recovery-overlay([[:space:]]|\))' "$MKCONF" || fail "overlay hook is not immediately after filesystems"
     grep -Fxq 'SNAPSHOT_KERNEL_PARAMETERS+=maho.recovery_snapshot=1' "$LIMINE_DEFAULT" || fail "snapshot recovery flag missing"
     grep -Fxq 'SNAPSHOT_WRITABLE=no' "$LIMINE_DEFAULT" || fail "snapshots are not forced read-only"
@@ -170,35 +185,50 @@ PY
     done
     fail "snapshot $sid was not synchronized with recovery-overlay boot metadata"
 }
+backup_one() {
+    local dir="$1" path="$2" key="$3"
+    if [ -e "$path" ]; then
+        cp -a "$path" "$dir/original-$key"
+        printf '%s\n' present > "$dir/original-$key.state"
+    else
+        printf '%s\n' absent > "$dir/original-$key.state"
+    fi
+}
+
+restore_one() {
+    local dir="$1" path="$2" key="$3" state
+    state="$(cat "$dir/original-$key.state" 2>/dev/null || echo absent)"
+    if [ "$state" = present ]; then
+        mkdir -p "$(dirname "$path")"
+        cp -a "$dir/original-$key" "$path"
+    else
+        rm -f "$path"
+    fi
+}
+
 backup_state_full() {
-    local dir path key
+    local dir
     dir="$(backup_state)"
-    for path in "$HELPER_DST" "$HOOK_DST" "$UNIT_DST"; do
-        key="$(basename "$path")"
-        if [ -e "$path" ]; then
-            cp -a "$path" "$dir/original-$key"
-            printf '%s\n' present > "$dir/original-$key.state"
-        else
-            printf '%s\n' absent > "$dir/original-$key.state"
-        fi
-    done
+    backup_one "$dir" "$HELPER_DST" helper
+    backup_one "$dir" "$HOOK_DST" hook
+    backup_one "$dir" "$UNIT_DST" initrd-unit
+    backup_one "$dir" "$REMOUNT_DROPIN_DST" remount-dropin
+    backup_one "$dir" "$CLEANUP_DROPIN_DST" cleanup-dropin
+    backup_one "$dir" "$TIMELINE_DROPIN_DST" timeline-dropin
     echo "$dir"
 }
 
 restore_backup() {
-    local dir="$1" path key state
+    local dir="$1"
     [ -d "$dir" ] || fail "backup directory is missing: $dir"
     cp -a "$dir/mkinitcpio.conf" "$MKCONF"
     cp -a "$dir/limine.default" "$LIMINE_DEFAULT"
-    for path in "$HELPER_DST" "$HOOK_DST" "$UNIT_DST"; do
-        key="$(basename "$path")"
-        state="$(cat "$dir/original-$key.state" 2>/dev/null || echo absent)"
-        if [ "$state" = present ]; then
-            cp -a "$dir/original-$key" "$path"
-        else
-            rm -f "$path"
-        fi
-    done
+    restore_one "$dir" "$HELPER_DST" helper
+    restore_one "$dir" "$HOOK_DST" hook
+    restore_one "$dir" "$UNIT_DST" initrd-unit
+    restore_one "$dir" "$REMOUNT_DROPIN_DST" remount-dropin
+    restore_one "$dir" "$CLEANUP_DROPIN_DST" cleanup-dropin
+    restore_one "$dir" "$TIMELINE_DROPIN_DST" timeline-dropin
 }
 
 auto_rollback() {
@@ -246,6 +276,7 @@ install_command() {
     patch_config
     rebuild_images
     verify_install
+    systemctl daemon-reload
     create_candidate
     trap - ERR
     echo "PASS  MahoOS recovery snapshot overlay installed and verified"
@@ -259,6 +290,7 @@ rollback_command() {
     backup="$(cat "$STATE_ROOT/latest-backup")"
     restore_backup "$backup"
     rebuild_images
+    systemctl daemon-reload
     echo "PASS  recovery overlay configuration rolled back"
     echo "Restored: $backup"
 }
