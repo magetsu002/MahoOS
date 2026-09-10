@@ -57,7 +57,7 @@ mount -t overlay overlay \
     -o "lowerdir=$STATE/lower,upperdir=$STATE/upper,workdir=$STATE/work" \
     "$ROOT" || fail "could not mount temporary recovery overlay"
 
-[ "$(last_mount_field "$ROOT" FSTYPE)" = "overlay" ] || fail "overlay verification failed"
+[ "$(findmnt -T "$ROOT" -no FSTYPE 2>/dev/null || true)" = "overlay" ] || fail "overlay verification failed"
 trap - ERR
 printf '%s\n' "$fsroot" > "$STATE/source-snapshot"
 printf '%s\n' "active" > "$STATE/state"
