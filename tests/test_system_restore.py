@@ -142,6 +142,7 @@ def main() -> None:
     prep_provider = provider(cmdline=f"root=UUID={FSUUID} rw rootflags=subvol=@")
     prep = plan_system_restore_preparation(preparation_report(), GID, POLICY, prep_provider)
     check("normal live root may prepare an exact known-good recovery target", prep.ready and not prep.blockers)
+    check("preparation binds exact kernel identity", prep.expected_kernel_package == "linux-cachyos" and prep.expected_kernel_version == "7.1.8-1-cachyos")
     check("preparation never authorizes restore execution", prep.restore_authorized is False)
     check("recovery OverlayFS cannot masquerade as preparation phase", "normal_root_required" in plan_system_restore_preparation(report(), GID, POLICY, provider()).blockers)
     check("non-eligible target cannot be prepared", "target_generation_not_eligible" in plan_system_restore_preparation(preparation_report(generations=(generation(),)), GID, POLICY, prep_provider).blockers)
