@@ -32,7 +32,8 @@ def build_receipt(transaction: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o755)
     encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
     temporary = path.parent / f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -42,6 +43,7 @@ def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        os.chmod(path, 0o644)
     finally:
         try:
             temporary.unlink()

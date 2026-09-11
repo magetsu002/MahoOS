@@ -319,7 +319,9 @@ def write_transaction(path: str | os.PathLike[str], payload: Mapping[str, Any]) 
     data = validate_transaction(payload)
     if destination.name != f"{data['transaction_id']}.json":
         raise ValueError("transaction path does not match immutable identity")
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    os.chmod(destination.parent, 0o755)
+    os.chmod(destination.parent.parent, 0o755)
     encoded = (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode()
     temporary = destination.parent / f".{destination.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -335,6 +337,7 @@ def write_transaction(path: str | os.PathLike[str], payload: Mapping[str, Any]) 
         finally:
             os.close(descriptor)
         os.replace(temporary, destination)
+        os.chmod(destination, 0o644)
     finally:
         try:
             temporary.unlink()
@@ -363,7 +366,8 @@ def publish_transaction(root: str | os.PathLike[str], payload: Mapping[str, Any]
     path = transaction_path(base, data["transaction_id"])
     write_transaction(path, data)
     pointer = base / "current"
-    pointer.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    pointer.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    os.chmod(pointer.parent, 0o755)
     temporary = pointer.parent / f".current.{os.getpid()}.{secrets.token_hex(4)}.tmp"
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
@@ -372,6 +376,7 @@ def publish_transaction(root: str | os.PathLike[str], payload: Mapping[str, Any]
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, pointer)
+        os.chmod(pointer, 0o644)
     finally:
         try:
             temporary.unlink()

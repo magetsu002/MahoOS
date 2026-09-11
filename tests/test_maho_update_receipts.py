@@ -67,7 +67,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="maho-update-receipts-") as temporary:
         root = Path(temporary)
         path = record_receipt(root, pending)
-        check("receipt is private durable JSON", path.stat().st_mode & 0o777 == 0o600 and json.loads(path.read_text())["transaction_id"] == pending["transaction_id"])
+        check("root-owned receipt is read-only to product consumers", path.stat().st_mode & 0o777 == 0o644 and json.loads(path.read_text())["transaction_id"] == pending["transaction_id"])
         record_receipt(root, healthy)
         record_receipt(root, attention)
         history = load_history(root)

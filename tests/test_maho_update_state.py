@@ -122,10 +122,12 @@ def main() -> None:
         path = transaction_path(temporary, TXID)
         write_transaction(path, pending)
         check("durable state roundtrip is exact", read_transaction(path) == pending)
+        check("root-owned authority is readable by product consumers", path.stat().st_mode & 0o777 == 0o644)
         check("durable state leaves no temporary residue", not [item for item in path.parent.iterdir() if item.name.startswith(".")])
         rejected("durable path must bind transaction identity", lambda: write_transaction(path.with_name("upd-20260912T010203Z-000000000000.json"), pending))
         published = publish_transaction(Path(temporary) / "published", pending)
         check("published authority binds an exact current pointer", published.is_file() and (Path(temporary) / "published/current").read_text().strip() == TXID)
+        check("current authority pointer is read-only to product consumers", (Path(temporary) / "published/current").stat().st_mode & 0o777 == 0o644)
 
     print("ALL MAHO UPDATE STATE CONTRACTS PASS")
 
