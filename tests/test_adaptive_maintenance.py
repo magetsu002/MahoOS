@@ -10,10 +10,10 @@ def env(d):return {"observed_at":F,"data":d}
 def snap(**changes):
  d={
  "session":{"locked":True,"lock_dwell_seconds":1200,"idle_seconds":1500,"recent_input_seconds":1500,"inhibitors":[]},
- "power":{"battery_present":True,"percentage":80,"ac_online":True,"charging_state":"charging"},
+ "power":{"battery_present":True,"percentage":80,"ac_online":True,"charging_state":"charging","ac_stable_seconds":600},
  "thermal":{"max_millidegree_c":70000,"sustained_seconds":500,"trend":"stable"},
  "workload":{"probable_gaming":False,"probable_compile":False,"probable_rendering":False,"probable_media":False,"interactive":False,"confidence":.9},
- "network":{"connectivity":"online","stability":"stable","default_route":True,"reachable":True},
+ "network":{"connectivity":"online","stability":"stable","stability_seconds":600,"default_route":True,"reachable":True},
  "maintenance":{"transaction_state":"PREPARED","pending":True,"staged":True,"prepared":True,"recovery_prerequisites":True,"in_critical_section":False,"interruption_safe":True,"enough_disk":True},
  "guardian":{"active_incident":False,"severity_level":0,"recovery_in_progress":False,"unresolved_reliability":False},
  "user_intent":{"adaptation_opt_outs":[]}}
@@ -29,8 +29,10 @@ def main():
  blocked("compile_in_progress",workload={"probable_compile":True})
  blocked("render_in_progress",workload={"probable_rendering":True})
  blocked("thermal_state_not_acceptable",thermal={"max_millidegree_c":90000,"sustained_seconds":500})
- blocked("stable_ac_required",power={"ac_online":False,"charging_state":"discharging"})
- blocked("network_not_stable",network={"stability":"unstable"})
+ blocked("stable_ac_required",power={"ac_online":False,"charging_state":"discharging","ac_stable_seconds":0})
+ blocked("stable_ac_required",power={"ac_online":True,"charging_state":"charging","ac_stable_seconds":5})
+ blocked("network_not_stable",network={"stability":"unstable","stability_seconds":0})
+ blocked("network_not_stable",network={"stability":"stable","stability_seconds":5})
  blocked("session_inhibitor_present",session={"inhibitors":["sleep:blocked"]})
  blocked("disk_headroom_unconfirmed",maintenance={"enough_disk":False})
  blocked("recovery_prerequisites_unready",maintenance={"recovery_prerequisites":False})

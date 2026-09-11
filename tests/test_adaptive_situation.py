@@ -20,13 +20,13 @@ def envelope(data, observed="2026-09-11T23:59:30Z"):
 def main() -> None:
     observations = {
         "power": envelope({"supplies": [
-            {"type": "Mains", "online": False},
+            {"type": "Mains", "online": False, "stable_seconds": 600},
             {"type": "Battery", "present": True, "capacity_percent": 34, "status": "Discharging"},
         ]}),
         "thermal": envelope({"max_millidegree_c": 81234, "sustained_seconds": 90, "trend": "rising"}),
         "session": envelope({"locked": True, "lock_dwell_seconds": 1800, "idle_seconds": 1900, "recent_input_seconds": 1900}),
         "workload": envelope({"probable_compile": True, "interactive": False, "confidence": 0.92, "evidence": ["compiler-tree", "sustained-cpu"]}),
-        "network": envelope({"connectivity": "online", "default_route": True, "reachable": True, "stability": "stable"}),
+        "network": envelope({"connectivity": "online", "default_route": True, "reachable": True, "stability": "stable", "stability_seconds": 600}),
         "maintenance": envelope({"transaction_state": "PREPARED", "pending": True, "staged": True, "prepared": True, "recovery_prerequisites": True, "in_critical_section": False, "interruption_safe": True, "enough_disk": True}),
         "guardian": envelope({"active_incident": False, "severity_level": 0, "recovery_in_progress": False, "unresolved_reliability": False}),
         "user_intent": envelope({"power_mode": "balanced", "dnd": False, "explicit_maintenance": False, "foreground_performance": False, "adaptation_opt_outs": []}),

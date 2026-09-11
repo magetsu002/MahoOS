@@ -104,6 +104,7 @@ class PowerSituation:
     charging_state: str
     drain_trend: str
     severity_band: str
+    ac_stable_seconds: float | str
     age_seconds: float | str
     freshness: str
 
@@ -154,6 +155,7 @@ class NetworkSituation:
     stability: str
     metered: bool | str
     recent_transition: str
+    stability_seconds: float | str
     age_seconds: float | str
     freshness: str
 
@@ -252,7 +254,7 @@ def _power(data: Mapping[str, Any], age: float | str, freshness: str) -> PowerSi
             severity = "LOW"
         else:
             severity = "NORMAL"
-    return PowerSituation(ac_online, battery_present, percentage, status_lower, trend, severity, age, freshness)
+    return PowerSituation(ac_online, battery_present, percentage, status_lower, trend, severity, _number(data.get("ac_stable_seconds"), low=0), age, freshness)
 
 
 def _thermal(data: Mapping[str, Any], age: float | str, freshness: str) -> ThermalSituation:
@@ -312,6 +314,7 @@ def _network(data: Mapping[str, Any], age: float | str, freshness: str) -> Netwo
         _text(data.get("stability"), {"stable", "unstable"}),
         _bool(data.get("metered")),
         _text(data.get("recent_transition")),
+        _number(data.get("stability_seconds"), low=0),
         age,
         freshness,
     )

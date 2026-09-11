@@ -10,6 +10,7 @@ from maho_adaptive_proposal import AdaptationProposal, Effect, ExpiryCondition, 
 from maho_adaptive_situation import SituationSnapshot, UNKNOWN
 
 POLICY_VERSION = "1.0"
+AC_RECOVERY_DWELL_SECONDS = 20
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,10 @@ def assess_battery(snapshot: SituationSnapshot) -> BatteryAssessment:
         evidence.append(f"drain-trend={p.drain_trend}")
 
     if p.ac_online is True or p.charging_state in {"charging", "full"}:
+        if p.ac_stable_seconds == UNKNOWN or float(p.ac_stable_seconds) < AC_RECOVERY_DWELL_SECONDS:
+            evidence.append(f"ac-stable-seconds={p.ac_stable_seconds}")
+            return BatteryAssessment("UNKNOWN", 0.0, tuple(evidence), "external power has not been stable long enough to release battery pressure")
+        evidence.append(f"ac-stable-seconds={p.ac_stable_seconds}")
         return BatteryAssessment("NORMAL", 0.98, tuple(evidence), "stable external power removes battery-survival pressure")
     if percentage <= 7:
         band = "CRITICAL"

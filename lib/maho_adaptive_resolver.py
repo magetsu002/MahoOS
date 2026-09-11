@@ -77,7 +77,11 @@ def _current(snapshot: SituationSnapshot) -> dict[str, str]:
 def _eligible(snapshot: SituationSnapshot, proposals: Iterable[AdaptationProposal]) -> tuple[list[AdaptationProposal], list[tuple[str, str]]]:
     accepted: list[AdaptationProposal] = []
     rejected: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for proposal in sorted(proposals, key=lambda item: item.proposal_id):
+        if proposal.proposal_id in seen:
+            continue
+        seen.add(proposal.proposal_id)
         if proposal.situation_snapshot_id != snapshot.snapshot_id:
             rejected.append((proposal.proposal_id, "snapshot-mismatch"))
             continue
