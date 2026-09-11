@@ -1,0 +1,134 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+BASE="/usr/lib/maho/l3-campaign"
+ACTION="${1:-status}"
+FILES=(
+  config/platform.json
+  lib/maho_recovery_generation.py
+  lib/maho_recovery_discovery.py
+  lib/maho_system_restore.py
+  lib/maho_system_restore_evidence.py
+  lib/maho_system_restore_journal.py
+  lib/maho_system_restore_provider.py
+  lib/maho_system_restore_transaction.py
+  lib/maho_system_restore_preparation.py
+  lib/maho_system_restore_host.py
+  lib/maho_system_restore_runtime.py
+  lib/maho_system_restore_campaign.py
+  bin/maho-l3-campaign
+)
+
+fail() {
+  echo "maho-l3-campaign-install: $*" >&2
+  exit 1
+}
+
+require_root() {
+  (( EUID == 0 )) || fail "root privileges are required for install"
+}
+
+source_revision() {
+  git -c safe.directory="$ROOT" -C "$ROOT" rev-parse HEAD
+}
+
+verify_source() {
+  local rev="$1" file
+  [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || fail "source revision is not a full SHA"
+  git -c safe.directory="$ROOT" -C "$ROOT" diff --quiet HEAD -- "${FILES[@]}" \
+    || fail "campaign source files have unstaged changes"
+  git -c safe.directory="$ROOT" -C "$ROOT" diff --cached --quiet HEAD -- "${FILES[@]}" \
+    || fail "campaign source files have staged changes"
+  for file in "${FILES[@]}"; do
+    [ -f "$ROOT/$file" ] || fail "missing campaign source: $file"
+    git -c safe.directory="$ROOT" -C "$ROOT" cat-file -e "$rev:$file" \
+      || fail "campaign source is not committed at $rev: $file"
+    git -c safe.directory="$ROOT" -C "$ROOT" show "$rev:$file" \
+      | cmp -s - "$ROOT/$file" \
+      || fail "campaign source differs from committed $rev: $file"
+  done
+}
+
+verify_install() {
+  local dest="$1" rev="$2" file
+  [ -d "$dest" ] || fail "installed payload missing: $dest"
+  [ "$(cat "$dest/SOURCE_REVISION" 2>/dev/null || true)" = "$rev" ] \
+    || fail "installed revision marker mismatch"
+  for file in "${FILES[@]}"; do
+    cmp -s "$ROOT/$file" "$dest/$file" \
+      || fail "installed payload differs: $file"
+  done
+  [ "$(stat -c '%U:%G' "$dest")" = "root:root" ] || fail "payload root is not root-owned"
+  [ -z "$(find "$dest" -maxdepth 0 -perm /022 -print -quit)" ] || fail "payload root is group/world writable"
+}
+
+install_command() {
+  require_root
+  command -v git >/dev/null || fail "git is unavailable"
+  command -v cmp >/dev/null || fail "cmp is unavailable"
+  local rev dest stage file mode link_tmp
+  rev="$(source_revision)"
+  verify_source "$rev"
+  dest="$BASE/$rev"
+  install -d -m 755 -o root -g root "$BASE"
+
+  if [ ! -e "$dest" ]; then
+    stage="$BASE/.stage-$rev-$$"
+    rm -rf -- "$stage"
+    install -d -m 755 -o root -g root "$stage"
+    trap 'rm -rf -- "$stage"' EXIT
+    for file in "${FILES[@]}"; do
+      mode=644
+      [[ "$file" == bin/* ]] && mode=755
+      install -Dm"$mode" -o root -g root "$ROOT/$file" "$stage/$file"
+    done
+    printf '%s\n' "$rev" > "$stage/SOURCE_REVISION"
+    chown root:root "$stage/SOURCE_REVISION"
+    chmod 0444 "$stage/SOURCE_REVISION"
+    mv -- "$stage" "$dest"
+    trap - EXIT
+  fi
+
+  verify_install "$dest" "$rev"
+  link_tmp="$BASE/.current.$$"
+  rm -f -- "$link_tmp"
+  ln -s "$rev" "$link_tmp"
+  mv -Tf -- "$link_tmp" "$BASE/current"
+  "$dest/bin/maho-l3-campaign" --help >/dev/null
+  echo "PASS  root-owned L3 campaign payload installed"
+  echo "Revision: $rev"
+  echo "Command:  $BASE/current/bin/maho-l3-campaign"
+}
+
+status_command() {
+  local target dest rev owner
+  if [ ! -L "$BASE/current" ]; then
+    echo "MahoOS L3 campaign payload: not installed"
+    return 1
+  fi
+  target="$(readlink "$BASE/current")"
+  [[ "$target" =~ ^[0-9a-f]{40}$ ]] || fail "current payload symlink is invalid"
+  dest="$BASE/$target"
+  [ -d "$dest" ] || fail "current payload target is missing"
+  rev="$(cat "$dest/SOURCE_REVISION" 2>/dev/null || true)"
+  [ "$rev" = "$target" ] || fail "current payload revision marker mismatch"
+  owner="$(stat -c '%U:%G' "$dest")"
+  [ "$owner" = "root:root" ] || fail "current payload is not root-owned"
+  [ -z "$(find "$dest" -maxdepth 0 -perm /022 -print -quit)" ] \
+    || fail "current payload root is group/world writable"
+  [ -x "$dest/bin/maho-l3-campaign" ] || fail "campaign command is missing"
+  echo "MahoOS L3 campaign payload"
+  echo "Revision: $rev"
+  echo "Path:     $dest"
+  echo "Owner:    $owner"
+}
+
+case "$ACTION" in
+  install) install_command ;;
+  status) status_command ;;
+  *)
+    echo "usage: maho-l3-campaign-install [install|status]" >&2
+    exit 2
+    ;;
+esac

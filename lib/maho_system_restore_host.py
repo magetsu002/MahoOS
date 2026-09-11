@@ -44,17 +44,22 @@ class SystemHostBackend:
         if args[:4] == ("snapper", "-c", "root", "create"):
             if len(args) != 10 or args[4:7] != ("--read-only", "--print-number", "--description") or args[8] != "--userdata":
                 return False
-            prefix = "Maho L3 emergency backup "
-            if not args[7].startswith(prefix):
-                return False
-            txid = args[7][len(prefix):]
-            if not _TXID.fullmatch(txid):
-                return False
-            expected_userdata = (
-                "important=yes,maho.known_good=yes,maho.restore_backup=yes,"
-                f"maho.transaction={txid}"
-            )
-            return args[9] == expected_userdata
+            descriptions = {
+                "Maho L3 emergency backup ": "maho.restore_backup=yes",
+                "Maho L3 native target ": "maho.l3_target=yes",
+            }
+            for prefix, role in descriptions.items():
+                if not args[7].startswith(prefix):
+                    continue
+                txid = args[7][len(prefix):]
+                if not _TXID.fullmatch(txid):
+                    return False
+                expected_userdata = (
+                    f"important=yes,maho.known_good=yes,{role},"
+                    f"maho.transaction={txid}"
+                )
+                return args[9] == expected_userdata
+            return False
         if len(args) == 6 and args[:3] == ("findmnt", "--json", "--target"):
             return args[3] == "/home" and args[4:] == ("--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID")
         if len(args) == 4 and args[:3] == ("btrfs", "subvolume", "show"):
@@ -247,6 +252,27 @@ class SystemPreparationOps:
     @property
     def manifest_path(self) -> Path:
         return self.boot_root / self.machine_id / "limine_history" / "snapshots.json"
+
+    def create_known_good_target(self, transaction_id: str) -> int:
+        if self.backend.euid() != 0:
+            raise PermissionError("L3 target snapshot creation requires root")
+        if not _TXID.fullmatch(transaction_id):
+            raise ValueError("invalid L3 transaction id")
+        description = f"Maho L3 native target {transaction_id}"
+        userdata = (
+            "important=yes,maho.known_good=yes,maho.l3_target=yes,"
+            f"maho.transaction={transaction_id}"
+        )
+        result = self.backend.run((
+            "snapper", "-c", "root", "create",
+            "--read-only", "--print-number",
+            "--description", description,
+            "--userdata", userdata,
+        ))
+        value = result.stdout.strip()
+        if result.returncode != 0 or not re.fullmatch(r"[1-9][0-9]*", value):
+            raise RuntimeError("Snapper did not create one bounded L3 target snapshot")
+        return int(value)
 
     def create_emergency_snapshot(self, transaction_id: str) -> int:
         if self.backend.euid() != 0:

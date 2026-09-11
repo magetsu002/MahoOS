@@ -132,9 +132,15 @@ def main() -> None:
     backend = FakeBackend(manifest_text=text, artifacts=files)
     ops = make_ops(backend)
 
+    target_created = ops.create_known_good_target(TX)
+    check("root host creates one exact native target", target_created == SID)
+    target_cmd = backend.commands[0]
+    check("native target is forced read-only", "--read-only" in target_cmd)
+    check("native target is transaction-bound", f"Maho L3 native target {TX}" in target_cmd and any(f"maho.transaction={TX}" in part for part in target_cmd))
+
     created = ops.create_emergency_snapshot(TX)
     check("root host creates one exact emergency snapshot", created == SID)
-    create_cmd = backend.commands[0]
+    create_cmd = backend.commands[1]
     check("emergency snapshot is forced read-only", "--read-only" in create_cmd)
     check("emergency snapshot description is transaction-bound", f"Maho L3 emergency backup {TX}" in create_cmd)
     check("emergency snapshot userdata is transaction-bound", any(f"maho.transaction={TX}" in part for part in create_cmd))
@@ -186,6 +192,14 @@ def main() -> None:
         "--userdata", f"important=yes,maho.known_good=yes,maho.restore_backup=yes,maho.transaction={TX}",
     )
     check("system host allows exact bounded create command", SystemHostBackend._allowed(allowed_create))
+    allowed_target = (
+        "snapper", "-c", "root", "create", "--read-only", "--print-number",
+        "--description", f"Maho L3 native target {TX}",
+        "--userdata", f"important=yes,maho.known_good=yes,maho.l3_target=yes,maho.transaction={TX}",
+    )
+    check("system host allows exact bounded target command", SystemHostBackend._allowed(allowed_target))
+    wrong_target_role = allowed_target[:-1] + (f"important=yes,maho.known_good=yes,maho.restore_backup=yes,maho.transaction={TX}",)
+    check("target command cannot masquerade as backup", not SystemHostBackend._allowed(wrong_target_role))
     check("system host refuses rollback command", not SystemHostBackend._allowed(("snapper", "-c", "root", "rollback", "349")))
     check("system host refuses writable snapshot mutation", not SystemHostBackend._allowed(("btrfs", "property", "set", "-ts", "/.snapshots/400/snapshot", "ro", "false")))
     check("system host refuses arbitrary subvolume inspection", not SystemHostBackend._allowed(("btrfs", "subvolume", "show", "/etc")))
