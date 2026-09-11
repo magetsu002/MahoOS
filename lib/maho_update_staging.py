@@ -289,6 +289,14 @@ def stage_transaction(
     availability = backend.run(backend.availability_command(targets))
     available = _parse_availability(availability.stdout) if availability.returncode == 0 else {}
     missing = [item["name"] for item in packages if available.get(item["name"]) != item["candidate_version"]]
+    extras = sorted(set(available) - {item["name"] for item in packages})
+    if extras:
+        blocked = transition_transaction(
+            current, UpdateState.BLOCKED,
+            blockers=[f"package_solver_drift:{name}" for name in extras],
+            reason="dependency solver output differs from the discovered full transaction", now=now,
+        )
+        return StagingResult(blocked, None, requirement, free, resumed, ())
     if missing:
         blocked = transition_transaction(
             current, UpdateState.BLOCKED,

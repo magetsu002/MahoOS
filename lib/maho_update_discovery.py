@@ -80,8 +80,15 @@ class IsolatedPacmanDiscovery:
         )
 
     @property
-    def upgrades_command(self) -> tuple[str, ...]:
-        return (PACMAN, "--query", "--upgrades", "--dbpath", str(self.db))
+    def installed_command(self) -> tuple[str, ...]:
+        return (PACMAN, "--query", "--dbpath", str(self.db))
+
+    @property
+    def transaction_command(self) -> tuple[str, ...]:
+        return (
+            PACMAN, "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v",
+            "--dbpath", str(self.db),
+        )
 
     def info_command(self, names: Sequence[str]) -> tuple[str, ...]:
         if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
@@ -90,7 +97,7 @@ class IsolatedPacmanDiscovery:
 
     def _allowed(self, command: Sequence[str]) -> bool:
         argv = tuple(command)
-        if argv in {self.refresh_command, self.upgrades_command}:
+        if argv in {self.refresh_command, self.installed_command, self.transaction_command}:
             return True
         prefix = (PACMAN, "--sync", "--info", "--dbpath", str(self.db), "--")
         return argv[: len(prefix)] == prefix and len(argv) > len(prefix) and all(
@@ -137,6 +144,18 @@ def parse_upgrades(output: str) -> list[tuple[str, str, str]]:
         seen.add(name)
         candidates.append((name, installed, candidate))
     return candidates
+
+
+def parse_name_versions(output: str, *, separator: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        fields = line.strip().split(separator)
+        if len(fields) != 2 or _PACKAGE.fullmatch(fields[0]) is None or not fields[1] or fields[0] in result:
+            raise ValueError(f"ambiguous Pacman package identity output: {line!r}")
+        result[fields[0]] = fields[1]
+    return result
 
 
 def parse_sync_info(output: str) -> dict[str, dict[str, Any]]:
@@ -208,10 +227,19 @@ def discover_updates(
     refreshed = backend.run(backend.refresh_command)
     if refreshed.returncode != 0:
         raise RuntimeError(f"isolated synchronization failed: {refreshed.stderr.strip()}")
-    queried = backend.run(backend.upgrades_command)
-    if queried.returncode not in {0, 1}:
-        raise RuntimeError(f"isolated update comparison failed: {queried.stderr.strip()}")
-    candidates = parse_upgrades(queried.stdout)
+    installed_result = backend.run(backend.installed_command)
+    if installed_result.returncode != 0:
+        raise RuntimeError(f"installed package comparison failed: {installed_result.stderr.strip()}")
+    installed = parse_name_versions(installed_result.stdout, separator=" ")
+    planned_result = backend.run(backend.transaction_command)
+    if planned_result.returncode not in {0, 1}:
+        raise RuntimeError(f"isolated full-upgrade solver failed: {planned_result.stderr.strip()}")
+    planned = parse_name_versions(planned_result.stdout, separator="\t")
+    candidates = [
+        (name, installed.get(name, "<not-installed>"), version)
+        for name, version in sorted(planned.items())
+        if installed.get(name) != version
+    ]
     if not candidates:
         raise LookupError("no coherent update candidates were discovered")
     metadata_result = backend.run(backend.info_command([item[0] for item in candidates]))

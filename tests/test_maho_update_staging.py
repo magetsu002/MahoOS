@@ -44,15 +44,18 @@ def transaction() -> dict:
 
 
 class FakePacman:
-    def __init__(self, cache: Path, *, missing: str | None = None, download_error: bool = False, incomplete: bool = False) -> None:
+    def __init__(self, cache: Path, *, missing: str | None = None, download_error: bool = False, incomplete: bool = False, extra_dependency: bool = False) -> None:
         self.cache = cache
         self.missing = missing
         self.download_error = download_error
         self.incomplete = incomplete
+        self.extra_dependency = extra_dependency
 
     def __call__(self, command) -> CommandResult:
         if "--print" in command:
             rows = [("linux-cachyos", "7.2"), ("maho-os", "4.1")]
+            if self.extra_dependency:
+                rows.append(("new-dependency", "1"))
             return CommandResult(0, "".join(f"{name}\t{version}\n" for name, version in rows if name != self.missing))
         if "--downloadonly" in command:
             if self.download_error:
@@ -106,6 +109,10 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="maho-update-staging-missing-") as temporary:
         result = stage_transaction(transaction(), backend(Path(temporary), missing="maho-os"), available_bytes=1024**3, now=NOW)
         check("disappeared package blocks exact generation", result.transaction["state"] == "BLOCKED" and "package_unavailable:maho-os" in result.transaction["blockers"])
+
+    with tempfile.TemporaryDirectory(prefix="maho-update-staging-drift-") as temporary:
+        result = stage_transaction(transaction(), backend(Path(temporary), extra_dependency=True), available_bytes=1024**3, now=NOW)
+        check("new dependency after discovery blocks solver drift", result.transaction["state"] == "BLOCKED" and "package_solver_drift:new-dependency" in result.transaction["blockers"])
 
     with tempfile.TemporaryDirectory(prefix="maho-update-staging-net-") as temporary:
         result = stage_transaction(transaction(), backend(Path(temporary), download_error=True), available_bytes=1024**3, now=NOW)
