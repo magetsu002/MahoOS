@@ -171,3 +171,125 @@ def plan_system_restore(
         automatic_allowed=False,
         blockers=tuple(blockers),
     )
+
+
+@dataclass(frozen=True)
+class SystemRestorePreparationPlan:
+    schema_version: int
+    generation_id: str
+    snapshot_id: int
+    provider_command: str
+    provider_package: str
+    provider_version: str
+    root_filesystem_uuid: str
+    expected_kernel_sha256: str
+    expected_initramfs_sha256: str
+    ready: bool
+    restore_authorized: bool
+    blockers: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def plan_system_restore_preparation(
+    report: RecoveryGenerationReport,
+    generation_id: str,
+    policy: Mapping[str, Any],
+    provider_evidence: Mapping[str, Any],
+) -> SystemRestorePreparationPlan:
+    blockers: list[str] = []
+    generation = _generation(report, generation_id)
+    if generation is None:
+        raise ValueError(f"unknown recovery generation: {generation_id}")
+
+    platform = report.current_platform
+    recovery_policy = _mapping(policy.get("recovery"))
+    expected_provider = _mapping(recovery_policy.get("system_restore_provider"))
+
+    if platform.get("recovery_overlay_active") is True:
+        blockers.append("normal_root_required")
+    if platform.get("root_fstype") != "btrfs":
+        blockers.append("root_not_btrfs")
+    if platform.get("root_fsroot") != "/@":
+        blockers.append("live_root_not_at")
+    if platform.get("root_filesystem_uuid") != generation.root_filesystem_uuid:
+        blockers.append("root_filesystem_mismatch")
+    if platform.get("home_scope") != "excluded":
+        blockers.append("personal_data_scope_not_excluded")
+    if generation.eligible is not True:
+        blockers.append("target_generation_not_eligible")
+    if generation.known_good is not True:
+        blockers.append("generation_not_known_good")
+    if generation.snapshot.read_only is not True:
+        blockers.append("snapshot_not_read_only")
+    if generation.home_scope != "excluded":
+        blockers.append("generation_personal_data_scope_not_excluded")
+    if generation.boot_state_coherent is not True:
+        blockers.append("boot_state_not_coherent")
+    if generation.boot.files_verified is not True:
+        blockers.append("boot_files_unverified")
+    if generation.boot.artifacts_coherent is not True:
+        blockers.append("boot_artifacts_not_coherent")
+    if generation.boot.recovery_overlay_flagged is not True:
+        blockers.append("recovery_overlay_flag_unverified")
+
+    provider_path = provider_evidence.get("path")
+    provider_package = provider_evidence.get("package")
+    provider_version = provider_evidence.get("version")
+    provider_mode = provider_evidence.get("mode")
+    if provider_path != expected_provider.get("command"):
+        blockers.append("provider_command_mismatch")
+    if provider_package != expected_provider.get("package"):
+        blockers.append("provider_package_mismatch")
+    if provider_version != expected_provider.get("version"):
+        blockers.append("provider_version_uncertified")
+    if provider_evidence.get("uid") != 0:
+        blockers.append("provider_not_root_owned")
+    if provider_evidence.get("regular_file") is not True:
+        blockers.append("provider_not_regular_file")
+    if not isinstance(provider_mode, int) or provider_mode & 0o022:
+        blockers.append("provider_permissions_unsafe")
+    if provider_evidence.get("package_owns_command") is not True:
+        blockers.append("provider_package_ownership_mismatch")
+    if provider_evidence.get("package_files_ok") is not True:
+        blockers.append("provider_package_integrity_failed")
+
+    provider_config = _mapping(provider_evidence.get("config"))
+    expected_config = {
+        "RESTORE_METHOD": "replace",
+        "ROOT_SUBVOLUME_PATH": "/@",
+        "SET_SNAPSHOT_AS_DEFAULT": "no",
+        "SNAPSHOT_WRITABLE": "no",
+        "SNAPPER_CONFIG_NAME": generation.snapshot.config_name,
+        "FS_UUID": generation.root_filesystem_uuid,
+    }
+    for key, expected in expected_config.items():
+        if provider_config.get(key) != expected:
+            blockers.append(f"provider_config_{key.lower()}_mismatch")
+    cmdline = _tokens(provider_evidence.get("cmdline"))
+    if "maho.recovery_snapshot=1" in cmdline:
+        blockers.append("recovery_kernel_flag_present_on_normal_boot")
+
+    kernel_hash = generation.boot.kernel_sha256_expected or ""
+    initramfs_hash = generation.boot.initramfs_sha256_expected or ""
+    if not kernel_hash or generation.boot.kernel_sha256_observed != kernel_hash:
+        blockers.append("kernel_hash_not_verified")
+    if not initramfs_hash or generation.boot.initramfs_sha256_observed != initramfs_hash:
+        blockers.append("initramfs_hash_not_verified")
+
+    blockers = list(dict.fromkeys(blockers))
+    return SystemRestorePreparationPlan(
+        schema_version=1,
+        generation_id=generation_id,
+        snapshot_id=generation.snapshot.snapshot_id,
+        provider_command=str(expected_provider.get("command") or ""),
+        provider_package=str(expected_provider.get("package") or ""),
+        provider_version=str(expected_provider.get("version") or ""),
+        root_filesystem_uuid=generation.root_filesystem_uuid or "",
+        expected_kernel_sha256=kernel_hash,
+        expected_initramfs_sha256=initramfs_hash,
+        ready=not blockers,
+        restore_authorized=False,
+        blockers=tuple(blockers),
+    )

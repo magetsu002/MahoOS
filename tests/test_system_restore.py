@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_recovery_generation import BootEvidence, RecoveryGeneration, RecoveryGenerationReport, SnapshotEvidence  # noqa: E402
-from maho_system_restore import plan_system_restore  # noqa: E402
+from maho_system_restore import plan_system_restore, plan_system_restore_preparation  # noqa: E402
 
 FSUUID = "11111111-2222-3333-4444-555555555555"
 GID = "g3-0123456789abcdef01234567"
@@ -118,7 +118,36 @@ def provider(**changes):
     return base
 
 
+def preparation_report(**changes) -> RecoveryGenerationReport:
+    base_generation = generation(
+        snapshot=replace(generation().snapshot, active=False),
+        root_source="/dev/mapper/maho-root[/@]",
+        root_fsroot="/@",
+        evidence_complete=True,
+        eligible=True,
+        rejection_reasons=(),
+        verification_status="known-good",
+    )
+    base = report(base_generation)
+    normal_platform = {
+        **base.current_platform,
+        "root_fsroot": "/@",
+        "recovery_overlay_active": False,
+        "current_snapshot_id": None,
+    }
+    return replace(base, current_platform=normal_platform, **changes)
+
+
 def main() -> None:
+    prep_provider = provider(cmdline=f"root=UUID={FSUUID} rw rootflags=subvol=@")
+    prep = plan_system_restore_preparation(preparation_report(), GID, POLICY, prep_provider)
+    check("normal live root may prepare an exact known-good recovery target", prep.ready and not prep.blockers)
+    check("preparation never authorizes restore execution", prep.restore_authorized is False)
+    check("recovery OverlayFS cannot masquerade as preparation phase", "normal_root_required" in plan_system_restore_preparation(report(), GID, POLICY, provider()).blockers)
+    check("non-eligible target cannot be prepared", "target_generation_not_eligible" in plan_system_restore_preparation(preparation_report(generations=(generation(),)), GID, POLICY, prep_provider).blockers)
+    flagged_normal = provider(cmdline=f"root=UUID={FSUUID} rw rootflags=subvol=@ maho.recovery_snapshot=1")
+    check("normal preparation rejects recovery kernel flag", "recovery_kernel_flag_present_on_normal_boot" in plan_system_restore_preparation(preparation_report(), GID, POLICY, flagged_normal).blockers)
+
     ready = plan_system_restore(report(), GID, POLICY, provider())
     check("exact recovery generation is native-campaign ready", ready.campaign_ready and not ready.blockers)
     check("uncertified source never claims production restore", ready.production_enabled is False)
