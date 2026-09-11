@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 from pathlib import Path
@@ -83,7 +84,7 @@ def marker_paths(transaction_id: str, home: Path) -> tuple[Path, Path]:
     if home.parent != Path("/home"):
         raise ValueError("invalid campaign home path")
     root_marker = Path("/var/lib/maho/l3-campaign") / f"{transaction_id}.root-marker"
-    home_marker = home / ".local/state/maho/l3-campaign" / f"{transaction_id}.home-marker"
+    home_marker = home / ".maho-l3-campaign" / f"{transaction_id}.home-marker"
     return root_marker, home_marker
 
 
@@ -93,6 +94,21 @@ def _seed_path(machine_id: str, transaction_id: str, boot_root: Path = Path("/bo
     if not _TXID.fullmatch(transaction_id):
         raise ValueError("invalid L3 transaction id")
     return boot_root / machine_id / "maho/recovery/seeds" / f"{transaction_id}.json"
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    fd = os.open(path, flags)
+    try:
+        try:
+            os.fsync(fd)
+        except OSError as exc:
+            if exc.errno not in {errno.EINVAL, errno.EOPNOTSUPP}:
+                raise
+    finally:
+        os.close(fd)
 
 
 def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
@@ -109,6 +125,44 @@ def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     finally:
         os.close(fd)
     os.replace(temp, path)
+    _fsync_directory(path.parent)
+
+
+def _write_marker(path: Path, text: str, *, uid: int, gid: int) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        data = text.encode("utf-8")
+        offset = 0
+        while offset < len(data):
+            offset += os.write(fd, data[offset:])
+        os.fchown(fd, uid, gid)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _fsync_directory(path.parent)
+
+
+def _prepare_marker_directories(home: Path, user: Any) -> tuple[Path, Path]:
+    if home.is_symlink() or not home.is_dir():
+        raise RuntimeError("campaign home is not a real directory")
+    root_dir = Path("/var/lib/maho/l3-campaign")
+    root_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    if root_dir.is_symlink() or not root_dir.is_dir():
+        raise RuntimeError("root campaign marker directory is unsafe")
+    os.chmod(root_dir, 0o700)
+
+    home_dir = home / ".maho-l3-campaign"
+    if home_dir.is_symlink():
+        raise RuntimeError("home campaign marker directory cannot be a symlink")
+    home_dir.mkdir(mode=0o700, exist_ok=True)
+    if home_dir.is_symlink() or not home_dir.is_dir():
+        raise RuntimeError("home campaign marker directory is unsafe")
+    os.chown(home_dir, user.pw_uid, user.pw_gid)
+    os.chmod(home_dir, 0o700)
+    return root_dir, home_dir
 
 def _validate_seed(payload: Mapping[str, Any]) -> dict[str, Any]:
     data = dict(payload)
@@ -127,6 +181,13 @@ def _validate_seed(payload: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"invalid L3 seed {key}")
     if not re.fullmatch(r"[0-9a-f]{40}", data["source_revision"]):
         raise ValueError("invalid L3 seed source revision")
+    user = data["home_user"]
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,31}", user):
+        raise ValueError("invalid L3 seed home user")
+    expected_root = f"/var/lib/maho/l3-campaign/{txid}.root-marker"
+    expected_home = f"/home/{user}/.maho-l3-campaign/{txid}.home-marker"
+    if data["root_marker"] != expected_root or data["home_marker"] != expected_home:
+        raise ValueError("L3 seed marker paths are not transaction-bound")
     return data
 
 
@@ -138,6 +199,19 @@ def _read_seed(path: Path) -> dict[str, Any]:
     if path.stem != seed["transaction_id"] or path.suffix != ".json":
         raise ValueError("L3 seed path does not match transaction id")
     return seed
+
+
+def _markers_complete(seed: Mapping[str, Any]) -> bool:
+    return Path(str(seed["root_marker"])).is_file() and Path(str(seed["home_marker"])).is_file()
+
+
+def _marker_blockers(seed: Mapping[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    if Path(str(seed["root_marker"])).exists():
+        blockers.append("root_marker_survived_restore")
+    if not Path(str(seed["home_marker"])).is_file():
+        blockers.append("home_marker_missing_after_restore")
+    return blockers
 
 
 def _seed_blockers(report: Any) -> tuple[str, ...]:
@@ -185,12 +259,12 @@ def seed_campaign(
     snapshot_uuid = host.snapshot_uuid(snapshot_id)
 
     root_marker, home_marker = marker_paths(txid, home)
-    root_marker.parent.mkdir(parents=True, exist_ok=True)
-    home_marker.parent.mkdir(parents=True, exist_ok=True)
-    root_marker.write_text(f"root marker {txid}\n", encoding="utf-8")
-    home_marker.write_text(f"home marker {txid}\n", encoding="utf-8")
     user = pwd.getpwnam(home.name)
-    os.chown(home_marker, user.pw_uid, user.pw_gid)
+    root_dir, home_dir = _prepare_marker_directories(home, user)
+    if root_marker.parent != root_dir or home_marker.parent != home_dir:
+        raise RuntimeError("campaign marker directories are not exact")
+    _write_marker(root_marker, f"root marker {txid}\n", uid=0, gid=0)
+    _write_marker(home_marker, f"home marker {txid}\n", uid=user.pw_uid, gid=user.pw_gid)
 
     seed = _validate_seed({
         "schema_version": _SCHEMA,
@@ -225,7 +299,7 @@ def prepare_campaign(
         raise RuntimeError("L3 source revision drifted after seed")
     if seed["generation_id"] != generation_id:
         raise RuntimeError("requested generation differs from seeded target")
-    if not Path(seed["root_marker"]).is_file() or not Path(seed["home_marker"]).is_file():
+    if not _markers_complete(seed):
         raise RuntimeError("native campaign markers are incomplete")
 
     policy = _policy(root)
@@ -357,11 +431,7 @@ def verify_campaign(
     if journal["phase"] != "restored-awaiting-reboot":
         raise RuntimeError("L3 transaction is not awaiting postboot verification")
 
-    marker_blockers: list[str] = []
-    if Path(seed["root_marker"]).exists():
-        marker_blockers.append("root_marker_survived_restore")
-    if not Path(seed["home_marker"]).is_file():
-        marker_blockers.append("home_marker_missing_after_restore")
+    marker_blockers = _marker_blockers(seed)
     if marker_blockers:
         failed = _fail_marker_verification(jpath, marker_blockers)
         return {
