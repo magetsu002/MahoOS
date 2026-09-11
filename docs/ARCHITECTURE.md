@@ -58,8 +58,27 @@ replacement process, verifies that it remains healthy, and records the result.
 `maho-setup` builds immutable runtime releases and switches the active release
 through a managed pointer. The previous verified runtime is kept for recovery.
 
+Mutations must be verifiable and reversible.
+
 User services are managed by systemd. Hyprland session startup and shutdown are
 owned by Maho session tooling rather than ad-hoc autostart commands.
+
+## Guardian delegated service recovery
+
+Guardian observes short-lived systemd user-service failures from structured
+journal manager events. A durable journal cursor prevents a 300-second
+reconciliation interval from missing a roughly two-second restart, while exact
+manager message IDs, unit names, boot IDs, and invocation IDs prevent ordinary
+application logs from creating incidents.
+
+`maho-notify.service` has one exact product-owned contract: systemd-user owns
+`Restart=on-failure`; Guardian owns incident identity, correlation, severity,
+stability verification, history, and escalation. Guardian does not issue a
+competing restart. Recovery is successful only when a different invocation is
+still `active/running` after the bounded verification interval.
+If systemd does not produce that replacement within the bounded provider
+window, the incident remains visible and becomes diagnosis-only; Guardian does
+not bypass start limits with another restart.
 
 ## Theme data
 

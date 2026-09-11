@@ -9,7 +9,11 @@ FocusScope {
     height: 1000
     focus: true
 
-    readonly property real uiScale: Math.max(0.78, Math.min(1.18,
+    // SDDM's X11 greeter reports this HiDPI panel as unscaled physical pixels,
+    // while the Hyprland preview renders at the compositor's 1.6 logical scale.
+    // Scale from the accepted 1600x1000 logical composition without the old
+    // 1.18 ceiling so both native hosts produce the same physical geometry.
+    readonly property real uiScale: Math.max(0.78, Math.min(2.4,
         Math.min(width / 1600, height / 1000)))
     readonly property color textPrimary: Qt.rgba(0.973, 0.984, 1.0, 0.98)
     readonly property color textSecondary: Qt.rgba(0.957, 0.976, 1.0, 0.94)
@@ -33,6 +37,18 @@ FocusScope {
     property bool authenticating: false
     property string errorText: ""
     property date now: new Date()
+    property var sessionNames: []
+    property bool sessionFeedback: false
+    readonly property string currentSessionName:
+        sessionNames[sessionIndex] || "Session"
+    readonly property int keyboardLayoutCount:
+        keyboard.enabled ? keyboard.layouts.length : 0
+    readonly property string keyboardLayoutName: {
+        if (keyboardLayoutCount <= 0)
+            return "US"
+        const layout = keyboard.layouts[keyboard.currentLayout]
+        return layout && layout.shortName ? String(layout.shortName) : "US"
+    }
 
     function submit() {
         if (passwordInput.text.length === 0 || authenticating)
@@ -44,6 +60,26 @@ FocusScope {
 
     function reclaimFocus() {
         Qt.callLater(function() { passwordInput.forceActiveFocus() })
+    }
+
+    function rememberSession(index, name) {
+        const next = sessionNames.slice(0)
+        next[index] = String(name || "Session")
+        sessionNames = next
+    }
+
+    function chooseNextSession() {
+        if (sessionNames.length > 1)
+            sessionIndex = (sessionIndex + 1) % sessionNames.length
+        sessionFeedback = true
+        sessionFeedbackTimer.restart()
+        reclaimFocus()
+    }
+
+    function chooseNextKeyboardLayout() {
+        if (keyboardLayoutCount > 1)
+            keyboard.currentLayout = (keyboard.currentLayout + 1) % keyboardLayoutCount
+        reclaimFocus()
     }
 
     Component.onCompleted: reclaimFocus()
@@ -87,6 +123,22 @@ FocusScope {
         running: true
         triggeredOnStart: true
         onTriggered: root.now = new Date()
+    }
+
+    Timer {
+        id: sessionFeedbackTimer
+        interval: 1500
+        repeat: false
+        onTriggered: root.sessionFeedback = false
+    }
+
+    Repeater {
+        model: sessionModel
+        delegate: Item {
+            width: 0
+            height: 0
+            Component.onCompleted: root.rememberSession(index, model.name)
+        }
     }
 
     FontLoader {
@@ -156,27 +208,69 @@ FocusScope {
         }
     }
 
-    Row {
+    Item {
+        id: keyboardControl
+        visible: root.keyboardLayoutCount > 1
         anchors.top: parent.top
-        anchors.topMargin: 34 * root.uiScale
+        anchors.topMargin: 22 * root.uiScale
         anchors.right: parent.right
-        anchors.rightMargin: 30 * root.uiScale
-        spacing: 7 * root.uiScale
+        anchors.rightMargin: 22 * root.uiScale
+        width: keyboardStatusRow.implicitWidth + 20 * root.uiScale
+        height: 42 * root.uiScale
+        scale: keyboardPointer.pressed
+            ? 0.955
+            : (keyboardPointer.containsMouse ? 1.025 : 1)
 
-        MahoSddmIcon {
-            width: 18 * root.uiScale
-            height: 18 * root.uiScale
-            anchors.verticalCenter: parent.verticalCenter
-            name: "keyboard"
+        Behavior on scale {
+            NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
         }
 
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: "US"
-            color: root.textPrimary
-            font.pixelSize: 15 * root.uiScale
-            font.family: root.uiFont
-            font.weight: Font.DemiBold
+        Rectangle {
+            anchors.fill: parent
+            radius: height / 2
+            color: keyboardPointer.pressed
+                ? Qt.rgba(1, 1, 1, 0.105)
+                : (keyboardPointer.containsMouse
+                    ? Qt.rgba(1, 1, 1, 0.056)
+                    : "transparent")
+            border.width: keyboardPointer.containsMouse ? Math.max(1, root.uiScale) : 0
+            border.color: Qt.rgba(1, 1, 1, 0.095)
+
+            Behavior on color {
+                ColorAnimation { duration: 125; easing.type: Easing.OutCubic }
+            }
+        }
+
+        Row {
+            id: keyboardStatusRow
+            anchors.centerIn: parent
+            spacing: 7 * root.uiScale
+
+            MahoSddmIcon {
+                width: 18 * root.uiScale
+                height: 18 * root.uiScale
+                anchors.verticalCenter: parent.verticalCenter
+                name: "keyboard"
+                iconOpacity: keyboardPointer.containsMouse ? 1 : 0.90
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.keyboardLayoutName
+                color: root.textPrimary
+                font.pixelSize: 15 * root.uiScale
+                font.family: root.uiFont
+                font.weight: Font.DemiBold
+            }
+        }
+
+        MouseArea {
+            id: keyboardPointer
+            anchors.fill: parent
+            enabled: root.keyboardLayoutCount > 1
+            hoverEnabled: true
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: root.chooseNextKeyboardLayout()
         }
     }
 
@@ -279,22 +373,9 @@ FocusScope {
                 cache: true
                 smooth: true
                 mipmap: true
-                visible: false
-            }
-
-            Rectangle {
-                id: avatarMask
-                anchors.fill: avatarImage
-                radius: width / 2
-                color: "white"
-                visible: false
-            }
-
-            OpacityMask {
-                anchors.fill: avatarImage
-                source: avatarImage
-                maskSource: avatarMask
-                visible: root.avatarAvailable && avatarImage.status === Image.Ready
+                visible: root.avatarAvailable && status === Image.Ready
+                sourceSize.width: Math.max(1024, Math.ceil(width * 6))
+                sourceSize.height: Math.max(1024, Math.ceil(height * 6))
             }
 
             Rectangle {
@@ -417,15 +498,48 @@ FocusScope {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 36 * root.uiScale
                     height: 36 * root.uiScale
+                    scale: eyePointer.pressed ? 0.88 : (eyePointer.containsMouse ? 1.08 : 1)
+
+                    Behavior on scale {
+                        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: eyePointer.pressed
+                            ? Qt.rgba(1, 1, 1, 0.105)
+                            : (eyePointer.containsMouse
+                                ? Qt.rgba(1, 1, 1, 0.065)
+                                : "transparent")
+
+                        Behavior on color {
+                            ColorAnimation { duration: 120; easing.type: Easing.OutCubic }
+                        }
+                    }
 
                     MahoSddmIcon {
                         anchors.centerIn: parent
                         width: 20 * root.uiScale
                         height: 20 * root.uiScale
                         name: "eye"
+                        iconOpacity: root.passwordVisible
+                            ? 0
+                            : (eyePointer.containsMouse ? 0.98 : 0.88)
+                    }
+
+                    MahoSddmIcon {
+                        anchors.centerIn: parent
+                        width: 20 * root.uiScale
+                        height: 20 * root.uiScale
+                        name: "eye-off"
+                        iconOpacity: root.passwordVisible
+                            ? (eyePointer.containsMouse ? 1 : 0.92)
+                            : 0
                     }
 
                     MouseArea {
+                        id: eyePointer
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
@@ -445,13 +559,26 @@ FocusScope {
                 width: 232 * root.uiScale
                 height: 60 * root.uiScale
                 radius: height / 2
+                scale: loginPointer.pressed ? 0.975 : (loginPointer.containsMouse ? 1.012 : 1)
                 color: loginPointer.pressed
                     ? Qt.rgba(0.804, 0.910, 1.000, 0.32)
                     : (loginPointer.containsMouse
                         ? Qt.rgba(0.804, 0.910, 1.000, 0.29)
                         : Qt.rgba(0.804, 0.910, 1.000, 0.26))
                 border.width: Math.max(1, height / 60)
-                border.color: Qt.rgba(0.882, 0.953, 1.000, 0.50)
+                border.color: loginPointer.containsMouse
+                    ? Qt.rgba(0.882, 0.953, 1.000, 0.62)
+                    : Qt.rgba(0.882, 0.953, 1.000, 0.50)
+
+                Behavior on scale {
+                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                }
+                Behavior on color {
+                    ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                }
+                Behavior on border.color {
+                    ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                }
 
                 Rectangle {
                     anchors.fill: parent
@@ -500,125 +627,50 @@ FocusScope {
         }
     }
 
-    Rectangle {
+    MahoSddmActionButton {
         id: sleepButton
         anchors.left: parent.left
         anchors.leftMargin: 36 * root.uiScale
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 30 * root.uiScale
-        width: 128 * root.uiScale
-        height: 52 * root.uiScale
-        radius: height / 2
-        color: sleepPointer.containsMouse
-            ? Qt.rgba(0.031, 0.106, 0.227, 0.26)
-            : Qt.rgba(0.031, 0.106, 0.227, 0.20)
-        border.width: 1
-        border.color: Qt.rgba(0.90, 0.97, 1.0, 0.18)
-
-        Row {
-            anchors.centerIn: parent
-            spacing: 14 * root.uiScale
-
-            MahoSddmIcon {
-                width: 20 * root.uiScale
-                height: 20 * root.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                name: "power"
-            }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Sleep"
-                color: root.textPrimary
-                font.pixelSize: 13 * root.uiScale
-                font.family: root.uiFont
-                font.weight: Font.DemiBold
-            }
-        }
-
-        MouseArea {
-            id: sleepPointer
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: sddm.suspend()
-        }
+        uiScale: root.uiScale
+        controlWidth: 128
+        iconName: "power"
+        label: "Sleep"
+        fontFamily: root.uiFont
+        enabled: sddm.canSuspend
+        onTriggered: sddm.suspend()
     }
 
-    Rectangle {
+    MahoSddmActionButton {
+        id: sessionButton
+        visible: root.sessionNames.length > 1
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 30 * root.uiScale
-        width: 176 * root.uiScale
-        height: 52 * root.uiScale
-        radius: height / 2
-        color: Qt.rgba(0.031, 0.106, 0.227, 0.23)
-        border.width: 1
-        border.color: Qt.rgba(0.90, 0.97, 1.0, 0.20)
-
-        Row {
-            anchors.centerIn: parent
-            spacing: 9 * root.uiScale
-
-            MahoSddmIcon {
-                width: 18 * root.uiScale
-                height: 18 * root.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                name: "session"
-            }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Hyprland"
-                color: root.textPrimary
-                font.pixelSize: 13 * root.uiScale
-                font.family: root.uiFont
-                font.weight: Font.DemiBold
-            }
-        }
+        uiScale: root.uiScale
+        controlWidth: 176
+        iconName: "session"
+        label: root.sessionFeedback
+            ? root.currentSessionName + " selected"
+            : root.currentSessionName
+        fontFamily: root.uiFont
+        enabled: root.sessionNames.length > 1
+        onTriggered: root.chooseNextSession()
     }
 
-    Rectangle {
+    MahoSddmActionButton {
+        id: restartButton
         anchors.right: parent.right
         anchors.rightMargin: 36 * root.uiScale
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 30 * root.uiScale
-        width: 128 * root.uiScale
-        height: 52 * root.uiScale
-        radius: height / 2
-        color: restartPointer.containsMouse
-            ? Qt.rgba(0.031, 0.106, 0.227, 0.26)
-            : Qt.rgba(0.031, 0.106, 0.227, 0.20)
-        border.width: 1
-        border.color: Qt.rgba(0.90, 0.97, 1.0, 0.18)
-
-        Row {
-            anchors.centerIn: parent
-            spacing: 14 * root.uiScale
-
-            MahoSddmIcon {
-                width: 20 * root.uiScale
-                height: 20 * root.uiScale
-                anchors.verticalCenter: parent.verticalCenter
-                name: "restart"
-            }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Restart"
-                color: root.textPrimary
-                font.pixelSize: 13 * root.uiScale
-                font.family: root.uiFont
-                font.weight: Font.DemiBold
-            }
-        }
-
-        MouseArea {
-            id: restartPointer
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: sddm.reboot()
-        }
+        uiScale: root.uiScale
+        controlWidth: 128
+        iconName: "restart"
+        label: "Restart"
+        fontFamily: root.uiFont
+        enabled: sddm.canReboot
+        onTriggered: sddm.reboot()
     }
 }

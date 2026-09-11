@@ -18,6 +18,7 @@ Item {
             ? String(candidates[candidateIndex])
             : ""
     readonly property bool ready: artwork.status === Image.Ready
+    readonly property bool candidatesExhausted: candidateIndex >= candidates.length
 
     function appendUnique(output, value) {
         const text = value === undefined || value === null ? "" : String(value).trim()
@@ -88,15 +89,13 @@ Item {
         }
     }
 
-    // Unmatched running windows intentionally receive a quiet neutral glyph,
-    // not a synthetic app tile pretending to be real artwork.
-    Text {
+    // A real app icon always wins. Missing and broken artwork both converge on
+    // one crisp, palette-neutral vector instead of toolkit error artwork.
+    MahoFallbackAppGlyph {
         anchors.centerIn: parent
-        visible: !root.ready && root.candidates.length === 0
-        text: "◇"
-        color: Qt.rgba(1, 1, 1, 0.72)
-        font.family: "Inter"
-        font.pixelSize: Math.round(Math.min(root.width, root.height) * 0.54)
-        font.weight: Font.Light
+        width: Math.round(Math.min(root.width, root.height) * 0.66)
+        height: width
+        visible: !root.ready && root.candidatesExhausted
+        glyphColor: Qt.rgba(1, 1, 1, 0.76)
     }
 }

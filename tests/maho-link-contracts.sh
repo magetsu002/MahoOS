@@ -230,7 +230,7 @@ PY
 echo "PASS"
 
 echo "=== password transport stays off argv ==="
-printf 'correct horse battery staple\n' | PATH="$TMP/bin:$PATH" python "$BACKEND" action connect Ashraf4G >"$TMP/connect.json"
+printf 'correct horse battery staple\n' | PATH="$TMP/bin:$PATH" python "$BACKEND" action connect Maho-Test-No-Saved-Profile >"$TMP/connect.json"
 python - "$TMP/connect.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -241,6 +241,8 @@ if grep -Fq 'correct horse battery staple' "$FAKE_NMCLI_LOG"; then
     fail "Wi-Fi password leaked into nmcli argv"
 fi
 grep -Fxq 'correct horse battery staple' "$FAKE_NMCLI_STDIN" || fail "Wi-Fi password was not delivered over stdin"
+require_text "$BACKEND" 'security.set_property("psk", password)' "saved Wi-Fi profiles can still ignore newly entered passwords"
+require_text "$BACKEND" 'connection.commit_changes(True, None)' "updated Wi-Fi passwords are not persisted through NetworkManager"
 echo "PASS"
 
 echo "=== deterministic BlueZ ObjectManager snapshot ==="

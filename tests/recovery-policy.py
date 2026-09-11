@@ -65,59 +65,137 @@ check(
 )
 
 check(
+    "userspace recovery refuses unknown personal-data scope",
+    {
+        "failure": {"domain": "system-userspace", "graphical_available": True},
+        "availability": {"root_snapshot": True},
+    },
+    action="open-recovery-console",
+    scope="diagnostic",
+    automatic_allowed=True,
+    preserves_personal_files=False,
+    surface="graphical-recovery",
+)
+
+check(
     "runtime activation transaction may rollback automatically",
     {
-        "failure": {"domain": "maho-runtime", "transaction_in_progress": True, "graphical_available": True},
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "confirmed",
+            "transaction_in_progress": True,
+            "graphical_available": True,
+        },
         "availability": {"previous_runtime_verified": True},
     },
-    action="rollback-maho-runtime",
+    action="rollback-previous",
     scope="maho-runtime",
     requires_confirmation=False,
     automatic_allowed=True,
     preserves_personal_files=True,
+    target="previous-runtime",
+    provider="maho-runtime",
+    recovery_mode="transactional",
 )
 
 check(
     "post-transaction runtime rollback asks first",
     {
-        "failure": {"domain": "maho-runtime", "transaction_in_progress": False, "graphical_available": False},
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "confirmed",
+            "transaction_in_progress": False,
+            "graphical_available": False,
+        },
         "availability": {"previous_runtime_verified": True},
     },
-    action="rollback-maho-runtime",
+    action="rollback-previous",
     requires_confirmation=True,
     automatic_allowed=False,
     surface="text-console",
+    provider="maho-runtime",
+    recovery_mode="transactional",
 )
 
 check(
-    "single safe service crash is silent",
+    "unconfirmed runtime domain fails closed even with a previous runtime",
+    {
+        "failure": {
+            "domain": "maho-runtime",
+            "domain_confidence": "high",
+            "transaction_in_progress": True,
+        },
+        "availability": {"previous_runtime_verified": True},
+    },
+    action="open-recovery-console",
+    scope="diagnostic",
+    automatic_allowed=True,
+)
+
+check(
+    "missing runtime confidence fails closed",
+    {
+        "failure": {"domain": "maho-runtime", "transaction_in_progress": True},
+        "availability": {"previous_runtime_verified": True},
+    },
+    action="open-recovery-console",
+    scope="diagnostic",
+)
+
+check(
+    "certified Maho Notify failure delegates recovery to systemd-user",
     {
         "failure": {"domain": "service", "graphical_available": True},
-        "service": {"name": "maho-notify.service", "consecutive_failures": 1, "restart_safe": True},
+        "service": {"name": "maho-notify.service", "consecutive_failures": 1, "restart_safe": False},
     },
-    action="restart-service",
+    action="observe-service-recovery",
+    target="maho-notify.service",
     scope="service",
     automatic_allowed=True,
-    surface="silent",
+    surface="incident",
+    provider="systemd-user",
+    recovery_mode="delegated",
 )
 
 check(
-    "repeated service crashes become one incident",
+    "second Maho Notify invocation remains a delegated event, not a threshold",
+    {
+        "failure": {"domain": "service", "graphical_available": True},
+        "service": {"name": "maho-notify.service", "consecutive_failures": 2},
+    },
+    action="observe-service-recovery",
+    automatic_allowed=True,
+)
+
+check(
+    "runtime crash counters do not revoke or grant provider certification",
     {
         "failure": {"domain": "service", "graphical_available": True},
         "service": {"name": "maho-notify.service", "consecutive_failures": 3, "restart_safe": True},
     },
-    action="diagnose-service-incident",
+    action="observe-service-recovery",
     surface="incident",
 )
 
 check(
-    "unsafe service never gets automatic restart",
+    "external service cannot self-certify automatic restart",
     {
         "failure": {"domain": "service"},
-        "service": {"name": "external.service", "consecutive_failures": 1, "restart_safe": False},
+        "service": {"name": "external.service", "consecutive_failures": 1, "restart_safe": True},
     },
     action="diagnose-service-incident",
+    automatic_allowed=True,
+    target="external.service",
+)
+
+check(
+    "exhausted delegated provider becomes diagnosis only",
+    {
+        "failure": {"domain": "service"},
+        "service": {"name": "maho-notify.service", "provider_recovery_unresolved": True},
+    },
+    action="diagnose-service-incident",
+    automatic_allowed=True,
 )
 
 check(
@@ -133,7 +211,6 @@ check(
     surface="text-console",
 )
 
-# A stable JSON representation is useful for future Recovery/Guardian projection.
 sample = decide_recovery({"failure": {"domain": "unknown"}}).as_dict()
 encoded = json.dumps(sample, sort_keys=True, separators=(",", ":"))
 assert json.loads(encoded) == sample

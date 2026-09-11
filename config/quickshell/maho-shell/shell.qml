@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Wayland
 
 ShellRoot {
     id: root
@@ -17,6 +18,31 @@ ShellRoot {
     DockState { id: dock }
     NotifyStatus { id: notifyBridge }
     BluetoothAutoConnect { }
+
+    GuardianBackdropPulse {
+        id: guardianBackdropPulse
+    }
+
+    GuardianOverlay {
+        id: guardianOverlay
+        onCatastrophicLocked: root.handleGuardianCatastrophicLocked()
+    }
+
+    function handleGuardianCatastrophicLocked() {
+        guardianBackdropPulse.trigger()
+        guardianCatastrophicHookTimer.restart()
+    }
+
+    Timer {
+        id: guardianCatastrophicHookTimer
+        interval: 700
+        repeat: false
+        onTriggered: {
+            const hook = Quickshell.env("MAHO_GUARDIAN_CATASTROPHIC_HOOK")
+            if (hook !== "")
+                Quickshell.execDetached([hook])
+        }
+    }
 
     property bool expanded: false
     property bool closing: false

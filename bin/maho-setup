@@ -10,6 +10,9 @@ RUNTIME_ROOT="$DATA_HOME/maho/runtime"
 RELEASES="$RUNTIME_ROOT/releases"
 CURRENT="$RUNTIME_ROOT/current"
 PREVIOUS="$RUNTIME_ROOT/previous"
+GUARDIAN_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
+RUNTIME_RECOVERY_ENGINE="$ROOT/lib/guardian_runtime_recovery.py"
+RUNTIME_RELEASE_VERIFIER="$ROOT/lib/maho_runtime_release.py"
 MARKER="# managed-by: maho-setup v3"
 V2_MARKER="# managed-by: maho-setup v2"
 V1_MARKER="# managed-by: maho-setup v1"
@@ -23,12 +26,12 @@ FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
 
 COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
-  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard
+  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-clipboard
-  maho-clipboard-history maho-setup
+  maho-clipboard-history maho-lock-sddm-install maho-setup
 )
-CORE_UNITS=(maho-observe.service maho-security.service)
+CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 GRAPHICAL_UNITS=(
   maho-awww-daemon.service
   maho-wallpaper.service
@@ -251,6 +254,8 @@ preflight() {
   python_parse_only \
     "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" "$ROOT/lib/security_incident.py" \
     "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
+    "$ROOT/lib/guardian_service_incident.py" "$ROOT/lib/guardian_service_watcher.py" \
+    "$ROOT/lib/guardian_runtime_recovery.py" "$ROOT/lib/maho_runtime_release.py" \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
@@ -259,7 +264,7 @@ preflight() {
     "$ROOT/lib/decision.sh" "$ROOT/lib/policy.sh" "$ROOT/lib/cycle.sh" "$ROOT/lib/transaction.sh" \
     "$ROOT/adapters/appearance/wallpaper-theme.sh" >/dev/null 2>&1 || { echo "FAIL  shared shell syntax"; failed=1; }
   [ "$failed" -eq 0 ] && echo "PASS  preflight"
-  for name in quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
+  for name in journalctl quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
   return "$failed"
 }
 
@@ -275,14 +280,15 @@ validate_targets() {
 }
 
 build_release() {
-  local stage hash final revision provenance dir native_build
+  local stage hash final revision provenance dir native_build source_key
   mkdir -p "$RELEASES"; stage="$RELEASES/.staging-$$"; mkdir -m 0755 "$stage"
   for dir in bin lib adapters config theme systemd share apps; do [ -e "$ROOT/$dir" ] && cp -a -- "$ROOT/$dir" "$stage/$dir"; done
   find "$stage" -type d -name __pycache__ -prune -exec rm -rf -- {} +
   find "$stage" -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.qmlls.ini' \) -delete
 
   if [ ! -x "$stage/apps/maho-files/prebuilt/maho-files" ]; then
-    native_build="${XDG_CACHE_HOME:-$HOME/.cache}/maho/files-release-build"
+    source_key="$(printf '%s\n' "$ROOT/apps/maho-files" | sha256sum | awk '{print $1}')"
+    native_build="${XDG_CACHE_HOME:-$HOME/.cache}/maho/files-release-build-$source_key"
     if ! cmake -S "$ROOT/apps/maho-files" -B "$native_build" -G Ninja -DCMAKE_BUILD_TYPE=Release >&2 ||
        ! cmake --build "$native_build" --parallel >&2; then
       rm -rf -- "$stage"
@@ -481,27 +487,181 @@ wire_ownership() {
   systemctl --user daemon-reload
 }
 
+runtime_activation_health() {
+  local release="$1" observed release_json release_ok=0 current_ok=0 wiring_ok=0
+  observed="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  [ "$observed" = "$release" ] && current_ok=1
+  if release_json="$(python "$RUNTIME_RELEASE_VERIFIER" "$release" --releases-root "$RELEASES" 2>/dev/null)"; then
+    release_ok=1
+  else
+    release_json="${release_json:-{}}"
+  fi
+  status >/dev/null 2>&1 && wiring_ok=1
+  python - "$release" "$observed" "$release_json" "$current_ok" "$release_ok" "$wiring_ok" <<'PY_RUNTIME_HEALTH'
+import json
+import sys
+
+expected, observed, raw = sys.argv[1:4]
+try:
+    verification = json.loads(raw)
+except Exception:
+    verification = {"verified": False, "reasons": ["verification_output_invalid"]}
+current_ok = sys.argv[4] == "1"
+release_ok = sys.argv[5] == "1" and verification.get("verified") is True
+wiring_ok = sys.argv[6] == "1"
+print(json.dumps({
+    "version": 1,
+    "kind": "maho-runtime-activation-health",
+    "expected_runtime": expected,
+    "observed_runtime": observed or None,
+    "current_matches_expected": current_ok,
+    "release": verification,
+    "release_verified": release_ok,
+    "managed_wiring_matches_current": wiring_ok,
+    "healthy": current_ok and release_ok and wiring_ok,
+}, sort_keys=True, separators=(",", ":")))
+PY_RUNTIME_HEALTH
+  [ "$current_ok" -eq 1 ] && [ "$release_ok" -eq 1 ] && [ "$wiring_ok" -eq 1 ]
+}
+
 install_runtime() (
   set -e
-  local release old="" tx committed=0 rc
+  local release old="" tx committed=0 rc transaction_id recovery_incident="" health_file begin_json
+  local reload_verified=1 wiring_verified=0 observed_current="" finish_json verified
+  local activation_started=0 activation_stage="prepared"
   preflight; validate_targets; release="$(build_release)"
   [ -L "$CURRENT" ] && old="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
   tx="$RUNTIME_ROOT/.transaction-$$"; snapshot_all "$tx"
+  transaction_id="runtime-activation-$(python -c 'import uuid; print(uuid.uuid4().hex)')"
+  health_file="$tx/activation-health.json"
+  begin_runtime_recovery() {
+    [ -n "$recovery_incident" ] && return 0
+    [ "$activation_started" -eq 1 ] || return 0
+    [ -n "$old" ] && [ -d "$old" ] && [ "$old" != "$release" ] || return 0
+    if [ ! -s "$health_file" ]; then
+      python - "$health_file" "$activation_stage" "$release" "$(readlink -f -- "$CURRENT" 2>/dev/null || true)" "${1:-1}" <<'PY_RUNTIME_ABORT'
+import json,sys
+from pathlib import Path
+path,stage,expected,observed,rc=sys.argv[1:]
+Path(path).write_text(json.dumps({
+    "version":1,
+    "kind":"maho-runtime-activation-failure",
+    "healthy":False,
+    "stage":stage,
+    "expected_runtime":expected,
+    "observed_runtime":observed or None,
+    "transaction_exit_code":int(rc),
+}, sort_keys=True, separators=(",", ":")) + "\n")
+PY_RUNTIME_ABORT
+    fi
+    begin_json="$(python "$RUNTIME_RECOVERY_ENGINE" \
+      --state-root "$GUARDIAN_STATE_ROOT" --releases-root "$RELEASES" \
+      begin --transaction-id "$transaction_id" --failed "$release" --replacement "$old" \
+      --failure-evidence "$health_file" 2>/dev/null || true)"
+    recovery_incident="$(python - "$begin_json" <<'PY_RUNTIME_BEGIN_HELPER'
+import json,sys
+try: print(str(json.loads(sys.argv[1]).get("incident_id") or ""))
+except Exception: print("")
+PY_RUNTIME_BEGIN_HELPER
+)"
+  }
   rollback_exit() {
     rc=$?; [ "$committed" -eq 1 ] && return "$rc"; set +e
+    begin_runtime_recovery "$rc"
     if [ -n "$old" ] && [ -d "$old" ]; then atomic_link "$old" "$CURRENT" >/dev/null 2>&1; else rm -f -- "$CURRENT"; fi
-    restore_all "$tx"; systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true; rm -rf -- "$tx"; return "$rc"
+    restore_all "$tx"
+    reload_verified=1
+    if systemd_available; then
+      systemctl --user daemon-reload >/dev/null 2>&1 || reload_verified=0
+    fi
+    if [ -n "$recovery_incident" ]; then
+      wiring_verified=0; status >/dev/null 2>&1 && wiring_verified=1
+      observed_current="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+      finish_args=(
+        python "$RUNTIME_RECOVERY_ENGINE"
+        --state-root "$GUARDIAN_STATE_ROOT"
+        --releases-root "$RELEASES"
+        finish --incident-id "$recovery_incident"
+        --observed-current "${observed_current:-$CURRENT}"
+      )
+      [ "$wiring_verified" -eq 1 ] && finish_args+=(--wiring-verified)
+      [ "$reload_verified" -eq 1 ] && finish_args+=(--systemd-reload-verified)
+      finish_json="$("${finish_args[@]}" 2>/dev/null || true)"
+      verified="$(python - "$finish_json" <<'PY_RUNTIME_FINISH'
+import json,sys
+try: print("1" if json.loads(sys.argv[1]).get("verified") is True else "0")
+except Exception: print("0")
+PY_RUNTIME_FINISH
+)"
+      if [ "$verified" = 1 ]; then
+        echo "PASS  Guardian verified restoration of the pre-activation Maho runtime" >&2
+      else
+        echo "WARN  Guardian could not verify the runtime rollback postcondition" >&2
+      fi
+    fi
+    rm -rf -- "$tx"
+    return "$rc"
   }
   trap rollback_exit EXIT
   [ -n "$old" ] && [ "$old" != "$release" ] && atomic_link "$old" "$PREVIOUS"
-  atomic_link "$release" "$CURRENT"; wire_runtime
+  activation_stage="switch-runtime"
+  atomic_link "$release" "$CURRENT"
+  activation_started=1
+  activation_stage="wire-runtime"
+  wire_runtime
+  activation_stage="wire-ownership"
   if systemd_available; then wire_ownership; else echo "INFO  systemd user manager unavailable; ownership wiring deferred"; fi
+  activation_stage="desktop-database"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true
+  activation_stage="health-verification"
+  if ! runtime_activation_health "$release" >"$health_file"; then
+    begin_runtime_recovery 1
+    die "activated runtime failed bounded health verification"
+    return 1
+  fi
   committed=1; rm -rf -- "$tx"; trap - EXIT
+  supersede_json="$(python "$RUNTIME_RECOVERY_ENGINE" \
+    --state-root "$GUARDIAN_STATE_ROOT" --releases-root "$RELEASES" \
+    supersede --current-runtime "$release" 2>/dev/null || true)"
+  superseded_count="$(python - "$supersede_json" <<'PY_RUNTIME_SUPERSEDE'
+import json,sys
+try: print(int(json.loads(sys.argv[1]).get("count") or 0))
+except Exception: print(0)
+PY_RUNTIME_SUPERSEDE
+)"
+  [ "$superseded_count" -gt 0 ] && echo "INFO  Guardian archived $superseded_count superseded runtime incident(s)"
   echo "PASS  runtime $CURRENT -> $release"
+  if MAHO_ROOT="$CURRENT" bash "$CURRENT/bin/maho-wallpaper-session" prepare; then
+    echo "PASS  selected wallpaper boot asset prepared"
+  else
+    echo "WARN  selected video boot poster could not be prepared" >&2
+  fi
   echo "INFO  running graphical services were not restarted"
   echo "INFO  activate the new graphical runtime with: maho-session stop && maho-session start"
 )
+
+install_sddm() {
+  local account runtime installer
+
+  [ "$(id -u)" -ne 0 ] || {
+    die "run maho-setup as the desktop user; --with-sddm requests root only for the SDDM files"
+    return 1
+  }
+  command -v sudo >/dev/null 2>&1 || {
+    die "--with-sddm requires sudo"
+    return 1
+  }
+  runtime="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  [ -n "$runtime" ] && [ -d "$runtime" ] || {
+    die "installed runtime is unavailable for SDDM integration"
+    return 1
+  }
+  installer="$runtime/bin/maho-lock-sddm-install"
+  account="$(id -un)"
+
+  sudo env MAHO_SDDM_USER="$account" bash "$installer" install
+  sudo env MAHO_SDDM_USER="$account" bash "$installer" status
+}
 
 status() {
   local failed=0 name
@@ -543,7 +703,21 @@ uninstall() {
 }
 
 case "${1:-}" in
-  install) shift; case "${1:-}" in ""|--adopt-live) ;; *) die "unknown install option: $1"; exit 2 ;; esac; install_runtime ;;
+  install)
+    shift
+    with_sddm=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --adopt-live) ;;
+        --with-sddm) with_sddm=1 ;;
+        *) die "unknown install option: $1"; exit 2 ;;
+      esac
+      shift
+    done
+    [ "$with_sddm" -eq 0 ] || bash "$ROOT/bin/maho-lock-sddm-install" preflight
+    install_runtime
+    [ "$with_sddm" -eq 0 ] || install_sddm
+    ;;
   preflight) preflight ;;
   status) status ;;
   rollback) rollback ;;
@@ -553,7 +727,7 @@ Maho OS durable V1 runtime setup
 
 Usage:
   bash bin/maho-setup preflight
-  bash bin/maho-setup install [--adopt-live]
+  bash bin/maho-setup install [--adopt-live] [--with-sddm]
   maho-setup status
   maho-setup rollback
   maho-setup uninstall
@@ -569,6 +743,8 @@ preserved and the managed Notify wrapper explicitly uses the immutable runtime
 configuration.
 
 --adopt-live is retained for compatibility and does not bypass validation.
+--with-sddm explicitly installs and verifies the persistent Maho Lock greeter
+without restarting SDDM or the current graphical session.
 HELP
   ;;
 esac

@@ -15,7 +15,6 @@ Item {
     property int workspaceEventSerial: 0
     property date now: new Date()
     property bool hovered: hitArea.containsMouse
-
     readonly property string mode:
         brightness && brightness.overlayOpen ? "brightness"
         : audio && audio.overlayOpen ? "volume"

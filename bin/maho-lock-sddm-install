@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 THEME_SOURCE="$ROOT/config/sddm/maho-lock"
 LOCK_ASSETS="$ROOT/config/quickshell/maho-lock/assets"
+LOCK_ICONS="$ROOT/config/quickshell/maho-lock/icons"
 
 THEME_ROOT="${MAHO_SDDM_THEME_ROOT:-/usr/share/sddm/themes}"
 CONFIG_ROOT="${MAHO_SDDM_CONFIG_ROOT:-/etc/sddm.conf.d}"
@@ -76,20 +77,48 @@ for key in ("wallpaperPath", "avatarPath"):
 PY_PROFILE
 }
 
+round_avatar() {
+    local account="$1" source="$2" target="$3"
+    local -a command=(
+        magick "$source"
+        -auto-orient
+        -thumbnail '1024x1024^'
+        -gravity center
+        -extent 1024x1024
+        '(' -size 1024x1024 xc:none
+            -fill white -draw 'circle 512,512 512,0' ')'
+        -alpha off -compose CopyOpacity -composite
+        png:-
+    )
+
+    # Avatar files are user-selected input. When setup runs through sudo,
+    # decode them with the invoking user's privileges and let only the shell's
+    # root-owned redirection write into the protected theme stage.
+    if [ "$(id -u)" -eq 0 ] && [ "$account" != root ]; then
+        runuser -u "$account" -- "${command[@]}" > "$target"
+    else
+        "${command[@]}" > "$target"
+    fi
+}
+
 preflight() {
     local failed=0 dependency file
 
-    for dependency in python getent awk install cp mv; do
+    for dependency in python getent awk install cp mv magick runuser; do
         command -v "$dependency" >/dev/null 2>&1 \
             && printf 'PASS  dependency %-14s %s\n' "$dependency" "$(command -v "$dependency")" \
             || { printf 'FAIL  dependency %-14s missing\n' "$dependency"; failed=1; }
     done
 
-    for file in Main.qml MahoSddmIcon.qml metadata.desktop theme.conf; do
+    for file in Main.qml MahoSddmIcon.qml MahoSddmActionButton.qml metadata.desktop theme.conf; do
         [ -r "$THEME_SOURCE/$file" ] \
             && say "PASS  theme source $file" \
             || { say "FAIL  theme source $file"; failed=1; }
     done
+
+    grep -Fxq 'QtVersion=6' "$THEME_SOURCE/metadata.desktop" \
+        && say "PASS  SDDM Qt 6 greeter selection" \
+        || { say "FAIL  SDDM theme does not select the Qt 6 greeter"; failed=1; }
 
     [ -r "$LOCK_ASSETS/maho-lock-dusk.jpg" ] \
         && say "PASS  fallback wallpaper" \
@@ -98,11 +127,22 @@ preflight() {
         && say "PASS  rounded typography asset" \
         || { say "FAIL  rounded typography asset"; failed=1; }
 
+    for file in lock.svg eye.svg eye-off.svg power.svg keyboard.svg; do
+        [ -r "$LOCK_ICONS/$file" ] \
+            && say "PASS  shared vector icon $file" \
+            || { say "FAIL  shared vector icon $file"; failed=1; }
+    done
+    for file in restart.svg session.svg; do
+        [ -r "$THEME_SOURCE/icons/$file" ] \
+            && say "PASS  SDDM vector icon $file" \
+            || { say "FAIL  SDDM vector icon $file"; failed=1; }
+    done
+
     return "$failed"
 }
 
 build_theme() {
-    local stage="$1" account home wallpaper avatar avatar_available=false
+    local stage="$1" account home wallpaper avatar avatar_available=false icon
     local -a assets
 
     account="$(invoking_user)"
@@ -111,12 +151,19 @@ build_theme() {
     wallpaper="${assets[0]:-}"
     avatar="${assets[1]:-}"
 
-    mkdir -p "$stage/assets"
+    mkdir -p "$stage/assets/icons"
     install -m 0644 "$THEME_SOURCE/Main.qml" "$stage/Main.qml"
     install -m 0644 "$THEME_SOURCE/MahoSddmIcon.qml" "$stage/MahoSddmIcon.qml"
+    install -m 0644 "$THEME_SOURCE/MahoSddmActionButton.qml" "$stage/MahoSddmActionButton.qml"
     install -m 0644 "$THEME_SOURCE/metadata.desktop" "$stage/metadata.desktop"
     install -m 0644 "$THEME_SOURCE/theme.conf" "$stage/theme.conf"
     install -m 0644 "$LOCK_ASSETS/Nunito-Variable.ttf" "$stage/assets/Nunito-Variable.ttf"
+    for icon in lock.svg eye.svg eye-off.svg power.svg keyboard.svg; do
+        install -m 0644 "$LOCK_ICONS/$icon" "$stage/assets/icons/$icon"
+    done
+    for icon in restart.svg session.svg; do
+        install -m 0644 "$THEME_SOURCE/icons/$icon" "$stage/assets/icons/$icon"
+    done
 
     if [ -n "$wallpaper" ] && [ -f "$wallpaper" ] && [ -r "$wallpaper" ]; then
         install -m 0644 "$wallpaper" "$stage/assets/wallpaper"
@@ -127,7 +174,8 @@ build_theme() {
     fi
 
     if [ -n "$avatar" ] && [ -f "$avatar" ] && [ -r "$avatar" ]; then
-        install -m 0644 "$avatar" "$stage/assets/avatar"
+        round_avatar "$account" "$avatar" "$stage/assets/avatar.png"
+        chmod 0644 "$stage/assets/avatar.png"
         avatar_available=true
         say "PASS  staged selected avatar $avatar" >&2
     else
@@ -217,7 +265,7 @@ install_theme() {
 }
 
 status() {
-    local failed=0
+    local failed=0 icon
 
     if managed_theme; then
         say "PASS  managed SDDM theme $THEME_TARGET"
@@ -239,6 +287,33 @@ status() {
     [ -r "$THEME_TARGET/Main.qml" ] \
         && say "PASS  SDDM greeter entrypoint" \
         || { say "FAIL  SDDM greeter entrypoint"; failed=1; }
+    [ -r "$THEME_TARGET/MahoSddmActionButton.qml" ] \
+        && say "PASS  SDDM interactive action component" \
+        || { say "FAIL  SDDM interactive action component"; failed=1; }
+    grep -Fq 'Math.min(2.4' "$THEME_TARGET/Main.qml" \
+        && say "PASS  SDDM HiDPI composition policy" \
+        || { say "FAIL  SDDM HiDPI composition policy"; failed=1; }
+    if grep -Fq 'id: eyePointer' "$THEME_TARGET/Main.qml" \
+        && grep -Fq 'visible: root.keyboardLayoutCount > 1' "$THEME_TARGET/Main.qml" \
+        && grep -Fq 'visible: root.sessionNames.length > 1' "$THEME_TARGET/Main.qml"; then
+        say "PASS  SDDM live interaction guards"
+    else
+        say "FAIL  SDDM live interaction guards"
+        failed=1
+    fi
+    for icon in lock.svg eye.svg eye-off.svg power.svg keyboard.svg restart.svg session.svg; do
+        [ -r "$THEME_TARGET/assets/icons/$icon" ] \
+            && say "PASS  SDDM vector icon $icon" \
+            || { say "FAIL  SDDM vector icon $icon"; failed=1; }
+    done
+    if grep -Fxq 'avatarAvailable=true' "$THEME_TARGET/theme.conf"; then
+        [ -r "$THEME_TARGET/assets/avatar.png" ] \
+            && say "PASS  SDDM rounded avatar asset" \
+            || { say "FAIL  SDDM rounded avatar asset"; failed=1; }
+    fi
+    grep -Fxq 'QtVersion=6' "$THEME_TARGET/metadata.desktop" \
+        && say "PASS  installed theme selects the Qt 6 greeter" \
+        || { say "FAIL  installed theme does not select the Qt 6 greeter"; failed=1; }
 
     return "$failed"
 }

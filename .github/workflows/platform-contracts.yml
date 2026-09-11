@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - integration/v1-cleanup
+      - 'integration/**'
   pull_request:
 
 permissions:
@@ -55,20 +56,45 @@ jobs:
           set -euo pipefail
           bash tests/platform-doctor.sh
 
+      - name: Read-only recovery generation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/test_recovery_generations.py
+          python tests/test_recovery_cli.py
+
+      - name: L3 system restore preflight contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/test_system_restore.py
+          python tests/test_system_restore_evidence.py
+          python tests/test_system_restore_journal.py
+          python tests/test_system_restore_provider.py
+          python tests/test_system_restore_transaction.py
+          python tests/test_system_restore_preparation.py
+          python tests/test_system_restore_host.py
+
       - name: Text recovery console consent contracts
         shell: bash
         run: |
           set -euo pipefail
           bash tests/recovery-console.sh
 
+      - name: Recovery overlay contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/recovery-overlay.sh
+
       - name: Platform and recovery syntax
         shell: bash
         run: |
           set -euo pipefail
-          bash -n bin/maho-platform bin/maho-recovery tests/platform-doctor.sh tests/recovery-console.sh
+          bash -n bin/maho-platform bin/maho-recovery bin/maho-recovery-overlay-install lib/maho-recovery-overlay tests/platform-doctor.sh tests/recovery-console.sh tests/recovery-overlay.sh
           python - <<'PY'
           import ast
           import pathlib
-          for file in ('lib/maho_recovery_policy.py', 'tests/recovery-policy.py'):
+          for file in ('lib/maho_recovery_policy.py', 'lib/maho_recovery_generation.py', 'lib/maho_recovery_discovery.py', 'lib/maho_recovery_cli.py', 'lib/maho_system_restore.py', 'lib/maho_system_restore_cli.py', 'lib/maho_system_restore_evidence.py', 'lib/maho_system_restore_journal.py', 'lib/maho_system_restore_provider.py', 'lib/maho_system_restore_transaction.py', 'lib/maho_system_restore_preparation.py', 'lib/maho_system_restore_host.py', 'tests/recovery-policy.py', 'tests/test_recovery_generations.py', 'tests/test_recovery_cli.py', 'tests/test_system_restore.py', 'tests/test_system_restore_evidence.py', 'tests/test_system_restore_journal.py', 'tests/test_system_restore_provider.py', 'tests/test_system_restore_transaction.py', 'tests/test_system_restore_preparation.py', 'tests/test_system_restore_host.py'):
               ast.parse(pathlib.Path(file).read_text(), filename=file)
           PY

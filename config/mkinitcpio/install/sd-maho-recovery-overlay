@@ -1,0 +1,27 @@
+#!/usr/bin/bash
+
+build() {
+    add_module btrfs
+    add_module overlay
+
+    add_binary bash
+    add_binary btrfs
+    add_binary findmnt
+    add_binary logger
+    add_binary mkdir
+    add_binary mount
+    add_binary umount
+    add_binary cat
+
+    add_file /usr/lib/maho/recovery-overlay /usr/lib/maho/recovery-overlay 755
+    add_systemd_unit maho-recovery-overlay.service
+    add_symlink \
+        /usr/lib/systemd/system/initrd-switch-root.target.requires/maho-recovery-overlay.service \
+        /usr/lib/systemd/system/maho-recovery-overlay.service
+}
+
+help() {
+    cat <<'EOF'
+Provides an ephemeral writable OverlayFS only for explicitly flagged MahoOS recovery snapshot boots.
+EOF
+}

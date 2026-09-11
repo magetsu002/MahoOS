@@ -304,6 +304,52 @@ def matching_security(ssid: str):
     return None
 
 
+def replace_saved_psk(ssid: str, password: str):
+    """Persist a replacement PSK without putting it in a process argument."""
+    try:
+        import gi
+
+        gi.require_version("NM", "1.0")
+        from gi.repository import NM
+    except (ImportError, ValueError):
+        # The optional libnm Python bindings are not required for ordinary
+        # connection attempts. Fall back to nmcli --ask, which still receives
+        # the password on stdin and never places it in process arguments.
+        return "", ""
+
+    try:
+        client = NM.Client.new(None)
+        matches = []
+        for connection in client.get_connections():
+            wireless = connection.get_setting_wireless()
+            metadata = connection.get_setting_connection()
+            if wireless is None or metadata is None:
+                continue
+            raw_ssid = wireless.get_ssid()
+            if raw_ssid is None:
+                continue
+            candidate = bytes(raw_ssid.get_data()).decode("utf-8", errors="replace")
+            if candidate != ssid:
+                continue
+            security = connection.get_setting_wireless_security()
+            if security is None or security.get_key_mgmt() not in ("wpa-psk", "sae"):
+                continue
+            matches.append((int(metadata.get_timestamp() or 0), connection, security))
+
+        if not matches:
+            return "", ""
+
+        _, connection, security = max(matches, key=lambda row: row[0])
+        metadata = connection.get_setting_connection()
+        security.set_property("psk", password)
+        security.set_secret_flags("psk", 0)
+        if not connection.commit_changes(True, None):
+            return "", "NetworkManager did not save the updated Wi-Fi password."
+        return str(metadata.get_uuid() or ""), ""
+    except Exception as exc:
+        return "", "NetworkManager could not securely update the saved Wi-Fi password: " + str(exc)
+
+
 def reconnect_current():
     device = wifi_device()
     current = active_connection(device)
@@ -380,11 +426,26 @@ def action(argv):
             return 1
 
         password = sys.stdin.readline().rstrip("\n")
+        device = wifi_device()
+
+        if password:
+            profile_uuid, profile_error = replace_saved_psk(ssid, password)
+            if profile_error:
+                emit({"ok": False, "message": profile_error})
+                return 1
+            if profile_uuid:
+                args = ["nmcli", "--wait", "20", "connection", "up", "uuid", profile_uuid]
+                if device:
+                    args.extend(["ifname", device])
+                code, _, err = run(args, timeout=25.0)
+                message = "Connected to " + ssid + "." if code == 0 else (err or "Could not connect to " + ssid + ".")
+                emit({"ok": code == 0, "message": message})
+                return 0 if code == 0 else 1
+
         args = ["nmcli", "--wait", "20"]
         if password:
             args.append("--ask")
         args.extend(["device", "wifi", "connect", ssid])
-        device = wifi_device()
         if device:
             args.extend(["ifname", device])
         if hidden:

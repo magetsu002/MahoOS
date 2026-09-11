@@ -1,0 +1,317 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ACTION="${1:-status}"
+MKCONF="/etc/mkinitcpio.conf"
+LIMINE_DEFAULT="/etc/default/limine"
+STATE_ROOT="/var/lib/maho/recovery-overlay"
+BACKUPS="$STATE_ROOT/backups"
+HELPER_DST="/usr/lib/maho/recovery-overlay"
+HOOK_DST="/usr/lib/initcpio/install/sd-maho-recovery-overlay"
+UNIT_DST="/usr/lib/systemd/system/maho-recovery-overlay.service"
+REMOUNT_DROPIN_DST="/usr/lib/systemd/system/systemd-remount-fs.service.d/maho-recovery-overlay.conf"
+CLEANUP_DROPIN_DST="/usr/lib/systemd/system/snapper-cleanup.service.d/maho-recovery-overlay.conf"
+TIMELINE_DROPIN_DST="/usr/lib/systemd/system/snapper-timeline.service.d/maho-recovery-overlay.conf"
+
+HELPER_SRC="$ROOT/lib/maho-recovery-overlay"
+HOOK_SRC="$ROOT/config/mkinitcpio/install/sd-maho-recovery-overlay"
+UNIT_SRC="$ROOT/config/systemd/initrd/maho-recovery-overlay.service"
+REMOUNT_DROPIN_SRC="$ROOT/config/systemd/system/systemd-remount-fs.service.d/maho-recovery-overlay.conf"
+CLEANUP_DROPIN_SRC="$ROOT/config/systemd/system/snapper-cleanup.service.d/maho-recovery-overlay.conf"
+TIMELINE_DROPIN_SRC="$ROOT/config/systemd/system/snapper-timeline.service.d/maho-recovery-overlay.conf"
+
+fail() {
+    echo "maho-recovery-overlay-install: $*" >&2
+    exit 1
+}
+
+require_root() {
+    (( EUID == 0 )) || fail "root privileges are required for $ACTION"
+}
+
+require_source() {
+    [ -r "$HELPER_SRC" ] || fail "missing source helper"
+    [ -r "$HOOK_SRC" ] || fail "missing mkinitcpio hook"
+    [ -r "$UNIT_SRC" ] || fail "missing initrd unit"
+    [ -r "$REMOUNT_DROPIN_SRC" ] || fail "missing remount recovery guard"
+    [ -r "$CLEANUP_DROPIN_SRC" ] || fail "missing Snapper cleanup recovery guard"
+    [ -r "$TIMELINE_DROPIN_SRC" ] || fail "missing Snapper timeline recovery guard"
+}
+check_layout() {
+    command -v mkinitcpio >/dev/null 2>&1 || fail "mkinitcpio is unavailable"
+    command -v limine-snapper-sync >/dev/null 2>&1 || fail "limine-snapper-sync is unavailable"
+    command -v snapper >/dev/null 2>&1 || fail "snapper is unavailable"
+    [ -r "$MKCONF" ] || fail "missing $MKCONF"
+    [ -r "$LIMINE_DEFAULT" ] || fail "missing $LIMINE_DEFAULT"
+    [ -r /etc/mkinitcpio.d/linux-cachyos.preset ] || fail "Primary preset is missing"
+    [ -r /etc/mkinitcpio.d/linux-cachyos-lts.preset ] || fail "Fallback preset is missing"
+
+    local root_type boot_type boot_path machine_id
+    root_type="$(findmnt -no FSTYPE / 2>/dev/null || true)"
+    [ "$root_type" = "btrfs" ] || fail "root filesystem is not Btrfs"
+    boot_path="$(awk -F= '/^[[:space:]]*ESP_PATH=/{gsub(/["[:space:]]/,"",$2); print $2}' "$LIMINE_DEFAULT" | tail -n1)"
+    [ "$boot_path" = "/boot" ] || fail "Maho recovery expects ESP_PATH=/boot, got ${boot_path:-unset}"
+    boot_type="$(findmnt -no FSTYPE /boot 2>/dev/null || true)"
+    [ "$boot_type" = "vfat" ] || fail "/boot is not the mounted FAT ESP"
+    machine_id="$(cat /etc/machine-id)"
+    grep -Fq "comment: machine-id=$machine_id" /boot/limine.conf || fail "Limine config does not target this machine"
+}
+
+backup_state() {
+    local stamp dir
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    dir="$BACKUPS/$stamp"
+    install -d -m 700 "$dir"
+    cp -a "$MKCONF" "$dir/mkinitcpio.conf"
+    cp -a "$LIMINE_DEFAULT" "$dir/limine.default"
+    sha256sum /boot/initramfs-linux-cachyos.img /boot/initramfs-linux-cachyos-lts.img > "$dir/initramfs-before.sha256"
+    printf '%s\n' "$dir" > "$STATE_ROOT/latest-backup"
+    echo "$dir"
+}
+install_files() {
+    install -Dm755 "$HELPER_SRC" "$HELPER_DST"
+    install -Dm644 "$HOOK_SRC" "$HOOK_DST"
+    install -Dm644 "$UNIT_SRC" "$UNIT_DST"
+    install -Dm644 "$REMOUNT_DROPIN_SRC" "$REMOUNT_DROPIN_DST"
+    install -Dm644 "$CLEANUP_DROPIN_SRC" "$CLEANUP_DROPIN_DST"
+    install -Dm644 "$TIMELINE_DROPIN_SRC" "$TIMELINE_DROPIN_DST"
+}
+
+patch_config() {
+    python - "$MKCONF" "$LIMINE_DEFAULT" <<'PY'
+from pathlib import Path
+import re, sys
+
+mk = Path(sys.argv[1])
+lim = Path(sys.argv[2])
+text = mk.read_text()
+matches = list(re.finditer(r'(?m)^\s*HOOKS=\(([^\n]*)\)\s*$', text))
+if len(matches) != 1:
+    raise SystemExit(f"expected exactly one simple HOOKS=() line, found {len(matches)}")
+hooks = matches[0].group(1).split()
+if "systemd" not in hooks or "filesystems" not in hooks:
+    raise SystemExit("systemd/filesystems mkinitcpio hooks are required")
+name = "sd-maho-recovery-overlay"
+if name not in hooks:
+    hooks.insert(hooks.index("filesystems") + 1, name)
+new_line = "HOOKS=(" + " ".join(hooks) + ")"
+text = text[:matches[0].start()] + new_line + text[matches[0].end():]
+mk.write_text(text)
+
+lines = lim.read_text().splitlines()
+lines = [line for line in lines if not line.startswith("SNAPSHOT_KERNEL_PARAMETERS+=maho.recovery_snapshot=")]
+lines.append("SNAPSHOT_KERNEL_PARAMETERS+=maho.recovery_snapshot=1")
+for key, value in (("SNAPSHOT_WRITABLE", "no"), ("RESTORE_METHOD", "replace")):
+    found = False
+    for i, line in enumerate(lines):
+        if line.startswith(key + "="):
+            lines[i] = f"{key}={value}"
+            found = True
+    if not found:
+        lines.append(f"{key}={value}")
+lim.write_text("\n".join(lines) + "\n")
+PY
+}
+rebuild_images() {
+    echo "Rebuilding MahoOS Primary initramfs..."
+    mkinitcpio -p linux-cachyos
+    echo "Rebuilding MahoOS Fallback initramfs..."
+    mkinitcpio -p linux-cachyos-lts
+}
+
+verify_image() {
+    local image="$1" listing
+    [ -r "$image" ] || fail "missing rebuilt image: $image"
+    listing="$(lsinitcpio "$image")" || fail "cannot inspect $image"
+    grep -Fq 'usr/lib/maho/recovery-overlay' <<<"$listing" || fail "$image lacks Maho recovery helper"
+    grep -Fq 'usr/lib/systemd/system/maho-recovery-overlay.service' <<<"$listing" || fail "$image lacks recovery overlay unit"
+    grep -Fq 'sd-maho-recovery-overlay' <<<"$(grep -E '^[[:space:]]*HOOKS=' "$MKCONF")" || fail "mkinitcpio hook not configured"
+}
+
+verify_install() {
+    cmp -s "$HELPER_SRC" "$HELPER_DST" || fail "installed recovery helper differs from source"
+    cmp -s "$HOOK_SRC" "$HOOK_DST" || fail "installed mkinitcpio hook differs from source"
+    cmp -s "$UNIT_SRC" "$UNIT_DST" || fail "installed initrd unit differs from source"
+    cmp -s "$REMOUNT_DROPIN_SRC" "$REMOUNT_DROPIN_DST" || fail "remount recovery guard differs from source"
+    cmp -s "$CLEANUP_DROPIN_SRC" "$CLEANUP_DROPIN_DST" || fail "Snapper cleanup recovery guard differs from source"
+    cmp -s "$TIMELINE_DROPIN_SRC" "$TIMELINE_DROPIN_DST" || fail "Snapper timeline recovery guard differs from source"
+    grep -Eq '^[[:space:]]*HOOKS=\([^)]*filesystems[[:space:]]+sd-maho-recovery-overlay([[:space:]]|\))' "$MKCONF" || fail "overlay hook is not immediately after filesystems"
+    grep -Fxq 'SNAPSHOT_KERNEL_PARAMETERS+=maho.recovery_snapshot=1' "$LIMINE_DEFAULT" || fail "snapshot recovery flag missing"
+    grep -Fxq 'SNAPSHOT_WRITABLE=no' "$LIMINE_DEFAULT" || fail "snapshots are not forced read-only"
+    grep -Fxq 'RESTORE_METHOD=replace' "$LIMINE_DEFAULT" || fail "restore method drifted"
+    verify_image /boot/initramfs-linux-cachyos.img
+    verify_image /boot/initramfs-linux-cachyos-lts.img
+}
+create_candidate() {
+    local sid mid manifest deadline
+    sid="$(snapper -c root create --read-only --print-number \
+        --description 'MahoOS recovery overlay known-good candidate' \
+        --userdata 'important=yes,maho.known_good=yes,maho.recovery_overlay=yes')"
+    [[ "$sid" =~ ^[0-9]+$ ]] || fail "Snapper did not return a snapshot number"
+    mid="$(cat /etc/machine-id)"
+    manifest="/boot/$mid/limine_history/snapshots.json"
+    deadline=$((SECONDS + 60))
+    while (( SECONDS < deadline )); do
+        if python - "$manifest" "$sid" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1]); sid=int(sys.argv[2])
+if not p.is_file(): raise SystemExit(1)
+d=json.loads(p.read_text())
+entry=None
+for row in d.get('snapshotEntries', []):
+    ident=row.get('snapperID')
+    if isinstance(ident, dict): ident=ident.get('snapshotID')
+    if ident == sid:
+        entry=row; break
+if not entry: raise SystemExit(1)
+kernels=entry.get('kernelEntries') or []
+if len(kernels) < 2: raise SystemExit(1)
+for kernel in kernels:
+    cds=kernel.get('cmdlineDetails') or []
+    if not cds or not all('maho.recovery_snapshot=1' in str(c.get('snapshotCmdline','')) for c in cds):
+        raise SystemExit(1)
+    imgs=kernel.get('imageDetails') or []
+    if not any('initramfs' in str(i.get('fileName','')) for i in imgs):
+        raise SystemExit(1)
+print(sid)
+PY
+        then
+            echo "Recovery candidate snapshot: $sid"
+            printf '%s\n' "$sid" > "$STATE_ROOT/latest-candidate"
+            return 0
+        fi
+        sleep 1
+    done
+    fail "snapshot $sid was not synchronized with recovery-overlay boot metadata"
+}
+backup_one() {
+    local dir="$1" path="$2" key="$3"
+    if [ -e "$path" ]; then
+        cp -a "$path" "$dir/original-$key"
+        printf '%s\n' present > "$dir/original-$key.state"
+    else
+        printf '%s\n' absent > "$dir/original-$key.state"
+    fi
+}
+
+restore_one() {
+    local dir="$1" path="$2" key="$3" state
+    state="$(cat "$dir/original-$key.state" 2>/dev/null || echo absent)"
+    if [ "$state" = present ]; then
+        mkdir -p "$(dirname "$path")"
+        cp -a "$dir/original-$key" "$path"
+    else
+        rm -f "$path"
+    fi
+}
+
+backup_state_full() {
+    local dir
+    dir="$(backup_state)"
+    backup_one "$dir" "$HELPER_DST" helper
+    backup_one "$dir" "$HOOK_DST" hook
+    backup_one "$dir" "$UNIT_DST" initrd-unit
+    backup_one "$dir" "$REMOUNT_DROPIN_DST" remount-dropin
+    backup_one "$dir" "$CLEANUP_DROPIN_DST" cleanup-dropin
+    backup_one "$dir" "$TIMELINE_DROPIN_DST" timeline-dropin
+    echo "$dir"
+}
+
+restore_backup() {
+    local dir="$1"
+    [ -d "$dir" ] || fail "backup directory is missing: $dir"
+    cp -a "$dir/mkinitcpio.conf" "$MKCONF"
+    cp -a "$dir/limine.default" "$LIMINE_DEFAULT"
+    restore_one "$dir" "$HELPER_DST" helper
+    restore_one "$dir" "$HOOK_DST" hook
+    restore_one "$dir" "$UNIT_DST" initrd-unit
+    restore_one "$dir" "$REMOUNT_DROPIN_DST" remount-dropin
+    restore_one "$dir" "$CLEANUP_DROPIN_DST" cleanup-dropin
+    restore_one "$dir" "$TIMELINE_DROPIN_DST" timeline-dropin
+}
+
+auto_rollback() {
+    local dir="$1"
+    trap - ERR
+    echo "Install failed; restoring previous recovery/initramfs configuration..." >&2
+    restore_backup "$dir"
+    rebuild_images || echo "WARNING: automatic initramfs rollback rebuild also failed" >&2
+}
+status_command() {
+    echo "MahoOS recovery snapshot overlay"
+    echo
+    printf 'helper:      %s\n' "$([ -r "$HELPER_DST" ] && echo installed || echo missing)"
+    printf 'hook:        %s\n' "$([ -r "$HOOK_DST" ] && echo installed || echo missing)"
+    printf 'initrd unit: %s\n' "$([ -r "$UNIT_DST" ] && echo installed || echo missing)"
+    if grep -q 'sd-maho-recovery-overlay' "$MKCONF" 2>/dev/null; then
+        echo 'mkinitcpio:  configured'
+    else
+        echo 'mkinitcpio:  not configured'
+    fi
+    if grep -Fxq 'SNAPSHOT_KERNEL_PARAMETERS+=maho.recovery_snapshot=1' "$LIMINE_DEFAULT" 2>/dev/null; then
+        echo 'snapshots:   recovery flag enabled'
+    else
+        echo 'snapshots:   recovery flag missing'
+    fi
+    for image in /boot/initramfs-linux-cachyos.img /boot/initramfs-linux-cachyos-lts.img; do
+        if [ -r "$image" ] && lsinitcpio "$image" 2>/dev/null | grep -Fq 'usr/lib/maho/recovery-overlay'; then
+            echo "image:       $(basename "$image") overlay-ready"
+        else
+            echo "image:       $(basename "$image") not overlay-ready"
+        fi
+    done
+    [ ! -r "$STATE_ROOT/latest-candidate" ] || echo "candidate:   $(cat "$STATE_ROOT/latest-candidate")"
+}
+
+install_command() {
+    require_root
+    require_source
+    check_layout
+    install -d -m 700 "$STATE_ROOT" "$BACKUPS"
+    local backup
+    backup="$(backup_state_full)"
+    trap 'auto_rollback "$backup"' ERR
+    install_files
+    patch_config
+    rebuild_images
+    verify_install
+    systemctl daemon-reload
+    create_candidate
+    trap - ERR
+    echo "PASS  MahoOS recovery snapshot overlay installed and verified"
+    echo "Backup: $backup"
+}
+rollback_command() {
+    require_root
+    check_layout
+    [ -r "$STATE_ROOT/latest-backup" ] || fail "no recovery overlay backup is recorded"
+    local backup
+    backup="$(cat "$STATE_ROOT/latest-backup")"
+    restore_backup "$backup"
+    rebuild_images
+    systemctl daemon-reload
+    echo "PASS  recovery overlay configuration rolled back"
+    echo "Restored: $backup"
+}
+
+case "$ACTION" in
+    install) install_command ;;
+    status) status_command ;;
+    rollback) rollback_command ;;
+    *)
+        cat <<'EOF'
+MahoOS recovery snapshot overlay installer
+
+Usage:
+  sudo bash bin/maho-recovery-overlay-install install
+  bash bin/maho-recovery-overlay-install status
+  sudo bash bin/maho-recovery-overlay-install rollback
+
+The install keeps Snapper recovery sources read-only and adds a temporary
+RAM-backed OverlayFS only to snapshot boots explicitly marked by MahoOS.
+Normal Primary and Fallback boots do not activate the overlay.
+EOF
+        exit 2
+        ;;
+esac

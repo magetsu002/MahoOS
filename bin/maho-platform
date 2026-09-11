@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 POLICY="$ROOT/config/platform.json"
 RECOVERY_POLICY="$ROOT/lib/maho_recovery_policy.py"
+RECOVERY_GENERATION_CLI="$ROOT/lib/maho_recovery_cli.py"
+SYSTEM_RESTORE_CLI="$ROOT/lib/maho_system_restore_cli.py"
 SNAPPER_ROOT_CONFIG="${MAHO_SNAPPER_ROOT_CONFIG:-/etc/snapper/configs/root}"
 
 usage() {
@@ -12,8 +14,10 @@ Usage: maho-platform <command> [args]
 
 Commands:
   doctor              Inspect V1 platform/recovery prerequisites (read-only).
-  status [--json]     Report detected kernel/filesystem/recovery capabilities.
-  plan FILE|-         Compute a recovery recommendation from normalized JSON.
+  status [--json]                  Report detected kernel/filesystem/recovery capabilities.
+  recovery-generations [--json]      Discover read-only G3 recovery generations.
+  system-restore-plan ID [--json]     Preflight one exact L3 recovery generation (read-only).
+  plan FILE|-                        Compute a recovery recommendation from normalized JSON.
 
 This command is read-only. It never changes kernels, snapshots, boot entries,
 packages, or filesystems.
@@ -28,6 +32,18 @@ package_state() {
   if has_package "$1"; then printf 'installed'; else printf 'missing'; fi
 }
 
+snapper_root_config_state() {
+  if command -v snapper >/dev/null 2>&1 \
+      && snapper --jsonout --config root get-config >/dev/null 2>&1; then
+    printf 'present'
+  elif test -r "$SNAPPER_ROOT_CONFIG"; then
+    # Readable-file fallback supports offline/synthetic platform inspection.
+    printf 'present'
+  else
+    printf 'missing'
+  fi
+}
+
 mount_field() {
   local field="$1" target="$2"
   if command -v findmnt >/dev/null 2>&1; then
@@ -36,28 +52,36 @@ mount_field() {
 }
 
 status_json() {
-  local root_fs root_source home_source boot_fs boot_source
+  local root_fs root_source root_fsroot home_source home_fsroot boot_fs boot_source
   root_fs="$(mount_field FSTYPE / || true)"
   root_source="$(mount_field SOURCE / || true)"
+  root_fsroot="$(mount_field FSROOT / || true)"
   home_source="$(mount_field SOURCE /home || true)"
+  home_fsroot="$(mount_field FSROOT /home || true)"
   boot_fs="$(mount_field FSTYPE /boot || true)"
   boot_source="$(mount_field SOURCE /boot || true)"
 
-  python - "$POLICY" "$root_fs" "$root_source" "$home_source" "$boot_fs" "$boot_source" \
+  python - "$POLICY" "$root_fs" "$root_source" "$root_fsroot" "$home_source" "$home_fsroot" "$boot_fs" "$boot_source" \
     "$(package_state linux-cachyos)" \
     "$(package_state linux-cachyos-lts)" \
     "$(package_state snapper)" \
     "$(package_state snap-pac)" \
     "$(package_state limine)" \
     "$(package_state limine-snapper-sync)" \
-    "$(test -r "$SNAPPER_ROOT_CONFIG" && printf present || printf missing)" <<'PY'
+    "$(snapper_root_config_state)" <<'PY'
 import json
 import pathlib
 import sys
 
 policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
 root_source = sys.argv[3] or None
-home_source = sys.argv[4] or None
+root_fsroot = sys.argv[4] or None
+home_source = sys.argv[5] or None
+home_fsroot = sys.argv[6] or None
+home_separate = bool(
+    root_source and root_fsroot and home_source and home_fsroot
+    and (root_source, root_fsroot) != (home_source, home_fsroot)
+)
 print(json.dumps({
     "schema_version": 1,
     "policy": {
@@ -70,17 +94,19 @@ print(json.dumps({
     "detected": {
         "root_fstype": sys.argv[2] or None,
         "root_source": root_source,
+        "root_fsroot": root_fsroot,
         "home_source": home_source,
-        "home_separate_from_root": bool(root_source and home_source and root_source != home_source),
-        "boot_fstype": sys.argv[5] or None,
-        "boot_source": sys.argv[6] or None,
-        "linux_cachyos": sys.argv[7],
-        "linux_cachyos_lts": sys.argv[8],
-        "snapper": sys.argv[9],
-        "snap_pac": sys.argv[10],
-        "limine": sys.argv[11],
-        "limine_snapper_sync": sys.argv[12],
-        "root_snapper_config": sys.argv[13],
+        "home_fsroot": home_fsroot,
+        "home_separate_from_root": home_separate,
+        "boot_fstype": sys.argv[7] or None,
+        "boot_source": sys.argv[8] or None,
+        "linux_cachyos": sys.argv[9],
+        "linux_cachyos_lts": sys.argv[10],
+        "snapper": sys.argv[11],
+        "snap_pac": sys.argv[12],
+        "limine": sys.argv[13],
+        "limine_snapper_sync": sys.argv[14],
+        "root_snapper_config": sys.argv[15],
     },
 }, sort_keys=True, separators=(",", ":")))
 PY
@@ -101,8 +127,8 @@ print()
 print(f"policy primary kernel     {p['primary_kernel']}")
 print(f"policy fallback kernel    {p['fallback_kernel']} ({p['fallback_visibility']})")
 print(f"root filesystem           {x['root_fstype'] or 'unknown'}")
-print(f"root source               {x['root_source'] or 'unknown'}")
-print(f"home source               {x['home_source'] or 'unknown'}")
+print(f"root source               {x['root_source'] or 'unknown'}  fsroot={x.get('root_fsroot') or 'unknown'}")
+print(f"home source               {x['home_source'] or 'unknown'}  fsroot={x.get('home_fsroot') or 'unknown'}")
 print(f"home isolated from root   {'yes' if x['home_separate_from_root'] else 'no/unknown'}")
 print(f"boot filesystem           {x['boot_fstype'] or 'unknown'}")
 print(f"boot source               {x['boot_source'] or 'unknown'}")
@@ -150,6 +176,28 @@ PY
   return "$failed"
 }
 
+recovery_generations() {
+  case "${1:-}" in
+    "") [ "$#" -eq 0 ] || return 2 ;;
+    --json) [ "$#" -eq 1 ] || { echo "maho-platform: recovery-generations accepts only --json" >&2; return 2; } ;;
+    *) echo "maho-platform: unknown recovery-generations option: $1" >&2; return 2 ;;
+  esac
+  [ -r "$RECOVERY_GENERATION_CLI" ] || { echo "maho-platform: recovery generation engine missing: $RECOVERY_GENERATION_CLI" >&2; return 1; }
+  python "$RECOVERY_GENERATION_CLI" --policy "$POLICY" "$@"
+}
+
+system_restore_plan() {
+  local generation="$1"
+  shift
+  case "${1:-}" in
+    "") [ "$#" -eq 0 ] || return 2 ;;
+    --json) [ "$#" -eq 1 ] || { echo "maho-platform: system-restore-plan accepts only --json" >&2; return 2; } ;;
+    *) echo "maho-platform: unknown system-restore-plan option: $1" >&2; return 2 ;;
+  esac
+  [ -r "$SYSTEM_RESTORE_CLI" ] || { echo "maho-platform: L3 restore preflight engine missing: $SYSTEM_RESTORE_CLI" >&2; return 1; }
+  python "$SYSTEM_RESTORE_CLI" --policy "$POLICY" --generation "$generation" "$@"
+}
+
 plan() {
   local input="$1"
   [ -r "$RECOVERY_POLICY" ] || { echo "maho-platform: recovery policy missing: $RECOVERY_POLICY" >&2; return 1; }
@@ -160,6 +208,7 @@ import pathlib
 import sys
 
 module_path = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(module_path.parent))
 spec = importlib.util.spec_from_file_location("maho_recovery_policy", module_path)
 module = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
@@ -181,6 +230,16 @@ case "${1:-}" in
       "") status_human ;;
       *) echo "maho-platform: unknown status option: $2" >&2; exit 2 ;;
     esac
+    ;;
+  recovery-generations)
+    shift
+    recovery_generations "$@"
+    ;;
+  system-restore-plan)
+    [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+    generation="$2"
+    shift 2
+    system_restore_plan "$generation" "$@"
     ;;
   plan)
     [ "$#" -eq 2 ] || { usage >&2; exit 2; }

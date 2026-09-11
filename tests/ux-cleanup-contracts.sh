@@ -83,6 +83,8 @@ printf '%s\n' 'PASS  Clipboard short/multiline/leading-newline/whitespace previe
 printf '%s\n' '=== Clipboard pin discoverability contract ==='
 require_text "$CLIP_PANEL" 'ClipboardPinGlyph {' 'clipboard row pin affordance is missing'
 require_text "$CLIP_PANEL" 'root.clipboardState.togglePin(row.modelData)' 'clipboard pin affordance is not actionable'
+require_text "$CLIP_PANEL" 'readonly property bool revealPin: rowHover.containsMouse || pinHover.containsMouse' 'clipboard pin action is not scoped to row hover'
+require_text "$CLIP_PANEL" 'opacity: row.revealPin' 'clipboard pin action remains permanently visible'
 require_text "$CLIP_PIN_GLYPH" 'import QtQuick.Shapes' 'pin is not rendered through proportional vector geometry'
 require_text "$CLIP_PIN_GLYPH" 'PathSvg {' 'pin vector outline is missing'
 require_text "$CLIP_PIN_GLYPH" 'Math.max(0.92, glyphColor.a)' 'unpinned glyph can fade below readable opacity'

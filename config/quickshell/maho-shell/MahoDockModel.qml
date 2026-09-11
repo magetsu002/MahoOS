@@ -273,9 +273,9 @@ Scope {
 
         for (let index = 0; index < pins.length; ++index) {
             const id = clean(pins[index])
-            const app = root.appById[id]
-            if (!app)
+            if (id.length === 0)
                 continue
+            const app = root.appById[id] || null
             output.push(makeItem(id, app, grouped[id] || [], true, false))
             represented[id] = true
         }

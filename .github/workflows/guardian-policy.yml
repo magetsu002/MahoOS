@@ -1,0 +1,202 @@
+name: guardian-policy
+
+on:
+  push:
+    branches:
+      - main
+      - 'integration/**'
+      - 'feat/guardian-severity-policy-prep'
+    paths:
+      - 'bin/maho-guard'
+      - 'lib/guardian_severity.py'
+      - 'lib/guardian_engine.py'
+      - 'lib/guardian_catastrophic.py'
+      - 'lib/guardian_catastrophic_response.py'
+      - 'lib/guardian_handoff.py'
+      - 'lib/guardian_incident.py'
+      - 'lib/guardian_service_incident.py'
+      - 'lib/guardian_service_watcher.py'
+      - 'lib/guardian_recovery_registry.py'
+      - 'lib/guardian_recovery_executor.py'
+      - 'lib/guardian_runtime_recovery.py'
+      - 'lib/maho_runtime_release.py'
+      - 'lib/maho_recovery_policy.py'
+      - 'config/quickshell/maho-shell/GuardianState.qml'
+      - 'config/quickshell/maho-shell/GuardianWheel.qml'
+      - 'config/quickshell/maho-shell/maho-guardian-rotor.png'
+      - 'config/quickshell/maho-shell/sounds/**'
+      - 'config/quickshell/maho-shell/EdgeBar.qml'
+      - 'config/quickshell/maho-shell/SideEdgeBar.qml'
+      - 'tests/test_guardian_severity.py'
+      - 'tests/test_guardian_engine.py'
+      - 'tests/test_guardian_catastrophic.py'
+      - 'tests/test_guardian_catastrophic_response.py'
+      - 'tests/test_guardian_g4_adversarial.py'
+      - 'tests/test_guardian_handoff.py'
+      - 'tests/test_guardian_incident.py'
+      - 'tests/test_guardian_service_incident.py'
+      - 'tests/test_guardian_recovery_registry.py'
+      - 'tests/test_guardian_recovery_executor.py'
+      - 'tests/test_guardian_recovery_contract.py'
+      - 'tests/test_guardian_runtime_recovery.py'
+      - 'tests/test_maho_runtime_release.py'
+      - 'tests/guardian-wheel-contracts.sh'
+      - 'tests/security-incidents.sh'
+      - 'tests/shell-contracts.sh'
+      - 'tests/recovery-policy.py'
+      - '.github/workflows/guardian-policy.yml'
+  pull_request:
+    paths:
+      - 'bin/maho-guard'
+      - 'lib/guardian_severity.py'
+      - 'lib/guardian_engine.py'
+      - 'lib/guardian_catastrophic.py'
+      - 'lib/guardian_catastrophic_response.py'
+      - 'lib/guardian_handoff.py'
+      - 'lib/guardian_incident.py'
+      - 'lib/guardian_service_incident.py'
+      - 'lib/guardian_service_watcher.py'
+      - 'lib/guardian_recovery_registry.py'
+      - 'lib/guardian_recovery_executor.py'
+      - 'lib/guardian_runtime_recovery.py'
+      - 'lib/maho_runtime_release.py'
+      - 'lib/maho_recovery_policy.py'
+      - 'config/quickshell/maho-shell/GuardianState.qml'
+      - 'config/quickshell/maho-shell/GuardianWheel.qml'
+      - 'config/quickshell/maho-shell/maho-guardian-rotor.png'
+      - 'config/quickshell/maho-shell/sounds/**'
+      - 'config/quickshell/maho-shell/EdgeBar.qml'
+      - 'config/quickshell/maho-shell/SideEdgeBar.qml'
+      - 'tests/test_guardian_severity.py'
+      - 'tests/test_guardian_engine.py'
+      - 'tests/test_guardian_catastrophic.py'
+      - 'tests/test_guardian_catastrophic_response.py'
+      - 'tests/test_guardian_g4_adversarial.py'
+      - 'tests/test_guardian_handoff.py'
+      - 'tests/test_guardian_incident.py'
+      - 'tests/test_guardian_service_incident.py'
+      - 'tests/test_guardian_recovery_registry.py'
+      - 'tests/test_guardian_recovery_executor.py'
+      - 'tests/test_guardian_recovery_contract.py'
+      - 'tests/test_guardian_runtime_recovery.py'
+      - 'tests/test_maho_runtime_release.py'
+      - 'tests/guardian-wheel-contracts.sh'
+      - 'tests/security-incidents.sh'
+      - 'tests/shell-contracts.sh'
+      - 'tests/recovery-policy.py'
+      - '.github/workflows/guardian-policy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  guardian-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          set -euo pipefail
+          bash -n bin/maho-guard tests/guardian-wheel-contracts.sh
+          python -m py_compile \
+            lib/guardian_severity.py \
+            lib/guardian_engine.py \
+            lib/guardian_catastrophic.py \
+            lib/guardian_catastrophic_response.py \
+            lib/guardian_handoff.py \
+            lib/guardian_incident.py \
+            lib/guardian_service_incident.py \
+            lib/guardian_service_watcher.py \
+            lib/guardian_recovery_registry.py \
+            lib/guardian_recovery_executor.py \
+            lib/guardian_runtime_recovery.py \
+            lib/maho_runtime_release.py \
+            lib/maho_recovery_policy.py \
+            tests/test_guardian_severity.py \
+            tests/test_guardian_engine.py \
+            tests/test_guardian_catastrophic.py \
+            tests/test_guardian_catastrophic_response.py \
+            tests/test_guardian_g4_adversarial.py \
+            tests/test_guardian_handoff.py \
+            tests/test_guardian_incident.py \
+            tests/test_guardian_service_incident.py \
+            tests/test_guardian_recovery_registry.py \
+            tests/test_guardian_recovery_executor.py \
+            tests/test_guardian_recovery_contract.py \
+            tests/test_guardian_runtime_recovery.py \
+            tests/test_maho_runtime_release.py \
+            tests/recovery-policy.py
+
+      - name: Guardian severity policy tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_severity.py
+
+      - name: Guardian authority combiner tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_engine.py
+
+      - name: Guardian G4 catastrophic contracts
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_catastrophic.py
+          python tests/test_guardian_catastrophic_response.py
+          python tests/test_guardian_g4_adversarial.py
+          python tests/test_guardian_handoff.py
+
+      - name: Guardian real-incident normalization tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_incident.py
+
+      - name: Guardian delegated service recovery lifecycle tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_service_incident.py
+
+      - name: Guardian certified recovery registry tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_recovery_registry.py
+
+      - name: Guardian verified recovery executor tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_recovery_executor.py
+
+      - name: Guardian recovery compatibility tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_recovery_contract.py
+
+      - name: Guardian runtime release verification tests
+        run: |
+          set -euo pipefail
+          python tests/test_maho_runtime_release.py
+
+      - name: Guardian runtime recovery lifecycle tests
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_runtime_recovery.py
+
+      - name: Guardian Wheel integration contracts
+        run: |
+          set -euo pipefail
+          bash tests/guardian-wheel-contracts.sh
+
+      - name: Existing security incident integration
+        run: |
+          set -euo pipefail
+          bash tests/security-incidents.sh
+
+      - name: Existing shell contracts
+        run: |
+          set -euo pipefail
+          bash tests/shell-contracts.sh
+
+      - name: Existing recovery policy regression
+        run: |
+          set -euo pipefail
+          python tests/recovery-policy.py

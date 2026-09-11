@@ -53,8 +53,8 @@ import gzip,sys
 path,beta,unit=sys.argv[1:]
 text=f'''#mtree
 /set type=file uid=0 gid=0 mode=755
-./usr/bin/beta type=file sha256digest={beta}
-./usr/lib/systemd/user/beta.service type=file sha256digest={unit}
+./usr/bin/beta sha256digest={beta}
+./usr/lib/systemd/user/beta.service sha256digest={unit}
 '''
 with gzip.open(path,'wt') as f: f.write(text)
 PY
@@ -147,6 +147,21 @@ assert r["modified"][0]["path"] == "/usr/bin/beta"
 assert "evidence" in r["trust_note"].lower()
 '
 printf 'good\n' > "$MAHO_FS_ROOT/usr/bin/beta"
+python "$PROBE" integrity \
+    --package beta \
+    --db-root "$MAHO_PACMAN_DB_ROOT" \
+    --fs-root "$MAHO_FS_ROOT" |
+python -c 'import json,sys; r=json.load(sys.stdin); assert r["result"] == "clean" and r["checked"] == 2, r'
+echo "PASS"
+
+echo "=== unreadable package file is partial evidence ==="
+chmod 000 "$MAHO_FS_ROOT/usr/lib/systemd/user/beta.service"
+python "$PROBE" integrity \
+    --scope critical \
+    --db-root "$MAHO_PACMAN_DB_ROOT" \
+    --fs-root "$MAHO_FS_ROOT" |
+python -c 'import json,sys; r=json.load(sys.stdin); assert r["result"] == "partial", r; assert r["unreadable"] and r["unreadable"][0]["path"] == "/usr/lib/systemd/user/beta.service", r'
+chmod 644 "$MAHO_FS_ROOT/usr/lib/systemd/user/beta.service"
 echo "PASS"
 
 echo "=== persistence snapshot never auto-trusts ==="
@@ -201,6 +216,16 @@ assert r["result"] == "changed"
 assert len(r["added"]) == 1
 assert r["added"][0]["path"].endswith("new.desktop")
 '
+echo "PASS"
+
+echo "=== persistence returns clean after drift is removed ==="
+rm -f "$XDG_CONFIG_HOME/autostart/new.desktop"
+python "$PROBE" persistence check \
+    --state-root "$PERSIST_STATE" \
+    --home "$HOME" \
+    --xdg-config "$XDG_CONFIG_HOME" \
+    --fs-root "$MAHO_FS_ROOT" |
+python -c 'import json,sys; r=json.load(sys.stdin); assert r["result"] == "clean" and not r["added"] and not r["removed"] and not r["changed"], r'
 echo "PASS"
 
 echo "ALL SECURITY PROBE CONTRACTS PASS"
