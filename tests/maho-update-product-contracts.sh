@@ -15,6 +15,9 @@ python -m py_compile "$ROOT/lib/maho_update_cli.py"
 [ -x "$ROOT/bin/maho-update" ] || fail "maho-update product CLI is not executable"
 require "$ROOT/bin/maho-setup" 'maho-power maho-update maho-clipboard' "setup does not ship Maho Update"
 echo "PASS Maho Update is shipped through immutable runtime setup"
+require "$ROOT/bin/maho-guard" 'guardian-update-status' "Guardian does not consume shared update authority"
+require "$ROOT/bin/maho-guard" 'MAHO_UPDATE_STATE_ROOT' "Guardian update projection reads a different state root"
+echo "PASS Guardian consumes the same authoritative update state without mutation"
 
 for state in "$SHELL_DIR/MahoUpdateState.qml" "$POWER_DIR/MahoUpdateState.qml"; do
     require "$state" '/.local/bin/maho-update", "status", "--json"' "product state does not consume shared authority CLI"

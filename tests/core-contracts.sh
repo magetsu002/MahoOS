@@ -158,5 +158,6 @@ python "$ROOT/tests/test_maho_update_transaction.py"
 python "$ROOT/tests/test_maho_update_receipts.py"
 python "$ROOT/tests/test_maho_update_cli.py"
 bash "$ROOT/tests/maho-update-product-contracts.sh"
+python "$ROOT/tests/test_guardian_update.py"
 
 echo "ALL CORE CONTRACTS PASS"
