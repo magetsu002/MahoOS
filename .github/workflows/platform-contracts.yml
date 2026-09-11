@@ -71,6 +71,7 @@ jobs:
           python tests/test_system_restore_evidence.py
           python tests/test_system_restore_journal.py
           python tests/test_system_restore_provider.py
+          python tests/test_system_restore_transaction.py
 
       - name: Text recovery console consent contracts
         shell: bash
@@ -92,6 +93,6 @@ jobs:
           python - <<'PY'
           import ast
           import pathlib
-          for file in ('lib/maho_recovery_policy.py', 'lib/maho_recovery_generation.py', 'lib/maho_recovery_discovery.py', 'lib/maho_recovery_cli.py', 'lib/maho_system_restore.py', 'lib/maho_system_restore_cli.py', 'lib/maho_system_restore_evidence.py', 'lib/maho_system_restore_journal.py', 'lib/maho_system_restore_provider.py', 'tests/recovery-policy.py', 'tests/test_recovery_generations.py', 'tests/test_recovery_cli.py', 'tests/test_system_restore.py', 'tests/test_system_restore_evidence.py', 'tests/test_system_restore_journal.py', 'tests/test_system_restore_provider.py'):
+          for file in ('lib/maho_recovery_policy.py', 'lib/maho_recovery_generation.py', 'lib/maho_recovery_discovery.py', 'lib/maho_recovery_cli.py', 'lib/maho_system_restore.py', 'lib/maho_system_restore_cli.py', 'lib/maho_system_restore_evidence.py', 'lib/maho_system_restore_journal.py', 'lib/maho_system_restore_provider.py', 'lib/maho_system_restore_transaction.py', 'tests/recovery-policy.py', 'tests/test_recovery_generations.py', 'tests/test_recovery_cli.py', 'tests/test_system_restore.py', 'tests/test_system_restore_evidence.py', 'tests/test_system_restore_journal.py', 'tests/test_system_restore_provider.py', 'tests/test_system_restore_transaction.py'):
               ast.parse(pathlib.Path(file).read_text(), filename=file)
           PY
