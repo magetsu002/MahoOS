@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - integration/v1-cleanup
+      - 'integration/**'
   pull_request:
 
 permissions:
@@ -68,11 +69,17 @@ jobs:
           set -euo pipefail
           bash tests/recovery-console.sh
 
+      - name: Recovery overlay contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/recovery-overlay.sh
+
       - name: Platform and recovery syntax
         shell: bash
         run: |
           set -euo pipefail
-          bash -n bin/maho-platform bin/maho-recovery tests/platform-doctor.sh tests/recovery-console.sh
+          bash -n bin/maho-platform bin/maho-recovery bin/maho-recovery-overlay-install lib/maho-recovery-overlay tests/platform-doctor.sh tests/recovery-console.sh tests/recovery-overlay.sh
           python - <<'PY'
           import ast
           import pathlib
