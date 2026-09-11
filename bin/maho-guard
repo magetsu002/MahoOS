@@ -20,6 +20,8 @@ GUARDIAN_POLICY="$ROOT/lib/guardian_severity.py"
 GUARDIAN_ENGINE="$ROOT/lib/guardian_engine.py"
 GUARDIAN_SERVICE="$ROOT/lib/guardian_service_incident.py"
 GUARDIAN_WATCHER="$ROOT/lib/guardian_service_watcher.py"
+GUARDIAN_UPDATE="$ROOT/lib/guardian_update.py"
+UPDATE_STATE="${MAHO_UPDATE_STATE_ROOT:-/var/lib/maho/update}"
 AUR_BUILD="$ROOT/bin/maho-aur-build"
 INTENT="$ROOT/lib/intent.sh"
 EVENTS="$ROOT/lib/events.sh"
@@ -204,6 +206,11 @@ else:
 PY
 }
 
+guardian_update_status_command() {
+    [ -r "$GUARDIAN_UPDATE" ] || { echo "maho-guard: Guardian update projection unavailable" >&2; return 1; }
+    python "$GUARDIAN_UPDATE" --state-root "$UPDATE_STATE"
+}
+
 why_command() {
     local wanted="${1:-}"
     local explainer="$ROOT/lib/guardian_explain.py"
@@ -273,6 +280,7 @@ doctor_command() {
     parse_python "$GUARDIAN_INCIDENT" && echo "PASS  Guardian incident normalizer/history" || echo "FAIL  Guardian incident normalizer/history"
     parse_python "$GUARDIAN_SERVICE" && echo "PASS  Guardian service incident lifecycle" || echo "FAIL  Guardian service incident lifecycle"
     parse_python "$GUARDIAN_WATCHER" && echo "PASS  Guardian event watcher" || echo "FAIL  Guardian event watcher"
+    parse_python "$GUARDIAN_UPDATE" && echo "PASS  Guardian update authority projection" || echo "FAIL  Guardian update authority projection"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
@@ -288,6 +296,7 @@ case "${1:-}" in
     reconcile) reconcile_command ;;
     status) status_command ;;
     guardian-status) guardian_status_command "${2:-}" ;;
+    guardian-update-status) guardian_update_status_command ;;
     why) why_command "${2:-}" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
@@ -301,6 +310,7 @@ Usage:
   maho-guard reconcile
   maho-guard status
   maho-guard guardian-status [--json]
+  maho-guard guardian-update-status
   maho-guard why [INCIDENT_ID]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD

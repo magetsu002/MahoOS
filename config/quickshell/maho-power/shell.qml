@@ -9,6 +9,7 @@ ShellRoot {
     id: root
 
     MahoTheme { id: theme }
+    MahoUpdateState { id: updateState }
     PowerBackdrop { id: backdrop; active: root.presented }
 
     // `presented` now owns only the compositor carrier lifecycle. It starts
@@ -108,6 +109,7 @@ ShellRoot {
             width: Math.min(860, Math.max(760, overlay.width * 0.56))
             height: Math.min(570, Math.max(500, overlay.height * 0.57))
             theme: theme
+            updateState: updateState
             compact: false
             keyboardNavigation: true
             closeButtonVisible: true

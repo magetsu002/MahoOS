@@ -11,6 +11,7 @@ Item {
     property var battery
     property var media
     property var notifyStatus
+    property var updateState
     property date now: new Date()
     property bool powerExpanded: false
     readonly property real quickActionsTop: panelColumn.y + quickActions.y
@@ -298,6 +299,55 @@ Item {
                     : "white"
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
+            }
+        }
+
+        MahoCard {
+            width: parent.width
+            height: 48
+            visible: center.updateState && center.updateState.authorityState !== "NONE"
+            theme: center.theme
+            emphasized: center.updateState && center.updateState.attentionRequired
+
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                text: center.updateState && center.updateState.attentionRequired ? "!" : "✓"
+                color: center.theme
+                    ? (center.updateState && center.updateState.attentionRequired ? center.theme.error : center.theme.primary)
+                    : "white"
+                font.pixelSize: 14
+                font.weight: Font.Bold
+            }
+
+            Column {
+                anchors.left: parent.left
+                anchors.leftMargin: 48
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 0
+
+                Text {
+                    text: "System maintenance · " + (center.updateState ? center.updateState.status : "Healthy")
+                    color: center.theme ? center.theme.foreground : "white"
+                    font.pixelSize: 10
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    width: parent.width
+                    text: center.updateState && center.updateState.blockers.length > 0
+                        ? center.updateState.blockers.join(" · ")
+                        : (center.updateState && center.updateState.lastMaintenance !== ""
+                            ? "Last maintained " + center.updateState.lastMaintenance
+                            : String(center.updateState ? center.updateState.historyCount : 0) + " receipts")
+                    color: center.theme ? center.theme.alpha(center.theme.muted, 0.70) : "#bdb8c3"
+                    font.pixelSize: 8
+                    elide: Text.ElideRight
+                }
             }
         }
 

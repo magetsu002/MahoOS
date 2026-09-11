@@ -4,6 +4,7 @@ Item {
     id: root
 
     property var theme
+    property var updateState
     property bool compact: false
     property bool closeButtonVisible: true
     property bool keyboardNavigation: !compact
@@ -227,6 +228,15 @@ Item {
                     visible: !root.compact
                     text: "Choose an action"
                     color: root.theme ? root.alpha(root.theme.muted, 0.78) : "#b8c0dd"
+                    font.pixelSize: root.subtitleSize
+                    textFormat: Text.PlainText
+                }
+
+                Text {
+                    visible: !root.compact && root.updateState
+                        && (root.updateState.activationPending || root.updateState.attentionRequired)
+                    text: root.updateState ? root.updateState.status : ""
+                    color: root.theme ? root.alpha(root.theme.primary, 0.82) : "#b8c0dd"
                     font.pixelSize: root.subtitleSize
                     textFormat: Text.PlainText
                 }

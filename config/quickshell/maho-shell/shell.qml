@@ -17,6 +17,7 @@ ShellRoot {
     Media { id: media }
     DockState { id: dock }
     NotifyStatus { id: notifyBridge }
+    MahoUpdateState { id: updateState }
     BluetoothAutoConnect { }
 
     GuardianBackdropPulse {
@@ -585,6 +586,7 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     battery: battery
+                    updateState: updateState
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -606,6 +608,7 @@ ShellRoot {
                     brightness: brightness
                     system: system
                     battery: battery
+                    updateState: updateState
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
@@ -630,6 +633,7 @@ ShellRoot {
                     battery: battery
                     media: media
                     notifyStatus: notifyBridge
+                    updateState: updateState
                     now: root.now
                     enabled: root.controlVisible
                     opacity: root.controlVisible ? 1 : 0

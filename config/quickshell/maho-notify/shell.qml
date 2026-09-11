@@ -117,6 +117,7 @@ ShellRoot {
     }
 
     NotifyTheme { id: theme }
+    UpdateAttention { }
     AppIdentityResolver { id: appIdentityResolver }
     NotificationModel { id: notificationModel }
     HistoryModel {
