@@ -28,7 +28,12 @@
     "prefer_smallest_effective_scope": true,
     "destructive_actions_require_confirmation": true,
     "repeated_service_failure_threshold": 3,
-    "graphical_fallback": "text-console"
+    "graphical_fallback": "text-console",
+    "system_restore_provider": {
+      "package": "limine-snapper-sync",
+      "version": "1.31.0-1",
+      "command": "/usr/bin/limine-snapper-restore"
+    }
   },
   "distribution": {
     "package_format": "pacman",
