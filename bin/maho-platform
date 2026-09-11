@@ -5,6 +5,7 @@ ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 POLICY="$ROOT/config/platform.json"
 RECOVERY_POLICY="$ROOT/lib/maho_recovery_policy.py"
 RECOVERY_GENERATION_CLI="$ROOT/lib/maho_recovery_cli.py"
+SYSTEM_RESTORE_CLI="$ROOT/lib/maho_system_restore_cli.py"
 SNAPPER_ROOT_CONFIG="${MAHO_SNAPPER_ROOT_CONFIG:-/etc/snapper/configs/root}"
 
 usage() {
@@ -15,6 +16,7 @@ Commands:
   doctor              Inspect V1 platform/recovery prerequisites (read-only).
   status [--json]                  Report detected kernel/filesystem/recovery capabilities.
   recovery-generations [--json]      Discover read-only G3 recovery generations.
+  system-restore-plan ID [--json]     Preflight one exact L3 recovery generation (read-only).
   plan FILE|-                        Compute a recovery recommendation from normalized JSON.
 
 This command is read-only. It never changes kernels, snapshots, boot entries,
@@ -184,6 +186,18 @@ recovery_generations() {
   python "$RECOVERY_GENERATION_CLI" --policy "$POLICY" "$@"
 }
 
+system_restore_plan() {
+  local generation="$1"
+  shift
+  case "${1:-}" in
+    "") [ "$#" -eq 0 ] || return 2 ;;
+    --json) [ "$#" -eq 1 ] || { echo "maho-platform: system-restore-plan accepts only --json" >&2; return 2; } ;;
+    *) echo "maho-platform: unknown system-restore-plan option: $1" >&2; return 2 ;;
+  esac
+  [ -r "$SYSTEM_RESTORE_CLI" ] || { echo "maho-platform: L3 restore preflight engine missing: $SYSTEM_RESTORE_CLI" >&2; return 1; }
+  python "$SYSTEM_RESTORE_CLI" --policy "$POLICY" --generation "$generation" "$@"
+}
+
 plan() {
   local input="$1"
   [ -r "$RECOVERY_POLICY" ] || { echo "maho-platform: recovery policy missing: $RECOVERY_POLICY" >&2; return 1; }
@@ -220,6 +234,12 @@ case "${1:-}" in
   recovery-generations)
     shift
     recovery_generations "$@"
+    ;;
+  system-restore-plan)
+    [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+    generation="$2"
+    shift 2
+    system_restore_plan "$generation" "$@"
     ;;
   plan)
     [ "$#" -eq 2 ] || { usage >&2; exit 2; }

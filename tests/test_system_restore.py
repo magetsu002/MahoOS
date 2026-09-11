@@ -101,6 +101,9 @@ def provider(**changes):
         "version": "1.31.0-1",
         "uid": 0,
         "mode": 0o755,
+        "regular_file": True,
+        "package_owns_command": True,
+        "package_files_ok": True,
         "cmdline": f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/349/snapshot maho.recovery_snapshot=1",
         "config": {
             "RESTORE_METHOD": "replace",
@@ -140,6 +143,9 @@ def main() -> None:
     check("provider command path is exact", "provider_command_mismatch" in plan_system_restore(report(), GID, POLICY, provider(path="/tmp/restore")).blockers)
     check("provider must be root-owned", "provider_not_root_owned" in plan_system_restore(report(), GID, POLICY, provider(uid=1000)).blockers)
     check("provider cannot be group/world writable", "provider_permissions_unsafe" in plan_system_restore(report(), GID, POLICY, provider(mode=0o775)).blockers)
+    check("provider must be a regular file", "provider_not_regular_file" in plan_system_restore(report(), GID, POLICY, provider(regular_file=False)).blockers)
+    check("provider command must be package-owned", "provider_package_ownership_mismatch" in plan_system_restore(report(), GID, POLICY, provider(package_owns_command=False)).blockers)
+    check("provider package integrity must be clean", "provider_package_integrity_failed" in plan_system_restore(report(), GID, POLICY, provider(package_files_ok=False)).blockers)
 
     bad_config = provider()
     bad_config["config"] = {**bad_config["config"], "RESTORE_METHOD": "rsync"}

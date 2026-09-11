@@ -111,8 +111,14 @@ def plan_system_restore(
         blockers.append("provider_version_uncertified")
     if provider_uid != 0:
         blockers.append("provider_not_root_owned")
+    if provider_evidence.get("regular_file") is not True:
+        blockers.append("provider_not_regular_file")
     if not isinstance(provider_mode, int) or provider_mode & 0o022:
         blockers.append("provider_permissions_unsafe")
+    if provider_evidence.get("package_owns_command") is not True:
+        blockers.append("provider_package_ownership_mismatch")
+    if provider_evidence.get("package_files_ok") is not True:
+        blockers.append("provider_package_integrity_failed")
 
     expected_config = {
         "RESTORE_METHOD": "replace",
