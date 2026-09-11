@@ -151,5 +151,6 @@ python "$ROOT/tests/palette-v2.py"
 echo "=== Maho Update authority ==="
 python "$ROOT/tests/test_maho_update_state.py"
 python "$ROOT/tests/test_maho_update_discovery.py"
+python "$ROOT/tests/test_maho_update_staging.py"
 
 echo "ALL CORE CONTRACTS PASS"

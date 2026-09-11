@@ -54,7 +54,7 @@ _FAILURE = {
     UpdateState.ATTENTION_REQUIRED,
 }
 _TRANSITIONS = {
-    UpdateState.DISCOVERED: {UpdateState.STAGED, UpdateState.BLOCKED, UpdateState.ATTENTION_REQUIRED},
+    UpdateState.DISCOVERED: {UpdateState.STAGED, UpdateState.BLOCKED, UpdateState.FAILED_RECOVERABLE, UpdateState.ATTENTION_REQUIRED},
     UpdateState.STAGED: {UpdateState.PREPARED, UpdateState.BLOCKED, UpdateState.FAILED_RECOVERABLE, UpdateState.ATTENTION_REQUIRED},
     UpdateState.PREPARED: {UpdateState.MAINTENANCE_READY, UpdateState.BLOCKED, UpdateState.FAILED_RECOVERABLE, UpdateState.ATTENTION_REQUIRED},
     UpdateState.MAINTENANCE_READY: {UpdateState.INSTALLING, UpdateState.BLOCKED, UpdateState.FAILED_RECOVERABLE, UpdateState.ATTENTION_REQUIRED},
