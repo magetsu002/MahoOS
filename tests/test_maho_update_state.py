@@ -15,6 +15,7 @@ from maho_update_state import (  # noqa: E402
     create_transaction,
     new_transaction_id,
     package_generation_id,
+    publish_transaction,
     read_transaction,
     transaction_path,
     transaction_receipt,
@@ -123,6 +124,8 @@ def main() -> None:
         check("durable state roundtrip is exact", read_transaction(path) == pending)
         check("durable state leaves no temporary residue", not [item for item in path.parent.iterdir() if item.name.startswith(".")])
         rejected("durable path must bind transaction identity", lambda: write_transaction(path.with_name("upd-20260912T010203Z-000000000000.json"), pending))
+        published = publish_transaction(Path(temporary) / "published", pending)
+        check("published authority binds an exact current pointer", published.is_file() and (Path(temporary) / "published/current").read_text().strip() == TXID)
 
     print("ALL MAHO UPDATE STATE CONTRACTS PASS")
 

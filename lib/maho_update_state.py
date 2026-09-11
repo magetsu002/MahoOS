@@ -356,6 +356,30 @@ def read_transaction(path: str | os.PathLike[str]) -> dict[str, Any]:
     return data
 
 
+def publish_transaction(root: str | os.PathLike[str], payload: Mapping[str, Any]) -> Path:
+    """Durably publish a transaction and its exact current pointer for product consumers."""
+    data = validate_transaction(payload)
+    base = Path(root)
+    path = transaction_path(base, data["transaction_id"])
+    write_transaction(path, data)
+    pointer = base / "current"
+    pointer.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = pointer.parent / f".current.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(data["transaction_id"] + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, pointer)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return path
+
+
 def transaction_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
     data = validate_transaction(payload)
     timestamps = {state.value.lower(): None for state in UpdateState}

@@ -9,6 +9,7 @@ Item {
     property var brightness
     property var system
     property var battery
+    property var updateState
     property var workspaceIds: []
     property int activeWorkspace: 0
     property bool workspaceFlash: false
@@ -160,6 +161,19 @@ Item {
             font.family: "JetBrainsMono Nerd Font"
             font.pixelSize: 13
             Behavior on color { ColorAnimation { duration: 360 } }
+        }
+
+        Text {
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: edge.battery && edge.battery.available ? 38 : 16
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: edge.updateState && (edge.updateState.activationPending || edge.updateState.attentionRequired)
+            text: edge.updateState && edge.updateState.attentionRequired ? "!" : "•"
+            color: edge.theme
+                ? (edge.updateState && edge.updateState.attentionRequired ? edge.theme.error : edge.theme.primary)
+                : "white"
+            font.pixelSize: 12
+            font.weight: Font.Bold
         }
     }
 

@@ -28,7 +28,7 @@ COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
-  maho-files maho-link maho-lock maho-power maho-clipboard
+  maho-files maho-link maho-lock maho-power maho-update maho-clipboard
   maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
@@ -256,6 +256,10 @@ preflight() {
     "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
     "$ROOT/lib/guardian_service_incident.py" "$ROOT/lib/guardian_service_watcher.py" \
     "$ROOT/lib/guardian_runtime_recovery.py" "$ROOT/lib/maho_runtime_release.py" \
+    "$ROOT/lib/maho_update_state.py" "$ROOT/lib/maho_update_discovery.py" \
+    "$ROOT/lib/maho_update_staging.py" "$ROOT/lib/maho_update_preparation.py" \
+    "$ROOT/lib/maho_update_maintenance.py" "$ROOT/lib/maho_update_transaction.py" \
+    "$ROOT/lib/maho_update_receipts.py" "$ROOT/lib/maho_update_cli.py" \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
