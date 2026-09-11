@@ -49,7 +49,7 @@ def journal() -> dict:
             "snapshot_uuid": TARGET_UUID,
             "root_filesystem_uuid": ROOT_FS,
             "expected_kernel_package": "linux-cachyos",
-            "expected_kernel_version": "7.1.8-1-cachyos",
+            "expected_kernel_version": "7.1.8-1",
             "expected_kernel_sha256": KHASH,
             "expected_initramfs_sha256": IHASH,
         },
@@ -76,7 +76,7 @@ def plan(**changes) -> dict:
         "snapshot_id": 349,
         "root_filesystem_uuid": ROOT_FS,
         "expected_kernel_package": "linux-cachyos",
-        "expected_kernel_version": "7.1.8-1-cachyos",
+        "expected_kernel_version": "7.1.8-1",
         "expected_kernel_sha256": KHASH,
         "expected_initramfs_sha256": IHASH,
     }
@@ -148,8 +148,9 @@ def postboot(**changes) -> PostBootEvidence:
         "recovery_overlay_active": False,
         "recovery_flag_present": False,
         "kernel_package": "linux-cachyos",
-        "kernel_version": "7.1.8-1-cachyos",
+        "kernel_version": "7.1.8-1",
         "running_kernel_version": "7.1.8-1-cachyos",
+        "running_kernel_sha256": KHASH,
         "kernel_sha256": KHASH,
         "initramfs_sha256": IHASH,
         "home_filesystem_uuid": HOME_FS,
@@ -353,9 +354,9 @@ def main() -> None:
             {"phase": "provider-returned", "at": journal()["created_at"]},
             {"phase": "restored-awaiting-reboot", "at": journal()["created_at"]},
         ]},
-        postboot(running_kernel_version="7.1.7-1-cachyos"),
+        postboot(running_kernel_sha256="9" * 64),
     )
-    check("postboot requires exact running kernel version", "running_kernel_version_mismatch" in bad_running)
+    check("postboot binds the running kernel to the target image", "running_kernel_hash_mismatch" in bad_running)
 
     with tempfile.TemporaryDirectory(prefix="maho-l3-postboot-fail-") as td:
         path = Path(td) / f"{TX}.json"

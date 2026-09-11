@@ -328,6 +328,7 @@ class PostBootEvidence:
     kernel_package: str
     kernel_version: str
     running_kernel_version: str
+    running_kernel_sha256: str
     kernel_sha256: str
     initramfs_sha256: str
     home_filesystem_uuid: str
@@ -364,8 +365,10 @@ def postboot_blockers(
         blockers.append("postboot_kernel_package_mismatch")
     if evidence.kernel_version != target.get("expected_kernel_version"):
         blockers.append("postboot_kernel_version_mismatch")
-    if evidence.running_kernel_version != target.get("expected_kernel_version"):
-        blockers.append("running_kernel_version_mismatch")
+    if not evidence.running_kernel_version:
+        blockers.append("running_kernel_version_missing")
+    if evidence.running_kernel_sha256 != target.get("expected_kernel_sha256"):
+        blockers.append("running_kernel_hash_mismatch")
     if evidence.kernel_sha256 != target.get("expected_kernel_sha256"):
         blockers.append("postboot_kernel_hash_mismatch")
     if evidence.initramfs_sha256 != target.get("expected_initramfs_sha256"):
@@ -381,6 +384,7 @@ def postboot_blockers(
     if evidence.backup_read_only is not True:
         blockers.append("postboot_emergency_backup_not_read_only")
     for value, name in (
+        (evidence.running_kernel_sha256, "running_kernel"),
         (evidence.kernel_sha256, "kernel"),
         (evidence.initramfs_sha256, "initramfs"),
     ):
