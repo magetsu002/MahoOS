@@ -77,6 +77,8 @@ def relationships(**changes) -> dict:
 
 
 class FakeOps:
+    fixture_safe = True
+
     def __init__(self, fail: str | None = None, recover_ok: bool = True, failed_mutation: bool = False) -> None:
         self.fail = fail
         self.recover_ok = recover_ok
@@ -137,6 +139,8 @@ def main() -> None:
         offline = OfflineRootUpdateOps(offline_root, cache, runner=lambda command: (_ for _ in ()).throw(AssertionError("gate must prevent command execution")))
         concrete_blocked = execute_update(transaction, production_plan, offline, now=NOW)
         check("concrete offline executor remains behind production gate", concrete_blocked.transaction["state"] == "BLOCKED" and offline.commands == [])
+        fixture_escape = execute_update(transaction, fixture_plan, offline, now=NOW)
+        check("fixture label cannot unlock concrete system executor", fixture_escape.transaction["state"] == "BLOCKED" and fixture_escape.transaction["blockers"] == ["fixture_executor_not_isolated"] and offline.commands == [])
         rejected("concrete executor can never target live root", lambda: OfflineRootUpdateOps("/", cache))
         rejected("concrete executor rejects live Pacman cache", lambda: OfflineRootUpdateOps(offline_root, "/var/cache/pacman/pkg"))
         try:

@@ -78,6 +78,7 @@ class UpdateExecutionOps(Protocol):
 class OfflineRootUpdateOps:
     """Concrete offline-root executor; unreachable from M4A production authority."""
 
+    fixture_safe = False
     PACMAN = "/usr/bin/pacman"
     ARCH_CHROOT = "/usr/bin/arch-chroot"
 
@@ -361,6 +362,14 @@ def execute_update(
             current, UpdateState.BLOCKED,
             reason="durable M4A transaction carries no native execution authority",
             blockers=["durable_native_authority_absent"], now=now,
+        )
+        _persist(journal_path, blocked)
+        return ExecutionResult(blocked, plan, False, False)
+    if getattr(ops, "fixture_safe", False) is not True:
+        blocked = transition_transaction(
+            current, UpdateState.BLOCKED,
+            reason="fixture execution requires a non-system fake provider",
+            blockers=["fixture_executor_not_isolated"], now=now,
         )
         _persist(journal_path, blocked)
         return ExecutionResult(blocked, plan, False, False)
