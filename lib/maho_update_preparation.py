@@ -120,7 +120,8 @@ def prepare_transaction(
 ) -> PreparationResult:
     plan = plan_preparation(transaction, manifest, cache_root, evidence)
     current = validate_transaction(transaction)
-    if not plan.complete:
+    source_blockers = tuple(item for item in plan.blockers if item != "native_l3_certification_required")
+    if source_blockers:
         blocked = transition_transaction(
             current, UpdateState.BLOCKED,
             reason="update preparation failed closed",
@@ -128,9 +129,20 @@ def prepare_transaction(
             evidence={"preparation_plan": plan.as_dict()}, now=now,
         )
         return PreparationResult(blocked, plan)
+    bound = dict(current)
+    bound["recovery"] = dict(current["recovery"])
+    bound["recovery"]["generation_id"] = plan.recovery_generation_id
     prepared = transition_transaction(
-        current, UpdateState.PREPARED,
+        bound, UpdateState.PREPARED,
         reason="coherent update and recovery plan prepared",
         evidence={"preparation_plan": plan.as_dict()}, now=now,
     )
+    if "native_l3_certification_required" in plan.blockers:
+        blocked = transition_transaction(
+            prepared, UpdateState.BLOCKED,
+            reason="source preparation is complete but native M3B certification is deferred",
+            blockers=["native_l3_certification_required"],
+            evidence={"preparation_plan": plan.as_dict()}, now=now,
+        )
+        return PreparationResult(blocked, plan)
     return PreparationResult(prepared, plan)

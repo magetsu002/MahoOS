@@ -83,10 +83,12 @@ def main() -> None:
         transaction, manifest = staged(cache)
         production = prepare_transaction(transaction, manifest, cache, evidence(), now=NOW)
         check("M4A production preparation fails closed on deferred M3B", production.transaction["state"] == "BLOCKED" and "native_l3_certification_required" in production.plan.blockers)
+        check("production plan records PREPARED before the native gate", [item["state"] for item in production.transaction["history"]][-2:] == ["PREPARED", "BLOCKED"])
         check("blocked production plan still binds exact generation and activation", production.plan.package_generation_id == transaction["package_generation"]["id"] and production.plan.activation_requirements == ("maho-runtime-release",))
 
         fixture = prepare_transaction(transaction, manifest, cache, evidence(execution_environment="fixture"), now=NOW)
         check("isolated fixture plan can prove PREPARED architecture", fixture.transaction["state"] == "PREPARED" and fixture.plan.complete)
+        check("preparation binds the exact recovery generation", fixture.transaction["recovery"]["generation_id"] == "g3-1234567890abcdef12345678")
         check("fixture authority never forges native L3 certification", fixture.transaction["recovery"]["native_l3_certified"] is False)
 
         for label, changes, blocker in (

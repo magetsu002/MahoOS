@@ -154,5 +154,6 @@ python "$ROOT/tests/test_maho_update_discovery.py"
 python "$ROOT/tests/test_maho_update_staging.py"
 python "$ROOT/tests/test_maho_update_preparation.py"
 python "$ROOT/tests/test_maho_update_maintenance.py"
+python "$ROOT/tests/test_maho_update_transaction.py"
 
 echo "ALL CORE CONTRACTS PASS"
