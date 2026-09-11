@@ -83,9 +83,16 @@ def validate_journal(payload: Mapping[str, Any]) -> dict[str, Any]:
     for section, key in ((target, "snapshot_uuid"), (backup, "snapshot_uuid"), (home, "subvolume_uuid")):
         if not isinstance(section.get(key), str) or not section[key]:
             raise ValueError(f"journal {key} is required")
-    for key in ("root_filesystem_uuid", "expected_kernel_sha256", "expected_initramfs_sha256"):
+    for key in ("root_filesystem_uuid", "expected_kernel_package", "expected_kernel_version"):
         if not isinstance(target.get(key), str) or not target[key]:
             raise ValueError(f"journal target {key} is required")
+    for key in ("expected_kernel_sha256", "expected_initramfs_sha256"):
+        value = target.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError(f"journal target {key} must be a SHA-256 digest")
+    for key in ("filesystem_uuid", "fsroot", "subvolume_uuid"):
+        if not isinstance(home.get(key), str) or not home[key]:
+            raise ValueError(f"journal home {key} is required")
     if provider.get("command") != "/usr/bin/limine-snapper-restore":
         raise ValueError("journal provider command is not the certified V1 provider")
     if provider.get("package") != "limine-snapper-sync" or provider.get("version") != "1.31.0-1":

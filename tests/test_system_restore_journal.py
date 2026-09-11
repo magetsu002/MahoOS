@@ -40,11 +40,17 @@ def sample() -> dict:
             "snapshot_id": 349,
             "snapshot_uuid": "target-uuid",
             "root_filesystem_uuid": "ce979d1c-c145-4be0-9ce3-591b6fd0a3a1",
+            "expected_kernel_package": "linux-cachyos",
+            "expected_kernel_version": "7.1.8-1-cachyos",
             "expected_kernel_sha256": "1" * 64,
             "expected_initramfs_sha256": "2" * 64,
         },
         backup={"snapshot_id": 400, "snapshot_uuid": "backup-uuid"},
-        home={"subvolume_uuid": "home-uuid"},
+        home={
+            "filesystem_uuid": "home-fs-uuid",
+            "fsroot": "/@home",
+            "subvolume_uuid": "home-uuid",
+        },
         provider={
             "command": "/usr/bin/limine-snapper-restore",
             "package": "limine-snapper-sync",

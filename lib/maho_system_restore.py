@@ -24,6 +24,8 @@ class SystemRestorePlan:
     root_filesystem_uuid: str
     root_snapshot_fsroot: str
     home_scope: str
+    expected_kernel_package: str
+    expected_kernel_version: str
     expected_kernel_sha256: str
     expected_initramfs_sha256: str
     campaign_ready: bool
@@ -163,6 +165,8 @@ def plan_system_restore(
         root_filesystem_uuid=generation.root_filesystem_uuid or "",
         root_snapshot_fsroot=expected_fsroot,
         home_scope=generation.home_scope,
+        expected_kernel_package=generation.boot.kernel_package or "",
+        expected_kernel_version=generation.boot.kernel_version or "",
         expected_kernel_sha256=kernel_hash,
         expected_initramfs_sha256=initramfs_hash,
         campaign_ready=campaign_ready,

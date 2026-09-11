@@ -154,6 +154,7 @@ def main() -> None:
     check("L3 remains confirmation-gated and never automatic", ready.requires_confirmation and not ready.automatic_allowed)
     check("plan binds exact root-only scope", ready.snapshot_id == 349 and ready.root_snapshot_fsroot == "/@snapshots/349/snapshot" and ready.home_scope == "excluded")
     check("plan binds exact verified boot hashes", ready.expected_kernel_sha256 == KHASH and ready.expected_initramfs_sha256 == IHASH)
+    check("plan binds exact kernel identity", ready.expected_kernel_package == "linux-cachyos" and ready.expected_kernel_version == "7.1.8-1-cachyos")
 
     no_overlay = report()
     no_overlay = replace(no_overlay, current_platform={**no_overlay.current_platform, "recovery_overlay_active": False})
