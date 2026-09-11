@@ -45,7 +45,7 @@ class SystemProbe:
     @classmethod
     def _allowed(cls, args: tuple[str, ...]) -> bool:
         if len(args) == 6 and args[0:3] == ("findmnt", "--json", "--target"):
-            return args[3] in {"/", "/home"} and args[4:] == ("--output", cls._FINDMNT_OUTPUT)
+            return args[3] in {"/", "/home", "/run/maho-recovery-overlay/lower"} and args[4:] == ("--output", cls._FINDMNT_OUTPUT)
         if len(args) == 3 and args[0:2] == ("pacman", "-Q"):
             return bool(cls._PACKAGE.fullmatch(args[2]))
         if len(args) == 5 and args[0:2] == ("pacman", "--root"):
@@ -149,6 +149,27 @@ def _findmnt_mount(probe: Probe, target: str) -> Mapping[str, Any] | None:
     if not isinstance(filesystems, list) or not filesystems or not isinstance(filesystems[0], Mapping):
         return None
     return filesystems[0]
+
+
+def _root_mount_evidence(probe: Probe) -> tuple[Mapping[str, Any] | None, bool]:
+    """Return authoritative root evidence, unwrapping only Maho recovery OverlayFS.
+
+    Ordinary OverlayFS roots remain unsupported. The lower Btrfs mount is trusted
+    only when the explicit Maho recovery kernel flag is present, matching the
+    initrd contract that created the temporary writable layer.
+    """
+    root = _findmnt_mount(probe, "/")
+    if not root or root.get("fstype") != "overlay":
+        return root, False
+
+    cmdline = (probe.read_text("/proc/cmdline") or "").split()
+    if "maho.recovery_snapshot=1" not in cmdline:
+        return root, False
+
+    lower = _findmnt_mount(probe, "/run/maho-recovery-overlay/lower")
+    if not lower or lower.get("fstype") != "btrfs":
+        return root, False
+    return lower, True
 
 
 def _package(probe: Probe, name: str) -> tuple[bool, str | None]:
@@ -632,7 +653,7 @@ def discover_recovery_generations(policy: Mapping[str, Any], probe: Probe) -> Re
     states = policy.get("system_states", {}) if isinstance(policy.get("system_states"), Mapping) else {}
     config_name = states.get("root_snapper_config") if isinstance(states.get("root_snapper_config"), str) else "root"
 
-    root = _findmnt_mount(probe, "/")
+    root, recovery_overlay_active = _root_mount_evidence(probe)
     home = _findmnt_mount(probe, "/home")
     primary = kernel.get("primary_package") if isinstance(kernel.get("primary_package"), str) else "linux-cachyos"
     fallback = kernel.get("fallback_package") if isinstance(kernel.get("fallback_package"), str) else "linux-cachyos-lts"
@@ -665,6 +686,7 @@ def discover_recovery_generations(policy: Mapping[str, Any], probe: Probe) -> Re
         "root_source": root_source,
         "root_fsroot": root_fsroot,
         "root_filesystem_uuid": fs_uuid,
+        "recovery_overlay_active": recovery_overlay_active,
         "home_scope": home_scope,
         "snapper_config": config_name,
         "snapper_config_available": snapper_cfg is not None,

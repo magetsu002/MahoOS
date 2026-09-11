@@ -222,6 +222,33 @@ def main() -> None:
     check("L3 facts remain confirmation gated", healthy.planning_facts["recovery"]["requires_confirmation"] is True and healthy.planning_facts["recovery"]["automatic_allowed"] is False)
     check("live restore remains disabled", healthy.native_restore_enabled is False and healthy.planning_facts["recovery"]["native_restore_enabled"] is False)
 
+    overlay_fixture = build_fixture(copy.deepcopy(SCENARIOS["healthy"]))
+    root_cmd = command(["findmnt", "--json", "--target", "/", "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID"])
+    lower_cmd = command(["findmnt", "--json", "--target", "/run/maho-recovery-overlay/lower", "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID"])
+    overlay_fixture["commands"][root_cmd] = result(mount("/", "overlay", "/", fstype="overlay"))
+    overlay_fixture["commands"][lower_cmd] = result(mount("/run/maho-recovery-overlay/lower", "/dev/mapper/maho-root[/@snapshots/20/snapshot]", "/@snapshots/20/snapshot"))
+    snapper_list_cmd = command(["snapper", "--jsonout", "--config", "root", "list", "--disable-used-space"])
+    overlay_rows = json.loads(overlay_fixture["commands"][snapper_list_cmd]["stdout"])["root"]
+    for row in overlay_rows:
+        row["active"] = row["number"] == 20
+    overlay_fixture["commands"][snapper_list_cmd] = result(json.dumps({"root": overlay_rows}))
+    overlay_fixture["files"]["/proc/cmdline"] = f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/20/snapshot maho.recovery_snapshot=1"
+    overlay_probe = FixtureProbe(overlay_fixture)
+    overlay_report = discover_recovery_generations(POLICY, overlay_probe)
+    overlay20 = candidate(overlay_report, 20)
+    check("certified recovery OverlayFS unwraps to Btrfs lower root", overlay_report.current_platform["root_fstype"] == "btrfs" and overlay_report.current_platform["root_fsroot"] == "/@snapshots/20/snapshot" and overlay_report.current_platform["recovery_overlay_active"] is True)
+    check("recovery OverlayFS preserves separate home scope", overlay_report.current_platform["home_scope"] == "excluded")
+    check("booted recovery generation remains current and therefore non-selectable", overlay_report.current_platform["current_snapshot_id"] == 20 and not overlay20.eligible and "current_failed_generation" in overlay20.rejection_reasons)
+    check("recovery OverlayFS lower mount is explicitly probed", any(cmd[3] == "/run/maho-recovery-overlay/lower" for cmd in overlay_probe.commands if len(cmd) >= 4 and cmd[:3] == ("findmnt", "--json", "--target")))
+
+    ordinary_overlay_fixture = build_fixture(copy.deepcopy(SCENARIOS["healthy"]))
+    ordinary_overlay_fixture["commands"][root_cmd] = result(mount("/", "overlay", "/", fstype="overlay"))
+    ordinary_overlay_fixture["commands"][lower_cmd] = result(mount("/run/maho-recovery-overlay/lower", "/dev/mapper/maho-root[/@snapshots/20/snapshot]", "/@snapshots/20/snapshot"))
+    ordinary_overlay_probe = FixtureProbe(ordinary_overlay_fixture)
+    ordinary_overlay_report = discover_recovery_generations(POLICY, ordinary_overlay_probe)
+    check("ordinary OverlayFS without recovery flag stays untrusted", ordinary_overlay_report.current_platform["root_fstype"] == "overlay" and ordinary_overlay_report.current_platform["recovery_overlay_active"] is False and ordinary_overlay_report.selected_generation_id is None)
+    check("ordinary OverlayFS never probes recovery lower mount", not any(cmd[3] == "/run/maho-recovery-overlay/lower" for cmd in ordinary_overlay_probe.commands if len(cmd) >= 4 and cmd[:3] == ("findmnt", "--json", "--target")))
+
     gid = generation_identity(FSUUID, "root", 20)
     check("generation identity is deterministic", gid == generation_identity(FSUUID, "root", 20) and gid is not None)
     check("generation identity ignores display metadata", gid == candidate(healthy, 20).generation_id)
