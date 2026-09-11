@@ -12,6 +12,7 @@ from maho_update_state import UpdateState, transition_transaction, validate_tran
 
 @dataclass(frozen=True)
 class PreparationEvidence:
+    discovery_generation_current: bool
     coherent_full_upgrade: bool
     required_disk_bytes: int
     available_disk_bytes: int
@@ -69,6 +70,8 @@ def plan_preparation(
         raise ValueError("preparation recovery generation identity is invalid")
 
     blockers: list[str] = []
+    if not evidence.discovery_generation_current:
+        blockers.append("stale_update_transaction")
     if not evidence.coherent_full_upgrade:
         blockers.append("partial_upgrade_or_incoherent_package_set")
     if evidence.required_disk_bytes < 0 or evidence.available_disk_bytes < evidence.required_disk_bytes:

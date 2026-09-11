@@ -56,6 +56,7 @@ def staged(cache: Path) -> tuple[dict, dict]:
 
 def evidence(**changes) -> PreparationEvidence:
     values = {
+        "discovery_generation_current": True,
         "coherent_full_upgrade": True,
         "required_disk_bytes": 100,
         "available_disk_bytes": 1000,
@@ -92,6 +93,7 @@ def main() -> None:
         check("fixture authority never forges native L3 certification", fixture.transaction["recovery"]["native_l3_certified"] is False)
 
         for label, changes, blocker in (
+            ("stale transaction", {"discovery_generation_current": False}, "stale_update_transaction"),
             ("partial upgrade", {"coherent_full_upgrade": False}, "partial_upgrade_or_incoherent_package_set"),
             ("low disk", {"available_disk_bytes": 1}, "insufficient_install_space"),
             ("unknown power", {"power_status_known": False}, "power_status_unknown"),
