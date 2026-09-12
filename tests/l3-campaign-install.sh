@@ -32,6 +32,17 @@ if (( EUID != 0 )); then
 fi
 pass "installer has explicit root boundary"
 
+[ -e "$ROOT/.git" ] || fail "test repository does not expose Git worktree metadata"
+resolved_root="$(git -c safe.directory="$ROOT" -C "$ROOT" rev-parse --show-toplevel)"
+[ "$(readlink -f -- "$resolved_root")" = "$(readlink -f -- "$ROOT")" ] \
+  || fail "linked worktree top-level identity is not exact"
+if grep -Fq '[ -d "$SOURCE_REPO/.git" ]' "$INSTALLER"; then
+  fail "installer still assumes .git must be a directory"
+fi
+grep -Fq 'rev-parse --show-toplevel' "$INSTALLER" \
+  || fail "installer does not validate linked worktree roots through Git"
+pass "installer accepts linked-worktree Git metadata without weakening root identity"
+
 grep -Fq 'git_cmd show "$rev:$file"' "$INSTALLER" \
   || fail "installer does not install exact committed blobs"
 grep -Fq 'git_cmd cat-file -e "$EXPECTED_REV:$file"' "$INSTALLER" \

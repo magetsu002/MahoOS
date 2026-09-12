@@ -48,7 +48,11 @@ parse_install_args() {
     esac
   done
   [[ "$SOURCE_REPO" = /* ]] || fail "--repo must be an absolute path"
-  [ -d "$SOURCE_REPO/.git" ] || fail "--repo is not a Git worktree root"
+  local worktree_root
+  worktree_root="$(/usr/bin/git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" rev-parse --show-toplevel 2>/dev/null)" \
+    || fail "--repo is not a Git worktree root"
+  [ "$(readlink -f -- "$worktree_root")" = "$(readlink -f -- "$SOURCE_REPO")" ] \
+    || fail "--repo must name the Git worktree root exactly"
   [[ "$EXPECTED_REV" =~ ^[0-9a-f]{40}$ ]] || fail "--revision must be a full SHA"
 }
 
