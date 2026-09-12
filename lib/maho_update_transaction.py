@@ -76,9 +76,10 @@ class UpdateExecutionOps(Protocol):
 
 
 class OfflineRootUpdateOps:
-    """Concrete offline-root executor; unreachable from M4A production authority."""
+    """Concrete non-live-root executor used by certified native update authority."""
 
     fixture_safe = False
+    production_safe = True
     PACMAN = "/usr/bin/pacman"
     ARCH_CHROOT = "/usr/bin/arch-chroot"
 
@@ -341,31 +342,38 @@ def execute_update(
     now=None,
 ) -> ExecutionResult:
     current = validate_transaction(transaction)
+    # Legacy caller booleans are deliberately not authority. M4B reads only the
+    # source-bound durable certification records inside the transaction.
+    _ = (native_l3_certified, native_update_execution_certified)
     if current["state"] != UpdateState.MAINTENANCE_READY.value:
         raise ValueError("update execution requires MAINTENANCE_READY authority")
     if current["transaction_id"] != plan.transaction_id or current["package_generation"]["id"] != plan.package_generation_id:
         raise ValueError("execution plan does not bind the exact transaction")
     if plan.source_revision != current["source_revision"]:
         raise ValueError("execution source revision drifted")
-    if plan.execution_environment == "production" and not (native_l3_certified and native_update_execution_certified):
-        blocked = transition_transaction(
-            current, UpdateState.BLOCKED,
-            reason="production update mutation is disabled until M3B/M4B certification",
-            blockers=["native_l3_certification_required", "native_update_execution_uncertified"], now=now,
-        )
-        _persist(journal_path, blocked)
-        return ExecutionResult(blocked, plan, False, False)
-    if plan.execution_environment != "fixture":
-        # M4A transactions themselves explicitly carry false native gates. M4B must
-        # update that durable contract before this production branch can execute.
-        blocked = transition_transaction(
-            current, UpdateState.BLOCKED,
-            reason="durable M4A transaction carries no native execution authority",
-            blockers=["durable_native_authority_absent"], now=now,
-        )
-        _persist(journal_path, blocked)
-        return ExecutionResult(blocked, plan, False, False)
-    if getattr(ops, "fixture_safe", False) is not True:
+    if plan.execution_environment == "production":
+        blockers: list[str] = []
+        if current["recovery"]["native_l3_certified"] is not True:
+            blockers.append("native_l3_certification_required")
+        if current["activation"]["native_execution_certified"] is not True:
+            blockers.append("native_update_execution_uncertified")
+        if blockers:
+            blocked = transition_transaction(
+                current, UpdateState.BLOCKED,
+                reason="production update mutation requires durable M3B/M4B authority",
+                blockers=blockers, now=now,
+            )
+            _persist(journal_path, blocked)
+            return ExecutionResult(blocked, plan, False, False)
+        if getattr(ops, "production_safe", False) is not True:
+            blocked = transition_transaction(
+                current, UpdateState.BLOCKED,
+                reason="production execution requires the certified non-live-root provider",
+                blockers=["production_executor_not_certified"], now=now,
+            )
+            _persist(journal_path, blocked)
+            return ExecutionResult(blocked, plan, False, False)
+    elif getattr(ops, "fixture_safe", False) is not True:
         blocked = transition_transaction(
             current, UpdateState.BLOCKED,
             reason="fixture execution requires a non-system fake provider",
@@ -376,7 +384,7 @@ def execute_update(
 
     installing = transition_transaction(
         current, UpdateState.INSTALLING,
-        reason="offline fixture transaction started",
+        reason=("certified offline native transaction started" if plan.execution_environment == "production" else "offline fixture transaction started"),
         evidence={"plan": plan.as_dict()}, now=now,
     )
     _persist(journal_path, installing)
@@ -408,7 +416,7 @@ def execute_update(
     return ExecutionResult(pending, plan, True, False)
 
 
-def verify_fixture_activation(
+def verify_activation(
     transaction: Mapping[str, Any],
     plan: ExecutionPlan,
     ops: UpdateExecutionOps,
@@ -419,9 +427,18 @@ def verify_fixture_activation(
     current = validate_transaction(transaction)
     if current["state"] != UpdateState.INSTALLED_PENDING_ACTIVATION.value:
         raise ValueError("activation verification requires pending activation state")
-    if plan.execution_environment != "fixture":
-        return ExecutionResult(current, plan, True, False)
-    verifying = transition_transaction(current, UpdateState.ACTIVE_VERIFYING, reason="fixture activation proof started", now=now)
+    if plan.execution_environment == "production":
+        if current["recovery"]["native_l3_certified"] is not True or current["activation"]["native_execution_certified"] is not True:
+            raise ValueError("production activation verification requires durable native authority")
+        if getattr(ops, "production_safe", False) is not True:
+            raise ValueError("production activation verifier is not certified")
+    elif getattr(ops, "fixture_safe", False) is not True:
+        raise ValueError("fixture activation verification requires fixture-safe provider")
+    verifying = transition_transaction(
+        current, UpdateState.ACTIVE_VERIFYING,
+        reason=("native activation proof started" if plan.execution_environment == "production" else "fixture activation proof started"),
+        now=now,
+    )
     _persist(journal_path, verifying)
     try:
         evidence = _invoke("activation-verification", lambda: ops.verify_activation(plan))
@@ -434,6 +451,20 @@ def verify_fixture_activation(
     _persist(journal_path, healthy)
     return ExecutionResult(healthy, plan, True, False)
 
+
+
+def verify_fixture_activation(
+    transaction: Mapping[str, Any],
+    plan: ExecutionPlan,
+    ops: UpdateExecutionOps,
+    *,
+    journal_path: Path | None = None,
+    now=None,
+) -> ExecutionResult:
+    """Compatibility wrapper for the M4A fixture contract."""
+    if plan.execution_environment != "fixture":
+        return ExecutionResult(validate_transaction(transaction), plan, True, False)
+    return verify_activation(transaction, plan, ops, journal_path=journal_path, now=now)
 
 def recover_interrupted_fixture(
     transaction: Mapping[str, Any],
