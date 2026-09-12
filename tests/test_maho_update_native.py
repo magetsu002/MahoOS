@@ -16,6 +16,7 @@ from maho_update_native import (  # noqa: E402
     RootIdentity,
     activation_confirmation,
     backup_name,
+    candidate_boot_proven,
     candidate_name,
     sha256_file,
     update_confirmation,
@@ -46,7 +47,9 @@ class FixtureBtrfs(NativeBtrfsOps):
         return None
 
     def root_identity(self) -> RootIdentity:
-        return RootIdentity(FSUUID, "/@", "/dev/test[/@]", "/dev/test", CURRENT_UUID)
+        current = self.top / "@/.uuid"
+        root_uuid = current.read_text().strip() if current.is_file() else CURRENT_UUID
+        return RootIdentity(FSUUID, "/@", "/dev/test[/@]", "/dev/test", root_uuid)
 
     def _mount_top(self, identity: RootIdentity, *, read_only: bool = False) -> None:
         return None
@@ -104,6 +107,11 @@ def main() -> None:
     check("backup name is transaction-bound", backup_name(TX1) == "@maho-update-backup-abcdef123456")
     check("update confirmation binds package generation", update_confirmation(TX1, "pkg-abc") == f"UPDATE:{TX1}:pkg-abc")
     check("activation confirmation binds candidate UUID", activation_confirmation(TX1, CANDIDATE_UUID) == f"ACTIVATE:{TX1}:{CANDIDATE_UUID}")
+    normal_mount = {"fstype": "btrfs", "fsroot": "/@"}
+    check("candidate boot proof accepts exact normal candidate", candidate_boot_proven([], normal_mount, CANDIDATE_UUID, CANDIDATE_UUID))
+    check("candidate boot proof rejects recovery boot", not candidate_boot_proven(["maho.recovery_snapshot=1"], normal_mount, CANDIDATE_UUID, CANDIDATE_UUID))
+    check("candidate boot proof rejects wrong root UUID", not candidate_boot_proven([], normal_mount, CURRENT_UUID, CANDIDATE_UUID))
+    check("candidate boot proof rejects non-normal root", not candidate_boot_proven([], {"fstype": "overlay", "fsroot": "/"}, CANDIDATE_UUID, CANDIDATE_UUID))
 
     with tempfile.TemporaryDirectory(prefix="maho-m4b-sysroot-") as temporary:
         base = Path(temporary)
@@ -150,11 +158,25 @@ def main() -> None:
         backup_dir = Path(result["boot_backup_dir"])
         check("activation preserves old boot artifacts", all((backup_dir / Path(a).name).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
         check("activation never reboots or mutates firmware", result["reboot_performed"] is False and result["firmware_mutated"] is False)
+        frozen_previous = ops.freeze_previous_root(backup_name(TX1), CURRENT_UUID, CANDIDATE_UUID)
+        check("postboot finalization freezes exact previous root", frozen_previous["read_only"] is True and (ops.top / backup_name(TX1) / ".ro").exists())
+        try:
+            ops.freeze_previous_root(backup_name(TX1), CANDIDATE_UUID, CANDIDATE_UUID)
+        except RuntimeError as exc:
+            check("previous-root freeze rejects UUID drift", "UUID drifted" in str(exc))
+        else:
+            raise AssertionError("previous-root UUID drift unexpectedly accepted")
 
     with tempfile.TemporaryDirectory(prefix="maho-m4b-rollback-") as temporary:
         base = Path(temporary)
         ops = FixtureBtrfs(TX2, base, fail_after_swap=True)
         expected, old = seed_fixture(ops)
+        try:
+            ops.freeze_previous_root(backup_name(TX2), CURRENT_UUID, CANDIDATE_UUID)
+        except RuntimeError as exc:
+            check("previous-root primitive rejects non-candidate active root", "active /@" in str(exc))
+        else:
+            raise AssertionError("previous-root freeze accepted a non-candidate active root")
         try:
             ops.arm_activation(machine_id=MACHINE, expected_candidate_uuid=CANDIDATE_UUID, expected_boot_hashes=expected)
         except RuntimeError as exc:
