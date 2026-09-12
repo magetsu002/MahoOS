@@ -359,6 +359,7 @@ class NativeCandidateUpdateOps(OfflineRootUpdateOps):
     """M4A executor bound to one M4B candidate subvolume and one M3B target."""
 
     production_safe = True
+    PACMAN_CONFIG = "/etc/maho/pacman-kernel.conf"
 
     def __init__(
         self,
@@ -387,11 +388,26 @@ class NativeCandidateUpdateOps(OfflineRootUpdateOps):
         self.candidate_uuid = candidate_uuid
         self.btrfs_ops = btrfs_ops
 
+    def _sysroot_prefix(self) -> tuple[str, ...]:
+        config = self.root / self.PACMAN_CONFIG.lstrip("/")
+        if config.is_symlink() or not config.is_file():
+            raise ValueError("candidate Maho Pacman config is unavailable")
+        return (self.PACMAN, "--sysroot", str(self.root), "--config", self.PACMAN_CONFIG)
+
+    def install_command(self, plan: ExecutionPlan) -> tuple[str, ...]:
+        payloads = tuple(str(Path(path).resolve(strict=False)) for path in plan.payload_paths)
+        if not payloads or any(Path(path).parent != self.cache for path in payloads):
+            raise ValueError("offline install payload escapes isolated cache")
+        return (
+            *self._sysroot_prefix(),
+            "--upgrade", "--noconfirm", "--needed", "--", *payloads,
+        )
+
     def query_command(self, plan: ExecutionPlan) -> tuple[str, ...]:
         names = tuple(sorted(self.expected_versions))
         if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
             raise ValueError("candidate package verification set is invalid")
-        return (self.PACMAN, "--root", str(self.root), "--dbpath", str(self.db), "--query", "--", *names)
+        return (*self._sysroot_prefix(), "--query", "--", *names)
 
     def prepare_recovery(self, plan: ExecutionPlan) -> Mapping[str, Any]:
         if plan.recovery_generation_id != self.recovery_seed.get("generation_id"):
