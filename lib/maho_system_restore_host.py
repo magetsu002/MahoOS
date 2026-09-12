@@ -144,13 +144,13 @@ def _kernel_entry_verified(
     snapshot_id: int,
     history_root: Path,
     backend: HostBackend,
-) -> tuple[str | None, bool, bool]:
+) -> tuple[str | None, bool, bool, str | None, str | None]:
     package, kernel_name = _kernel_package(entry)
     if package is None or kernel_name is None or not isinstance(entry, dict):
-        return None, False, False
+        return None, False, False, None, None
     images = entry.get("imageDetails")
     if not isinstance(images, list) or not images:
-        return package, False, False
+        return package, False, False, None, None
     expected_initramfs = "initramfs-linux-cachyos-lts.img" if package.endswith("-lts") else "initramfs-linux-cachyos.img"
     filenames = {str(item.get("fileName")) for item in images if isinstance(item, dict)}
     required_images = {kernel_name, expected_initramfs}
@@ -158,6 +158,15 @@ def _kernel_entry_verified(
         _artifact_verified(item, history_root=history_root, backend=backend)
         for item in images
     )
+    hashes: dict[str, str] = {}
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        filename = image.get("fileName")
+        hash_name = image.get("fileHashName")
+        match = _HASH_NAME.fullmatch(hash_name) if isinstance(hash_name, str) else None
+        if isinstance(filename, str) and match:
+            hashes[filename] = match.group(1)
     rows = entry.get("cmdlineDetails")
     expected_root = f"rootflags=subvol=/@snapshots/{snapshot_id}/snapshot"
     flagged = False
@@ -171,7 +180,10 @@ def _kernel_entry_verified(
                 if expected_root in tokens and "maho.recovery_snapshot=1" in tokens:
                     flagged = True
                     break
-    return package, files_verified, flagged
+    return (
+        package, files_verified, flagged,
+        hashes.get(kernel_name), hashes.get(expected_initramfs),
+    )
 
 def _manifest_backup_evidence(
     manifest_text: str | None,
@@ -187,6 +199,8 @@ def _manifest_backup_evidence(
         "files_verified": False,
         "recovery_overlay_flagged": False,
         "kernel_packages": [],
+        "kernel_sha256": None,
+        "initramfs_sha256": None,
     }
     if not manifest_text:
         return result
@@ -209,7 +223,7 @@ def _manifest_backup_evidence(
     all_files = True
     all_flagged = True
     for entry in kernels:
-        package, files_ok, flagged = _kernel_entry_verified(
+        package, files_ok, flagged, kernel_hash, initramfs_hash = _kernel_entry_verified(
             entry, snapshot_id=snapshot_id, history_root=history_root, backend=backend
         )
         if package is None:
@@ -217,6 +231,9 @@ def _manifest_backup_evidence(
         packages.add(package)
         all_files = all_files and files_ok
         all_flagged = all_flagged and flagged
+        if package == "linux-cachyos":
+            result["kernel_sha256"] = kernel_hash
+            result["initramfs_sha256"] = initramfs_hash
     required = {"linux-cachyos", "linux-cachyos-lts"}
     complete = required.issubset(packages)
     result["kernel_packages"] = sorted(packages)
