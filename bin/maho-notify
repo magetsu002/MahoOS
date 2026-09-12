@@ -76,6 +76,7 @@ ensure_wayland_env() {
 }
 
 ipc_call() {
+    ensure_wayland_env
     quickshell ipc -p "$CONFIG" call notify "$@"
 }
 
