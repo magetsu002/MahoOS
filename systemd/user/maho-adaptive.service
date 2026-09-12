@@ -1,0 +1,13 @@
+[Unit]
+Description=Maho adaptive policy shadow evaluator
+After=maho-observe.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-adaptive watch
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

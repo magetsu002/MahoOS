@@ -161,4 +161,9 @@ bash "$ROOT/tests/maho-update-product-contracts.sh"
 python "$ROOT/tests/test_guardian_update.py"
 python "$ROOT/tests/test_maho_update_adversarial.py"
 
+echo "=== Adaptive policy A1-A14 ==="
+for test in "$ROOT"/tests/test_adaptive_*.py; do
+  python "$test"
+done
+
 echo "ALL CORE CONTRACTS PASS"

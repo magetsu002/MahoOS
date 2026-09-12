@@ -50,15 +50,16 @@ chmod +x "$TMP/fake-bin/quickshell"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
-  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
+  maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard
   maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
+PASSIVE_UNITS=(maho-adaptive.service)
 GRAPHICAL_UNITS=(maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service)
 SESSION_TARGET_UNIT=maho-hyprland-session.target
-UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "$SESSION_TARGET_UNIT")
+UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "${PASSIVE_UNITS[@]}" "$SESSION_TARGET_UNIT")
 
 RUNTIME_ROOT="$XDG_DATA_HOME/maho/runtime"
 RELEASES="$RUNTIME_ROOT/releases"
@@ -398,6 +399,11 @@ for unit in "${GRAPHICAL_UNITS[@]}"; do
   [ ! -e "$UNIT_DIR/default.target.wants/$unit" ] && [ ! -L "$UNIT_DIR/default.target.wants/$unit" ] || fail "graphical unit retained default ownership: $unit"
   [ ! -e "$UNIT_DIR/graphical-session.target.wants/$unit" ] && [ ! -L "$UNIT_DIR/graphical-session.target.wants/$unit" ] || fail "graphical unit retained graphical-session ownership: $unit"
 done
+for unit in "${PASSIVE_UNITS[@]}"; do
+  for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do
+    [ ! -e "$UNIT_DIR/$wants/$unit" ] && [ ! -L "$UNIT_DIR/$wants/$unit" ] || fail "passive unit unexpectedly enabled: $unit via $wants"
+  done
+done
 for wants in default.target.wants graphical-session.target.wants; do [ ! -e "$UNIT_DIR/$wants/$SESSION_TARGET_UNIT" ] && [ ! -L "$UNIT_DIR/$wants/$SESSION_TARGET_UNIT" ] || fail "session target independently enabled through $wants"; done
 [ -L "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" ] || fail 'unrelated Waybar watcher was touched'
 if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG"; then fail 'install restarted or directly activated live services'; fi
@@ -581,6 +587,7 @@ echo '=== uninstall ownership ==='
 grep -q -- "--user stop $SESSION_TARGET_UNIT" "$SYSTEMCTL_LOG" || fail 'uninstall did not stop Maho graphical target'
 for unit in "${CORE_UNITS[@]}"; do grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG" || fail "uninstall did not disable core service: $unit"; done
 for unit in "${GRAPHICAL_UNITS[@]}"; do if grep -q -- "--user disable --now $unit" "$SYSTEMCTL_LOG"; then fail "uninstall individually disabled graphical service: $unit"; fi; done
+for unit in "${PASSIVE_UNITS[@]}"; do grep -q -- "--user stop $unit" "$SYSTEMCTL_LOG" || fail "uninstall did not stop passive service: $unit"; done
 for name in "${COMMANDS[@]}"; do [ ! -e "$HOME/.local/bin/$name" ] && [ ! -L "$HOME/.local/bin/$name" ] || fail "managed command survived uninstall: $name"; done
 for unit in "${UNITS[@]}"; do [ ! -e "$UNIT_DIR/$unit" ] && [ ! -L "$UNIT_DIR/$unit" ] || fail "managed unit survived uninstall: $unit"; done
 [ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail 'managed Shell mapping survived uninstall'
