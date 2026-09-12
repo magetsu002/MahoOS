@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_update_state import (  # noqa: E402
     UpdateState,
+    bind_native_authority,
     create_transaction,
     new_transaction_id,
     package_generation_id,
@@ -107,6 +108,23 @@ def main() -> None:
     l3 = json.loads(json.dumps(staged))
     l3["recovery"]["native_l3_certified"] = True
     rejected("native L3 certification cannot be forged", lambda: validate_transaction(l3))
+    certified = bind_native_authority(
+        discovered,
+        recovery_generation_id="g3-1234567890abcdef12345678",
+        m3b_evidence={"platform_gate": True},
+        update_kind="m4b-campaign",
+        update_evidence={"campaign": "native-certification"},
+    )
+    check("structured source-bound native authority validates", certified["activation"]["native_execution_certified"] and certified["recovery"]["native_l3_certified"])
+    check("native authority records exact source revision", certified["activation"]["authority"]["source_revision"] == SHA and certified["recovery"]["authority"]["source_revision"] == SHA)
+    drift = json.loads(json.dumps(certified))
+    drift["activation"]["authority"]["source_revision"] = "b" * 40
+    rejected("native authority source drift is rejected", lambda: validate_transaction(drift))
+    rejected("native authority cannot be attached after preparation", lambda: bind_native_authority(
+        prepared, recovery_generation_id="g3-1234567890abcdef12345678",
+        m3b_evidence={"platform_gate": True}, update_kind="m4b-campaign",
+        update_evidence={"campaign": "late"},
+    ))
     ambiguous = json.loads(json.dumps(staged))
     ambiguous["state"] = "UPDATED"
     rejected("vague boolean-like update state is rejected", lambda: validate_transaction(ambiguous))

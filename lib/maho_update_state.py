@@ -146,6 +146,24 @@ def _validate_package_generation(value: Any) -> dict[str, Any]:
     return generation
 
 
+def _validate_native_authority(value: Any, name: str, allowed_kinds: set[str]) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    authority = dict(_mapping(value, f"{name} authority"))
+    kind = authority.get("kind")
+    source_revision = authority.get("source_revision")
+    evidence = authority.get("evidence")
+    if kind not in allowed_kinds:
+        raise ValueError(f"{name} authority kind is invalid")
+    if not isinstance(source_revision, str) or _SHA40.fullmatch(source_revision) is None:
+        raise ValueError(f"{name} authority source revision is invalid")
+    if not isinstance(evidence, Mapping) or not evidence:
+        raise ValueError(f"{name} authority evidence is required")
+    json.dumps(evidence, sort_keys=True)
+    authority["evidence"] = dict(evidence)
+    return authority
+
+
 def _validate_activation(value: Any) -> dict[str, Any]:
     activation = dict(_mapping(value, "activation"))
     if not isinstance(activation.get("required"), bool):
@@ -153,8 +171,16 @@ def _validate_activation(value: Any) -> dict[str, Any]:
     activation["requirements"] = _string_list(activation.get("requirements"), "activation requirements")
     if activation["required"] != bool(activation["requirements"]):
         raise ValueError("activation requirement identity is ambiguous")
-    if activation.get("native_execution_certified") is not False:
-        raise ValueError("M4A native execution certification must remain false")
+    certified = activation.get("native_execution_certified")
+    if not isinstance(certified, bool):
+        raise ValueError("activation.native_execution_certified must be boolean")
+    authority = _validate_native_authority(
+        activation.get("authority"), "native update",
+        {"m4b-campaign", "m4b-platform"},
+    )
+    if certified != (authority is not None):
+        raise ValueError("native update certification requires exact durable authority")
+    activation["authority"] = authority
     return activation
 
 
@@ -163,8 +189,18 @@ def _validate_recovery(value: Any) -> dict[str, Any]:
     generation_id = recovery.get("generation_id")
     if generation_id is not None and (not isinstance(generation_id, str) or not generation_id.startswith("g3-")):
         raise ValueError("recovery generation identity is invalid")
-    if recovery.get("native_l3_certified") is not False:
-        raise ValueError("native L3 certification must remain false in M4A")
+    certified = recovery.get("native_l3_certified")
+    if not isinstance(certified, bool):
+        raise ValueError("recovery.native_l3_certified must be boolean")
+    authority = _validate_native_authority(
+        recovery.get("authority"), "native L3",
+        {"m3b-platform"},
+    )
+    if certified != (authority is not None):
+        raise ValueError("native L3 certification requires exact durable authority")
+    if certified and generation_id is None:
+        raise ValueError("native L3 authority requires an exact recovery generation")
+    recovery["authority"] = authority
     return recovery
 
 
@@ -233,6 +269,10 @@ def validate_transaction(payload: Mapping[str, Any]) -> dict[str, Any]:
     data["package_generation"] = _validate_package_generation(data.get("package_generation"))
     data["activation"] = _validate_activation(data.get("activation"))
     data["recovery"] = _validate_recovery(data.get("recovery"))
+    for section_name in ("activation", "recovery"):
+        authority = data[section_name].get("authority")
+        if authority is not None and authority["source_revision"] != data["source_revision"]:
+            raise ValueError(f"{section_name} authority source revision drifted")
     if not isinstance(data.get("reason", ""), str):
         raise ValueError("transaction reason must be text")
     data["blockers"] = _string_list(data.get("blockers", []), "transaction blockers")
@@ -266,13 +306,57 @@ def create_transaction(
             "required": bool(activation_requirements),
             "requirements": list(activation_requirements),
             "native_execution_certified": False,
+            "authority": None,
         },
-        "recovery": {"generation_id": recovery_generation_id, "native_l3_certified": False},
+        "recovery": {"generation_id": recovery_generation_id, "native_l3_certified": False, "authority": None},
         "reason": "",
         "blockers": [],
         "history": [{"state": UpdateState.DISCOVERED.value, "at": stamp, "reason": "", "blockers": []}],
     })
 
+
+
+def bind_native_authority(
+    payload: Mapping[str, Any],
+    *,
+    recovery_generation_id: str,
+    m3b_evidence: Mapping[str, Any],
+    update_kind: str,
+    update_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind exact M3B/M4B authority before any production update mutation."""
+    current = validate_transaction(payload)
+    if _state(current["state"]) not in {UpdateState.DISCOVERED, UpdateState.STAGED}:
+        raise ValueError("native authority must be bound before preparation")
+    if not isinstance(recovery_generation_id, str) or not recovery_generation_id.startswith("g3-"):
+        raise ValueError("native authority requires an exact recovery generation")
+    if update_kind not in {"m4b-campaign", "m4b-platform"}:
+        raise ValueError("native update authority kind is invalid")
+    if not isinstance(m3b_evidence, Mapping) or not m3b_evidence:
+        raise ValueError("M3B certification evidence is required")
+    if not isinstance(update_evidence, Mapping) or not update_evidence:
+        raise ValueError("M4B certification evidence is required")
+    updated = dict(current)
+    updated["recovery"] = dict(current["recovery"])
+    updated["recovery"].update({
+        "generation_id": recovery_generation_id,
+        "native_l3_certified": True,
+        "authority": {
+            "kind": "m3b-platform",
+            "source_revision": current["source_revision"],
+            "evidence": dict(m3b_evidence),
+        },
+    })
+    updated["activation"] = dict(current["activation"])
+    updated["activation"].update({
+        "native_execution_certified": True,
+        "authority": {
+            "kind": update_kind,
+            "source_revision": current["source_revision"],
+            "evidence": dict(update_evidence),
+        },
+    })
+    return validate_transaction(updated)
 
 def transition_transaction(
     payload: Mapping[str, Any],
@@ -405,6 +489,8 @@ def transaction_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         "recovery_generation": data["recovery"]["generation_id"],
         "activation_required": data["activation"]["required"],
         "activation_requirements": data["activation"]["requirements"],
+        "native_update_execution_certified": data["activation"]["native_execution_certified"],
+        "native_l3_certified": data["recovery"]["native_l3_certified"],
         "result": data["reason"],
         "blockers": data["blockers"],
     }

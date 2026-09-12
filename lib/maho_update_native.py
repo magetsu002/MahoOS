@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""Native Btrfs candidate-root execution and activation primitives for M4B."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+from typing import Any, Mapping, Sequence
+
+from maho_runtime_release import verify_release
+from maho_system_restore_host import SystemPreparationOps
+from maho_system_restore_journal import read_journal
+from maho_update_discovery import CommandResult
+from maho_update_transaction import ExecutionPlan, OfflineRootUpdateOps
+
+_TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
+_UUID = re.compile(r"[0-9a-fA-F-]{36}")
+_PACKAGE = re.compile(r"[A-Za-z0-9@._+:-]+")
+BOOT_ARTIFACTS = (
+    "/boot/initramfs-linux-cachyos-lts.img",
+    "/boot/initramfs-linux-cachyos.img",
+    "/boot/vmlinuz-linux-cachyos",
+    "/boot/vmlinuz-linux-cachyos-lts",
+)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _subvolume_field(output: str, name: str) -> str | None:
+    for line in output.splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key.strip() == name:
+            value = value.strip()
+            return value if value and value != "-" else None
+    return None
+
+
+def candidate_name(transaction_id: str) -> str:
+    if _TXID.fullmatch(transaction_id) is None:
+        raise ValueError("invalid update transaction identity")
+    return "@maho-update-candidate-" + transaction_id.rsplit("-", 1)[1]
+
+
+def backup_name(transaction_id: str) -> str:
+    if _TXID.fullmatch(transaction_id) is None:
+        raise ValueError("invalid update transaction identity")
+    return "@maho-update-backup-" + transaction_id.rsplit("-", 1)[1]
+
+
+def update_confirmation(transaction_id: str, package_generation_id: str) -> str:
+    if _TXID.fullmatch(transaction_id) is None or not package_generation_id.startswith("pkg-"):
+        raise ValueError("invalid update confirmation identity")
+    return f"UPDATE:{transaction_id}:{package_generation_id}"
+
+
+def activation_confirmation(transaction_id: str, candidate_uuid: str) -> str:
+    if _TXID.fullmatch(transaction_id) is None or _UUID.fullmatch(candidate_uuid) is None:
+        raise ValueError("invalid activation confirmation identity")
+    return f"ACTIVATE:{transaction_id}:{candidate_uuid}"
+
+
+@dataclass(frozen=True)
+class RootIdentity:
+    filesystem_uuid: str
+    fsroot: str
+    source: str
+    device: str
+    subvolume_uuid: str
+
+
+class NativeBtrfsOps:
+    """Strict native host operations for one candidate-root transaction."""
+
+    def __init__(
+        self, transaction_id: str, *,
+        run_root: str | os.PathLike[str] = "/run/maho-update-m4b",
+        boot_root: str | os.PathLike[str] = "/boot",
+    ) -> None:
+        if _TXID.fullmatch(transaction_id) is None:
+            raise ValueError("invalid update transaction identity")
+        self.transaction_id = transaction_id
+        self.run_root = Path(run_root) / transaction_id
+        self.boot_root = Path(boot_root)
+        if not self.boot_root.is_absolute():
+            raise ValueError("boot root must be absolute")
+        self.top = self.run_root / "top"
+        self.offline_root = self.run_root / "root"
+        self.candidate = candidate_name(transaction_id)
+        self.backup = backup_name(transaction_id)
+
+    @staticmethod
+    def _run(command: Sequence[str], *, check: bool = False) -> CommandResult:
+        completed = subprocess.run(
+            list(command), check=False, text=True, capture_output=True,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+        if check and completed.returncode != 0:
+            raise RuntimeError(f"command failed ({completed.returncode}): {' '.join(command)}: {completed.stderr.strip()}")
+        return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+
+    @staticmethod
+    def require_root() -> None:
+        if os.geteuid() != 0:
+            raise PermissionError("M4B native host operations require root")
+
+    def root_identity(self) -> RootIdentity:
+        self.require_root()
+        result = self._run((
+            "findmnt", "--json", "--target", "/",
+            "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID",
+        ), check=True)
+        try:
+            rows = json.loads(result.stdout).get("filesystems", [])
+            row = rows[0] if len(rows) == 1 else None
+        except (json.JSONDecodeError, AttributeError, IndexError):
+            row = None
+        if not isinstance(row, Mapping) or row.get("fstype") != "btrfs":
+            raise RuntimeError("native update requires a Btrfs root")
+        fsroot = row.get("fsroot")
+        fs_uuid = row.get("uuid")
+        source = row.get("source")
+        if not all(isinstance(item, str) and item for item in (fsroot, fs_uuid, source)):
+            raise RuntimeError("root mount identity is incomplete")
+        if fsroot != "/@":
+            raise RuntimeError("native update preparation requires the normal /@ root")
+        if "maho.recovery_snapshot=1" in Path("/proc/cmdline").read_text(encoding="utf-8"):
+            raise RuntimeError("native update cannot run from recovery boot")
+        shown = self._run(("btrfs", "subvolume", "show", "/"), check=True)
+        subvol_uuid = _subvolume_field(shown.stdout, "UUID")
+        if not subvol_uuid:
+            raise RuntimeError("live root subvolume UUID is unavailable")
+        device = source.split("[", 1)[0]
+        if not device.startswith("/dev/"):
+            device = f"/dev/disk/by-uuid/{fs_uuid}"
+        return RootIdentity(fs_uuid, fsroot, source, device, subvol_uuid)
+
+    def _mount_top(self, identity: RootIdentity, *, read_only: bool = False) -> None:
+        self.run_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.top.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if self._run(("mountpoint", "-q", str(self.top))).returncode == 0:
+            return
+        options = "subvolid=5,ro" if read_only else "subvolid=5"
+        self._run(("mount", "-t", "btrfs", "-o", options, identity.device, str(self.top)), check=True)
+
+    def _unmount(self, path: Path) -> None:
+        if self._run(("mountpoint", "-q", str(path))).returncode == 0:
+            self._run(("umount", str(path)), check=True)
+
+    def close(self) -> None:
+        self._unmount(self.offline_root)
+        self._unmount(self.top)
+
+    def _show_uuid(self, path: Path) -> str:
+        result = self._run(("btrfs", "subvolume", "show", str(path)), check=True)
+        value = _subvolume_field(result.stdout, "UUID")
+        if not value or _UUID.fullmatch(value) is None:
+            raise RuntimeError(f"subvolume UUID unavailable: {path}")
+        return value
+
+    def _read_only(self, path: Path) -> bool:
+        result = self._run(("btrfs", "property", "get", "-ts", str(path), "ro"), check=True)
+        return result.stdout.strip() == "ro=true"
+
+    def _set_read_only(self, path: Path, value: bool) -> None:
+        self._run(("btrfs", "property", "set", "-ts", str(path), "ro", "true" if value else "false"), check=True)
+
+    def create_candidate(self) -> dict[str, Any]:
+        identity = self.root_identity()
+        self._mount_top(identity)
+        destination = self.top / self.candidate
+        if destination.exists():
+            raise RuntimeError("candidate subvolume already exists")
+        if (self.top / self.backup).exists():
+            raise RuntimeError("previous-root backup name already exists")
+        self._run(("btrfs", "subvolume", "snapshot", "/", str(destination)), check=True)
+        uuid = self._show_uuid(destination)
+        self.offline_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._run((
+            "mount", "-t", "btrfs", "-o", f"subvol={self.candidate}",
+            identity.device, str(self.offline_root),
+        ), check=True)
+        mounted = self._run(("findmnt", "-no", "FSROOT", str(self.offline_root)), check=True).stdout.strip()
+        if mounted != f"/{self.candidate}":
+            self.close()
+            raise RuntimeError("candidate root mounted with unexpected Btrfs identity")
+        return {
+            "name": self.candidate,
+            "uuid": uuid,
+            "parent_root_uuid": identity.subvolume_uuid,
+            "filesystem_uuid": identity.filesystem_uuid,
+            "offline_root": str(self.offline_root),
+        }
+
+    def freeze_candidate(self, expected_uuid: str) -> dict[str, Any]:
+        self.require_root()
+        self._unmount(self.offline_root)
+        identity = self.root_identity()
+        self._mount_top(identity)
+        path = self.top / self.candidate
+        if self._show_uuid(path) != expected_uuid:
+            raise RuntimeError("candidate UUID drifted before freeze")
+        self._set_read_only(path, True)
+        if not self._read_only(path):
+            raise RuntimeError("candidate did not become read-only")
+        hashes = self.private_boot_hashes(path)
+        return {"read_only": True, "boot_sha256": hashes, "uuid": expected_uuid}
+
+    def cleanup_candidate(self, expected_uuid: str) -> dict[str, Any]:
+        self.require_root()
+        self._unmount(self.offline_root)
+        identity = self.root_identity()
+        self._mount_top(identity)
+        path = self.top / self.candidate
+        if not path.exists():
+            return {"ok": True, "candidate_removed": True, "already_absent": True}
+        if self._show_uuid(path) != expected_uuid:
+            return {"ok": False, "reason": "candidate UUID drifted"}
+        self._set_read_only(path, False)
+        result = self._run(("btrfs", "subvolume", "delete", str(path)))
+        return {"ok": result.returncode == 0, "candidate_removed": result.returncode == 0}
+
+    @staticmethod
+    def private_boot_hashes(candidate_path: Path) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for artifact in BOOT_ARTIFACTS:
+            path = candidate_path / artifact.lstrip("/")
+            if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
+                raise RuntimeError(f"candidate boot artifact unavailable: {artifact}")
+            hashes[artifact] = sha256_file(path)
+        return hashes
+
+    @staticmethod
+    def _fsync_path(path: Path) -> None:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def arm_activation(
+        self,
+        *,
+        machine_id: str,
+        expected_candidate_uuid: str,
+        expected_boot_hashes: Mapping[str, str],
+    ) -> dict[str, Any]:
+        """Atomically make the frozen candidate the next /@ and publish boot files."""
+        self.require_root()
+        identity = self.root_identity()
+        self._mount_top(identity)
+        candidate = self.top / self.candidate
+        current = self.top / "@"
+        previous = self.top / self.backup
+        if not candidate.exists() or not current.exists() or previous.exists():
+            raise RuntimeError("activation subvolume topology is not exact")
+        if self._show_uuid(candidate) != expected_candidate_uuid or not self._read_only(candidate):
+            raise RuntimeError("activation candidate is not the exact frozen subvolume")
+        observed_hashes = self.private_boot_hashes(candidate)
+        if dict(expected_boot_hashes) != observed_hashes:
+            raise RuntimeError("candidate boot hashes drifted before activation")
+
+        backup_dir = self.boot_root / machine_id / "maho" / "update" / "backups" / self.transaction_id
+        backup_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+        boot_backups: dict[str, str] = {}
+        temps: dict[str, Path] = {}
+        for artifact in BOOT_ARTIFACTS:
+            live = self.boot_root / Path(artifact).relative_to("/boot")
+            if live.is_symlink() or not live.is_file() or live.stat().st_size <= 0:
+                raise RuntimeError(f"live boot artifact is unsafe: {artifact}")
+            backup = backup_dir / live.name
+            shutil.copy2(live, backup)
+            boot_backups[artifact] = sha256_file(backup)
+            temporary = live.parent / f".maho-m4b-{self.transaction_id}-{live.name}.tmp"
+            if temporary.exists():
+                temporary.unlink()
+            shutil.copy2(candidate / artifact.lstrip("/"), temporary)
+            if sha256_file(temporary) != expected_boot_hashes[artifact]:
+                raise RuntimeError(f"temporary boot artifact hash mismatch: {artifact}")
+            temps[artifact] = temporary
+        (backup_dir / "manifest.json").write_text(
+            json.dumps({"sha256": boot_backups}, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        self._fsync_path(backup_dir)
+
+        swapped = False
+        published: list[str] = []
+        try:
+            self._set_read_only(candidate, False)
+            os.rename(current, previous)
+            try:
+                os.rename(candidate, current)
+            except Exception:
+                os.rename(previous, current)
+                self._set_read_only(candidate, True)
+                raise
+            swapped = True
+            for artifact in BOOT_ARTIFACTS:
+                os.replace(temps[artifact], self.boot_root / Path(artifact).relative_to("/boot"))
+                published.append(artifact)
+            self._fsync_path(self.boot_root)
+            if self._show_uuid(current) != expected_candidate_uuid:
+                raise RuntimeError("activated /@ UUID does not match candidate")
+            for artifact in BOOT_ARTIFACTS:
+                if sha256_file(self.boot_root / Path(artifact).relative_to("/boot")) != expected_boot_hashes[artifact]:
+                    raise RuntimeError(f"published boot artifact hash mismatch: {artifact}")
+        except Exception:
+            for artifact in published:
+                backup = backup_dir / Path(artifact).name
+                if backup.is_file():
+                    shutil.copy2(backup, self.boot_root / Path(artifact).relative_to("/boot"))
+            for temporary in temps.values():
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
+            if swapped:
+                failed_candidate = self.top / self.candidate
+                os.rename(current, failed_candidate)
+                os.rename(previous, current)
+                self._set_read_only(failed_candidate, True)
+            else:
+                # Mutation may have stopped after thawing but before the rename.
+                # Never leave the prepared candidate writable on a failed arm.
+                candidate_after_failure = self.top / self.candidate
+                if candidate_after_failure.exists():
+                    try:
+                        self._set_read_only(candidate_after_failure, True)
+                    except Exception:
+                        pass
+            self._fsync_path(self.boot_root)
+            # A failed pre-swap arm has no durable value; remove its boot backup
+            # directory so the same exact transaction can be retried safely.
+            if not swapped:
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            raise
+        return {
+            "candidate_uuid": expected_candidate_uuid,
+            "previous_root_uuid": identity.subvolume_uuid,
+            "previous_root_name": self.backup,
+            "boot_backup_dir": str(backup_dir),
+            "boot_sha256": dict(expected_boot_hashes),
+            "reboot_performed": False,
+            "firmware_mutated": False,
+        }
+
+
+class NativeCandidateUpdateOps(OfflineRootUpdateOps):
+    """M4A executor bound to one M4B candidate subvolume and one M3B target."""
+
+    production_safe = True
+
+    def __init__(
+        self,
+        offline_root: str | os.PathLike[str],
+        cache_root: str | os.PathLike[str],
+        *,
+        transaction: Mapping[str, Any],
+        expected_versions: Mapping[str, str],
+        runtime_user: str,
+        runtime_identity: Mapping[str, Any],
+        recovery_seed: Mapping[str, Any],
+        recovery_journal_path: str | os.PathLike[str],
+        machine_id: str,
+        candidate_uuid: str,
+        btrfs_ops: NativeBtrfsOps,
+        runner=None,
+    ) -> None:
+        super().__init__(offline_root, cache_root, runner=runner)
+        self.transaction = dict(transaction)
+        self.expected_versions = dict(expected_versions)
+        self.runtime_user = runtime_user
+        self.runtime_identity = dict(runtime_identity)
+        self.recovery_seed = dict(recovery_seed)
+        self.recovery_journal_path = Path(recovery_journal_path)
+        self.machine_id = machine_id
+        self.candidate_uuid = candidate_uuid
+        self.btrfs_ops = btrfs_ops
+
+    def query_command(self, plan: ExecutionPlan) -> tuple[str, ...]:
+        names = tuple(sorted(self.expected_versions))
+        if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
+            raise ValueError("candidate package verification set is invalid")
+        return (self.PACMAN, "--root", str(self.root), "--dbpath", str(self.db), "--query", "--", *names)
+
+    def prepare_recovery(self, plan: ExecutionPlan) -> Mapping[str, Any]:
+        if plan.recovery_generation_id != self.recovery_seed.get("generation_id"):
+            return {"ok": False, "reason": "recovery generation mismatch"}
+        journal = read_journal(self.recovery_journal_path)
+        if journal.get("phase") != "prepared":
+            return {"ok": False, "reason": "M3B recovery transaction is not prepared"}
+        sid = self.recovery_seed.get("snapshot_id")
+        host = SystemPreparationOps(machine_id=self.machine_id)
+        evidence = host.wait_for_backup(int(sid))
+        ok = (
+            evidence.get("snapshot_uuid") == self.recovery_seed.get("snapshot_uuid")
+            and evidence.get("read_only") is True
+            and evidence.get("boot_state_coherent") is True
+            and evidence.get("files_verified") is True
+        )
+        return {"ok": ok, "generation_id": plan.recovery_generation_id, "snapshot_id": sid}
+
+    def verify_maho_runtime(self, plan: ExecutionPlan) -> Mapping[str, Any]:
+        base = Path("/home") / self.runtime_user / ".local/share/maho/runtime"
+        verification = verify_release(base / "current", base / "releases")
+        ok = (
+            verification.verified
+            and verification.content_sha256 == plan.maho_runtime.get("version")
+            and verification.source_revision == plan.maho_runtime.get("source_revision")
+        )
+        return {"ok": ok, "verification": verification.as_dict()}
+
+    def verify_kernel_matrix(self, plan: ExecutionPlan) -> Mapping[str, Any]:
+        result = self.run(self.query_command(plan), plan)
+        observed: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            name, separator, version = line.partition(" ")
+            if separator:
+                observed[name] = version.strip()
+        ok = result.returncode == 0 and all(observed.get(name) == version for name, version in self.expected_versions.items())
+        return {"ok": ok, "observed": observed, "expected": self.expected_versions}
+
+    def finalize_install(self, plan: ExecutionPlan) -> Mapping[str, Any]:
+        shown = self.btrfs_ops._run(("btrfs", "subvolume", "show", str(self.root)), check=True)
+        observed = _subvolume_field(shown.stdout, "UUID")
+        return {
+            "ok": observed == self.candidate_uuid,
+            "candidate_uuid": observed,
+            "activation_required": list(plan.activation_requirements),
+        }
+
+    def recover(self, plan: ExecutionPlan, failed_stage: str) -> Mapping[str, Any]:
+        # The disposable candidate *is* the rollback boundary. The durable update
+        # journal lives on the still-running root, so it remains writable while
+        # this cleanup removes every partial candidate mutation.
+        result = self.btrfs_ops.cleanup_candidate(self.candidate_uuid)
+        return {**result, "failed_stage": failed_stage, "live_root_untouched": True}
+
+
+class PostBootActivationOps:
+    """Read-only post-reboot verifier for the activated M4B candidate."""
+
+    production_safe = True
+    fixture_safe = False
+
+    def __init__(
+        self,
+        *,
+        transaction: Mapping[str, Any],
+        expected_versions: Mapping[str, str],
+        runtime_user: str,
+        home_identity: Mapping[str, str],
+        runtime_identity: Mapping[str, Any],
+        candidate_uuid: str,
+        previous_root_uuid: str,
+        previous_root_name: str,
+        boot_hashes: Mapping[str, str],
+        recovery_seed: Mapping[str, Any],
+        machine_id: str,
+    ) -> None:
+        self.transaction = dict(transaction)
+        self.expected_versions = dict(expected_versions)
+        self.runtime_user = runtime_user
+        self.home_identity = dict(home_identity)
+        self.runtime_identity = dict(runtime_identity)
+        self.candidate_uuid = candidate_uuid
+        self.previous_root_uuid = previous_root_uuid
+        self.previous_root_name = previous_root_name
+        self.boot_hashes = dict(boot_hashes)
+        self.recovery_seed = dict(recovery_seed)
+        self.machine_id = machine_id
+
+    @staticmethod
+    def _run(command: Sequence[str]) -> CommandResult:
+        completed = subprocess.run(list(command), check=False, text=True, capture_output=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+        return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+
+    def verify_activation(self, plan: ExecutionPlan) -> Mapping[str, Any]:
+        blockers: list[str] = []
+        cmdline = Path("/proc/cmdline").read_text(encoding="utf-8").split()
+        if "maho.recovery_snapshot=1" in cmdline:
+            blockers.append("recovery_boot_still_active")
+        mount = self._run(("findmnt", "--json", "--target", "/", "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID"))
+        try:
+            row = json.loads(mount.stdout)["filesystems"][0]
+        except Exception:
+            row = {}
+        if row.get("fstype") != "btrfs" or row.get("fsroot") != "/@":
+            blockers.append("activated_root_is_not_normal_at")
+        shown = self._run(("btrfs", "subvolume", "show", "/"))
+        root_uuid = _subvolume_field(shown.stdout, "UUID") if shown.returncode == 0 else None
+        if root_uuid != self.candidate_uuid:
+            blockers.append("activated_root_uuid_mismatch")
+
+        package_names = tuple(sorted(self.expected_versions))
+        packages = self._run(("pacman", "-Q", *package_names)) if package_names else CommandResult(1, "", "")
+        observed: dict[str, str] = {}
+        for line in packages.stdout.splitlines():
+            name, separator, version = line.partition(" ")
+            if separator:
+                observed[name] = version.strip()
+        if packages.returncode != 0 or any(observed.get(name) != version for name, version in self.expected_versions.items()):
+            blockers.append("activated_package_generation_mismatch")
+
+        primary_version = self.expected_versions.get("linux-cachyos")
+        running = os.uname().release
+        if primary_version and running != f"{primary_version}-cachyos":
+            blockers.append("running_primary_kernel_mismatch")
+        for artifact, expected in self.boot_hashes.items():
+            path = Path(artifact)
+            if not path.is_file() or sha256_file(path) != expected:
+                blockers.append("published_boot_artifact_mismatch")
+                break
+
+        host = SystemPreparationOps(machine_id=self.machine_id)
+        if host.home_identity() != self.home_identity:
+            blockers.append("home_identity_changed")
+        base = Path("/home") / self.runtime_user / ".local/share/maho/runtime"
+        runtime = verify_release(base / "current", base / "releases")
+        if not runtime.verified or runtime.content_sha256 != plan.maho_runtime.get("version") or runtime.source_revision != plan.maho_runtime.get("source_revision"):
+            blockers.append("maho_runtime_identity_changed")
+        recovery = host.wait_for_backup(int(self.recovery_seed["snapshot_id"]))
+        if recovery.get("snapshot_uuid") != self.recovery_seed.get("snapshot_uuid") or recovery.get("read_only") is not True:
+            blockers.append("m3b_recovery_generation_lost")
+
+        btrfs = NativeBtrfsOps(self.transaction["transaction_id"])
+        identity = btrfs.root_identity()
+        try:
+            btrfs._mount_top(identity, read_only=True)
+            previous = btrfs.top / self.previous_root_name
+            previous_uuid = btrfs._show_uuid(previous) if previous.exists() else None
+        finally:
+            btrfs.close()
+        if previous_uuid != self.previous_root_uuid:
+            blockers.append("previous_root_backup_missing")
+        return {
+            "ok": not blockers,
+            "blockers": blockers,
+            "root_uuid": root_uuid,
+            "package_versions": observed,
+            "running_kernel": running,
+            "home_preserved": not any(item == "home_identity_changed" for item in blockers),
+            "runtime": runtime.as_dict(),
+            "recovery_generation_id": plan.recovery_generation_id,
+            "previous_root_uuid": previous_uuid,
+        }
+
+    # The remaining protocol methods are deliberately unavailable post-boot.
+    def prepare_recovery(self, plan): raise RuntimeError("postboot verifier cannot prepare recovery")
+    def install_full_upgrade(self, plan): raise RuntimeError("postboot verifier cannot install")
+    def verify_maho_runtime(self, plan): raise RuntimeError("use verify_activation")
+    def verify_kernel_matrix(self, plan): raise RuntimeError("use verify_activation")
+    def build_initramfs(self, plan, preset): raise RuntimeError("postboot verifier cannot build initramfs")
+    def verify_boot_artifacts(self, plan): raise RuntimeError("use verify_activation")
+    def finalize_install(self, plan): raise RuntimeError("postboot verifier cannot finalize")
+    def recover(self, plan, failed_stage): return {"ok": False, "reason": "postboot recovery requires M3B recovery boot"}

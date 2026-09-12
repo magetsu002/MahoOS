@@ -1,0 +1,149 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+BASE="/usr/lib/maho/update-campaign"
+ACTION="${1:-status}"
+shift || true
+SOURCE_REPO=""
+EXPECTED_REV=""
+FILES=(
+  config/platform.json
+  lib/maho_runtime_release.py
+  lib/maho_recovery_generation.py
+  lib/maho_recovery_discovery.py
+  lib/maho_system_restore.py
+  lib/maho_system_restore_evidence.py
+  lib/maho_system_restore_journal.py
+  lib/maho_system_restore_provider.py
+  lib/maho_system_restore_transaction.py
+  lib/maho_system_restore_preparation.py
+  lib/maho_system_restore_host.py
+  lib/maho_system_restore_runtime.py
+  lib/maho_system_restore_campaign.py
+  lib/maho_update_state.py
+  lib/maho_update_discovery.py
+  lib/maho_update_staging.py
+  lib/maho_update_preparation.py
+  lib/maho_update_transaction.py
+  lib/maho_update_receipts.py
+  lib/maho_update_native.py
+  lib/maho_update_campaign.py
+  bin/maho-update-campaign
+)
+
+fail() { echo "maho-update-campaign-install: $*" >&2; exit 1; }
+require_root() { (( EUID == 0 )) || fail "root privileges are required for install"; }
+
+parse_install_args() {
+  while (($#)); do
+    case "$1" in
+      --repo) (($# >= 2)) || fail "--repo requires a value"; SOURCE_REPO="$2"; shift 2 ;;
+      --revision) (($# >= 2)) || fail "--revision requires a value"; EXPECTED_REV="$2"; shift 2 ;;
+      *) fail "unknown install argument: $1" ;;
+    esac
+  done
+  [[ "$SOURCE_REPO" = /* ]] || fail "--repo must be an absolute path"
+  local worktree_root
+  worktree_root="$(/usr/bin/git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" rev-parse --show-toplevel 2>/dev/null)" \
+    || fail "--repo is not a Git worktree root"
+  [ "$(readlink -f -- "$worktree_root")" = "$(readlink -f -- "$SOURCE_REPO")" ] \
+    || fail "--repo must name the Git worktree root exactly"
+  [[ "$EXPECTED_REV" =~ ^[0-9a-f]{40}$ ]] || fail "--revision must be a full SHA"
+}
+
+git_cmd() { /usr/bin/git -c safe.directory="$SOURCE_REPO" -C "$SOURCE_REPO" "$@"; }
+
+verify_revision() {
+  local resolved file
+  resolved="$(git_cmd rev-parse "$EXPECTED_REV^{commit}")"
+  [ "$resolved" = "$EXPECTED_REV" ] || fail "revision does not resolve exactly"
+  for file in "${FILES[@]}"; do
+    git_cmd cat-file -e "$EXPECTED_REV:$file" || fail "missing committed campaign source: $file"
+  done
+}
+
+install_blob() {
+  local rev="$1" file="$2" stage="$3" mode=0644
+  [[ "$file" == bin/* ]] && mode=0755
+  install -d -m 0755 -o root -g root "$(dirname -- "$stage/$file")"
+  git_cmd show "$rev:$file" > "$stage/$file"
+  chown root:root "$stage/$file"
+  chmod "$mode" "$stage/$file"
+}
+
+verify_install() {
+  local dest="$1" rev="$2" file
+  [ -d "$dest" ] || fail "installed payload missing: $dest"
+  [ "$(cat "$dest/SOURCE_REVISION" 2>/dev/null || true)" = "$rev" ] || fail "installed revision marker mismatch"
+  for file in "${FILES[@]}"; do
+    git_cmd show "$rev:$file" | cmp -s - "$dest/$file" || fail "installed payload differs from committed $rev: $file"
+  done
+  [ -z "$(find "$dest" \( ! -user root -o ! -group root \) -print -quit)" ] || fail "installed payload contains non-root-owned paths"
+  [ -z "$(find "$dest" -perm /022 -print -quit)" ] || fail "installed payload contains group/world writable paths"
+  [ -x "$dest/bin/maho-update-campaign" ] || fail "campaign command is not executable"
+}
+
+install_command() {
+  require_root
+  command -v /usr/bin/git >/dev/null || fail "git is unavailable"
+  command -v cmp >/dev/null || fail "cmp is unavailable"
+  parse_install_args "$@"
+  verify_revision
+  local rev="$EXPECTED_REV" dest stage file link_tmp
+  dest="$BASE/$rev"
+  install -d -m 0755 -o root -g root "$BASE"
+  if [ ! -e "$dest" ]; then
+    stage="$BASE/.stage-$rev-$$"
+    rm -rf -- "$stage"
+    install -d -m 0755 -o root -g root "$stage"
+    trap 'rm -rf -- "$stage"' EXIT
+    for file in "${FILES[@]}"; do install_blob "$rev" "$file" "$stage"; done
+    printf '%s\n' "$rev" > "$stage/SOURCE_REVISION"
+    chown root:root "$stage/SOURCE_REVISION"
+    chmod 0444 "$stage/SOURCE_REVISION"
+    mv -- "$stage" "$dest"
+    trap - EXIT
+  fi
+  verify_install "$dest" "$rev"
+  link_tmp="$BASE/.current.$$"
+  rm -f -- "$link_tmp"
+  ln -s "$rev" "$link_tmp"
+  mv -Tf -- "$link_tmp" "$BASE/current"
+  "$dest/bin/maho-update-campaign" --help >/dev/null
+  echo "PASS  root-owned M4B update campaign payload installed"
+  echo "Revision: $rev"
+  echo "Command:  $BASE/current/bin/maho-update-campaign"
+}
+
+status_command() {
+  local target dest rev owner
+  if [ ! -L "$BASE/current" ]; then
+    echo "MahoOS M4B update campaign payload: not installed"
+    return 1
+  fi
+  target="$(readlink "$BASE/current")"
+  [[ "$target" =~ ^[0-9a-f]{40}$ ]] || fail "current payload symlink is invalid"
+  dest="$BASE/$target"
+  [ -d "$dest" ] || fail "current payload target is missing"
+  rev="$(cat "$dest/SOURCE_REVISION" 2>/dev/null || true)"
+  [ "$rev" = "$target" ] || fail "current payload revision marker mismatch"
+  owner="$(stat -c '%U:%G' "$dest")"
+  [ "$owner" = "root:root" ] || fail "current payload is not root-owned"
+  [ -z "$(find "$dest" \( ! -user root -o ! -group root \) -print -quit)" ] || fail "current payload contains non-root-owned paths"
+  [ -z "$(find "$dest" -perm /022 -print -quit)" ] || fail "current payload contains group/world writable paths"
+  [ -x "$dest/bin/maho-update-campaign" ] || fail "campaign command is missing"
+  echo "MahoOS M4B update campaign payload"
+  echo "Revision: $rev"
+  echo "Path:     $dest"
+  echo "Owner:    $owner"
+}
+
+case "$ACTION" in
+  install) install_command "$@" ;;
+  status) (($# == 0)) || fail "status accepts no arguments"; status_command ;;
+  *)
+    echo "usage: maho-update-campaign-install install --repo /abs/repo --revision <40-sha>" >&2
+    echo "       maho-update-campaign-install status" >&2
+    exit 2
+    ;;
+esac

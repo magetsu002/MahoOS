@@ -10,7 +10,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from maho_update_state import UpdateState, create_transaction, transaction_path, transition_transaction  # noqa: E402
+from maho_update_state import UpdateState, bind_native_authority, create_transaction, transaction_path, transition_transaction  # noqa: E402
 from maho_update_transaction import (  # noqa: E402
     ExecutionFailure,
     OfflineRootUpdateOps,
@@ -38,7 +38,7 @@ def rejected(name: str, function) -> None:
     check(name, False)
 
 
-def ready(cache: Path) -> tuple[dict, dict]:
+def ready(cache: Path, *, native: bool = False) -> tuple[dict, dict]:
     payload = cache / "maho-os-2-any.pkg.tar.zst"
     payload.write_bytes(b"payload")
     transaction = create_transaction(
@@ -47,6 +47,14 @@ def ready(cache: Path) -> tuple[dict, dict]:
         activation_requirements=["maho-runtime-release", "restart"],
         recovery_generation_id="g3-1234567890abcdef12345678", now=NOW,
     )
+    if native:
+        transaction = bind_native_authority(
+            transaction,
+            recovery_generation_id="g3-1234567890abcdef12345678",
+            m3b_evidence={"platform_gate": True},
+            update_kind="m4b-campaign",
+            update_evidence={"campaign": "native-certification"},
+        )
     transaction = transition_transaction(transaction, UpdateState.STAGED, now=NOW)
     transaction = transition_transaction(transaction, UpdateState.PREPARED, now=NOW)
     transaction = transition_transaction(transaction, UpdateState.MAINTENANCE_READY, now=NOW)
@@ -78,6 +86,7 @@ def relationships(**changes) -> dict:
 
 class FakeOps:
     fixture_safe = True
+    production_safe = False
 
     def __init__(self, fail: str | None = None, recover_ok: bool = True, failed_mutation: bool = False) -> None:
         self.fail = fail
@@ -102,6 +111,11 @@ class FakeOps:
     def recover(self, plan, failed_stage):
         self.calls.append(f"recover:{failed_stage}")
         return {"ok": self.recover_ok, "recovery_generation": plan.recovery_generation_id}
+
+
+class NativeFakeOps(FakeOps):
+    fixture_safe = False
+    production_safe = True
 
 
 def main() -> None:
@@ -132,7 +146,17 @@ def main() -> None:
         check("production mutation is gated until M3B and M4B", blocked.transaction["state"] == "BLOCKED" and "native_update_execution_uncertified" in blocked.transaction["blockers"])
         check("production gate blocks before any executor call", production_ops.calls == [] and not blocked.mutation_started)
         durable_gate = execute_update(transaction, production_plan, production_ops, native_l3_certified=True, native_update_execution_certified=True, now=NOW)
-        check("M4A durable transaction still refuses forged caller gates", durable_gate.transaction["state"] == "BLOCKED" and "durable_native_authority_absent" in durable_gate.transaction["blockers"])
+        check("caller booleans still cannot forge durable native authority", durable_gate.transaction["state"] == "BLOCKED" and "native_update_execution_uncertified" in durable_gate.transaction["blockers"])
+
+        native_transaction, native_manifest = ready(cache, native=True)
+        native_plan = build_execution_plan(native_transaction, native_manifest, cache, relationships(), execution_environment="production")
+        native_ops = NativeFakeOps()
+        native_installed = execute_update(native_transaction, native_plan, native_ops, now=NOW)
+        check("durable M4B authority unlocks production offline execution", native_installed.transaction["state"] == "INSTALLED_PENDING_ACTIVATION" and native_installed.mutation_started)
+        check("production execution uses the full bounded stage order", native_ops.calls == [
+            "recovery-preparation", "full-package-upgrade", "maho-runtime", "kernel-header-dkms",
+            "initramfs:linux-cachyos", "initramfs:linux-cachyos-lts", "boot-artifacts", "install-finalization",
+        ])
 
         offline_root = cache / "offline-root"
         (offline_root / "var/lib/pacman").mkdir(parents=True)
