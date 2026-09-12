@@ -144,14 +144,24 @@ def test_evaluator_actuate_and_revert() -> None:
 
 
 def test_uncertified_gate() -> None:
-    with tempfile.TemporaryDirectory(prefix="maho-a15-blocked-") as temporary:
-        result = shadow.evaluate_shadow(
-            Path(temporary), now=T0, observations=game(T0), execute_certified=True,
-        )
-        assert result["actions"]["mode"] == "A15_BLOCKED"
-        assert result["actions"]["mutation_executed"] is False
-        assert result["active_executable_posture"] == {}
-        assert result["blocked"] == "a15-execution-uncertified"
+    old_policy = shadow.adaptive_execution_policy
+    shadow.adaptive_execution_policy = lambda root: {
+        "certified": False,
+        "effects": ("notifications",),
+        "service_enabled": False,
+        "reason": "a15-execution-uncertified",
+    }
+    try:
+        with tempfile.TemporaryDirectory(prefix="maho-a15-blocked-") as temporary:
+            result = shadow.evaluate_shadow(
+                Path(temporary), now=T0, observations=game(T0), execute_certified=True,
+            )
+            assert result["actions"]["mode"] == "A15_BLOCKED"
+            assert result["actions"]["mutation_executed"] is False
+            assert result["active_executable_posture"] == {}
+            assert result["blocked"] == "a15-execution-uncertified"
+    finally:
+        shadow.adaptive_execution_policy = old_policy
 
 
 def main() -> None:

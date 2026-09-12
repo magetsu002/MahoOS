@@ -1,13 +1,15 @@
 [Unit]
-Description=Maho adaptive policy shadow evaluator
-After=maho-observe.service
+Description=Maho certified adaptive policy evaluator
+After=graphical-session.target maho-observe.service maho-notify.service
+PartOf=maho-hyprland-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/maho-adaptive watch
+ExecStart=%h/.local/bin/maho-adaptive watch --execute-certified
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 
 [Install]
-WantedBy=default.target
+WantedBy=maho-hyprland-session.target

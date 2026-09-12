@@ -162,7 +162,7 @@ python "$ROOT/tests/test_guardian_update.py"
 python "$ROOT/tests/test_maho_update_adversarial.py"
 python "$ROOT/tests/test_maho_update_native.py"
 
-echo "=== Adaptive policy A1-A14 ==="
+echo "=== Adaptive policy A1-A15 ==="
 for test in "$ROOT"/tests/test_adaptive_*.py; do
   python "$test"
 done

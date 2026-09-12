@@ -55,10 +55,10 @@
     ]
   },
   "adaptive": {
-    "a15_execution_certified": false,
+    "a15_execution_certified": true,
     "certified_effects": [
       "notifications"
     ],
-    "service_enabled": false
+    "service_enabled": true
   }
 }

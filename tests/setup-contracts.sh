@@ -56,8 +56,8 @@ COMMANDS=(
   maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
-PASSIVE_UNITS=(maho-adaptive.service)
-GRAPHICAL_UNITS=(maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service)
+PASSIVE_UNITS=()
+GRAPHICAL_UNITS=(maho-awww-daemon.service maho-wallpaper.service maho-shell.service maho-dock.service maho-notify.service maho-clipboard-history.service maho-adaptive.service)
 SESSION_TARGET_UNIT=maho-hyprland-session.target
 UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "${PASSIVE_UNITS[@]}" "$SESSION_TARGET_UNIT")
 

@@ -171,13 +171,17 @@ def test_doctor_and_static_authority() -> None:
     with tempfile.TemporaryDirectory(prefix="maho-adaptive-doctor-") as temporary:
         report = doctor_report(ROOT, Path(temporary))
         assert report["healthy"] is True, report
-        assert report["mode"] == "SHADOW_ONLY"
-        assert report["service_enabled_by_policy"] is False
+        assert report["mode"] == "A15_CERTIFIED"
+        assert report["execution_certified"] is True
+        assert report["certified_effects"] == ["notifications"]
+        assert report["service_enabled_by_policy"] is True
 
     wrapper = (ROOT / "bin/maho-adaptive").read_text()
     unit = (ROOT / "systemd/user/maho-adaptive.service").read_text()
     assert "maho_adaptive_shadow.py" in wrapper
-    assert "maho-adaptive watch" in unit
+    assert "maho-adaptive watch --execute-certified" in unit
+    assert "PartOf=maho-hyprland-session.target" in unit
+    assert "WantedBy=maho-hyprland-session.target" in unit
     forbidden = ("sudo", "pacman", "efibootmgr", "reboot", "shutdown", "poweroff", "killall", "pkill")
     combined = wrapper + "\n" + (ROOT / "lib/maho_adaptive_shadow.py").read_text()
     for token in forbidden:
