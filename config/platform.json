@@ -12,7 +12,7 @@
     "default_kernel": "linux-cachyos",
     "recovery_kernel": "linux-cachyos-lts",
     "snapshot_integration": "limine-snapper-sync",
-    "kernel_update_snapshot_restore_certified": false,
+    "kernel_update_snapshot_restore_certified": true,
     "boot_state_transaction_required": true
   },
   "system_states": {

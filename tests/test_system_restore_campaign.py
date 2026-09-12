@@ -412,7 +412,7 @@ def main() -> None:
                 write_journal(jpath, payload)
                 return SimpleNamespace(
                     phase="restored-awaiting-reboot",
-                    provider_exit_code=0,
+                    provider_returncode=0,
                     mutation_started=True,
                     blockers=(),
                 )
@@ -462,6 +462,7 @@ def main() -> None:
             check("prepared target reconstructs exact current recovery generation", planned_reports[0].generations[0].generation_id == GID and planned_reports[0].current_platform["current_snapshot_id"] == SID)
             check("exact confirmation performs one bounded restore attempt", len(execute_calls) == 1)
             check("execute stops at reboot-ready state", executed["phase"] == "restored-awaiting-reboot")
+            check("execute reports provider return code", executed["provider_exit_code"] == 0)
             check("execute never reboots automatically", executed["reboot_performed"] is False)
             check("execute journal is awaiting reboot", read_journal(Path(prepared["journal_path"]))["phase"] == "restored-awaiting-reboot")
 

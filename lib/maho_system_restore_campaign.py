@@ -494,7 +494,7 @@ def execute_campaign(
         "transaction_id": transaction_id,
         "generation_id": generation_id,
         "phase": result.phase,
-        "provider_exit_code": result.provider_exit_code,
+        "provider_exit_code": result.provider_returncode,
         "mutation_started": result.mutation_started,
         "blockers": list(result.blockers),
         "reboot_performed": False,
