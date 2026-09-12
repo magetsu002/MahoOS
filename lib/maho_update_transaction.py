@@ -237,6 +237,7 @@ def build_execution_plan(
         raise ValueError("NVIDIA/DKMS package identity is invalid")
     artifacts = relationships.get("boot_artifacts")
     required_artifacts = {
+        "/boot/intel-ucode.img",
         "/boot/vmlinuz-linux-cachyos", "/boot/initramfs-linux-cachyos.img",
         "/boot/vmlinuz-linux-cachyos-lts", "/boot/initramfs-linux-cachyos-lts.img",
     }

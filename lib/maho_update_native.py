@@ -22,6 +22,7 @@ _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
 _UUID = re.compile(r"[0-9a-fA-F-]{36}")
 _PACKAGE = re.compile(r"[A-Za-z0-9@._+:-]+")
 BOOT_ARTIFACTS = (
+    "/boot/intel-ucode.img",
     "/boot/initramfs-linux-cachyos-lts.img",
     "/boot/initramfs-linux-cachyos.img",
     "/boot/vmlinuz-linux-cachyos",
