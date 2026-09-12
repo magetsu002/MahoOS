@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import secrets
 import shutil
@@ -62,10 +63,32 @@ class IsolatedPacmanStaging:
             raise ValueError(f"{name} overlaps a live Pacman path")
         return path
 
+    @staticmethod
+    def _download_identity() -> tuple[int, int] | None:
+        if os.geteuid() != 0:
+            return None
+        completed = subprocess.run(
+            ("/usr/bin/pacman-conf", "DownloadUser"),
+            check=False, text=True, capture_output=True,
+            env={"PATH": "/usr/bin", "LC_ALL": "C"},
+        )
+        name = completed.stdout.strip() if completed.returncode == 0 else ""
+        if not name:
+            return None
+        try:
+            account = pwd.getpwnam(name)
+        except KeyError as exc:
+            raise RuntimeError("configured Pacman DownloadUser is unavailable") from exc
+        return account.pw_uid, account.pw_gid
+
     def prepare(self) -> None:
         if not self.db.is_dir():
             raise ValueError("isolated synchronization database is unavailable")
-        self.cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.cache.mkdir(mode=0o755, parents=True, exist_ok=True)
+        identity = self._download_identity()
+        if identity is not None:
+            os.chown(self.cache, *identity)
+            os.chmod(self.cache, 0o755)
 
     def availability_command(self, targets: Sequence[str]) -> tuple[str, ...]:
         self._validate_targets(targets)

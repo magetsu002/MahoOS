@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 import os
 from pathlib import Path
+import pwd
 import re
 import shutil
 import subprocess
@@ -63,10 +64,37 @@ class IsolatedPacmanDiscovery:
         self.runner = runner or self._system_run
         self.commands: list[tuple[str, ...]] = []
 
+    @staticmethod
+    def _download_identity() -> tuple[int, int] | None:
+        if os.geteuid() != 0:
+            return None
+        completed = subprocess.run(
+            ("/usr/bin/pacman-conf", "DownloadUser"),
+            check=False, text=True, capture_output=True,
+            env={"PATH": "/usr/bin", "LC_ALL": "C"},
+        )
+        name = completed.stdout.strip() if completed.returncode == 0 else ""
+        if not name:
+            return None
+        try:
+            account = pwd.getpwnam(name)
+        except KeyError as exc:
+            raise RuntimeError("configured Pacman DownloadUser is unavailable") from exc
+        return account.pw_uid, account.pw_gid
+
+    @classmethod
+    def _prepare_download_dir(cls, path: Path) -> None:
+        path.mkdir(mode=0o755, parents=True, exist_ok=True)
+        identity = cls._download_identity()
+        if identity is not None:
+            os.chown(path, *identity)
+            os.chmod(path, 0o755)
+
     def prepare(self) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.db.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.root.mkdir(mode=0o755, parents=True, exist_ok=True)
+        self.db.mkdir(mode=0o755, parents=True, exist_ok=True)
+        self._prepare_download_dir(self.db / "sync")
+        self._prepare_download_dir(self.cache)
         destination = self.db / "local"
         if destination.exists():
             shutil.rmtree(destination)
