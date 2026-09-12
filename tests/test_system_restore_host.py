@@ -144,6 +144,8 @@ def main() -> None:
     check("emergency snapshot is forced read-only", "--read-only" in create_cmd)
     check("emergency snapshot description is transaction-bound", f"Maho L3 emergency backup {TX}" in create_cmd)
     check("emergency snapshot userdata is transaction-bound", any(f"maho.transaction={TX}" in part for part in create_cmd))
+    check("emergency snapshot never claims known-good authority", all("maho.known_good=yes" not in part for part in create_cmd))
+    check("emergency snapshot carries only backup role", any("maho.restore_backup=yes" in part for part in create_cmd))
 
     identity = ops.home_identity()
     check("root host binds separate home filesystem", identity["filesystem_uuid"] == "home-fs-uuid")
@@ -189,7 +191,7 @@ def main() -> None:
     allowed_create = (
         "snapper", "-c", "root", "create", "--read-only", "--print-number",
         "--description", f"Maho L3 emergency backup {TX}",
-        "--userdata", f"important=yes,maho.known_good=yes,maho.restore_backup=yes,maho.transaction={TX}",
+        "--userdata", f"important=yes,maho.restore_backup=yes,maho.transaction={TX}",
     )
     check("system host allows exact bounded create command", SystemHostBackend._allowed(allowed_create))
     allowed_target = (
@@ -198,8 +200,10 @@ def main() -> None:
         "--userdata", f"important=yes,maho.known_good=yes,maho.l3_target=yes,maho.transaction={TX}",
     )
     check("system host allows exact bounded target command", SystemHostBackend._allowed(allowed_target))
-    wrong_target_role = allowed_target[:-1] + (f"important=yes,maho.known_good=yes,maho.restore_backup=yes,maho.transaction={TX}",)
+    wrong_target_role = allowed_target[:-1] + (f"important=yes,maho.restore_backup=yes,maho.transaction={TX}",)
     check("target command cannot masquerade as backup", not SystemHostBackend._allowed(wrong_target_role))
+    mislabeled_backup = allowed_create[:-1] + (f"important=yes,maho.known_good=yes,maho.restore_backup=yes,maho.transaction={TX}",)
+    check("backup command cannot claim known-good authority", not SystemHostBackend._allowed(mislabeled_backup))
     check("system host refuses rollback command", not SystemHostBackend._allowed(("snapper", "-c", "root", "rollback", "349")))
     check("system host refuses writable snapshot mutation", not SystemHostBackend._allowed(("btrfs", "property", "set", "-ts", "/.snapshots/400/snapshot", "ro", "false")))
     check("system host refuses arbitrary subvolume inspection", not SystemHostBackend._allowed(("btrfs", "subvolume", "show", "/etc")))

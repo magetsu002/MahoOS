@@ -13,7 +13,7 @@ from typing import Mapping, Protocol, Sequence
 from maho_system_restore_host import SystemPreparationOps
 from maho_system_restore_transaction import PostBootEvidence, StructuralEvidence
 
-_UUID = re.compile(r"[0-9a-fA-F-]{36}")
+_UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 _TXID = re.compile(r"l3-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}")
 _KERNEL_VERSION = re.compile(r"[A-Za-z0-9._+-]+")
 _FINDMNT_OUTPUT = "TARGET,SOURCE,FSTYPE,FSROOT,UUID"

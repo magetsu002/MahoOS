@@ -184,6 +184,8 @@ def main() -> None:
     check("runtime allows exact read-only top-level mount", SystemRuntimeBackend._allowed(exact_mount))
     check("runtime refuses writable top-level mount", not SystemRuntimeBackend._allowed(("mount", "-t", "btrfs", "-o", "rw,subvolid=5", f"UUID={FSUUID}", f"/run/maho-l3/{TX}")))
     check("runtime refuses arbitrary mountpoint", not SystemRuntimeBackend._allowed(("mount", "-t", "btrfs", "-o", "ro,subvolid=5", f"UUID={FSUUID}", "/mnt")))
+    malformed_uuid = "-" * 36
+    check("runtime rejects malformed dash-heavy UUID", not SystemRuntimeBackend._allowed(("mount", "-t", "btrfs", "-o", "ro,subvolid=5", f"UUID={malformed_uuid}", f"/run/maho-l3/{TX}")))
     check("runtime refuses subvolume deletion", not SystemRuntimeBackend._allowed(("btrfs", "subvolume", "delete", "/@")))
 
     print("ALL SYSTEM RESTORE RUNTIME CONTRACTS PASS")
