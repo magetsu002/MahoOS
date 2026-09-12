@@ -102,10 +102,13 @@ def _anti_flap(proposal: AdaptationProposal) -> AntiFlap:
     )
 
 
-def _create(effect: Effect, proposal: AdaptationProposal, previous: str | None, now: datetime) -> AdaptationLease:
+def _create(effect: Effect, proposal: AdaptationProposal, previous: str | None, now: datetime, *, mode: str = "shadow") -> AdaptationLease:
+    if mode not in {"shadow", "executable"}:
+        raise ValueError("invalid lease creation mode")
     entered = _stamp(now)
     anti = _anti_flap(proposal)
-    initial = "ACTIVE_SHADOW" if anti.minimum_dwell_seconds == 0 else "PROPOSED"
+    active_state = "ACTIVE_EXECUTABLE" if mode == "executable" else "ACTIVE_SHADOW"
+    initial = active_state if anti.minimum_dwell_seconds == 0 else "PROPOSED"
     return AdaptationLease(
         SCHEMA_VERSION,
         _lease_id(effect, proposal, entered),
@@ -119,7 +122,7 @@ def _create(effect: Effect, proposal: AdaptationProposal, previous: str | None, 
         proposal.expiry_condition.kind,
         proposal.expiry_condition.value,
         "pending",
-        "shadow",
+        mode,
         initial,
         None,
         None,
@@ -134,12 +137,12 @@ def validate_lease(lease: AdaptationLease) -> None:
         raise ValueError("invalid lease identity")
     if lease.state not in LEASE_STATES:
         raise ValueError("invalid lease state")
-    if lease.mode not in {"shadow", "executable-disabled"}:
+    if lease.mode not in {"shadow", "executable"}:
         raise ValueError("invalid lease mode")
-    if lease.state in {"ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}:
-        raise ValueError("executable adaptive leases are disabled in A1-A14")
-    if lease.mode != "shadow":
-        raise ValueError("only shadow leases are enabled in A1-A14")
+    if lease.mode == "shadow" and lease.state in {"ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}:
+        raise ValueError("shadow lease cannot enter executable state")
+    if lease.mode == "executable" and lease.state in {"ACTIVE_SHADOW", "VERIFIED_SHADOW"}:
+        raise ValueError("executable lease cannot enter shadow state")
     for value in (
         lease.anti_flap.minimum_dwell_seconds,
         lease.anti_flap.minimum_residency_seconds,
@@ -164,15 +167,15 @@ def validate_book(book: LeaseBook) -> LeaseBook:
 
 
 def _active(lease: AdaptationLease) -> bool:
-    return lease.state in {"PROPOSED", "ACTIVE_SHADOW", "VERIFIED_SHADOW"}
+    return lease.state in {"PROPOSED", "ACTIVE_SHADOW", "VERIFIED_SHADOW", "ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}
 
 
-def _equivalent(lease: AdaptationLease, effect: Effect, proposal: AdaptationProposal) -> bool:
-    return _active(lease) and lease.effect == effect and lease.source_policy == proposal.source_policy
+def _equivalent(lease: AdaptationLease, effect: Effect, proposal: AdaptationProposal, mode: str) -> bool:
+    return _active(lease) and lease.effect == effect and lease.source_policy == proposal.source_policy and lease.mode == mode
 
 
-def _cooldown_blocked(book: LeaseBook, effect: Effect, proposal: AdaptationProposal, now: datetime) -> bool:
-    expired = [lease for lease in book.leases if lease.state == "EXPIRED" and lease.effect == effect and lease.source_policy == proposal.source_policy]
+def _cooldown_blocked(book: LeaseBook, effect: Effect, proposal: AdaptationProposal, now: datetime, mode: str) -> bool:
+    expired = [lease for lease in book.leases if lease.state == "EXPIRED" and lease.effect == effect and lease.source_policy == proposal.source_policy and lease.mode == mode]
     if not expired:
         return False
     last = sorted(expired, key=lambda lease: lease.released_at or "")[-1]
@@ -181,12 +184,18 @@ def _cooldown_blocked(book: LeaseBook, effect: Effect, proposal: AdaptationPropo
     return _elapsed(last.released_at, now) < last.anti_flap.cooldown_seconds
 
 
-def _winner_for(field, proposals: Mapping[str, AdaptationProposal]) -> AdaptationProposal | None:
-    for proposal_id in field.winning_proposal_ids:
-        proposal = proposals.get(proposal_id)
-        if proposal is not None:
-            return proposal
-    return None
+def _winner_for(
+    field,
+    proposals: Mapping[str, AdaptationProposal],
+    *,
+    preferred_source: str | None = None,
+) -> AdaptationProposal | None:
+    winners = [proposals[proposal_id] for proposal_id in field.winning_proposal_ids if proposal_id in proposals]
+    if preferred_source is not None:
+        stable = next((proposal for proposal in winners if proposal.source_policy == preferred_source), None)
+        if stable is not None:
+            return stable
+    return winners[0] if winners else None
 
 
 def reconcile_leases(
@@ -197,6 +206,8 @@ def reconcile_leases(
     condition_state: Mapping[str, bool | None] | None = None,
     previous_posture: Mapping[str, str] | None = None,
     now: datetime,
+    executable_effects: frozenset[str] = frozenset(),
+    executable_proposal_ids: frozenset[str] = frozenset(),
 ) -> LeaseBook:
     """Reconcile shadow leases without restoring remembered values directly.
 
@@ -216,7 +227,8 @@ def reconcile_leases(
             continue
         condition = conditions.get(lease.source_proposal_id)
         if lease.state == "PROPOSED" and condition is not False and _elapsed(lease.entered_at, now) >= lease.anti_flap.minimum_dwell_seconds:
-            leases[index] = replace(lease, state="ACTIVE_SHADOW")
+            next_state = "ACTIVE_EXECUTABLE" if lease.mode == "executable" else "ACTIVE_SHADOW"
+            leases[index] = replace(lease, state=next_state)
             lease = leases[index]
         if condition is False:
             residency = _elapsed(lease.entered_at, now)
@@ -232,18 +244,19 @@ def reconcile_leases(
 
     # Supersede only when the resolver has a different coherent owner/value.
     for key, field in desired_fields.items():
-        winner = _winner_for(field, proposal_map)
+        prior = next((lease for lease in reversed(leases) if _active(lease) and lease.effect.key == key), None)
+        winner = _winner_for(field, proposal_map, preferred_source=prior.source_policy if prior else None)
         if winner is None:
             continue
         effect = Effect(key, str(field.value))
-        if any(_equivalent(lease, effect, winner) for lease in leases):
+        mode = "executable" if key in executable_effects and winner.proposal_id in executable_proposal_ids else "shadow"
+        if any(_equivalent(lease, effect, winner, mode) for lease in leases):
             continue
-        if _cooldown_blocked(LeaseBook(SCHEMA_VERSION, tuple(leases)), effect, winner, now):
+        if _cooldown_blocked(LeaseBook(SCHEMA_VERSION, tuple(leases)), effect, winner, now, mode):
             continue
 
-        prior = next((lease for lease in reversed(leases) if _active(lease) and lease.effect.key == key), None)
         previous = prior.effective_state if prior else (previous_posture or {}).get(key)
-        new_lease = _create(effect, winner, previous, now)
+        new_lease = _create(effect, winner, previous, now, mode=mode)
         leases.append(new_lease)
         if prior is not None:
             prior_index = leases.index(prior)
@@ -273,13 +286,39 @@ def verify_shadow(book: LeaseBook, lease_id: str) -> LeaseBook:
     raise ValueError("lease not found")
 
 
-def active_posture(book: LeaseBook) -> dict[str, str]:
-    """Return currently leased effects. No previous-state restoration occurs."""
+
+def verify_executable(book: LeaseBook, lease_id: str) -> LeaseBook:
     validate_book(book)
+    leases = list(book.leases)
+    for index, lease in enumerate(leases):
+        if lease.lease_id != lease_id:
+            continue
+        if lease.state == "VERIFIED_EXECUTABLE":
+            return book
+        if lease.state != "ACTIVE_EXECUTABLE" or lease.mode != "executable":
+            raise ValueError("only an active executable lease can be verified")
+        leases[index] = replace(lease, state="VERIFIED_EXECUTABLE", verification_status="verified-executable")
+        return validate_book(LeaseBook(SCHEMA_VERSION, tuple(leases)))
+    raise ValueError("lease not found")
+
+def posture_for_mode(book: LeaseBook, mode: str) -> dict[str, str]:
+    """Return active posture for one lease authority mode."""
+    validate_book(book)
+    if mode not in {"shadow", "executable"}:
+        raise ValueError("invalid posture mode")
+    states = ({"ACTIVE_SHADOW", "VERIFIED_SHADOW"} if mode == "shadow"
+              else {"ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"})
     result: dict[str, str] = {}
     for lease in book.leases:
-        if lease.state in {"ACTIVE_SHADOW", "VERIFIED_SHADOW"}:
+        if lease.mode == mode and lease.state in states:
             result[lease.effect.key] = lease.effective_state
+    return result
+
+
+def active_posture(book: LeaseBook) -> dict[str, str]:
+    """Return all currently leased effects. No previous-state restoration occurs."""
+    result = posture_for_mode(book, "shadow")
+    result.update(posture_for_mode(book, "executable"))
     return result
 
 

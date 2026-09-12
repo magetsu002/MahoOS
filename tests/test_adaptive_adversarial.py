@@ -300,7 +300,7 @@ def persistence_schema_cases() -> None:
 
     corrupt = book.as_dict()
     corrupt["leases"][0]["state"] = "ACTIVE_EXECUTABLE"
-    raises(lambda: book_from_dict(corrupt), "executable adaptive leases are disabled")
+    raises(lambda: book_from_dict(corrupt), "shadow lease cannot enter executable state")
     mark("reboot/suspend-style stale leases")
     corrupt2 = book.as_dict()
     corrupt2["leases"][0]["lease_id"] = "broken"

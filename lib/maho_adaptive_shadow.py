@@ -16,7 +16,11 @@ from typing import Any, Mapping, Sequence
 
 from maho_adaptive_battery import battery_proposals
 from maho_adaptive_integrations import guardian_proposals
-from maho_adaptive_leases import LeaseBook, active_posture, book_from_dict, reconcile_leases, verify_shadow
+from maho_adaptive_actuators import CERTIFIED_EFFECTS, executable_proposal_ids, execute_certified_actuators
+from maho_adaptive_leases import (
+    LeaseBook, active_posture, book_from_dict, posture_for_mode, reconcile_leases,
+    verify_executable, verify_shadow,
+)
 from maho_adaptive_maintenance import maintenance_proposals
 from maho_adaptive_network import network_proposals
 from maho_adaptive_notifications import notification_context_proposals
@@ -59,6 +63,28 @@ def repo_root() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return Path(__file__).resolve().parents[1]
+
+def adaptive_execution_policy(root: Path) -> dict[str, Any]:
+    path = root / "config/platform.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {"certified": False, "effects": (), "service_enabled": False, "reason": "platform-policy-unreadable"}
+    adaptive = payload.get("adaptive") if isinstance(payload, Mapping) else None
+    if not isinstance(adaptive, Mapping):
+        return {"certified": False, "effects": (), "service_enabled": False, "reason": "adaptive-policy-absent"}
+    effects = adaptive.get("certified_effects")
+    if not isinstance(effects, list) or any(not isinstance(item, str) for item in effects):
+        return {"certified": False, "effects": (), "service_enabled": False, "reason": "adaptive-effects-invalid"}
+    normalized = tuple(sorted(set(effects)))
+    expected = tuple(sorted(CERTIFIED_EFFECTS))
+    certified = adaptive.get("a15_execution_certified") is True and normalized == expected
+    return {
+        "certified": certified,
+        "effects": normalized,
+        "service_enabled": adaptive.get("service_enabled") is True,
+        "reason": None if certified else "a15-execution-uncertified",
+    }
 
 def read_json(path: Path) -> Mapping[str, Any] | None:
     try:
@@ -400,7 +426,7 @@ def save_book(runtime_root: Path, book: LeaseBook) -> None:
     atomic_json(runtime_root / "leases.json", book.as_dict())
 
 def posture_observation(book: LeaseBook, now: datetime) -> dict[str, Any]:
-    active = [lease for lease in book.leases if lease.state in {"PROPOSED", "ACTIVE_SHADOW", "VERIFIED_SHADOW"}]
+    active = [lease for lease in book.leases if lease.state in {"PROPOSED", "ACTIVE_SHADOW", "VERIFIED_SHADOW", "ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}]
     ages = [_elapsed_since(lease.entered_at, now) for lease in active]
     return {
         "active_leases": [lease.lease_id for lease in active],
@@ -433,7 +459,7 @@ def source_evidence_fresh(snapshot: SituationSnapshot, source: str) -> bool | No
         values = (snapshot.power.freshness,)
     elif source.startswith("thermal."):
         values = (snapshot.thermal.freshness,)
-    elif source.startswith(("gaming.", "workload.")):
+    elif source.startswith(("gaming.", "workload.", "media.", "compile.", "render.")):
         values = (snapshot.workload.freshness, snapshot.session.freshness)
     elif source.startswith("network."):
         values = (snapshot.network.freshness,)
@@ -443,7 +469,7 @@ def source_evidence_fresh(snapshot: SituationSnapshot, source: str) -> bool | No
                   snapshot.guardian.freshness)
     elif source.startswith("guardian."):
         values = (snapshot.guardian.freshness,)
-    elif source.startswith("notifications."):
+    elif source.startswith(("notification.", "notifications.")):
         values = (snapshot.workload.freshness, snapshot.user_intent.freshness)
     else:
         return None
@@ -452,7 +478,7 @@ def source_evidence_fresh(snapshot: SituationSnapshot, source: str) -> bool | No
 def lease_conditions(book: LeaseBook, proposals: Sequence[AdaptationProposal], snapshot: SituationSnapshot) -> dict[str, bool | None]:
     result: dict[str, bool | None] = {}
     for lease in book.leases:
-        if lease.state not in {"PROPOSED", "ACTIVE_SHADOW", "VERIFIED_SHADOW"}:
+        if lease.state not in {"PROPOSED", "ACTIVE_SHADOW", "VERIFIED_SHADOW", "ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}:
             continue
         equivalent = any(
             proposal.source_policy == lease.source_policy
@@ -528,6 +554,8 @@ def semantic_signature(record: Mapping[str, Any]) -> str:
         ],
         "desired_posture": record["resolved_posture"],
         "active_shadow_posture": record["active_shadow_posture"],
+        "active_executable_posture": record.get("active_executable_posture", {}),
+        "action_mode": (record.get("actions") or {}).get("mode", "SHADOW_ONLY"),
         "review_required": record["review_required"],
         "blocked": record.get("blocked"),
     }
@@ -552,7 +580,8 @@ def count_history(path: Path) -> int:
     return count
 
 def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
-                    observations: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                    observations: Mapping[str, Any] | None = None,
+                    execute_certified: bool = False, actuator_runner=None) -> dict[str, Any]:
     current = (now or utc_now()).astimezone(timezone.utc)
     root = repo_root()
     runtime_root.mkdir(parents=True, exist_ok=True)
@@ -563,6 +592,11 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
     snapshot = build_situation(live, captured_at=current)
     proposals = policy_proposals(snapshot, now=current)
     resolved = resolve_posture(snapshot, proposals)
+    execution_policy = adaptive_execution_policy(root)
+    execution_authorized = execute_certified and execution_policy["certified"] is True
+    eligible_ids = executable_proposal_ids(proposals) if execution_authorized else frozenset()
+    actuation = None
+    actuation_blocker = None if not execute_certified or execution_authorized else str(execution_policy["reason"])
 
     if book_error is None:
         updated_book = reconcile_leases(
@@ -572,18 +606,42 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
             condition_state=lease_conditions(book, proposals, snapshot),
             previous_posture=active_posture(book),
             now=current,
+            executable_effects=CERTIFIED_EFFECTS if execution_authorized else frozenset(),
+            executable_proposal_ids=eligible_ids,
         )
-        # Shadow verification is an internal consistency check only. It proves
-        # the lease is represented in the effective shadow posture; it never
-        # inspects or mutates a real actuator.
+        # Shadow verification proves only internal posture consistency.
         for lease in tuple(updated_book.leases):
-            if lease.state == "ACTIVE_SHADOW" and active_posture(updated_book).get(lease.effect.key) == lease.effective_state:
+            if lease.state == "ACTIVE_SHADOW" and posture_for_mode(updated_book, "shadow").get(lease.effect.key) == lease.effective_state:
                 updated_book = verify_shadow(updated_book, lease.lease_id)
+
+        if execution_authorized:
+            try:
+                actuation = execute_certified_actuators(root, updated_book, runner=actuator_runner)
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+                actuation_blocker = f"certified-actuator-error:{exc}"
+            else:
+                if actuation.ok:
+                    for lease_id in actuation.verified_lease_ids:
+                        updated_book = verify_executable(updated_book, lease_id)
+                else:
+                    actuation_blocker = f"certified-actuator-failed:{actuation.detail or 'unknown'}"
         save_book(runtime_root, updated_book)
     else:
         # Corrupted durable lease state is uncertainty: observe and explain, but
-        # do not create or release leases until a human repairs the state.
+        # do not create, release, or execute leases until a human repairs state.
         updated_book = book
+
+    blocked = book_error or actuation_blocker
+    if execute_certified:
+        actions = {
+            "mode": "A15_CERTIFIED" if execution_authorized else "A15_BLOCKED",
+            "mutation_executed": bool(actuation and actuation.ok and actuation.mutation_executed),
+            "verified": bool(actuation and actuation.ok),
+            "resource": actuation.resource if actuation is not None else "notifications.presentation.adaptive-quiet",
+            "cycle_id": actuation.cycle_id if actuation is not None else None,
+        }
+    else:
+        actions = {"mode": "SHADOW_ONLY", "mutation_executed": False}
 
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -592,12 +650,14 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
         "situation": situation_summary(snapshot),
         "proposals": proposal_summary(proposals),
         "resolved_posture": dict(resolved.effective_posture),
-        "active_shadow_posture": active_posture(updated_book),
+        "active_shadow_posture": posture_for_mode(updated_book, "shadow"),
+        "active_executable_posture": posture_for_mode(updated_book, "executable"),
+        "active_posture": active_posture(updated_book),
         "review_required": [list(item) for item in resolved.review_required],
         "rejected_proposals": [list(item) for item in resolved.rejected],
         "leases": [lease.as_dict() for lease in updated_book.leases if lease.state != "EXPIRED"],
-        "blocked": book_error,
-        "actions": {"mode": "SHADOW_ONLY", "mutation_executed": False},
+        "blocked": blocked,
+        "actions": actions,
     }
     signature = semantic_signature(record)
     history_path = runtime_root / "history.jsonl"
@@ -653,21 +713,46 @@ def doctor_report(root: Path, runtime_root: Path) -> dict[str, Any]:
         root / "lib/maho_adaptive_situation.py",
         root / "lib/maho_adaptive_resolver.py",
         root / "lib/maho_adaptive_leases.py",
+        root / "lib/maho_adaptive_actuators.py",
+        root / "adapters/notifications/adaptive-quiet.sh",
     ]
     checks = {str(path.relative_to(root)): path.is_file() for path in required}
+    policy = adaptive_execution_policy(root)
     lease_book, lease_error = load_book(runtime_root)
-    lease_safe = lease_error is None and all(lease.mode == "shadow" and not lease.state.endswith("EXECUTABLE") for lease in lease_book.leases)
+    lease_shadow_only = lease_error is None and all(lease.mode == "shadow" for lease in lease_book.leases)
+    lease_authority_safe = lease_error is None and all(
+        lease.mode == "shadow" or (
+            policy["certified"] is True
+            and lease.mode == "executable"
+            and lease.effect.key in set(policy["effects"])
+        )
+        for lease in lease_book.leases
+    )
     current = current_status(runtime_root)
-    mutation_safe = current is None or current.get("actions") == {"mode": "SHADOW_ONLY", "mutation_executed": False}
+    current_shadow_only = current is None or current.get("actions") == {"mode": "SHADOW_ONLY", "mutation_executed": False}
+    if current is None:
+        current_authority_safe = True
+    else:
+        actions = current.get("actions") if isinstance(current.get("actions"), Mapping) else {}
+        mode = actions.get("mode")
+        current_authority_safe = (
+            mode == "SHADOW_ONLY"
+            or (policy["certified"] is True and mode == "A15_CERTIFIED" and actions.get("verified") is True)
+        )
+    service_policy_safe = policy["service_enabled"] is not True or policy["certified"] is True
     return {
         "schema_version": SCHEMA_VERSION,
-        "mode": "SHADOW_ONLY",
+        "mode": "A15_CERTIFIED" if policy["certified"] else "SHADOW_ONLY",
         "source_checks": checks,
         "lease_state": "ok" if lease_error is None else lease_error,
-        "lease_shadow_only": lease_safe,
-        "current_record_shadow_only": mutation_safe,
-        "service_enabled_by_policy": False,
-        "healthy": all(checks.values()) and lease_safe and mutation_safe,
+        "lease_shadow_only": lease_shadow_only,
+        "lease_authority_safe": lease_authority_safe,
+        "current_record_shadow_only": current_shadow_only,
+        "current_record_authority_safe": current_authority_safe,
+        "execution_certified": policy["certified"],
+        "certified_effects": list(policy["effects"]),
+        "service_enabled_by_policy": policy["service_enabled"],
+        "healthy": all(checks.values()) and lease_authority_safe and current_authority_safe and service_policy_safe,
     }
 
 def _print_status(status: Mapping[str, Any]) -> None:
@@ -684,7 +769,7 @@ def _print_status(status: Mapping[str, Any]) -> None:
     workload = situation.get("workload") if isinstance(situation.get("workload"), Mapping) else {}
     print(f"Context:     battery={power.get('severity_band', UNKNOWN)} thermal={thermal.get('level', UNKNOWN)} gaming={workload.get('gaming', UNKNOWN)}")
 
-def watch(runtime_root: Path, *, interval: float = DEFAULT_INTERVAL, iterations: int = 0) -> int:
+def watch(runtime_root: Path, *, interval: float = DEFAULT_INTERVAL, iterations: int = 0, execute_certified: bool = False) -> int:
     if interval < 1.0:
         raise ValueError("shadow watch interval must be at least one second")
     if iterations < 0:
@@ -692,11 +777,11 @@ def watch(runtime_root: Path, *, interval: float = DEFAULT_INTERVAL, iterations:
     completed = 0
     try:
         while iterations == 0 or completed < iterations:
-            status = evaluate_shadow(runtime_root)
+            status = evaluate_shadow(runtime_root, execute_certified=execute_certified)
             completed += 1
             if status.get("meaningful_transition"):
                 print(
-                    f"maho-adaptive: shadow transition {status.get('transition_count')} "
+                    f"maho-adaptive: {'a15' if execute_certified else 'shadow'} transition {status.get('transition_count')} "
                     f"posture={json.dumps(status.get('active_shadow_posture', {}), sort_keys=True, separators=(',', ':'))}",
                     flush=True,
                 )
@@ -711,7 +796,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="maho-adaptive", description="Maho adaptive policy shadow evaluator")
     parser.add_argument("--state-root", type=Path, default=None, help="override adaptive state root")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("evaluate", "status", "doctor"):
+    evaluate = sub.add_parser("evaluate")
+    evaluate.add_argument("--json", action="store_true")
+    evaluate.add_argument("--execute-certified", action="store_true", help="execute only A15-certified reversible actuators")
+    for name in ("status", "doctor"):
         command = sub.add_parser(name)
         command.add_argument("--json", action="store_true")
     history = sub.add_parser("history")
@@ -720,11 +808,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     watcher = sub.add_parser("watch")
     watcher.add_argument("--interval", type=float, default=DEFAULT_INTERVAL)
     watcher.add_argument("--iterations", type=int, default=0, help=argparse.SUPPRESS)
+    watcher.add_argument("--execute-certified", action="store_true", help="execute only A15-certified reversible actuators")
     args = parser.parse_args(argv)
     runtime_root = (args.state_root or state_root()).expanduser()
 
     if args.command == "evaluate":
-        result = evaluate_shadow(runtime_root)
+        result = evaluate_shadow(runtime_root, execute_certified=args.execute_certified)
         if args.json:
             print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         else:
@@ -764,7 +853,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("INFO  maho-adaptive.service is shipped disabled; A15 actuator enablement is deferred")
         return 0 if report["healthy"] else 1
     if args.command == "watch":
-        return watch(runtime_root, interval=args.interval, iterations=args.iterations)
+        return watch(runtime_root, interval=args.interval, iterations=args.iterations, execute_certified=args.execute_certified)
     raise AssertionError("unreachable")
 
 if __name__ == "__main__":

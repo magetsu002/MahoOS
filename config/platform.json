@@ -53,5 +53,12 @@
       "multilib",
       "cachyos"
     ]
+  },
+  "adaptive": {
+    "a15_execution_certified": false,
+    "certified_effects": [
+      "notifications"
+    ],
+    "service_enabled": false
   }
 }
