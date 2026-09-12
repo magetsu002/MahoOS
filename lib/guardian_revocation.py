@@ -129,8 +129,8 @@ class RevocationAnalysis:
     ) -> SystemGeneration | None:
         return next((item for item in graph.lineage(current) if self.normal_recovery_eligible(item.generation_id)), None)
 
-    def refusal_reason(self) -> str | None:
-        if any(state in {TrustState.VERIFIED, TrustState.REVALIDATED} for state in self.generation_trust.values()):
+    def refusal_reason(self, graph: GenerationGraph, current: GenerationID) -> str | None:
+        if self.newest_independently_trusted_ancestor(graph, current) is not None:
             return None
         return "all_local_history_contaminated" if self.history_complete else "last_trusted_state_predates_local_history"
 
@@ -187,6 +187,21 @@ def _kernel_descendants(
     }
 
 
+def _apply_kernel_revalidation_boundaries(
+    graph: KernelGenerationGraph, affected: set[KernelGenerationID],
+    seeds: set[KernelGenerationID],
+) -> set[KernelGenerationID]:
+    result: set[KernelGenerationID] = set()
+    for generation_id in affected:
+        lineage = graph.lineage(generation_id)
+        nearest_seed = next((index for index, item in enumerate(lineage) if item.kernel_generation_id in seeds), None)
+        nearest_revalidation = next((index for index, item in enumerate(lineage) if item.trust_state is TrustState.REVALIDATED), None)
+        if nearest_revalidation is not None and nearest_seed is not None and nearest_revalidation < nearest_seed:
+            continue
+        result.add(generation_id)
+    return result
+
+
 def _apply_revalidation_boundaries(
     graph: GenerationGraph, affected: set[GenerationID], seeds: set[GenerationID],
 ) -> set[GenerationID]:
@@ -208,6 +223,9 @@ def analyze_revocations(
 ) -> RevocationAnalysis:
     records = tuple(revocations)
     artifact_rows = tuple(artifacts)
+    artifact_index = {item.artifact_id: item for item in artifact_rows}
+    if len(artifact_index) != len(artifact_rows):
+        raise ValueError("artifact revocation evidence identities must be unique")
     revoked = {item.artifact_id for item in artifact_rows if _artifact_revoked(item, records)}
     transactions = {item.transaction_id for item in artifact_rows if item.artifact_id in revoked}
 
@@ -215,7 +233,9 @@ def analyze_revocations(
         item.kernel_generation_id for item in kernel_graph.generations.values()
         if any(artifact_id in revoked for artifact_id in item.artifact_ids)
     }
-    affected_kernels = _kernel_descendants(kernel_graph, kernel_seeds)
+    affected_kernels = _apply_kernel_revalidation_boundaries(
+        kernel_graph, _kernel_descendants(kernel_graph, kernel_seeds), kernel_seeds,
+    )
 
     system_seeds: set[GenerationID] = set()
     for item in system_graph.generations.values():
@@ -224,6 +244,12 @@ def analyze_revocations(
         if item.kernel_generation_id in affected_kernels:
             system_seeds.add(item.generation_id)
     use_rows = tuple(item for item in uses if item.artifact_id in revoked)
+    for item in use_rows:
+        if item.generation_id not in system_graph.generations:
+            raise ValueError("artifact use references an unavailable generation")
+        evidence = artifact_index.get(item.artifact_id)
+        if evidence is None or evidence.transaction_id != item.transaction_id:
+            raise ValueError("artifact use transaction contradicts provenance")
     system_seeds.update(item.generation_id for item in use_rows)
     affected_systems = _apply_revalidation_boundaries(
         system_graph, _descendants(system_graph, system_seeds), system_seeds,
@@ -238,7 +264,11 @@ def analyze_revocations(
         else:
             trust[generation_id] = system_graph.effective_trust(generation_id)
 
-    first = min(system_seeds, key=lambda item: len(system_graph.lineage(item)), default=None)
+    first = min(
+        system_seeds,
+        key=lambda item: (len(system_graph.lineage(item)), str(item)),
+        default=None,
+    )
     exposure = ExposureAssessment(
         artifact_present=any(item.present for item in use_rows),
         artifact_activated=any(item.activated for item in use_rows),

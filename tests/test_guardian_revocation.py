@@ -132,12 +132,12 @@ all_bad = analyze_revocations(
     revocations=(direct,), artifacts=artifact_rows, uses=(all_bad_use,),
     system_graph=all_bad_graph, kernel_graph=kernel_graph, history_complete=True,
 )
-check("all ancestors contaminated yields no trusted recovery state", all_bad.newest_independently_trusted_ancestor(all_bad_graph, all_bad_child.generation_id) is None and all_bad.refusal_reason() == "all_local_history_contaminated")
+check("all ancestors contaminated yields no trusted recovery state", all_bad.newest_independently_trusted_ancestor(all_bad_graph, all_bad_child.generation_id) is None and all_bad.refusal_reason(all_bad_graph, all_bad_child.generation_id) == "all_local_history_contaminated")
 truncated = analyze_revocations(
     revocations=(direct,), artifacts=artifact_rows, uses=(all_bad_use,),
     system_graph=all_bad_graph, kernel_graph=kernel_graph, history_complete=False,
 )
-check("missing older local history is reported honestly", truncated.refusal_reason() == "last_trusted_state_predates_local_history")
+check("missing older local history is reported honestly", truncated.refusal_reason(all_bad_graph, all_bad_child.generation_id) == "last_trusted_state_predates_local_history")
 
 incomplete_use = ArtifactUse(BAD, g1.generation_id, TX1, True, True, False, False, False, False, evidence_complete=False)
 incomplete = analyze_revocations(

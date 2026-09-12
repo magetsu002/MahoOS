@@ -291,7 +291,11 @@ class KernelGenerationGraph:
             lineage = reversed(self.lineage(descendant))
             return next((item for item in lineage if artifact_id in item.artifact_ids), None)
         candidates = [item for item in self.generations.values() if artifact_id in item.artifact_ids]
-        return min(candidates, key=lambda item: len(self.lineage(item.kernel_generation_id)), default=None)
+        return min(
+            candidates,
+            key=lambda item: (len(self.lineage(item.kernel_generation_id)), str(item.kernel_generation_id)),
+            default=None,
+        )
 
 
 def system_generations_referencing(graph: GenerationGraph, kernel_id: KernelGenerationID) -> tuple[GenerationID, ...]:
