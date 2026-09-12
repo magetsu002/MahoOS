@@ -60,6 +60,11 @@ def main() -> None:
 
     check("mutation marker produces no input", dialogue.feed(f"Restoring snapshot {SID}...\n") == ())
     check("exact mutation boundary is recorded", dialogue.mutation_started)
+    check(
+        "successful provider reboot prompt is declined",
+        dialogue.feed("Restore complete. Reboot now? [Y/n]: ") == ("n\n",),
+    )
+    check("provider reboot decline is recorded once", dialogue.final_reboot_declined)
     dialogue.finish(0)
     print("PASS successful exact-target dialogue is accepted")
 
@@ -93,6 +98,10 @@ def main() -> None:
         "mutation cannot begin before bounded dialogue",
         lambda: early.feed(f"Restoring snapshot {SID}...\n"),
     )
+    expect_protocol_error(
+        "reboot prompt cannot appear before mutation",
+        lambda: ProviderDialogue(SID, TXID).feed("Restore complete. Reboot now? [Y/n]: "),
+    )
 
     clean_cancel = ProviderDialogue(SID, TXID)
     clean_cancel.finish(1)
@@ -122,8 +131,11 @@ def main() -> None:
         assert sys.stdin.readline().strip() == "Maho L3 backup l3-20260911T120000Z-deadbeef"
         print("Restoring snapshot 349...", flush=True)
         print("Restoring matching kernel versions...", flush=True)
+        sys.stdout.write("Restore complete. Reboot now? [Y/n]: "); sys.stdout.flush()
+        assert sys.stdin.readline().strip() == "n"
     """)
     check("PTY runner completes exact-target provider flow", fake.returncode == 0 and fake.mutation_started)
+    check("PTY runner declines provider auto-reboot", fake.output.count("Restore complete. Reboot now? [Y/n]:") == 1)
 
     expect_protocol_error(
         "PTY runner aborts provider verification fallback before mutation",

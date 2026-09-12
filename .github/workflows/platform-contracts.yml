@@ -36,7 +36,7 @@ jobs:
           assert p['boot']['default_kernel'] == 'linux-cachyos'
           assert p['boot']['recovery_kernel'] == 'linux-cachyos-lts'
           assert p['boot']['snapshot_integration'] == 'limine-snapper-sync'
-          assert p['boot']['kernel_update_snapshot_restore_certified'] is False
+          assert p['boot']['kernel_update_snapshot_restore_certified'] is True
           assert p['boot']['boot_state_transaction_required'] is True
           assert p['system_states']['filesystem'] == 'btrfs'
           assert p['system_states']['home_rollback_policy'] == 'exclude-personal-data-by-default'
