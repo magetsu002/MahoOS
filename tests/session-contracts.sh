@@ -13,6 +13,7 @@ SHELL_UNIT="$ROOT/systemd/user/maho-shell.service"
 DOCK_UNIT="$ROOT/systemd/user/maho-dock.service"
 NOTIFY_UNIT="$ROOT/systemd/user/maho-notify.service"
 CLIPBOARD_HISTORY_UNIT="$ROOT/systemd/user/maho-clipboard-history.service"
+ADAPTIVE_UNIT="$ROOT/systemd/user/maho-adaptive.service"
 SHELL_BIN="$ROOT/bin/maho-shell"
 
 fail() {
@@ -121,7 +122,8 @@ for service in \
     maho-shell.service \
     maho-dock.service \
     maho-notify.service \
-    maho-clipboard-history.service; do
+    maho-clipboard-history.service \
+    maho-adaptive.service; do
     require_text "$TARGET" "$service" \
         "$service is not pulled by the single Maho session target"
 done
@@ -134,7 +136,8 @@ for unit in \
     "$SHELL_UNIT" \
     "$DOCK_UNIT" \
     "$NOTIFY_UNIT" \
-    "$CLIPBOARD_HISTORY_UNIT"; do
+    "$CLIPBOARD_HISTORY_UNIT" \
+    "$ADAPTIVE_UNIT"; do
     require_text "$unit" 'After=graphical-session.target' \
         "$(basename "$unit") lost graphical-session ordering"
     require_text "$unit" 'PartOf=maho-hyprland-session.target' \

@@ -10,6 +10,7 @@ ShellRoot {
     property bool centerOpen: false
     property bool centerPresented: false
     property bool centerDragging: false
+    property bool adaptiveQuiet: false
     readonly property real centerMarginX: 18
     readonly property real centerMarginY: 18
 
@@ -133,7 +134,7 @@ ShellRoot {
         id: notificationService
         onNotificationReceived: notification => {
             historyModel.record(notification)
-            notificationModel.enqueue(notification, historyModel.dndEnabled)
+            notificationModel.enqueue(notification, historyModel.dndEnabled || root.adaptiveQuiet)
         }
     }
 
@@ -182,6 +183,15 @@ ShellRoot {
 
         function toggleDnd(): bool {
             return historyModel.toggleDnd()
+        }
+
+        function adaptiveQuietStatus(): bool {
+            return root.adaptiveQuiet
+        }
+
+        function setAdaptiveQuiet(enabled: bool): bool {
+            root.adaptiveQuiet = Boolean(enabled)
+            return root.adaptiveQuiet
         }
 
         function openCenter(): bool {

@@ -76,6 +76,7 @@ ensure_wayland_env() {
 }
 
 ipc_call() {
+    ensure_wayland_env
     quickshell ipc -p "$CONFIG" call notify "$@"
 }
 
@@ -228,13 +229,14 @@ doctor() {
 
 status_json() {
     local running=false service_state="missing" owner="" meta_json
-    local dnd_value=false history_count=0 unread_count=0
+    local dnd_value=false adaptive_quiet=false history_count=0 unread_count=0
     local visible_count=0 queued_count=0 live_count=0 dropped_count=0 suppressed_count=0
     notify_running && running=true
     dbus_has_owner && owner="$(dbus_owner)"
 
     if [ "$running" = "true" ]; then
         dnd_value="$(ipc_value dndStatus || echo false)"
+        adaptive_quiet="$(ipc_value adaptiveQuietStatus || echo false)"
         history_count="$(ipc_value historyCount || echo 0)"
         unread_count="$(ipc_value unreadCount || echo 0)"
         visible_count="$(ipc_value visibleCount || echo 0)"
@@ -270,6 +272,7 @@ PY
     fi
 
     RUNNING="$running" \
+    ADAPTIVE_QUIET="$adaptive_quiet" \
     COUNT="$(notify_count)" \
     SERVICE_STATE="$service_state" \
     OWNER="$owner" \
@@ -298,6 +301,7 @@ print(json.dumps({
     "service": os.environ["SERVICE_STATE"],
     "notification_owner": os.environ["OWNER"] or None,
     "dnd": bool(meta.get("dnd", False)),
+    "adaptive_quiet": os.environ.get("ADAPTIVE_QUIET", "false") == "true",
     "history_count": int(meta.get("history_count", 0)),
     "unread_count": int(meta.get("unread_count", 0)),
     "popup": {
@@ -350,6 +354,28 @@ manage_dnd() {
         toggle) python "$STATE_HELPER" toggle-dnd ;;
         status) python "$STATE_HELPER" get-dnd ;;
     esac
+}
+
+manage_adaptive_quiet() {
+    local action="${1:-status}" result
+    case "$action" in
+        on|off|status) ;;
+        *)
+            echo "maho-notify: adaptive-quiet expects on, off, or status" >&2
+            return 2
+            ;;
+    esac
+
+    notify_running || {
+        echo "maho-notify: adaptive quiet requires active Maho Notify" >&2
+        return 1
+    }
+    case "$action" in
+        on) result="$(ipc_value setAdaptiveQuiet true)" ;;
+        off) result="$(ipc_value setAdaptiveQuiet false)" ;;
+        status) result="$(ipc_value adaptiveQuietStatus)" ;;
+    esac
+    bool_word "$result"
 }
 
 clear_history() {
@@ -478,6 +504,9 @@ case "${1:-run}" in
     dnd)
         manage_dnd "${2:-status}"
         ;;
+    adaptive-quiet)
+        manage_adaptive_quiet "${2:-status}"
+        ;;
     history)
         case "${2:-}" in
             clear) clear_history ;;
@@ -489,7 +518,7 @@ case "${1:-run}" in
         ;;
     *)
         cat <<'HELP'
-Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]|center|dnd on|off|toggle|status|history clear]
+Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]|center|dnd on|off|toggle|status|adaptive-quiet on|off|status|history clear]
 
 Maho Notify is the independent Quickshell notification surface shipped with
 Maho OS. It refuses to displace an existing org.freedesktop.Notifications owner.
@@ -500,6 +529,7 @@ Commands:
   status --json  Emit machine-readable service/config/ownership state.
   reload         Restart Maho Notify through the managed runtime path.
   dnd ...        Read or change persistent Do Not Disturb state.
+  adaptive-quiet Read or change temporary adaptive popup suppression.
   history clear  Clear retained history without printing its content.
   center         Open the bounded Maho Notification Center.
 HELP
