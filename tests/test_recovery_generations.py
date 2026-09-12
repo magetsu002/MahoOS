@@ -218,7 +218,7 @@ def main() -> None:
     check("deterministic selection prefers nearest coherent previous generation", healthy.selected_generation_id == candidate(healthy, 20).generation_id)
     check("LTS kernel presence is exposed", healthy.current_platform["lts_kernel_present"] is True)
     check("separate home subvolume proves root-only recovery", candidate(healthy, 20).home_scope == "excluded" and healthy.planning_facts["availability"]["home_excluded_from_root_snapshot"] is True)
-    check("current platform certification remains false", healthy.certified_system_restore_plannable is False and healthy.planning_facts["recovery"]["certified"] is False)
+    check("current platform reflects certified M3B restore", healthy.certified_system_restore_plannable is True and healthy.planning_facts["recovery"]["certified"] is True)
     check("L3 facts remain confirmation gated", healthy.planning_facts["recovery"]["requires_confirmation"] is True and healthy.planning_facts["recovery"]["automatic_allowed"] is False)
     check("live restore remains disabled", healthy.native_restore_enabled is False and healthy.planning_facts["recovery"]["native_restore_enabled"] is False)
 
