@@ -164,8 +164,14 @@ def describe_security(row: Mapping[str, Any]) -> dict[str, Any]:
         kind = signal.get("kind")
         info = signal.get("details") or {}
         if kind == "integrity-drift":
-            count = info.get("count") or len(info.get("items") or [])
+            items = [x for x in (info.get("items") or []) if isinstance(x, Mapping)]
+            count = info.get("count") or len(items)
             happened.append(f"{count} installed package file(s) differ from the package manifest.")
+            for item in items[:4]:
+                path = item.get("path")
+                cls = item.get("class") or "changed"
+                if path:
+                    details.append(f"{cls}: {path}")
             why.append("Guardian treats unexplained package-file drift as a reliability and integrity signal.")
         elif kind in {"confirmed-finding", "high-confidence-finding"}:
             summary = info.get("summary") or "A security finding applies to an installed package."
@@ -173,12 +179,23 @@ def describe_security(row: Mapping[str, Any]) -> dict[str, Any]:
             version = info.get("installed_version")
             if version:
                 details.append(f"Affected installed version: {version}")
+            finding_id = info.get("finding_id") or info.get("id")
+            if finding_id:
+                details.append(f"Finding: {finding_id}")
             why.append("The finding is correlated with the package version actually installed on this machine.")
         elif kind == "privilege-boundary":
             added = len(info.get("added") or [])
             changed = len(info.get("changed") or [])
             removed = len(info.get("removed") or [])
             happened.append(f"Privilege boundaries changed ({added} added, {changed} changed, {removed} removed).")
+            for change in ("added", "changed", "removed"):
+                for item in (info.get(change) or [])[:3]:
+                    if isinstance(item, Mapping):
+                        path = item.get("path")
+                    else:
+                        path = item
+                    if path:
+                        details.append(f"{change}: {path}")
             why.append("Changes to privileged execution paths deserve review even when they are legitimate administration.")
         elif kind == "runtime-executable":
             observations = info.get("observations") or []
@@ -187,13 +204,27 @@ def describe_security(row: Mapping[str, Any]) -> dict[str, Any]:
                 if isinstance(item, Mapping):
                     exe = item.get("exe")
                     pid = item.get("pid")
+                    signals = ",".join(str(x) for x in (item.get("signals") or []))
                     if exe:
-                        details.append(f"process: pid={pid or '?'} {exe}")
-            why.append("Runtime behavior is used as supporting evidence; it does not trigger host mutation by itself.")
+                        suffix = f" ({signals})" if signals else ""
+                        details.append(f"process: pid={pid or '?'} {exe}{suffix}")
+            why.append("Runtime behavior is supporting evidence; Guardian does not label a process malicious from this signal alone.")
+        elif kind == "affected-package-process":
+            processes = [x for x in (info.get("processes") or []) if isinstance(x, Mapping)]
+            happened.append(f"The affected package is currently running in {len(processes)} process(es).")
+            for item in processes[:3]:
+                details.append(f"running: pid={item.get('pid','?')} {item.get('exe') or item.get('name') or '?'}")
+            why.append("A live affected process increases exposure, but containment still requires explicit authority.")
         elif kind == "network-exposure":
-            listeners = info.get("listeners") or []
+            listeners = [x for x in (info.get("listeners") or []) if isinstance(x, Mapping)]
             happened.append(f"The same subject also has {len(listeners)} externally exposed listener(s).")
-            why.append("Network exposure raises the importance of another correlated signal; Guardian does not treat it as a standalone incident.")
+            for item in listeners[:3]:
+                address = item.get("address") or "?"
+                port = item.get("port") or "?"
+                pid = item.get("pid") or "?"
+                name = item.get("name") or item.get("exe") or "process"
+                details.append(f"listener: {address}:{port} pid={pid} {name}")
+            why.append("Network exposure raises the importance of another correlated signal; Guardian never treats it as compromise by itself.")
 
     if not happened:
         happened.append("Guardian correlated one or more host security signals that do not yet have a specialized explanation.")
@@ -269,28 +300,42 @@ def recovery_text(row: Mapping[str, Any]) -> tuple[str, str]:
 def recommendation(row: Mapping[str, Any], source: Mapping[str, Any] | None, desc: Mapping[str, Any]) -> str:
     kinds = set(desc.get("kinds") or [])
     level = severity(row)
-    recovery = (row.get("decision") or {}).get("recovery") or {}
+    decision = row.get("decision") or {}
+    recovery = decision.get("recovery") or {}
+    catastrophic = decision.get("catastrophic") or {}
+
+    if catastrophic.get("catastrophic") is True or level >= 4:
+        return "Preserve evidence and use only a certified recovery path; do not manually widen the repair scope."
+    if row.get("service_recovery"):
+        lifecycle = str((row.get("service_recovery") or {}).get("lifecycle") or "")
+        if lifecycle in {"detected", "recovering", "verifying"}:
+            return "No action yet; Guardian is verifying systemd recovery. Inspect the service journal only if this stays active."
+        return "Recovery is recorded; investigate only if the service is still unhealthy or the incident reopens."
+    if row.get("runtime_recovery"):
+        lifecycle = str((row.get("runtime_recovery") or {}).get("lifecycle") or "")
+        if lifecycle == "verification-failed":
+            return "Do not treat the rollback as successful; inspect the failed postcondition before attempting another recovery."
+        if recovery.get("requires_confirmation"):
+            return "Review the failed and previous verified runtime identities, then confirm rollback only if you want it executed."
+        return "No manual action while the bounded runtime rollback is being verified."
+    if source and kinds & {"confirmed-finding", "high-confidence-finding"}:
+        return "Review the affected package and vendor fix; containment or removal stays authority-gated."
+    if source and "privilege-boundary" in kinds:
+        return "Verify who changed the listed privileged paths. If you cannot explain them, treat the incident as suspicious."
+    if source and "integrity-drift" in kinds:
+        return "Compare the listed files with the owning package/update transaction before trusting the current state."
+    if source and "runtime-executable" in kinds:
+        return "Inspect the listed process only if it is unexpected or corroborated by another signal; Guardian will not kill it automatically."
     if source and "persistence-drift" in kinds:
         evidence, owners = persistence_evidence([s for s in (source.get("signals") or []) if isinstance(s, Mapping)])
         if owners and evidence:
             owner, count = owners.most_common(1)[0]
             if count == len(evidence):
-                return f"If you intentionally installed or enabled {owner}, this incident is expected; verify that package, then explicitly refresh the trusted persistence baseline. If not, inspect these startup entries before trusting them."
-        return "If these startup changes were intentional, verify them before refreshing the trusted persistence baseline. If they were not intentional, investigate the listed paths first."
-    if row.get("service_recovery"):
-        lifecycle = str((row.get("service_recovery") or {}).get("lifecycle") or "")
-        if lifecycle in {"detected", "recovering", "verifying"}:
-            return "No immediate action is needed while delegated recovery is progressing. If this remains active, inspect the service journal and the failed invocation."
-        return "The service recovery state is recorded; investigate only if the service is still unhealthy or the incident reopens."
-    if row.get("runtime_recovery"):
-        if recovery.get("requires_confirmation"):
-            return "Review the failed and previous verified runtime identities, then confirm rollback only if you want Maho to perform it."
-        return "No manual action is needed while the bounded runtime recovery is being verified."
-    if source and kinds & {"confirmed-finding", "high-confidence-finding"}:
-        return "Review the affected package and vendor fix path. Guardian will not install, remove, or contain anything without the required authority."
+                return f"Package {owner} owns the changed startup path(s). Verify that install/change before refreshing the baseline."
+        return "Verify the listed startup changes before refreshing the persistence baseline."
     if level >= 3:
-        return "Treat this as high priority. Read the evidence below before approving any recovery or containment action."
-    return "No immediate action is required. Investigate further if this change was unexpected or if the incident remains active."
+        return "Treat this as high priority and inspect the evidence before approving recovery or containment."
+    return "No immediate action unless this change is unexpected or the incident remains active."
 
 
 def describe(row: Mapping[str, Any], source: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -318,7 +363,7 @@ def print_block(label: str, lines: list[str]) -> None:
         print(f"  {line}")
 
 
-def render_incident(index: int, total: int, row: Mapping[str, Any], source: Mapping[str, Any] | None) -> None:
+def render_incident_verbose(index: int, total: int, row: Mapping[str, Any], source: Mapping[str, Any] | None) -> None:
     decision = row.get("decision") or {}
     sev = decision.get("severity") or {}
     subject = row.get("subject") or {}
@@ -340,10 +385,74 @@ def render_incident(index: int, total: int, row: Mapping[str, Any], source: Mapp
     print(f"Incident   {iid}")
 
 
+def compact_decision(row: Mapping[str, Any]) -> str:
+    decision = row.get("decision") or {}
+    recovery = decision.get("recovery") or {}
+    catastrophic = decision.get("catastrophic") or {}
+    if catastrophic.get("catastrophic") is True:
+        if catastrophic.get("fail_closed") is True:
+            return "Fail-closed; preserve evidence and refuse unsafe automatic repair."
+        return "Catastrophic trust event; only explicitly safe recovery actions are allowed."
+
+    if row.get("service_recovery"):
+        lifecycle = str((row.get("service_recovery") or {}).get("lifecycle") or "detected")
+        if lifecycle in {"recovering", "verifying"}:
+            return f"systemd restart delegated; Guardian is {lifecycle} the replacement."
+        if lifecycle == "recovered":
+            return "Replacement service verified healthy."
+
+    if row.get("runtime_recovery"):
+        lifecycle = str((row.get("runtime_recovery") or {}).get("lifecycle") or "detected")
+        if lifecycle == "verification-failed":
+            return "Rollback postcondition failed verification; recovery is not complete."
+        if lifecycle in {"recovering", "verifying"}:
+            return f"Previous verified runtime selected; Guardian is {lifecycle} rollback."
+
+    action = str(recovery.get("action") or "none")
+    requires = bool(recovery.get("requires_confirmation"))
+    if action == "diagnose-only":
+        return "Observe only; no host mutation is authorized."
+    if action == "observe-service-recovery":
+        return "systemd owns restart; Guardian independently verifies it."
+    if action == "rollback-previous":
+        return "Rollback is available but awaits confirmation." if requires else "Use the bounded previous-runtime recovery path."
+    if bool(decision.get("mutating_recovery_allowed")):
+        return f"{action}; mutation is bounded to the selected recovery contract."
+    return f"{action}; no direct host mutation is authorized."
+
+
+def render_incident_compact(index: int, total: int, row: Mapping[str, Any], source: Mapping[str, Any] | None) -> None:
+    decision = row.get("decision") or {}
+    sev = decision.get("severity") or {}
+    subject = row.get("subject") or {}
+    iid = str(row.get("incident_id") or "unknown")
+    label = str(sev.get("label") or "normal")
+    desc = describe(row, source)
+    confidence = ((row.get("normalized") or {}).get("incident") or {}).get("evidence_confidence")
+    if source and source.get("confidence"):
+        confidence = source.get("confidence")
+
+    print(f"[{index}/{total}] L{severity(row)} {label} · {subject.get('type','unknown')}:{subject.get('id','unknown')} · confidence={confidence or 'unknown'}")
+    happened = [str(x) for x in desc.get("happened") or []]
+    details = [str(x) for x in desc.get("details") or []]
+    if happened:
+        print(f"  Change    {happened[0]}")
+        for line in happened[1:2]:
+            print(f"            {line}")
+    if details:
+        print(f"  Evidence  {details[0]}")
+        for line in details[1:4]:
+            print(f"            {line}")
+    print(f"  Decision  {compact_decision(row)}")
+    print(f"  Next      {recommendation(row, source, desc)}")
+    print(f"  ID        {iid}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Explain active Maho Guardian incidents in human terms")
     parser.add_argument("--state-root", required=True)
     parser.add_argument("--incident")
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     state_root = pathlib.Path(args.state_root)
 
@@ -364,12 +473,16 @@ def main() -> int:
 
     highest = max(severity(row) for row in rows)
     noun = "incident" if len(rows) == 1 else "incidents"
-    verb = "needs" if len(rows) == 1 else "need"
-    print(f"The wheel is active because {len(rows)} {noun} {verb} attention. Highest severity: L{highest}.")
+    if args.verbose:
+        verb = "needs" if len(rows) == 1 else "need"
+        print(f"The wheel is active because {len(rows)} {noun} {verb} attention. Highest severity: L{highest}.")
+    else:
+        print(f"{len(rows)} active {noun} · highest L{highest}")
     print()
+    renderer = render_incident_verbose if args.verbose else render_incident_compact
     for index, row in enumerate(rows, 1):
         source = security_row(state_root, str(row.get("incident_id") or ""))
-        render_incident(index, len(rows), row, source)
+        renderer(index, len(rows), row, source)
         if index != len(rows):
             print("\n" + "─" * 72 + "\n")
     return 0

@@ -106,6 +106,34 @@ AFTER="$(count_kind persistence.restored)"
 [ "$AFTER" -eq $((BEFORE + 1)) ]
 echo "PASS"
 
+echo "=== verified Maho wiring is informational, not unexplained persistence ==="
+DATA_HOME="$HOME/.local/share"
+python - "$ROOT" "$DATA_HOME" <<'PY_MAHO_MONITOR'
+import json, os, pathlib, sys
+root=pathlib.Path(sys.argv[1]); data=pathlib.Path(sys.argv[2]); sys.path.insert(0,str(root/'lib'))
+from maho_runtime_release import _payload_hash
+runtime=data/'maho/runtime'; releases=runtime/'releases'; releases.mkdir(parents=True)
+stage=releases/'.fixture'; (stage/'systemd/user').mkdir(parents=True); (stage/'share/maho').mkdir(parents=True)
+(stage/'systemd/user/maho-adaptive.service').write_text('[Service]\nExecStart=true\n')
+revision='b'*40; (stage/'share/maho/runtime-source-revision').write_text(revision+'\n')
+digest=_payload_hash(stage); release=releases/digest; stage.rename(release)
+(release/'manifest.json').write_text(json.dumps({'version':3,'content_sha256':digest,'source_revision':revision,'installed_at':'fixture'},sort_keys=True)+'\n')
+for path in sorted(release.rglob('*'), key=lambda p: len(p.parts), reverse=True):
+    os.chmod(path,0o555 if path.is_dir() else 0o444)
+os.chmod(release,0o555); (runtime/'current').symlink_to(release)
+PY_MAHO_MONITOR
+mkdir -p "$XDG_CONFIG_HOME/systemd/user"
+ln -s "$DATA_HOME/maho/runtime/current/systemd/user/maho-adaptive.service" "$XDG_CONFIG_HOME/systemd/user/maho-adaptive.service"
+BEFORE_EXPECTED="$(count_kind persistence.expected-transition)"
+BEFORE_UNEXPECTED="$(count_kind persistence.changed)"
+bash "$MONITOR" cycle
+[ "$(count_kind persistence.expected-transition)" -eq $((BEFORE_EXPECTED + 1)) ]
+[ "$(count_kind persistence.changed)" -eq "$BEFORE_UNEXPECTED" ]
+rm -f "$XDG_CONFIG_HOME/systemd/user/maho-adaptive.service"
+chmod -R u+w "$DATA_HOME/maho/runtime/releases"
+rm -rf "$DATA_HOME/maho/runtime"
+echo "PASS"
+
 echo "=== runtime signal and clearance are transition-aware ==="
 mkdir -p "$PROC/222"
 ln -s "$FS/tmp/dropper (deleted)" "$PROC/222/exe"

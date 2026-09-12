@@ -250,13 +250,24 @@ def collect_groups(security_state: Path, db_root: Path, proc_root: Path, fs_root
 
     persistence = read_json(monitor / "persistence.json", {}) or {}
     if persistence.get("result") == "changed":
-        add_signal(groups, "host", "local", signal(
-            "persistence-drift",
-            "persistence-baseline",
-            WEIGHTS["persistence-drift"],
-            {"added": (persistence.get("added") or [])[:20], "changed": (persistence.get("changed") or [])[:20]},
-            "corroborated",
-        ))
+        added = persistence.get("unexpected_added")
+        changed = persistence.get("unexpected_changed")
+        removed = persistence.get("unexpected_removed")
+        if added is None:
+            added = persistence.get("added") or []
+        if changed is None:
+            changed = persistence.get("changed") or []
+        if removed is None:
+            removed = persistence.get("removed") or []
+        if added or changed or removed:
+            add_signal(groups, "host", "local", signal(
+                "persistence-drift",
+                "persistence-baseline",
+                WEIGHTS["persistence-drift"],
+                {"added": list(added)[:20], "changed": list(changed)[:20], "removed": list(removed)[:20]},
+                "corroborated",
+            ))
+
 
     privilege = read_json(monitor / "privilege-signal.json", {}) or {}
     if privilege.get("result") == "observed" and recent_timestamp(privilege.get("observed_at"), RECENT_PRIVILEGE_SECONDS):
