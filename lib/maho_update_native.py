@@ -70,6 +70,15 @@ def activation_confirmation(transaction_id: str, candidate_uuid: str) -> str:
     return f"ACTIVATE:{transaction_id}:{candidate_uuid}"
 
 
+def candidate_boot_proven(cmdline: Sequence[str], mount: Mapping[str, Any], root_uuid: str | None, candidate_uuid: str) -> bool:
+    return (
+        "maho.recovery_snapshot=1" not in cmdline
+        and mount.get("fstype") == "btrfs"
+        and mount.get("fsroot") == "/@"
+        and root_uuid == candidate_uuid
+    )
+
+
 @dataclass(frozen=True)
 class RootIdentity:
     filesystem_uuid: str
@@ -229,6 +238,28 @@ class NativeBtrfsOps:
         self._set_read_only(path, False)
         result = self._run(("btrfs", "subvolume", "delete", str(path)))
         return {"ok": result.returncode == 0, "candidate_removed": result.returncode == 0}
+
+    def freeze_previous_root(self, previous_root_name: str, expected_uuid: str, active_candidate_uuid: str) -> dict[str, Any]:
+        """Freeze the exact previous /@ only after the candidate is the live normal root."""
+        self.require_root()
+        if previous_root_name != self.backup:
+            raise RuntimeError("previous-root backup name drifted")
+        if _UUID.fullmatch(expected_uuid) is None or _UUID.fullmatch(active_candidate_uuid) is None:
+            raise RuntimeError("previous-root or active candidate UUID is invalid")
+        identity = self.root_identity()
+        if identity.subvolume_uuid != active_candidate_uuid:
+            raise RuntimeError("active /@ is not the exact M4B candidate")
+        self._mount_top(identity)
+        previous = self.top / previous_root_name
+        if not previous.exists():
+            raise FileNotFoundError("previous-root backup is missing")
+        observed = self._show_uuid(previous)
+        if observed != expected_uuid:
+            raise RuntimeError("previous-root backup UUID drifted")
+        self._set_read_only(previous, True)
+        if not self._read_only(previous):
+            raise RuntimeError("previous-root backup did not become read-only")
+        return {"uuid": observed, "read_only": True, "name": previous_root_name}
 
     @staticmethod
     def private_boot_hashes(candidate_path: Path) -> dict[str, str]:
@@ -464,7 +495,7 @@ class NativeCandidateUpdateOps(OfflineRootUpdateOps):
 
 
 class PostBootActivationOps:
-    """Read-only post-reboot verifier for the activated M4B candidate."""
+    """Post-reboot verifier/finalizer for the activated M4B candidate."""
 
     production_safe = True
     fixture_safe = False
@@ -549,16 +580,25 @@ class PostBootActivationOps:
         if recovery.get("snapshot_uuid") != self.recovery_seed.get("snapshot_uuid") or recovery.get("read_only") is not True:
             blockers.append("m3b_recovery_generation_lost")
 
-        btrfs = NativeBtrfsOps(self.transaction["transaction_id"])
-        identity = btrfs.root_identity()
-        try:
-            btrfs._mount_top(identity, read_only=True)
-            previous = btrfs.top / self.previous_root_name
-            previous_uuid = btrfs._show_uuid(previous) if previous.exists() else None
-        finally:
-            btrfs.close()
-        if previous_uuid != self.previous_root_uuid:
+        previous_uuid = None
+        previous_read_only = False
+        activation_identity_proven = candidate_boot_proven(cmdline, row, root_uuid, self.candidate_uuid)
+        if activation_identity_proven:
+            btrfs = NativeBtrfsOps(self.transaction["transaction_id"])
+            try:
+                frozen = btrfs.freeze_previous_root(self.previous_root_name, self.previous_root_uuid, self.candidate_uuid)
+                previous_uuid = frozen["uuid"]
+                previous_read_only = frozen["read_only"] is True
+            except FileNotFoundError:
+                blockers.append("previous_root_backup_missing")
+            except Exception:
+                blockers.append("previous_root_backup_not_immutable")
+            finally:
+                btrfs.close()
+        if activation_identity_proven and previous_uuid != self.previous_root_uuid and "previous_root_backup_missing" not in blockers:
             blockers.append("previous_root_backup_missing")
+        if activation_identity_proven and previous_uuid == self.previous_root_uuid and not previous_read_only:
+            blockers.append("previous_root_backup_not_immutable")
         return {
             "ok": not blockers,
             "blockers": blockers,
@@ -569,6 +609,7 @@ class PostBootActivationOps:
             "runtime": runtime.as_dict(),
             "recovery_generation_id": plan.recovery_generation_id,
             "previous_root_uuid": previous_uuid,
+            "previous_root_read_only": previous_read_only,
         }
 
     # The remaining protocol methods are deliberately unavailable post-boot.
