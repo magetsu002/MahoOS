@@ -45,6 +45,13 @@
     "native_execution_certified": false,
     "candidate_root_strategy": "btrfs-subvolume-swap",
     "boot_artifact_transaction_required": true,
-    "automatic_reboot": false
+    "automatic_reboot": false,
+    "pacman_config": "/etc/maho/pacman-kernel.conf",
+    "required_repositories": [
+      "core",
+      "extra",
+      "multilib",
+      "cachyos"
+    ]
   }
 }

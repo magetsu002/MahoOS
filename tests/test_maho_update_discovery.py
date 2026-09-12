@@ -73,6 +73,17 @@ Installed Size  : 2.00 MiB
         raise AssertionError(f"unexpected command: {command!r}")
 
 
+class SolverFailureRunner:
+    def __call__(self, command) -> CommandResult:
+        if "--refresh" in command:
+            return CommandResult(0, "")
+        if "--query" in command:
+            return CommandResult(0, "linux-cachyos 7.1-1\n")
+        if "--sysupgrade" in command:
+            return CommandResult(1, ":: dependency conflict\n", "error: failed to prepare transaction")
+        raise AssertionError(f"solver failure should stop before metadata: {command!r}")
+
+
 def main() -> None:
     upgrades = parse_upgrades("linux 1 -> 2\nmaho-os 3 -> 4\n")
     check("exact candidates parse without partial-upgrade inference", upgrades == [("linux", "1", "2"), ("maho-os", "3", "4")])
@@ -112,6 +123,15 @@ def main() -> None:
         rejected("unallowlisted live refresh is refused", lambda: backend.run(("/usr/bin/pacman", "-Sy")))
         rejected("unallowlisted package install is refused", lambda: backend.run(("/usr/bin/pacman", "-S", "linux")))
         rejected("candidate shell syntax is refused", lambda: backend.info_command(["linux;reboot"]))
+
+        failed_backend = IsolatedPacmanDiscovery(root / "solver-failure", installed_db=installed, runner=SolverFailureRunner())
+        try:
+            discover_updates(failed_backend, source_revision="b" * 40, now=NOW, entropy="abcdef123456")
+        except RuntimeError as exc:
+            check("nonzero solver is classified before parsing", str(exc).startswith("package_solver_incoherent:"))
+            check("solver failure never reaches metadata parsing", len(failed_backend.commands) == 3)
+        else:
+            check("nonzero solver is classified before parsing", False)
 
     rejected("isolated root cannot be the live Pacman database", lambda: IsolatedPacmanDiscovery("/var/lib/pacman"))
     rejected("isolated root cannot contain the live Pacman database", lambda: IsolatedPacmanDiscovery("/var/lib"))

@@ -47,6 +47,8 @@ class IsolatedPacmanDiscovery:
         isolated_root: str | os.PathLike[str],
         *,
         installed_db: str | os.PathLike[str] = LIVE_DB / "local",
+        config_path: str | os.PathLike[str] = "/etc/pacman.conf",
+        required_repositories: Sequence[str] | None = None,
         runner: Callable[[Sequence[str]], CommandResult] | None = None,
     ) -> None:
         root = Path(isolated_root)
@@ -61,15 +63,20 @@ class IsolatedPacmanDiscovery:
         self.cache = root / "cache"
         self.log = root / "pacman.log"
         self.installed_db = Path(installed_db)
+        self.config = Path(config_path).resolve(strict=False)
+        if not self.config.is_absolute():
+            raise ValueError("Pacman config path must be absolute")
+        self.required_repositories = tuple(required_repositories or ())
+        if any(not isinstance(item, str) or not item for item in self.required_repositories):
+            raise ValueError("required repository identity is invalid")
         self.runner = runner or self._system_run
         self.commands: list[tuple[str, ...]] = []
 
-    @staticmethod
-    def _download_identity() -> tuple[int, int] | None:
+    def _download_identity(self) -> tuple[int, int] | None:
         if os.geteuid() != 0:
             return None
         completed = subprocess.run(
-            ("/usr/bin/pacman-conf", "DownloadUser"),
+            ("/usr/bin/pacman-conf", "--config", str(self.config), "DownloadUser"),
             check=False, text=True, capture_output=True,
             env={"PATH": "/usr/bin", "LC_ALL": "C"},
         )
@@ -82,10 +89,9 @@ class IsolatedPacmanDiscovery:
             raise RuntimeError("configured Pacman DownloadUser is unavailable") from exc
         return account.pw_uid, account.pw_gid
 
-    @classmethod
-    def _prepare_download_dir(cls, path: Path) -> None:
+    def _prepare_download_dir(self, path: Path) -> None:
         path.mkdir(mode=0o755, parents=True, exist_ok=True)
-        identity = cls._download_identity()
+        identity = self._download_identity()
         if identity is not None:
             os.chown(path, *identity)
             os.chmod(path, 0o755)
@@ -100,34 +106,50 @@ class IsolatedPacmanDiscovery:
             shutil.rmtree(destination)
         shutil.copytree(self.installed_db, destination, symlinks=False)
 
+    def sync_database_hashes(self) -> dict[str, str]:
+        sync = self.db / "sync"
+        observed: dict[str, str] = {}
+        if sync.is_dir():
+            for path in sorted(sync.glob("*.db")):
+                if path.is_symlink() or not path.is_file():
+                    raise RuntimeError("isolated_repo_database_unsafe")
+                import hashlib
+                observed[path.stem] = hashlib.sha256(path.read_bytes()).hexdigest()
+        if self.required_repositories and set(observed) != set(self.required_repositories):
+            raise RuntimeError(
+                "isolated_repo_sync_mismatch: expected " + ",".join(self.required_repositories) +
+                " observed " + ",".join(sorted(observed))
+            )
+        return observed
+
     @property
     def refresh_command(self) -> tuple[str, ...]:
         return (
-            PACMAN, "--sync", "--refresh", "--dbpath", str(self.db),
+            PACMAN, "--config", str(self.config), "--sync", "--refresh", "--dbpath", str(self.db),
             "--cachedir", str(self.cache), "--logfile", str(self.log), "--noconfirm",
         )
 
     @property
     def installed_command(self) -> tuple[str, ...]:
-        return (PACMAN, "--query", "--dbpath", str(self.db))
+        return (PACMAN, "--config", str(self.config), "--query", "--dbpath", str(self.db))
 
     @property
     def transaction_command(self) -> tuple[str, ...]:
         return (
-            PACMAN, "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v",
+            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v",
             "--dbpath", str(self.db),
         )
 
     def info_command(self, names: Sequence[str]) -> tuple[str, ...]:
         if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
             raise ValueError("candidate package name is invalid")
-        return (PACMAN, "--sync", "--info", "--dbpath", str(self.db), "--", *names)
+        return (PACMAN, "--config", str(self.config), "--sync", "--info", "--dbpath", str(self.db), "--", *names)
 
     def _allowed(self, command: Sequence[str]) -> bool:
         argv = tuple(command)
         if argv in {self.refresh_command, self.installed_command, self.transaction_command}:
             return True
-        prefix = (PACMAN, "--sync", "--info", "--dbpath", str(self.db), "--")
+        prefix = (PACMAN, "--config", str(self.config), "--sync", "--info", "--dbpath", str(self.db), "--")
         return argv[: len(prefix)] == prefix and len(argv) > len(prefix) and all(
             _PACKAGE.fullmatch(name) is not None for name in argv[len(prefix):]
         )
@@ -254,14 +276,16 @@ def discover_updates(
     backend.prepare()
     refreshed = backend.run(backend.refresh_command)
     if refreshed.returncode != 0:
-        raise RuntimeError(f"isolated synchronization failed: {refreshed.stderr.strip()}")
+        raise RuntimeError(f"isolated_synchronization_failed: {refreshed.stderr.strip()}")
+    backend.sync_database_hashes()
     installed_result = backend.run(backend.installed_command)
     if installed_result.returncode != 0:
         raise RuntimeError(f"installed package comparison failed: {installed_result.stderr.strip()}")
     installed = parse_name_versions(installed_result.stdout, separator=" ")
     planned_result = backend.run(backend.transaction_command)
-    if planned_result.returncode not in {0, 1}:
-        raise RuntimeError(f"isolated full-upgrade solver failed: {planned_result.stderr.strip()}")
+    if planned_result.returncode != 0:
+        detail = " | ".join(part for part in (planned_result.stderr.strip(), planned_result.stdout.strip()) if part)
+        raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
     planned = parse_name_versions(planned_result.stdout, separator="\t")
     candidates = [
         (name, installed.get(name, "<not-installed>"), version)

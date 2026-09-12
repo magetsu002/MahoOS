@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import datetime, timezone
 import json
 import os
@@ -78,6 +79,51 @@ def _platform(root: Path) -> dict[str, Any]:
 def _require_root() -> None:
     if os.geteuid() != 0:
         raise PermissionError("M4B native certification requires root")
+
+
+def _repo_contract(policy: Mapping[str, Any]) -> dict[str, Any]:
+    update = policy.get("update")
+    if not isinstance(update, Mapping):
+        raise RuntimeError("package_repo_policy_missing")
+    config_value = update.get("pacman_config")
+    required = update.get("required_repositories")
+    if not isinstance(config_value, str) or not config_value.startswith("/"):
+        raise RuntimeError("package_repo_config_invalid")
+    if not isinstance(required, list) or not required or any(not isinstance(item, str) or not item for item in required):
+        raise RuntimeError("package_repo_policy_invalid")
+    config = Path(config_value)
+    try:
+        stat = config.stat()
+    except OSError as exc:
+        raise RuntimeError("package_repo_config_unavailable") from exc
+    if not config.is_file() or stat.st_uid != 0 or stat.st_gid != 0 or stat.st_mode & 0o022:
+        raise RuntimeError("package_repo_config_untrusted")
+    completed = subprocess.run(
+        ("/usr/bin/pacman-conf", "--config", str(config), "--repo-list"),
+        check=False, text=True, capture_output=True,
+        env={"PATH": "/usr/bin", "LC_ALL": "C"},
+    )
+    observed = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if completed.returncode != 0 or observed != required:
+        raise RuntimeError(
+            "package_repo_set_mismatch: expected " + ",".join(required) +
+            " observed " + ",".join(observed)
+        )
+    return {
+        "config_path": str(config),
+        "config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+        "repositories": observed,
+    }
+
+
+def _blocker_code(exc: Exception) -> str:
+    text = str(exc).strip()
+    head = text.split(":", 1)[0]
+    if re.fullmatch(r"[a-z0-9_]+", head):
+        return head
+    if isinstance(exc, LookupError):
+        return "no_coherent_update_candidates"
+    return "campaign_precondition_failed"
 
 
 def _campaign_path(machine_id: str, transaction_id: str) -> Path:
@@ -264,6 +310,7 @@ def prepare_native_campaign() -> dict[str, Any]:
     policy = _platform(root)
     if policy.get("boot", {}).get("kernel_update_snapshot_restore_certified") is not True:
         raise RuntimeError("M4B requires certified M3B native restore")
+    repo = _repo_contract(policy)
     user = _campaign_user()
     home = Path("/home") / user
     runtime = _runtime_identity(user)
@@ -277,7 +324,11 @@ def prepare_native_campaign() -> dict[str, Any]:
     work = Path("/var/cache/maho/update-m4b") / transaction_id
     discovery_root = work / "discovery"
     cache = work / "staging"
-    discovery = IsolatedPacmanDiscovery(discovery_root)
+    discovery = IsolatedPacmanDiscovery(
+        discovery_root,
+        config_path=repo["config_path"],
+        required_repositories=repo["repositories"],
+    )
     discovered = discover_updates(
         discovery,
         source_revision=source_revision,
@@ -286,12 +337,37 @@ def prepare_native_campaign() -> dict[str, Any]:
         entropy=entropy,
     )
     transaction = discovered.transaction
+    repo = {**repo, "sync_db_sha256": discovery.sync_database_hashes()}
     if transaction["transaction_id"] != transaction_id:
         raise RuntimeError("update discovery transaction identity drifted")
     names = {item["name"] for item in transaction["package_generation"]["packages"]}
     if "linux-cachyos" not in names or "restart" not in transaction["activation"]["requirements"]:
         raise RuntimeError("M4B certification requires a real Primary kernel update generation")
 
+    staging = IsolatedPacmanStaging(discovery.db, cache, config_path=repo["config_path"])
+    staged = stage_transaction(transaction, staging, now=now)
+    if staged.transaction["state"] != UpdateState.STAGED.value or staged.manifest is None:
+        raise RuntimeError("package_staging_incomplete")
+    transaction = staged.transaction
+    relationships, expected_versions = _relationships(transaction, runtime)
+    known_power, power_ok, battery = _power_evidence()
+    required = sum(item["installed_size"] + item["download_size"] for item in transaction["package_generation"]["packages"])
+    available = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
+    generation_current = _generation_is_current(transaction)
+    if not generation_current:
+        raise RuntimeError("stale_update_transaction")
+    if not known_power:
+        raise RuntimeError("power_status_unknown")
+    if not power_ok:
+        raise RuntimeError("power_policy_unsatisfied")
+    if Path("/var/lib/pacman/db.lck").exists():
+        raise RuntimeError("concurrent_package_or_build_operation")
+    if available < required:
+        raise RuntimeError("insufficient_install_space")
+
+    # Only after the full package graph and exact payload set are proven do we
+    # create any M3B recovery state. This keeps failed solver/staging attempts
+    # completely outside the snapshot authority boundary.
     l3_seed = seed_campaign(root=root, machine_id=machine_id, home=home)
     l3_prepared = prepare_l3_campaign(
         root=root,
@@ -310,20 +386,14 @@ def prepare_native_campaign() -> dict[str, Any]:
             "emergency_backup_snapshot_id": l3_prepared["backup_snapshot_id"],
         },
         update_kind="m4b-campaign",
-        update_evidence={"campaign_source_revision": source_revision, "native_proof_pending": True},
+        update_evidence={
+            "campaign_source_revision": source_revision,
+            "native_proof_pending": True,
+            "package_repo_config_sha256": repo["config_sha256"],
+        },
     )
-
-    staging = IsolatedPacmanStaging(discovery.db, cache)
-    staged = stage_transaction(transaction, staging, now=now)
-    if staged.transaction["state"] != UpdateState.STAGED.value or staged.manifest is None:
-        raise RuntimeError("exact update generation did not stage successfully")
-    transaction = staged.transaction
-    relationships, expected_versions = _relationships(transaction, runtime)
-    known_power, power_ok, battery = _power_evidence()
-    required = sum(item["installed_size"] + item["download_size"] for item in transaction["package_generation"]["packages"])
-    available = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
     evidence = PreparationEvidence(
-        discovery_generation_current=_generation_is_current(transaction),
+        discovery_generation_current=generation_current,
         coherent_full_upgrade=True,
         required_disk_bytes=required,
         available_disk_bytes=available,
@@ -359,6 +429,7 @@ def prepare_native_campaign() -> dict[str, Any]:
         "user": user,
         "home_identity": home_identity,
         "runtime_identity": runtime,
+        "package_repo": repo,
         "work_root": str(work),
         "cache_root": str(cache),
         "manifest_path": str(manifest_path),
@@ -393,6 +464,8 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
     journal = _read_campaign(path)
     if journal.get("phase") != "prepared" or journal.get("source_revision") != source_revision:
         raise RuntimeError("M4B campaign is not exact prepared source")
+    if _repo_contract(_platform(root)) != {k: journal["package_repo"][k] for k in ("config_path", "config_sha256", "repositories")}:
+        raise RuntimeError("package_repo_contract_drifted")
     tx_path = transaction_path(_STATE_ROOT, transaction_id)
     transaction = read_transaction(tx_path)
     if transaction["state"] != UpdateState.PREPARED.value:
@@ -612,16 +685,26 @@ def main() -> None:
     status = sub.add_parser("status")
     status.add_argument("transaction_id")
     args = parser.parse_args()
-    if args.command == "prepare":
-        payload = prepare_native_campaign()
-    elif args.command == "execute":
-        payload = execute_native_campaign(args.transaction_id, args.confirm)
-    elif args.command == "activate":
-        payload = arm_native_activation(args.transaction_id, args.confirm)
-    elif args.command == "verify":
-        payload = verify_native_activation(args.transaction_id)
-    else:
-        payload = status_native_campaign(args.transaction_id)
+    try:
+        if args.command == "prepare":
+            payload = prepare_native_campaign()
+        elif args.command == "execute":
+            payload = execute_native_campaign(args.transaction_id, args.confirm)
+        elif args.command == "activate":
+            payload = arm_native_activation(args.transaction_id, args.confirm)
+        elif args.command == "verify":
+            payload = verify_native_activation(args.transaction_id)
+        else:
+            payload = status_native_campaign(args.transaction_id)
+    except (RuntimeError, ValueError, LookupError, PermissionError) as exc:
+        payload = {
+            "phase": "blocked",
+            "blockers": [_blocker_code(exc)],
+            "detail": str(exc),
+            "error_type": type(exc).__name__,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        raise SystemExit(3)
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 

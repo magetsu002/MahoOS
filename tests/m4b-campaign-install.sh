@@ -29,11 +29,22 @@ grep -Fq 'prepare_l3_campaign(' "$CAMPAIGN" || fail "M3B emergency preparation m
 grep -Fq 'publish_transaction(candidate_state_root' "$CAMPAIGN" || fail "candidate authority is not durably copied"
 grep -Fq 'M4B certification requires a real Primary kernel update generation' "$CAMPAIGN" || fail "real kernel-update proof gate missing"
 pass "campaign binds native update to M3B and a real kernel generation"
-python - "$PLATFORM" <<'PY'
+python - "$PLATFORM" "$CAMPAIGN" <<'PY'
 import json,sys
-p=json.load(open(sys.argv[1])); assert p['boot']['kernel_update_snapshot_restore_certified'] is True; assert p['update']['native_execution_certified'] is False; assert p['update']['automatic_reboot'] is False
+from pathlib import Path
+p=json.load(open(sys.argv[1]))
+assert p['boot']['kernel_update_snapshot_restore_certified'] is True
+assert p['update']['native_execution_certified'] is False
+assert p['update']['automatic_reboot'] is False
+assert p['update']['pacman_config'] == '/etc/maho/pacman-kernel.conf'
+assert p['update']['required_repositories'] == ['core','extra','multilib','cachyos']
+s=Path(sys.argv[2]).read_text()
+start=s.index('def prepare_native_campaign')
+assert s.index('stage_transaction(', start) < s.index('seed_campaign(', start)
+assert 'package_repo_set_mismatch' in s
+assert '"phase": "blocked"' in s
 PY
-pass "production M4B certification remains false before hardware proof"
+pass "production M4B certification remains false and package authority is pinned before hardware proof"
 if grep -En '(^|[[:space:];|&])(reboot|shutdown|poweroff|efibootmgr)([[:space:];|&]|$)' "$INSTALLER" "$WRAPPER" "$CAMPAIGN" >/dev/null; then fail "M4B campaign contains reboot or firmware mutation command"; fi
 pass "campaign cannot reboot or mutate firmware"
 echo 'ALL M4B CAMPAIGN INSTALL CONTRACTS PASS'
