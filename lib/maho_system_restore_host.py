@@ -45,19 +45,16 @@ class SystemHostBackend:
             if len(args) != 10 or args[4:7] != ("--read-only", "--print-number", "--description") or args[8] != "--userdata":
                 return False
             descriptions = {
-                "Maho L3 emergency backup ": "maho.restore_backup=yes",
-                "Maho L3 native target ": "maho.l3_target=yes",
+                "Maho L3 emergency backup ": "important=yes,maho.restore_backup=yes,maho.transaction={txid}",
+                "Maho L3 native target ": "important=yes,maho.known_good=yes,maho.l3_target=yes,maho.transaction={txid}",
             }
-            for prefix, role in descriptions.items():
+            for prefix, userdata_template in descriptions.items():
                 if not args[7].startswith(prefix):
                     continue
                 txid = args[7][len(prefix):]
                 if not _TXID.fullmatch(txid):
                     return False
-                expected_userdata = (
-                    f"important=yes,maho.known_good=yes,{role},"
-                    f"maho.transaction={txid}"
-                )
+                expected_userdata = userdata_template.format(txid=txid)
                 return args[9] == expected_userdata
             return False
         if len(args) == 6 and args[:3] == ("findmnt", "--json", "--target"):
@@ -281,7 +278,7 @@ class SystemPreparationOps:
             raise ValueError("invalid L3 transaction id")
         description = f"Maho L3 emergency backup {transaction_id}"
         userdata = (
-            "important=yes,maho.known_good=yes,maho.restore_backup=yes,"
+            "important=yes,maho.restore_backup=yes,"
             f"maho.transaction={transaction_id}"
         )
         result = self.backend.run((
