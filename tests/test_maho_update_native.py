@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import sys
 
@@ -11,6 +12,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from maho_update_native import (  # noqa: E402
     BOOT_ARTIFACTS,
     NativeBtrfsOps,
+    NativeCandidateUpdateOps,
     RootIdentity,
     activation_confirmation,
     backup_name,
@@ -102,6 +104,39 @@ def main() -> None:
     check("backup name is transaction-bound", backup_name(TX1) == "@maho-update-backup-abcdef123456")
     check("update confirmation binds package generation", update_confirmation(TX1, "pkg-abc") == f"UPDATE:{TX1}:pkg-abc")
     check("activation confirmation binds candidate UUID", activation_confirmation(TX1, CANDIDATE_UUID) == f"ACTIVATE:{TX1}:{CANDIDATE_UUID}")
+
+    with tempfile.TemporaryDirectory(prefix="maho-m4b-sysroot-") as temporary:
+        base = Path(temporary)
+        candidate = base / "candidate"
+        cache = base / "cache"
+        config = candidate / "etc/maho/pacman-kernel.conf"
+        payload = cache / "linux-cachyos-7.2-1-x86_64.pkg.tar.zst"
+        config.parent.mkdir(parents=True)
+        config.write_text("[options]\n")
+        cache.mkdir()
+        payload.write_bytes(b"package")
+        plan = SimpleNamespace(payload_paths=(str(payload),), initramfs_presets=())
+        native = NativeCandidateUpdateOps(
+            candidate,
+            cache,
+            transaction={},
+            expected_versions={"linux-cachyos": "7.2-1", "linux-cachyos-headers": "7.2-1"},
+            runtime_user="magetsu",
+            runtime_identity={},
+            recovery_seed={},
+            recovery_journal_path=base / "recovery.json",
+            machine_id=MACHINE,
+            candidate_uuid=CANDIDATE_UUID,
+            btrfs_ops=None,
+        )
+        install = native.install_command(plan)
+        query = native.query_command(plan)
+        expected_prefix = ("/usr/bin/pacman", "--sysroot", str(candidate.resolve()), "--config", "/etc/maho/pacman-kernel.conf")
+        check("native install uses exact candidate sysroot", install[:5] == expected_prefix)
+        check("native query uses exact candidate sysroot", query[:5] == expected_prefix)
+        check("native install never uses legacy root or host dbpath", "--root" not in install and "--dbpath" not in install)
+        check("native query never uses legacy root or host dbpath", "--root" not in query and "--dbpath" not in query)
+        check("native local payload path is preserved under sysroot", install[-1] == str(payload.resolve()))
 
     with tempfile.TemporaryDirectory(prefix="maho-m4b-native-") as temporary:
         base = Path(temporary)
