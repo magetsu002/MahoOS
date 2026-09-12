@@ -166,6 +166,8 @@ require_text "$DOCK_UNIT" 'ExecStart=%h/.local/bin/maho-dock run' \
     "Dock session service bypasses the accepted Dock launcher"
 require_text "$NOTIFY_UNIT" 'ExecStart=%h/.local/bin/maho-notify run' \
     "Notify session service bypasses the accepted Notify launcher"
+reject_text "$NOTIFY_UNIT" 'After=graphical-session.target maho-hyprland-session.target' \
+    "Notify cannot order after its owning Maho session target"
 require_text "$CLIPBOARD_HISTORY_UNIT" 'ExecStart=%h/.local/bin/maho-clipboard-history serve' \
     "Clipboard history service bypasses the accepted capture owner"
 echo "PASS"
