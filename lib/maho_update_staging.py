@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import secrets
 import shutil
@@ -43,11 +44,15 @@ class IsolatedPacmanStaging:
         isolated_db: str | os.PathLike[str],
         cache_root: str | os.PathLike[str],
         *,
+        config_path: str | os.PathLike[str] = "/etc/pacman.conf",
         runner: Callable[[Sequence[str]], CommandResult] | None = None,
     ) -> None:
         self.db = self._safe_root(isolated_db, LIVE_DB, "staging database")
         self.cache = self._safe_root(cache_root, LIVE_CACHE, "staging cache")
         self.log = self.cache / "pacman-stage.log"
+        self.config = Path(config_path).resolve(strict=False)
+        if not self.config.is_absolute():
+            raise ValueError("Pacman config path must be absolute")
         self.runner = runner or self._system_run
         self.commands: list[tuple[str, ...]] = []
 
@@ -62,22 +67,43 @@ class IsolatedPacmanStaging:
             raise ValueError(f"{name} overlaps a live Pacman path")
         return path
 
+    def _download_identity(self) -> tuple[int, int] | None:
+        if os.geteuid() != 0:
+            return None
+        completed = subprocess.run(
+            ("/usr/bin/pacman-conf", "--config", str(self.config), "DownloadUser"),
+            check=False, text=True, capture_output=True,
+            env={"PATH": "/usr/bin", "LC_ALL": "C"},
+        )
+        name = completed.stdout.strip() if completed.returncode == 0 else ""
+        if not name:
+            return None
+        try:
+            account = pwd.getpwnam(name)
+        except KeyError as exc:
+            raise RuntimeError("configured Pacman DownloadUser is unavailable") from exc
+        return account.pw_uid, account.pw_gid
+
     def prepare(self) -> None:
         if not self.db.is_dir():
             raise ValueError("isolated synchronization database is unavailable")
-        self.cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.cache.mkdir(mode=0o755, parents=True, exist_ok=True)
+        identity = self._download_identity()
+        if identity is not None:
+            os.chown(self.cache, *identity)
+            os.chmod(self.cache, 0o755)
 
     def availability_command(self, targets: Sequence[str]) -> tuple[str, ...]:
         self._validate_targets(targets)
         return (
-            PACMAN, "--sync", "--print", "--print-format", "%n\t%v", "--dbpath", str(self.db),
+            PACMAN, "--config", str(self.config), "--sync", "--print", "--print-format", "%n\t%v", "--dbpath", str(self.db),
             "--", *targets,
         )
 
     def download_command(self, targets: Sequence[str]) -> tuple[str, ...]:
         self._validate_targets(targets)
         return (
-            PACMAN, "--sync", "--downloadonly", "--noconfirm", "--dbpath", str(self.db),
+            PACMAN, "--config", str(self.config), "--sync", "--downloadonly", "--noconfirm", "--dbpath", str(self.db),
             "--cachedir", str(self.cache), "--logfile", str(self.log), "--", *targets,
         )
 
@@ -98,15 +124,15 @@ class IsolatedPacmanStaging:
 
     def _allowed(self, command: Sequence[str]) -> bool:
         argv = tuple(command)
-        if argv[:7] == (PACMAN, "--sync", "--print", "--print-format", "%n\t%v", "--dbpath", str(self.db)):
+        if argv[:9] == (PACMAN, "--config", str(self.config), "--sync", "--print", "--print-format", "%n\t%v", "--dbpath", str(self.db)):
             try:
-                marker = argv.index("--", 7)
+                marker = argv.index("--", 9)
                 self._validate_targets(argv[marker + 1:])
-                return marker == 7
+                return marker == 9
             except (ValueError, IndexError):
                 return False
         prefix = (
-            PACMAN, "--sync", "--downloadonly", "--noconfirm", "--dbpath", str(self.db),
+            PACMAN, "--config", str(self.config), "--sync", "--downloadonly", "--noconfirm", "--dbpath", str(self.db),
             "--cachedir", str(self.cache), "--logfile", str(self.log), "--",
         )
         if argv[: len(prefix)] == prefix:

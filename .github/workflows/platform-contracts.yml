@@ -36,8 +36,14 @@ jobs:
           assert p['boot']['default_kernel'] == 'linux-cachyos'
           assert p['boot']['recovery_kernel'] == 'linux-cachyos-lts'
           assert p['boot']['snapshot_integration'] == 'limine-snapper-sync'
-          assert p['boot']['kernel_update_snapshot_restore_certified'] is False
+          assert p['boot']['kernel_update_snapshot_restore_certified'] is True
           assert p['boot']['boot_state_transaction_required'] is True
+          assert p['update']['native_execution_certified'] is False
+          assert p['update']['candidate_root_strategy'] == 'btrfs-subvolume-swap'
+          assert p['update']['boot_artifact_transaction_required'] is True
+          assert p['update']['automatic_reboot'] is False
+          assert p['update']['pacman_config'] == '/etc/maho/pacman-kernel.conf'
+          assert p['update']['required_repositories'] == ['core', 'extra', 'multilib', 'cachyos']
           assert p['system_states']['filesystem'] == 'btrfs'
           assert p['system_states']['home_rollback_policy'] == 'exclude-personal-data-by-default'
           assert p['recovery']['prefer_smallest_effective_scope'] is True
@@ -86,6 +92,13 @@ jobs:
             python "$test"
           done
 
+      - name: M4B native update campaign contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/test_maho_update_native.py
+          bash tests/m4b-campaign-install.sh
+
       - name: Text recovery console consent contracts
         shell: bash
         run: |
@@ -102,7 +115,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n bin/maho-platform bin/maho-recovery bin/maho-recovery-overlay-install bin/maho-l3-campaign bin/maho-l3-campaign-install bin/maho-adaptive lib/maho-recovery-overlay tests/platform-doctor.sh tests/recovery-console.sh tests/recovery-overlay.sh tests/l3-campaign-install.sh
+          bash -n bin/maho-platform bin/maho-recovery bin/maho-recovery-overlay-install bin/maho-l3-campaign bin/maho-l3-campaign-install bin/maho-update-campaign bin/maho-update-campaign-install bin/maho-adaptive lib/maho-recovery-overlay tests/platform-doctor.sh tests/recovery-console.sh tests/recovery-overlay.sh tests/l3-campaign-install.sh tests/m4b-campaign-install.sh
           python - <<'PY'
           import ast
           import pathlib

@@ -23,7 +23,7 @@ TX = "l3-20260911T120000Z-deadbeef"
 TX2 = "l3-20260911T120001Z-cafebabe"
 REV = "a" * 40
 MID = "0123456789abcdef0123456789abcdef"
-GID = "g3-0123456789abcdef01234567"
+GID = "g3-77e9fa88205b81c87307acfc"
 SID = 501
 TARGET_UUID = "target-snapshot-uuid"
 BACKUP_UUID = "backup-snapshot-uuid"
@@ -121,6 +121,9 @@ class FakeHost:
             "boot_state_coherent": True,
             "files_verified": True,
             "recovery_overlay_flagged": True,
+            "kernel_packages": ["linux-cachyos", "linux-cachyos-lts"],
+            "kernel_sha256": KHASH,
+            "initramfs_sha256": IHASH,
         }
 
     def snapshot_uuid(self, snapshot_id: int) -> str:
@@ -370,18 +373,31 @@ def main() -> None:
             check("source drift does not invoke preparation", prepare_calls == [TX])
             (root / "SOURCE_REVISION").write_text(REV + "\n", encoding="utf-8")
 
-            campaign.plan_system_restore = lambda report, gid, policy, provider: SimpleNamespace(
-                campaign_ready=True,
-                automatic_allowed=False,
-                requires_confirmation=True,
-                generation_id=gid,
-                snapshot_id=SID,
-                root_filesystem_uuid=FSUUID,
-                expected_kernel_package="linux-cachyos",
-                expected_kernel_version="7.1.8-1",
-                expected_kernel_sha256=KHASH,
-                expected_initramfs_sha256=IHASH,
+            recovery_report = SimpleNamespace(
+                current_platform={
+                    "recovery_overlay_active": True,
+                    "root_fstype": "btrfs",
+                    "root_fsroot": f"/@snapshots/{SID}/snapshot",
+                    "root_filesystem_uuid": FSUUID,
+                    "root_source": f"/dev/fake[/@snapshots/{SID}/snapshot]",
+                    "home_scope": "excluded",
+                    "current_snapshot_id": None,
+                },
+                generations=(),
             )
+            campaign._report = lambda policy: recovery_report
+            planned_reports: list[object] = []
+
+            def fake_plan_execute(report, gid, policy, provider):
+                planned_reports.append(report)
+                return SimpleNamespace(
+                    campaign_ready=True, automatic_allowed=False, requires_confirmation=True,
+                    generation_id=gid, snapshot_id=SID, root_filesystem_uuid=FSUUID,
+                    expected_kernel_package="linux-cachyos", expected_kernel_version="7.1.8-1",
+                    expected_kernel_sha256=KHASH, expected_initramfs_sha256=IHASH,
+                )
+
+            campaign.plan_system_restore = fake_plan_execute
             campaign.SystemRestoreRuntimeOps = lambda *args, **kwargs: SimpleNamespace(
                 structural_evidence=lambda: object(),
                 postboot_evidence=lambda: object(),
@@ -396,7 +412,7 @@ def main() -> None:
                 write_journal(jpath, payload)
                 return SimpleNamespace(
                     phase="restored-awaiting-reboot",
-                    provider_exit_code=0,
+                    provider_returncode=0,
                     mutation_started=True,
                     blockers=(),
                 )
@@ -414,14 +430,39 @@ def main() -> None:
             )
             check("bad confirmation performs zero restore attempts", execute_calls == [])
 
+            wrong_root_report = SimpleNamespace(current_platform={**recovery_report.current_platform, "root_fsroot": "/@snapshots/500/snapshot"}, generations=())
+            expect(
+                "prepared execute rejects wrong recovery root before provider",
+                RuntimeError,
+                lambda: campaign._prepared_execution_report(
+                    wrong_root_report, campaign._read_seed(campaign._seed_path(MID, TX, boot)),
+                    read_journal(journal_path(boot, MID, TX)), host.wait_for_backup(SID),
+                ),
+                "booted_snapshot_root_mismatch",
+            )
+            drifted = host.wait_for_backup(SID)
+            drifted["kernel_sha256"] = "f" * 64
+            expect(
+                "prepared execute rejects boot artifact hash drift before provider",
+                RuntimeError,
+                lambda: campaign._prepared_execution_report(
+                    recovery_report, campaign._read_seed(campaign._seed_path(MID, TX, boot)),
+                    read_journal(journal_path(boot, MID, TX)), drifted,
+                ),
+                "target_kernel_hash_drift",
+            )
+
             executed = campaign.execute_campaign(
                 root=root, machine_id=MID, transaction_id=TX,
                 generation_id=GID,
                 confirmation=f"RESTORE:{GID}:{TX}",
                 boot_root=boot, ops=host,
             )
+            check("recovery execute does not depend on Snapper candidate enumeration", len(planned_reports) == 1 and len(planned_reports[0].generations) == 1)
+            check("prepared target reconstructs exact current recovery generation", planned_reports[0].generations[0].generation_id == GID and planned_reports[0].current_platform["current_snapshot_id"] == SID)
             check("exact confirmation performs one bounded restore attempt", len(execute_calls) == 1)
             check("execute stops at reboot-ready state", executed["phase"] == "restored-awaiting-reboot")
+            check("execute reports provider return code", executed["provider_exit_code"] == 0)
             check("execute never reboots automatically", executed["reboot_performed"] is False)
             check("execute journal is awaiting reboot", read_journal(Path(prepared["journal_path"]))["phase"] == "restored-awaiting-reboot")
 

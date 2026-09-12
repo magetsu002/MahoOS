@@ -31,6 +31,7 @@ class ProviderDialogue:
     confirmed: bool = False
     backup_named: bool = False
     mutation_started: bool = False
+    final_reboot_declined: bool = False
     _seen: str = ""
 
     def __post_init__(self) -> None:
@@ -82,6 +83,14 @@ class ProviderDialogue:
             if not self.confirmed or not self.backup_named:
                 raise ProviderProtocolError("provider reached mutation before bounded dialogue completed")
             self.mutation_started = True
+
+        reboot_prompt = "Restore complete. Reboot now? [Y/n]:"
+        if reboot_prompt in self._seen and not self.final_reboot_declined:
+            if not self.mutation_started:
+                raise ProviderProtocolError("provider requested reboot before restore mutation")
+            self.final_reboot_declined = True
+            responses.append("n\n")
+            self._seen = self._seen.split(reboot_prompt, 1)[1]
 
         return tuple(responses)
 

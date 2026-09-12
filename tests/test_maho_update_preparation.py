@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_update_preparation import PreparationEvidence, prepare_transaction  # noqa: E402
-from maho_update_state import UpdateState, create_transaction, transition_transaction  # noqa: E402
+from maho_update_state import UpdateState, bind_native_authority, create_transaction, transition_transaction  # noqa: E402
 
 NOW = datetime(2026, 9, 12, 4, 0, tzinfo=timezone.utc)
 
@@ -86,6 +86,17 @@ def main() -> None:
         check("M4A production preparation fails closed on deferred M3B", production.transaction["state"] == "BLOCKED" and "native_l3_certification_required" in production.plan.blockers)
         check("production plan records PREPARED before the native gate", [item["state"] for item in production.transaction["history"]][-2:] == ["PREPARED", "BLOCKED"])
         check("blocked production plan still binds exact generation and activation", production.plan.package_generation_id == transaction["package_generation"]["id"] and production.plan.activation_requirements == ("maho-runtime-release",))
+
+        native = bind_native_authority(
+            transaction,
+            recovery_generation_id="g3-1234567890abcdef12345678",
+            m3b_evidence={"platform_gate": True},
+            update_kind="m4b-campaign",
+            update_evidence={"campaign": "native-certification"},
+        )
+        native_prepared = prepare_transaction(native, manifest, cache, evidence(native_l3_certified=True), now=NOW)
+        check("M4B source-bound M3B authority permits production preparation", native_prepared.transaction["state"] == "PREPARED" and native_prepared.plan.complete)
+        check("production preparation preserves durable native authority", native_prepared.transaction["recovery"]["native_l3_certified"] and native_prepared.transaction["activation"]["native_execution_certified"])
 
         fixture = prepare_transaction(transaction, manifest, cache, evidence(execution_environment="fixture"), now=NOW)
         check("isolated fixture plan can prove PREPARED architecture", fixture.transaction["state"] == "PREPARED" and fixture.plan.complete)
