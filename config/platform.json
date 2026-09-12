@@ -40,5 +40,11 @@
     "packaged_payload_root": "/usr/lib/maho",
     "runtime_root": "$XDG_DATA_HOME/maho/runtime",
     "release_source": "signed-release-artifact"
+  },
+  "update": {
+    "native_execution_certified": false,
+    "candidate_root_strategy": "btrfs-subvolume-swap",
+    "boot_artifact_transaction_required": true,
+    "automatic_reboot": false
   }
 }
