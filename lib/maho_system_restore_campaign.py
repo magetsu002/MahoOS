@@ -13,6 +13,10 @@ import secrets
 from typing import Any, Mapping
 
 from maho_recovery_discovery import SystemProbe, discover_recovery_generations
+from maho_recovery_generation import (
+    BootEvidence, RecoveryGeneration, RecoveryGenerationReport, SnapshotEvidence,
+    generation_identity,
+)
 from maho_system_restore import plan_system_restore, plan_system_restore_preparation
 from maho_system_restore_evidence import collect_provider_evidence
 from maho_system_restore_host import SystemPreparationOps
@@ -338,6 +342,100 @@ def prepare_campaign(
 def _journal_for(machine_id: str, transaction_id: str, boot_root: Path) -> Path:
     return journal_path(boot_root, machine_id, transaction_id)
 
+
+def _prepared_execution_report(
+    base_report: Any,
+    seed: Mapping[str, Any],
+    journal: Mapping[str, Any],
+    target_evidence: Mapping[str, Any],
+) -> RecoveryGenerationReport:
+    """Bind execute-time planning to the prepared immutable target.
+
+    Snapper cannot enumerate its root config while / is the recovery OverlayFS.
+    At this boundary we therefore reconstitute only the exact prepared target
+    after independently re-verifying its immutable snapshot/boot evidence.
+    """
+    platform = dict(getattr(base_report, "current_platform", {}) or {})
+    target = journal.get("target")
+    if not isinstance(target, Mapping):
+        raise RuntimeError("prepared L3 journal target is missing")
+    sid = target.get("snapshot_id")
+    if not isinstance(sid, int) or sid <= 0:
+        raise RuntimeError("prepared L3 target snapshot id is invalid")
+    expected_fsroot = f"/@snapshots/{sid}/snapshot"
+    blockers: list[str] = []
+    if platform.get("recovery_overlay_active") is not True:
+        blockers.append("recovery_overlay_not_active")
+    if platform.get("root_fstype") != "btrfs":
+        blockers.append("recovery_lower_root_not_btrfs")
+    if platform.get("root_fsroot") != expected_fsroot:
+        blockers.append("booted_snapshot_root_mismatch")
+    root_uuid = target.get("root_filesystem_uuid")
+    if platform.get("root_filesystem_uuid") != root_uuid:
+        blockers.append("root_filesystem_uuid_mismatch")
+    if platform.get("home_scope") != "excluded":
+        blockers.append("personal_data_scope_not_excluded")
+    if seed.get("snapshot_id") != sid or seed.get("generation_id") != target.get("generation_id"):
+        blockers.append("seed_target_identity_mismatch")
+    if seed.get("snapshot_uuid") != target.get("snapshot_uuid"):
+        blockers.append("seed_target_snapshot_uuid_mismatch")
+    if target_evidence.get("snapshot_id") != sid:
+        blockers.append("target_snapshot_mismatch")
+    if target_evidence.get("snapshot_uuid") != target.get("snapshot_uuid"):
+        blockers.append("target_snapshot_uuid_mismatch")
+    if target_evidence.get("read_only") is not True:
+        blockers.append("target_snapshot_not_read_only")
+    if target_evidence.get("boot_state_coherent") is not True:
+        blockers.append("target_boot_state_not_coherent")
+    if target_evidence.get("files_verified") is not True:
+        blockers.append("target_boot_files_unverified")
+    if target_evidence.get("recovery_overlay_flagged") is not True:
+        blockers.append("target_recovery_overlay_flag_unverified")
+    if target_evidence.get("kernel_sha256") != target.get("expected_kernel_sha256"):
+        blockers.append("target_kernel_hash_drift")
+    if target_evidence.get("initramfs_sha256") != target.get("expected_initramfs_sha256"):
+        blockers.append("target_initramfs_hash_drift")
+    derived_gid = generation_identity(str(root_uuid or ""), "root", sid)
+    if derived_gid != target.get("generation_id") or derived_gid != seed.get("generation_id"):
+        blockers.append("target_generation_identity_mismatch")
+    if blockers:
+        raise RuntimeError("prepared L3 target revalidation failed: " + ", ".join(blockers))
+
+    snapshot = SnapshotEvidence(
+        config_name="root", snapshot_id=sid, creation_time=None, subvolume="/",
+        snapshot_type="single", cleanup=None,
+        description=f"Maho L3 native target {seed['transaction_id']}",
+        userdata={"important": "yes", "maho.known_good": "yes",
+                  "maho.l3_target": "yes", "maho.transaction": str(seed["transaction_id"])},
+        active=True, read_only=True,
+    )
+    boot = BootEvidence(
+        source="prepared-journal+verified-limine-history",
+        entry_id=f"snapshot-{sid}",
+        kernel_package=str(target.get("expected_kernel_package") or ""),
+        kernel_version=str(target.get("expected_kernel_version") or ""),
+        kernel_sha256_expected=str(target.get("expected_kernel_sha256") or ""),
+        kernel_sha256_observed=str(target_evidence.get("kernel_sha256") or ""),
+        initramfs_sha256_expected=str(target.get("expected_initramfs_sha256") or ""),
+        initramfs_sha256_observed=str(target_evidence.get("initramfs_sha256") or ""),
+        snapshot_id=sid, filesystem_uuid=str(root_uuid or ""),
+        files_verified=True, artifacts_coherent=True, recovery_overlay_flagged=True,
+    )
+    generation = RecoveryGeneration(
+        generation_id=str(target["generation_id"]), snapshot=snapshot,
+        root_filesystem_uuid=str(root_uuid), root_source=str(platform.get("root_source") or ""),
+        root_fsroot=expected_fsroot, home_scope="excluded", boot=boot,
+        lts_kernel_present="linux-cachyos-lts" in set(target_evidence.get("kernel_packages") or ()),
+        known_good=True, evidence_complete=True, boot_state_coherent=True, eligible=False,
+        rejection_reasons=("current_failed_generation",), verification_status="rejected",
+    )
+    platform["current_snapshot_id"] = sid
+    return RecoveryGenerationReport(
+        schema_version=1, current_platform=platform, generations=(generation,),
+        selected_generation_id=None, certified_system_restore_plannable=False,
+        planning_facts={"source": "prepared-native-target"}, native_restore_enabled=False,
+    )
+
 def execute_campaign(
     *,
     root: Path,
@@ -365,10 +463,12 @@ def execute_campaign(
         raise RuntimeError("L3 transaction is not in prepared phase")
 
     policy = _policy(root)
-    report = _report(policy)
+    base_report = _report(policy)
+    host = ops or SystemPreparationOps(machine_id=machine_id, boot_root=boot_root)
+    target_evidence = host.wait_for_backup(int(seed["snapshot_id"]))
+    report = _prepared_execution_report(base_report, seed, journal, target_evidence)
     provider = collect_provider_evidence(policy)
     plan = plan_system_restore(report, generation_id, policy, provider)
-    host = ops or SystemPreparationOps(machine_id=machine_id, boot_root=boot_root)
     target_uuid = host.snapshot_uuid(int(seed["snapshot_id"]))
     backup = host.wait_for_backup(int(journal["backup"]["snapshot_id"]))
     home = host.home_identity()
