@@ -256,8 +256,10 @@ preflight() {
   python_parse_only \
     "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" "$ROOT/lib/security_incident.py" \
     "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
+    "$ROOT/lib/guardian_incident.py" "$ROOT/lib/guardian_explain.py" \
     "$ROOT/lib/guardian_service_incident.py" "$ROOT/lib/guardian_service_watcher.py" \
-    "$ROOT/lib/guardian_runtime_recovery.py" "$ROOT/lib/maho_runtime_release.py" \
+    "$ROOT/lib/guardian_session_incident.py" "$ROOT/lib/guardian_runtime_recovery.py" \
+    "$ROOT/lib/maho_runtime_release.py" \
     "$ROOT/lib/maho_update_state.py" "$ROOT/lib/maho_update_discovery.py" \
     "$ROOT/lib/maho_update_staging.py" "$ROOT/lib/maho_update_preparation.py" \
     "$ROOT/lib/maho_update_maintenance.py" "$ROOT/lib/maho_update_transaction.py" \

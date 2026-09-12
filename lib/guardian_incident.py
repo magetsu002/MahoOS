@@ -16,6 +16,7 @@ import tempfile
 from typing import Any, Mapping
 
 from guardian_engine import evaluate_guardian
+from guardian_session_incident import project_guardian_rows
 
 
 _RISK_IMPACT = {
@@ -277,6 +278,7 @@ def list_guardian(state_root: Path) -> list[dict[str, Any]]:
                 continue
             if isinstance(data, dict):
                 rows.append(data)
+    rows = project_guardian_rows(rows)
     rows.sort(
         key=lambda row: (
             -int(_mapping(_mapping(row.get("decision")).get("severity")).get("level", 0)),

@@ -9,6 +9,8 @@ import subprocess
 from collections import Counter
 from typing import Any, Mapping
 
+from guardian_session_incident import project_guardian_rows
+
 
 def read_json(path: pathlib.Path) -> dict[str, Any] | None:
     try:
@@ -38,6 +40,7 @@ def active_guardian_rows(state_root: pathlib.Path) -> list[dict[str, Any]]:
         row = read_json(path)
         if row and row.get("status") == "active":
             rows.append(row)
+    rows = project_guardian_rows(rows)
     return sorted(rows, key=lambda r: (severity(r), timestamp(r)), reverse=True)
 
 
@@ -239,6 +242,11 @@ def describe_service(row: Mapping[str, Any]) -> dict[str, Any]:
     happened = [f"{unit} stopped unexpectedly (result={failure})."]
     why = ["This is a Maho-owned service, so Guardian tracks whether the delegated systemd recovery actually returns it to a stable healthy state."]
     details: list[str] = []
+    group = row.get("presentation_group") or {}
+    group_count = group.get("incident_count")
+    if isinstance(group_count, int) and group_count > 1:
+        happened = [f"{unit} has {group_count} unresolved failed invocations; the latest failure result is {failure}."]
+        details.append(f"Grouped incidents: {group_count} (durable child records preserved)")
     observed = (svc.get("postcondition") or {}).get("observed") or {}
     if observed:
         active = observed.get("active_state") or "?"
@@ -306,6 +314,8 @@ def recommendation(row: Mapping[str, Any], source: Mapping[str, Any] | None, des
 
     if catastrophic.get("catastrophic") is True or level >= 4:
         return "Preserve evidence and use only a certified recovery path; do not manually widen the repair scope."
+    if row.get("session_failure"):
+        return "Stop retrying components individually; inspect the shared session/runtime cause and use broader recovery only through a verified provider."
     if row.get("service_recovery"):
         lifecycle = str((row.get("service_recovery") or {}).get("lifecycle") or "")
         if lifecycle in {"detected", "recovering", "verifying"}:
@@ -338,7 +348,29 @@ def recommendation(row: Mapping[str, Any], source: Mapping[str, Any] | None, des
     return "No immediate action unless this change is unexpected or the incident remains active."
 
 
+def describe_session(row: Mapping[str, Any]) -> dict[str, Any]:
+    failure = row.get("session_failure") or {}
+    units = [str(x) for x in failure.get("affected_units") or []]
+    count = int(failure.get("unresolved_failures") or 0)
+    window = failure.get("correlation_window_seconds")
+    happened = [
+        f"{len(units)} independent Maho services exhausted delegated recovery in the same session."
+    ]
+    why = [
+        "Independent component recoveries failing together indicate a session-level fault, so Guardian stops treating them as isolated crashes."
+    ]
+    details = []
+    if units:
+        details.append("Affected services: " + ", ".join(units))
+    details.append(f"Unresolved component incidents: {count}")
+    if isinstance(window, (int, float)):
+        details.append(f"Correlation window: {window:g}s")
+    return {"happened": happened, "why": why, "details": details, "kinds": ["session-correlation"]}
+
+
 def describe(row: Mapping[str, Any], source: Mapping[str, Any] | None) -> dict[str, Any]:
+    if row.get("session_failure"):
+        return describe_session(row)
     if row.get("service_recovery"):
         return describe_service(row)
     if row.get("runtime_recovery"):
@@ -393,6 +425,9 @@ def compact_decision(row: Mapping[str, Any]) -> str:
         if catastrophic.get("fail_closed") is True:
             return "Fail-closed; preserve evidence and refuse unsafe automatic repair."
         return "Catastrophic trust event; only explicitly safe recovery actions are allowed."
+
+    if row.get("session_failure"):
+        return "Escalated above component retries; no broader automatic recovery is authorized."
 
     if row.get("service_recovery"):
         lifecycle = str((row.get("service_recovery") or {}).get("lifecycle") or "detected")
