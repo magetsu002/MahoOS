@@ -1,0 +1,208 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+ROOT="${MAHO_R1_ROOT:-/sysroot}"
+STATE="${MAHO_R1_STATE:-/run/maho-guardian-recovery-r1}"
+CMDLINE_FILE="${MAHO_R1_CMDLINE_FILE:-/proc/cmdline}"
+ESP_MOUNT="$STATE/esp"
+MANIFEST_REL="MahoOS/guardian-recovery-r1/manifest.json"
+REPORT_REL="MahoOS/guardian-recovery-r1/report.json"
+NO_REBOOT="${MAHO_R1_NO_REBOOT:-0}"
+MOUNT_BIN="${MAHO_R1_MOUNT_BIN:-mount}"
+UMOUNT_BIN="${MAHO_R1_UMOUNT_BIN:-umount}"
+
+SELF_PATH="${MAHO_R1_SELF_PATH:-/usr/lib/maho/guardian-recovery-r1}"
+CONTRACT_ROOT="${MAHO_R1_CONTRACT_ROOT:-/usr/lib/maho/guardian-r1-contracts}"
+log() { printf '%s\n' "maho-guardian-recovery-r1: $*"; }
+
+cmdline_value() {
+    local key="$1" token
+    for token in $(cat "$CMDLINE_FILE" 2>/dev/null || true); do
+        case "$token" in
+            "$key"=*) printf '%s\n' "${token#*=}"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+json_get() { jq -er "$1" "$2"; }
+sha_file() { sha256sum "$1" | awk '{print $1}'; }
+
+write_report() {
+    local outcome="$1" reason="$2" campaign="${3:-unknown}"
+    local manifest_sha="${4:-unknown}" esp_partuuid="${5:-}"
+    local esp_dev="" tmp=""
+    mkdir -p "$STATE"
+    printf '%s\n' "$outcome" > "$STATE/outcome"
+    printf '%s\n' "$reason" > "$STATE/reason"
+    [ -n "$esp_partuuid" ] || return 0
+    esp_dev="$(blkid -t "PARTUUID=$esp_partuuid" -o device 2>/dev/null | head -n1 || true)"
+    [ -n "$esp_dev" ] || return 0
+    mkdir -p "$ESP_MOUNT"
+    "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true
+    "$MOUNT_BIN" -t vfat -o rw,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" >/dev/null 2>&1 || return 0
+    mkdir -p "$ESP_MOUNT/$(dirname "$REPORT_REL")"
+    tmp="$ESP_MOUNT/$REPORT_REL.tmp"
+    jq -n \
+        --arg outcome "$outcome" --arg reason "$reason" \
+        --arg campaign "$campaign" --arg manifest_sha256 "$manifest_sha" \
+        --arg kernel_release "$(uname -r)" \
+        --arg root_uuid "$(findmnt -no UUID "$ROOT" 2>/dev/null | tail -n1 || true)" \
+        --arg root_fsroot "$(findmnt -no FSROOT "$ROOT" 2>/dev/null | tail -n1 || true)" \
+        '{schema_version:1,outcome:$outcome,reason:$reason,campaign_id:$campaign,manifest_sha256:$manifest_sha256,kernel_release:$kernel_release,root_uuid:$root_uuid,root_fsroot:$root_fsroot}' \
+        > "$tmp" || true
+    mv -f "$tmp" "$ESP_MOUNT/$REPORT_REL" 2>/dev/null || true
+    sync || true
+    "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true
+}
+
+finish() {
+    local outcome="$1" reason="$2" campaign="$3"
+    local manifest_sha="$4" esp_partuuid="$5"
+    write_report "$outcome" "$reason" "$campaign" "$manifest_sha" "$esp_partuuid"
+    log "$outcome: $reason"
+    if [ "$NO_REBOOT" = 1 ]; then
+        [ "$outcome" = PASS ]
+        return
+    fi
+    log "certification complete; rebooting to the normal default entry"
+    systemctl --no-block reboot || reboot -f || true
+    sleep infinity
+}
+
+cmdline="$(cat "$CMDLINE_FILE" 2>/dev/null || true)"
+case " $cmdline " in
+    *" maho.guardian_recovery=r1 "*) ;;
+    *) exit 0 ;;
+esac
+
+manifest_sha="$(cmdline_value maho.guardian_manifest_sha256 || true)"
+esp_partuuid="$(cmdline_value maho.guardian_esp_partuuid || true)"
+campaign="$(cmdline_value maho.guardian_campaign || true)"
+
+[[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    finish FAIL manifest_digest_missing "${campaign:-unknown}" "${manifest_sha:-unknown}" "${esp_partuuid:-}"
+    exit 1
+}
+[[ "$esp_partuuid" =~ ^[0-9a-fA-F-]{8,64}$ ]] || {
+    finish FAIL esp_identity_missing "${campaign:-unknown}" "$manifest_sha" "${esp_partuuid:-}"
+    exit 1
+}
+[ -n "$campaign" ] || {
+    finish FAIL campaign_identity_missing unknown "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+
+mkdir -p "$STATE" "$ESP_MOUNT"
+root_type="$(findmnt -no FSTYPE "$ROOT" 2>/dev/null | tail -n1 || true)"
+root_uuid="$(findmnt -no UUID "$ROOT" 2>/dev/null | tail -n1 || true)"
+root_fsroot="$(findmnt -no FSROOT "$ROOT" 2>/dev/null | tail -n1 || true)"
+root_opts="$(findmnt -no OPTIONS "$ROOT" 2>/dev/null | tail -n1 || true)"
+[ "$root_type" = btrfs ] || {
+    finish FAIL root_not_btrfs "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+case ",$root_opts," in
+    *,ro,*) ;;
+    *) finish FAIL root_not_read_only "$campaign" "$manifest_sha" "$esp_partuuid"; exit 1 ;;
+esac
+
+esp_dev="$(blkid -t "PARTUUID=$esp_partuuid" -o device 2>/dev/null | head -n1 || true)"
+[ -n "$esp_dev" ] || {
+    finish FAIL esp_not_found "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+"$MOUNT_BIN" -t vfat -o ro,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" || {
+    finish FAIL esp_read_only_mount_failed "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+manifest="$ESP_MOUNT/$MANIFEST_REL"
+if [ ! -r "$manifest" ]; then
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL manifest_missing "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+fi
+if [ "$(sha_file "$manifest")" != "$manifest_sha" ]; then
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL manifest_digest_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+fi
+
+manifest_campaign="$(json_get '.campaign_id' "$manifest")"
+expected_root_uuid="$(json_get '.root.uuid' "$manifest")"
+expected_root_fsroot="$(json_get '.root.fsroot' "$manifest")"
+expected_esp_partuuid="$(json_get '.esp.partuuid' "$manifest")"
+recovery_release="$(json_get '.recovery_kernel.release' "$manifest")"
+suspected_release="$(json_get '.suspected_running_kernel.release' "$manifest")"
+
+[ "$manifest_campaign" = "$campaign" ] || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL campaign_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+[ "${root_uuid,,}" = "${expected_root_uuid,,}" ] || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL root_uuid_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+[ "$root_fsroot" = "$expected_root_fsroot" ] || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL root_subvolume_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+[ "${esp_partuuid,,}" = "${expected_esp_partuuid,,}" ] || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL esp_partuuid_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+[ "$(uname -r)" = "$recovery_release" ] || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL recovery_kernel_release_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+[ "$recovery_release" != "$suspected_release" ] || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL suspected_kernel_cannot_certify_itself "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+
+for key in kernel initramfs microcode; do
+    path="$(json_get ".payload.$key.path" "$manifest")"
+    expected="$(json_get ".payload.$key.sha256" "$manifest")"
+    if [ ! -r "$ESP_MOUNT/${path#/}" ]; then
+        "$UMOUNT_BIN" "$ESP_MOUNT" || true
+        finish FAIL "payload_${key}_missing" "$campaign" "$manifest_sha" "$esp_partuuid"
+        exit 1
+    fi
+    if [ "$(sha_file "$ESP_MOUNT/${path#/}")" != "$expected" ]; then
+        "$UMOUNT_BIN" "$ESP_MOUNT" || true
+        finish FAIL "payload_${key}_digest_mismatch" "$campaign" "$manifest_sha" "$esp_partuuid"
+        exit 1
+    fi
+done
+
+for name in maho_trust_identity.py maho_generation_v2.py maho_kernel_generation.py guardian_offline_recovery.py; do
+    expected="$(json_get ".contracts[\"$name\"]" "$manifest")"
+    contract="$CONTRACT_ROOT/$name"
+    if [ ! -r "$contract" ]; then
+        "$UMOUNT_BIN" "$ESP_MOUNT" || true
+        finish FAIL "contract_${name}_missing" "$campaign" "$manifest_sha" "$esp_partuuid"
+        exit 1
+    fi
+    if [ "$(sha_file "$contract")" != "$expected" ]; then
+        "$UMOUNT_BIN" "$ESP_MOUNT" || true
+        finish FAIL "contract_${name}_digest_mismatch" "$campaign" "$manifest_sha" "$esp_partuuid"
+        exit 1
+    fi
+done
+
+verifier_expected="$(json_get '.verifier.sha256' "$manifest")"
+if [ "$(sha_file "$SELF_PATH")" != "$verifier_expected" ]; then
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL verifier_digest_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+fi
+
+"$UMOUNT_BIN" "$ESP_MOUNT" || true
+finish PASS independent_recovery_kernel_and_read_only_root_verified \
+    "$campaign" "$manifest_sha" "$esp_partuuid"

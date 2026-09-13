@@ -1,0 +1,287 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+ACTION="${1:-status}"
+CAMPAIGN_DIR="${2:-}"
+ESP="/boot"
+TARGET_REL="MahoOS/guardian-recovery-r1"
+TARGET="$ESP/$TARGET_REL"
+LIMINE="$ESP/limine.conf"
+STATE_ROOT="/var/lib/maho/guardian-recovery-r1"
+BACKUPS="$STATE_ROOT/backups"
+MUTEX_LIB="/usr/lib/limine/limine-mutex"
+BEGIN_MARKER="# MAHO-GUARDIAN-R1-BEGIN"
+END_MARKER="# MAHO-GUARDIAN-R1-END"
+
+fail() { echo "maho-guardian-recovery-r1-stage: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
+require_root() { (( EUID == 0 )) || fail "root privileges are required for $ACTION"; }
+for cmd in findmnt sha256sum python3 install cp mv rm grep awk tr cat sync flock; do need "$cmd"; done
+
+root_uuid() { findmnt -no UUID / | tail -n1; }
+esp_partuuid() { findmnt -no PARTUUID "$ESP" | tail -n1; }
+
+validate_layout() {
+    [ "$(findmnt -no FSTYPE / | tail -n1)" = btrfs ] || fail "root is not Btrfs"
+    [ "$(findmnt -no FSTYPE "$ESP" | tail -n1)" = vfat ] || fail "$ESP is not the FAT ESP"
+    [ -r "$LIMINE" ] || fail "missing $LIMINE"
+    [ -r "$MUTEX_LIB" ] || fail "missing Limine boot-partition mutex"
+    grep -Fxq 'default_entry: MahoOS/Primary' "$LIMINE" || fail "unexpected Limine default entry"
+}
+validate_campaign() {
+    [ -n "$CAMPAIGN_DIR" ] || fail "campaign directory is required"
+    [ -d "$CAMPAIGN_DIR" ] || fail "campaign directory not found: $CAMPAIGN_DIR"
+    [ -r "$CAMPAIGN_DIR/manifest.json" ] || fail "campaign manifest missing"
+    [ -r "$CAMPAIGN_DIR/manifest.sha256" ] || fail "campaign manifest checksum missing"
+    [ -r "$CAMPAIGN_DIR/limine-entry.conf" ] || fail "campaign Limine entry missing"
+    for name in vmlinuz initramfs.img intel-ucode.img; do
+        [ -r "$CAMPAIGN_DIR/$name" ] || fail "campaign payload missing: $name"
+    done
+
+    local expected actual manifest_root manifest_esp suspected recovery
+    expected="$(awk 'NR==1 {print $1}' "$CAMPAIGN_DIR/manifest.sha256")"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "malformed manifest checksum"
+    actual="$(sha256sum "$CAMPAIGN_DIR/manifest.json" | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || fail "manifest checksum mismatch"
+    manifest_root="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["root"]["uuid"])' "$CAMPAIGN_DIR/manifest.json")"
+    manifest_esp="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["esp"]["partuuid"])' "$CAMPAIGN_DIR/manifest.json")"
+    suspected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["suspected_running_kernel"]["release"])' "$CAMPAIGN_DIR/manifest.json")"
+    recovery="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recovery_kernel"]["release"])' "$CAMPAIGN_DIR/manifest.json")"
+    [ "${manifest_root,,}" = "$(root_uuid | tr '[:upper:]' '[:lower:]')" ] || fail "campaign root UUID does not match live machine"
+    [ "${manifest_esp,,}" = "$(esp_partuuid | tr '[:upper:]' '[:lower:]')" ] || fail "campaign ESP PARTUUID does not match live machine"
+    [ "$suspected" = "$(uname -r)" ] || fail "campaign suspected-kernel identity no longer matches running kernel"
+    [ "$recovery" != "$suspected" ] || fail "recovery kernel is not independent from suspected kernel"
+}
+
+verify_campaign_payloads() {
+    python3 - "$CAMPAIGN_DIR" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+m = json.loads((root / "manifest.json").read_text())
+for key, filename in (("kernel","vmlinuz"),("initramfs","initramfs.img"),("microcode","intel-ucode.img")):
+    observed = hashlib.sha256((root / filename).read_bytes()).hexdigest()
+    if observed != m["payload"][key]["sha256"]:
+        raise SystemExit(f"payload checksum mismatch: {key}")
+print("campaign payload digests verified")
+PY
+}
+strip_existing_entry() {
+    local input="$1" output="$2"
+    python3 - "$input" "$output" <<'PY'
+from pathlib import Path
+import sys
+src = Path(sys.argv[1]).read_text().splitlines()
+out, inside = [], False
+for line in src:
+    if line == "# MAHO-GUARDIAN-R1-BEGIN":
+        if inside:
+            raise SystemExit("nested R1 marker")
+        inside = True
+        continue
+    if line == "# MAHO-GUARDIAN-R1-END":
+        if not inside:
+            raise SystemExit("orphan R1 end marker")
+        inside = False
+        continue
+    if not inside:
+        out.append(line)
+if inside:
+    raise SystemExit("unterminated R1 marker")
+Path(sys.argv[2]).write_text("\n".join(out).rstrip() + "\n")
+PY
+}
+
+backup_current() {
+    local campaign="$1" dir="$BACKUPS/$campaign"
+    [ ! -e "$dir" ] || fail "backup already exists: $dir"
+    install -d -m 700 "$dir"
+    cp -a "$LIMINE" "$dir/limine.conf"
+    if [ -e "$TARGET" ]; then
+        cp -a "$TARGET" "$dir/target"
+        printf '%s\n' present > "$dir/target.state"
+    else
+        printf '%s\n' absent > "$dir/target.state"
+    fi
+    printf '%s\n' "$dir" > "$STATE_ROOT/latest-backup"
+    printf '%s\n' "$dir"
+}
+restore_backup_dir() {
+    local dir="$1" state
+    [ -d "$dir" ] || fail "backup missing: $dir"
+    cp -a "$dir/limine.conf" "$LIMINE"
+    rm -rf "$TARGET"
+    state="$(cat "$dir/target.state")"
+    if [ "$state" = present ]; then
+        cp -a "$dir/target" "$TARGET"
+    elif [ "$state" != absent ]; then
+        fail "invalid backup target state"
+    fi
+    sync "$ESP" 2>/dev/null || sync
+}
+
+auto_rollback() {
+    local backup="$1"
+    trap - ERR
+    echo "R1 staging failed; restoring exact pre-stage boot state" >&2
+    restore_backup_dir "$backup" || echo "WARNING: automatic R1 rollback failed" >&2
+}
+
+stage_command() {
+    require_root
+    validate_layout
+    validate_campaign
+    verify_campaign_payloads
+    [ ! -L "$TARGET" ] || fail "R1 target cannot be a symlink"
+    install -d -m 700 "$STATE_ROOT" "$BACKUPS"
+    # shellcheck source=/usr/lib/limine/limine-mutex
+    source "$MUTEX_LIB"
+    mutex_lock maho-guardian-recovery-r1 60 || fail "could not acquire boot-partition lock"
+    local campaign backup temp_target temp_conf
+    campaign="$(cat "$CAMPAIGN_DIR/CAMPAIGN_ID")"
+    [[ "$campaign" =~ ^r1-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$ ]] || fail "invalid campaign identity"
+    backup="$(backup_current "$campaign")"
+    trap 'auto_rollback "$backup"; mutex_unlock || true' ERR
+
+    temp_target="$ESP/MahoOS/.guardian-recovery-r1.$$.new"
+    rm -rf "$temp_target"
+    install -d -m 755 "$temp_target"
+    cp "$CAMPAIGN_DIR/vmlinuz" "$temp_target/vmlinuz"
+    cp "$CAMPAIGN_DIR/initramfs.img" "$temp_target/initramfs.img"
+    cp "$CAMPAIGN_DIR/intel-ucode.img" "$temp_target/intel-ucode.img"
+    cp "$CAMPAIGN_DIR/manifest.json" "$temp_target/manifest.json"
+    cp "$CAMPAIGN_DIR/manifest.sha256" "$temp_target/manifest.sha256"
+    rm -f "$temp_target/report.json" "$temp_target/report.json.tmp"
+    python3 - "$temp_target" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+m = json.loads((root / "manifest.json").read_text())
+for key, filename in (("kernel","vmlinuz"),("initramfs","initramfs.img"),("microcode","intel-ucode.img")):
+    if hashlib.sha256((root / filename).read_bytes()).hexdigest() != m["payload"][key]["sha256"]:
+        raise SystemExit(f"staged payload mismatch: {key}")
+PY
+
+    rm -rf "$TARGET"
+    mv "$temp_target" "$TARGET"
+
+    temp_conf="$ESP/.limine.conf.maho-r1.$$.new"
+    strip_existing_entry "$LIMINE" "$temp_conf"
+    {
+        cat "$temp_conf"
+        printf '\n%s\n' "$BEGIN_MARKER"
+        cat "$CAMPAIGN_DIR/limine-entry.conf"
+        printf '%s\n' "$END_MARKER"
+    } > "$temp_conf.final"
+    mv "$temp_conf.final" "$LIMINE"
+    rm -f "$temp_conf"
+    sync "$ESP" 2>/dev/null || sync
+
+    grep -Fxq "$BEGIN_MARKER" "$LIMINE" || fail "staged Limine marker missing"
+    grep -Fq '/Guardian Recovery R1' "$LIMINE" || fail "staged R1 entry missing"
+    grep -Fxq 'default_entry: MahoOS/Primary' "$LIMINE" || fail "default boot entry changed"
+    [ "$(sha256sum "$TARGET/manifest.json" | awk '{print $1}')" = "$(awk 'NR==1 {print $1}' "$TARGET/manifest.sha256")" ] || fail "staged manifest verification failed"
+
+    printf '%s\n' "$campaign" > "$STATE_ROOT/latest-campaign"
+    printf '%s\n' "$CAMPAIGN_DIR" > "$STATE_ROOT/latest-source"
+    trap - ERR
+    mutex_unlock
+    echo "PASS  Guardian Recovery R1 staged"
+    echo "Campaign: $campaign"
+    echo "Default boot remains: MahoOS/Primary"
+    echo "Manual boot selection required: Guardian Recovery R1"
+}
+
+verify_staged() {
+    require_root
+    validate_layout
+    [ -r "$TARGET/manifest.json" ] || fail "R1 is not staged"
+    [ -r "$TARGET/manifest.sha256" ] || fail "staged manifest checksum missing"
+    local expected actual
+    expected="$(awk 'NR==1 {print $1}' "$TARGET/manifest.sha256")"
+    actual="$(sha256sum "$TARGET/manifest.json" | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || fail "staged manifest checksum mismatch"
+    python3 - "$TARGET" <<'PYVERIFY'
+import hashlib, json, pathlib, sys
+root=pathlib.Path(sys.argv[1]); m=json.loads((root/'manifest.json').read_text())
+for key, filename in (("kernel","vmlinuz"),("initramfs","initramfs.img"),("microcode","intel-ucode.img")):
+    if hashlib.sha256((root/filename).read_bytes()).hexdigest() != m["payload"][key]["sha256"]:
+        raise SystemExit(f"staged payload mismatch: {key}")
+PYVERIFY
+    grep -Fxq "$BEGIN_MARKER" "$LIMINE" || fail "R1 Limine marker missing"
+    grep -Fxq "$END_MARKER" "$LIMINE" || fail "R1 Limine end marker missing"
+    grep -Fxq 'default_entry: MahoOS/Primary' "$LIMINE" || fail "default boot entry changed"
+    echo "PASS  Guardian Recovery R1 staged state verified"
+}
+rollback_command() {
+    require_root
+    validate_layout
+    [ -r "$STATE_ROOT/latest-backup" ] || fail "no recorded R1 backup"
+    local backup
+    backup="$(cat "$STATE_ROOT/latest-backup")"
+    # shellcheck source=/usr/lib/limine/limine-mutex
+    source "$MUTEX_LIB"
+    mutex_lock maho-guardian-recovery-r1-rollback 60 || fail "could not acquire boot-partition lock"
+    restore_backup_dir "$backup"
+    mutex_unlock
+    echo "PASS  Guardian Recovery R1 boot staging rolled back"
+    echo "Restored: $backup"
+}
+
+cleanup_command() {
+    require_root
+    validate_layout
+    [ -r "$TARGET/manifest.json" ] || fail "R1 is not staged"
+    local campaign archive temp_conf stamp
+    campaign="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["campaign_id"])' "$TARGET/manifest.json")"
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    archive="$STATE_ROOT/campaigns/$campaign"
+    install -d -m 700 "$archive"
+    cp -a "$TARGET/manifest.json" "$archive/manifest.json"
+    cp -a "$TARGET/manifest.sha256" "$archive/manifest.sha256"
+    [ ! -r "$TARGET/report.json" ] || cp -a "$TARGET/report.json" "$archive/report.json"
+    cp -a "$LIMINE" "$archive/limine-before-cleanup-$stamp.conf"
+    # shellcheck source=/usr/lib/limine/limine-mutex
+    source "$MUTEX_LIB"
+    mutex_lock maho-guardian-recovery-r1-cleanup 60 || fail "could not acquire boot-partition lock"
+    temp_conf="$ESP/.limine.conf.maho-r1-cleanup.$$.new"
+    strip_existing_entry "$LIMINE" "$temp_conf"
+    mv "$temp_conf" "$LIMINE"
+    rm -rf "$TARGET"
+    sync "$ESP" 2>/dev/null || sync
+    mutex_unlock
+    echo "PASS  Guardian Recovery R1 staging cleaned"
+    echo "Evidence: $archive"
+}
+
+status_command() {
+    echo "Maho Guardian Recovery R1"
+    echo "root UUID:      $(root_uuid 2>/dev/null || echo unavailable)"
+    echo "ESP PARTUUID:   $(esp_partuuid 2>/dev/null || echo unavailable)"
+    echo "running kernel: $(uname -r)"
+    if [ -r "$TARGET/manifest.json" ]; then
+        echo "staged:         yes"
+        python3 - "$TARGET/manifest.json" <<'PY'
+import json,sys
+m=json.load(open(sys.argv[1]))
+print("campaign:       " + str(m.get("campaign_id","unknown")))
+print("recovery kernel:" + " " + str(m.get("recovery_kernel",{}).get("release","unknown")))
+print("trust claim:    " + str(m.get("trust_claim","unknown")))
+PY
+    else
+        echo "staged:         no"
+    fi
+    if [ -r "$TARGET/report.json" ]; then
+        echo "report:         present"
+        cat "$TARGET/report.json"
+    else
+        echo "report:         absent"
+    fi
+}
+
+case "$ACTION" in
+    stage) stage_command ;;
+    verify) verify_staged ;;
+    rollback) rollback_command ;;
+    cleanup) cleanup_command ;;
+    status) status_command ;;
+    *) fail "usage: $0 {stage CAMPAIGN_DIR|verify|rollback|cleanup|status}" ;;
+esac
