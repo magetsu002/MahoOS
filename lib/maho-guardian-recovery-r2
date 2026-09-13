@@ -25,7 +25,9 @@ sha_file(){ sha256sum "$1" | awk '{print $1}'; }
 json_get(){ jq -er "$1" "$2"; }
 write_report(){
     local outcome="$1" reason="$2" campaign="$3" manifest_sha="$4"
-    local esp_partuuid="$5" selection="${6:-{}}" esp_dev tmp
+    local esp_partuuid="$5" selection="${6-}" esp_dev tmp
+    [ -n "$selection" ] || selection='{}'
+    jq -e 'type == "object"' <<<"$selection" >/dev/null 2>&1 || return 1
     mkdir -p "$STATE" "$ESP_MOUNT"
     printf '%s\n' "$outcome" > "$STATE/outcome"
     printf '%s\n' "$reason" > "$STATE/reason"
@@ -49,7 +51,7 @@ write_report(){
 }
 finish(){
     local outcome="$1" reason="$2" campaign="$3" manifest_sha="$4"
-    local esp="$5" selection="${6:-{}}"
+    local esp="$5" selection="${6-}"
     if ! write_report "$outcome" "$reason" "$campaign" "$manifest_sha" "$esp" "$selection"; then
         outcome=FAIL
         reason=report_persistence_failed
@@ -186,7 +188,7 @@ observed_pkg="$(find "$TOP_MOUNT/${target_path#/}/var/lib/pacman/local" -mindept
 "$UMOUNT_BIN" "$TOP_MOUNT" || true
 selection="$(python3 "$SELECTOR" "$EVIDENCE_ROOT" "$manifest" 2>"$STATE/selector.err" || true)"
 if ! jq -e '.selection_matches_expected==true and .outcome=="READY"' <<<"$selection" >/dev/null 2>&1; then
-    finish FAIL generation_selection_failed "$campaign" "$manifest_sha" "$esp_partuuid" "${selection:-{}}"
+    finish FAIL generation_selection_failed "$campaign" "$manifest_sha" "$esp_partuuid" "$selection"
     exit 1
 fi
 finish PASS independently_trusted_generation_pair_selected \
