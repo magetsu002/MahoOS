@@ -10,12 +10,25 @@ REPORT_REL="MahoOS/guardian-recovery-r3/report.json"
 CAMPAIGN_ROOT="${MAHO_R3_CAMPAIGN_ROOT:-/usr/lib/maho/guardian-r3-campaign}"
 EVIDENCE_ROOT="$CAMPAIGN_ROOT/r2-evidence"
 VERIFY="${MAHO_R3_VERIFY:-/usr/lib/maho/guardian_r3_native_verify.py}"
+TUI="${MAHO_R3_TUI:-/usr/bin/maho-guardian-recovery-tui}"
+CONSOLE="${MAHO_R3_CONSOLE:-/dev/console}"
+TUI_HOLD_SECONDS="${MAHO_R3_TUI_HOLD_SECONDS:-2}"
 NO_REBOOT="${MAHO_R3_NO_REBOOT:-0}"
 log(){ printf '%s\n' "maho-guardian-recovery-r3: $*"; }
 cmdline_value(){ local key="$1" token; for token in $(cat "$CMDLINE_FILE" 2>/dev/null || true); do case "$token" in "$key"=*) printf '%s\n' "${token#*=}"; return 0;; esac; done; return 1; }
 sha_file(){ sha256sum "$1" | awk '{print $1}'; }
 json_get(){ jq -er "$1" "$2"; }
 fail_now(){ local reason="$1"; log "FAIL: $reason"; printf '%s\n' "$reason" > "$STATE/failure"; exit 1; }
+render_tui(){
+    local state_file="${1:-}"
+    [ -x "$TUI" ] && [ -w "$CONSOLE" ] || return 0
+    printf '\033[2J\033[H' > "$CONSOLE" || return 0
+    if [ -n "$state_file" ] && [ -r "$state_file" ]; then
+        "$TUI" --plan "$intent" --selection-report "$r2report" --authority "$manifest" --state "$state_file" --render > "$CONSOLE" 2>&1 || true
+    else
+        "$TUI" --plan "$intent" --selection-report "$r2report" --authority "$manifest" --render > "$CONSOLE" 2>&1 || true
+    fi
+}
 campaign="unknown"; manifest_sha="unknown"; esp_partuuid=""; mutation_started=false
 durable_fail(){
     local reason="$1" esp_dev="" tmp=""
@@ -111,6 +124,8 @@ previous_default="$(awk -F': ' '/^default_entry:/ {print $2; exit}' "$ESP_MOUNT/
 [ "$previous_default" = "MahoOS/Primary" ] || { umount "$ESP_MOUNT" || true; durable_fail default_boot_authority_unexpected; exit 1; }
 [ "$(grep -c '^/Guardian Recovery R3$' "$ESP_MOUNT/limine.conf" || true)" -eq 1 ] || { umount "$ESP_MOUNT" || true; durable_fail r3_boot_entry_binding_missing; exit 1; }
 umount "$ESP_MOUNT" || { durable_fail esp_read_only_unmount_failed; exit 1; }
+# Presentation-only: show the exact verified plan before any writable recovery mutation.
+render_tui
 rollback_boot(){
     local backup="$1"
     [ -r "$backup/limine.conf" ] && cp -f "$backup/limine.conf" "$ESP_MOUNT/limine.conf" || true
@@ -208,6 +223,9 @@ if ! jq -e --arg c "$campaign" --arg k "$(json_get .target_kernel_generation_id 
     durable_fail receipt_postcondition_failed; exit 1
 fi
 sync || { rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail final_sync_failed; exit 1; }
+# Show the durable reboot-gate state while the report is still mounted and readable.
+render_tui "$report"
+case "$TUI_HOLD_SECONDS" in ''|*[!0-9]*) ;; *) [ "$TUI_HOLD_SECONDS" -eq 0 ] || sleep "$TUI_HOLD_SECONDS";; esac
 umount "$ESP_MOUNT" || { durable_fail final_esp_unmount_failed; exit 1; }
 log "PASS: exact selected KernelGeneration staged; rebooting into normal LTS root"
 if [ "$NO_REBOOT" = 1 ]; then exit 0; fi
