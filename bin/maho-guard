@@ -212,14 +212,19 @@ guardian_update_status_command() {
 }
 
 why_command() {
-    local wanted="${1:-}"
-    local explainer="$ROOT/lib/guardian_explain.py"
+    local explainer="$ROOT/lib/guardian_explain.py" wanted="" verbose=0 arg
     [ -r "$explainer" ] || { echo "maho-guard: Guardian explainer unavailable" >&2; return 1; }
-    if [ -n "$wanted" ]; then
-        python "$explainer" --state-root "$SEC_STATE" --incident "$wanted"
-    else
-        python "$explainer" --state-root "$SEC_STATE"
-    fi
+    for arg in "$@"; do
+        case "$arg" in
+            --verbose) verbose=1 ;;
+            --*) echo "usage: maho-guard why [INCIDENT_ID] [--verbose]" >&2; return 2 ;;
+            *) [ -z "$wanted" ] || { echo "usage: maho-guard why [INCIDENT_ID] [--verbose]" >&2; return 2; }; wanted="$arg" ;;
+        esac
+    done
+    args=(python "$explainer" --state-root "$SEC_STATE")
+    [ -n "$wanted" ] && args+=(--incident "$wanted")
+    [ "$verbose" -eq 1 ] && args+=(--verbose)
+    "${args[@]}"
 }
 incident_command() {
     local id="${1:-}"
@@ -297,7 +302,7 @@ case "${1:-}" in
     status) status_command ;;
     guardian-status) guardian_status_command "${2:-}" ;;
     guardian-update-status) guardian_update_status_command ;;
-    why) why_command "${2:-}" ;;
+    why) shift; why_command "$@" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
     aur-build) aur_build_command "$@" ;;
@@ -311,7 +316,7 @@ Usage:
   maho-guard status
   maho-guard guardian-status [--json]
   maho-guard guardian-update-status
-  maho-guard why [INCIDENT_ID]
+  maho-guard why [INCIDENT_ID] [--verbose]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
   maho-guard aur-build /path/to/aur/source [--confirm-risk]

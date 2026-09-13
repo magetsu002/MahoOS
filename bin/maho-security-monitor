@@ -51,7 +51,14 @@ if path.is_file():
     except Exception: previous=None
 raw=lambda v: json.dumps(v,sort_keys=True,separators=(",",":"))
 changed=previous is None or raw(previous) != raw(payload)
-result={"changed":changed,"first":previous is None,"previous_result":previous.get("result") if isinstance(previous,dict) else None,"current_result":payload.get("result") if isinstance(payload,dict) else None}
+result={
+    "changed":changed,
+    "first":previous is None,
+    "previous_result":previous.get("result") if isinstance(previous,dict) else None,
+    "current_result":payload.get("result") if isinstance(payload,dict) else None,
+    "previous_attention":previous.get("attention_result", previous.get("result")) if isinstance(previous,dict) else None,
+    "current_attention":payload.get("attention_result", payload.get("result")) if isinstance(payload,dict) else None,
+}
 if changed:
     data=(json.dumps(payload,indent=2,sort_keys=True)+"\n").encode()
     tmp=path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
@@ -74,6 +81,8 @@ print("1" if r.get("changed") else "0")
 print("1" if r.get("first") else "0")
 print(r.get("previous_result") or "")
 print(r.get("current_result") or "")
+print(r.get("previous_attention") or "")
+print(r.get("current_attention") or "")
 PY
 }
 
@@ -123,18 +132,25 @@ package_cycle() {
 }
 
 persistence_cycle() {
-    local payload transition changed first previous current
+    local payload transition changed first previous current previous_attention current_attention
     payload="$(probe persistence check --state-root "$SEC_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
     transition="$(record_state persistence "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    previous_attention="${fields[4]:-${previous}}"; current_attention="${fields[5]:-${current}}"
     [ "$changed" = 1 ] || return 0
 
     case "$current" in
         changed)
-            emit_event persistence.changed observed medium \
-                "Security monitor observed persistence drift from the user-selected baseline" \
-                security.persistence maho "$payload"
+            if [ "$current_attention" = clean ]; then
+                emit_event persistence.expected-transition verified info \
+                    "Persistence changed only through verified expected Maho wiring" \
+                    security.persistence maho "$payload"
+            else
+                emit_event persistence.changed observed medium \
+                    "Security monitor observed unexplained persistence drift from the user-selected baseline" \
+                    security.persistence maho "$payload"
+            fi
             ;;
         clean)
             if [ "$previous" = changed ]; then
@@ -144,6 +160,12 @@ persistence_cycle() {
             fi
             ;;
     esac
+
+    if [ "$previous_attention" = changed ] && [ "$current_attention" = clean ] && [ "$current" = changed ]; then
+        emit_event persistence.attention-cleared verified info \
+            "Unexplained persistence evidence cleared; remaining drift is verified expected Maho wiring" \
+            security.persistence maho "$payload"
+    fi
 }
 
 runtime_cycle() {

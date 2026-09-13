@@ -14,6 +14,8 @@ import sys
 import uuid
 from pathlib import Path
 
+from maho_runtime_release import verify_release
+
 VERSION = 1
 NAME_RE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
 MTREE_ESCAPE_RE = re.compile(r"\\([0-7]{3})")
@@ -33,6 +35,11 @@ STARTUP_FILES = (
     ".zprofile",
     ".zlogin",
 )
+MAHO_EXPECTED_DEFAULT_USER_UNITS = frozenset({
+    "maho-observe.service",
+    "maho-security.service",
+    "maho-guardian.service",
+})
 
 
 def now_utc() -> str:
@@ -503,6 +510,82 @@ def persistence_inventory(home: Path, xdg_config: Path, fs_root: Path) -> dict:
     return {"version": VERSION, "kind": "persistence-inventory", "items": items}
 
 
+def _verified_maho_user_wiring(item: dict, home: Path, xdg_config: Path) -> dict | None:
+    """Recognize exact user-unit state expected by the verified Maho runtime.
+
+    This proves the resulting state matches Maho's declared wiring policy. It
+    deliberately does not claim to identify which process created the link.
+    """
+    if item.get("type") != "symlink":
+        return None
+    raw_path = item.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        return None
+    path = Path(raw_path)
+    unit_root = xdg_config / "systemd/user"
+
+    direct_unit = path.parent == unit_root
+    wants_unit = (
+        path.parent.parent == unit_root
+        and path.parent.name.endswith(".wants")
+    )
+    if not (direct_unit or wants_unit):
+        return None
+    if path.suffix not in {".service", ".timer", ".socket", ".path", ".target"}:
+        return None
+
+    # Installation of the unit file itself is expected for any unit actually
+    # shipped by the verified runtime. Automatic startup is stricter: only the
+    # core units declared for default.target are expected.
+    if wants_unit:
+        if path.parent.name != "default.target.wants":
+            return None
+        if path.name not in MAHO_EXPECTED_DEFAULT_USER_UNITS:
+            return None
+
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or (home / ".local/share"))
+    runtime_root = data_home / "maho/runtime"
+    current = runtime_root / "current"
+    releases = runtime_root / "releases"
+    verification = verify_release(current, releases)
+    if not verification.verified:
+        return None
+
+    release = Path(verification.path)
+    expected = release / "systemd/user" / path.name
+    try:
+        observed = path.resolve(strict=True)
+        expected_real = expected.resolve(strict=True)
+    except OSError:
+        return None
+    if observed != expected_real:
+        return None
+
+    classification = "expected-maho-unit" if direct_unit else "expected-maho-enable"
+    reason = (
+        "unit resolves exactly to the verified current Maho runtime"
+        if direct_unit
+        else "default-target enablement matches Maho's expected core-service policy"
+    )
+    return {
+        "owner": "maho-runtime",
+        "classification": classification,
+        "reason": reason,
+        "runtime": str(release),
+        "content_sha256": verification.content_sha256,
+        "source_revision": verification.source_revision,
+    }
+
+
+def _annotate_persistence_change(item: dict, home: Path, xdg_config: Path) -> dict:
+    row = dict(item)
+    attribution = _verified_maho_user_wiring(row, home, xdg_config)
+    if attribution is not None:
+        row["expected"] = True
+        row["attribution"] = attribution
+    return row
+
+
 def validate_persistence_snapshot(data: dict) -> None:
     if data.get("version") != VERSION or data.get("kind") != "persistence-snapshot":
         raise SystemExit("unsupported persistence snapshot")
@@ -577,22 +660,45 @@ def persistence_command(args) -> dict:
         current_inventory = persistence_inventory(home, xdg_config, fs_root)
         before = {x["path"]: x for x in base["inventory"]["items"]}
         after = {x["path"]: x for x in current_inventory["items"]}
-        added = [after[p] for p in sorted(set(after) - set(before))]
+        added = [
+            _annotate_persistence_change(after[p], home, xdg_config)
+            for p in sorted(set(after) - set(before))
+        ]
         removed = [before[p] for p in sorted(set(before) - set(after))]
-        changed = [
-            {"path": p, "before": before[p], "after": after[p]}
-            for p in sorted(set(before) & set(after))
-            if before[p] != after[p]
+        changed = []
+        for p in sorted(set(before) & set(after)):
+            if before[p] == after[p]:
+                continue
+            row = {"path": p, "before": before[p], "after": after[p]}
+            attribution = _verified_maho_user_wiring(after[p], home, xdg_config)
+            if attribution is not None:
+                row["expected"] = True
+                row["attribution"] = attribution
+            changed.append(row)
+
+        unexpected_added = [item for item in added if item.get("expected") is not True]
+        unexpected_changed = [item for item in changed if item.get("expected") is not True]
+        unexpected_removed = list(removed)
+        expected_changes = [
+            {"change": "added", **item} for item in added if item.get("expected") is True
+        ] + [
+            {"change": "changed", **item} for item in changed if item.get("expected") is True
         ]
         result = "clean" if not (added or removed or changed) else "changed"
+        attention_result = "clean" if not (unexpected_added or unexpected_removed or unexpected_changed) else "changed"
         return {
             "result": result,
+            "attention_result": attention_result,
             "baseline": str(baseline),
             "baseline_state_sha256": base["state_sha256"],
             "current_state_sha256": stable_hash(current_inventory),
             "added": added,
             "removed": removed,
             "changed": changed,
+            "expected_changes": expected_changes,
+            "unexpected_added": unexpected_added,
+            "unexpected_removed": unexpected_removed,
+            "unexpected_changed": unexpected_changed,
         }
 
     raise SystemExit("unknown persistence command")

@@ -205,10 +205,14 @@ elif kind == "baseline":
 elif kind == "no-baseline":
     print("No trusted persistence baseline is configured."); print("Expected:",r["path"])
 elif kind in {"clean","changed"}:
-    print("Maho persistence check"); print("Result: ",kind); print("Added:  ",len(r.get("added",[]))); print("Removed:",len(r.get("removed",[]))); print("Changed:",len(r.get("changed",[])))
-    for item in r.get("added",[])[:15]: print("  ADDED   ",item.get("path"))
-    for item in r.get("removed",[])[:15]: print("  REMOVED ",item.get("path"))
-    for item in r.get("changed",[])[:15]: print("  CHANGED ",item.get("path"))
+    expected=r.get("expected_changes",[])
+    ua=r.get("unexpected_added",r.get("added",[])); ur=r.get("unexpected_removed",r.get("removed",[])); uc=r.get("unexpected_changed",r.get("changed",[]))
+    print("Maho persistence check"); print("Baseline:",kind); print("Attention:",r.get("attention_result",kind))
+    print("Expected Maho changes:",len(expected)); print("Unexplained changes:",len(ua)+len(ur)+len(uc))
+    for item in expected[:15]: print("  EXPECTED ",item.get("path"),"—",(item.get("attribution") or {}).get("classification","maho"))
+    for item in ua[:15]: print("  ADDED    ",item.get("path"))
+    for item in ur[:15]: print("  REMOVED  ",item.get("path"))
+    for item in uc[:15]: print("  CHANGED  ",item.get("path"))
 PY
 }
 
@@ -305,7 +309,7 @@ integrity_command() {
 }
 
 persistence_command() {
-    local sub="${1:-}" result status
+    local sub="${1:-}" result status attention
     case "$sub" in
         snapshot) result="$(persistence_probe snapshot)" ;;
         baseline)
@@ -321,12 +325,19 @@ persistence_command() {
     esac || return 1
     pretty_persistence "$result"
     status="$(printf '%s\n' "$result" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')"
+    attention="$(printf '%s\n' "$result" | python -c 'import json,sys; r=json.load(sys.stdin); print(r.get("attention_result", r.get("result")))')"
     case "$status" in
         snapshot) emit_security_event persistence.snapshot observed info "Captured current persistence inventory without trusting it" security.persistence maho "$result" ;;
         baseline-set) emit_security_event persistence.baseline verified info "User selected a trusted persistence baseline" security.persistence user "$result" ;;
         baseline-cleared) emit_security_event persistence.baseline-cleared observed info "User cleared the trusted persistence baseline" security.persistence user "$result" ;;
         clean) emit_security_event persistence.check verified info "Persistence inventory matches the user-selected baseline" security.persistence maho "$result" ;;
-        changed) emit_security_event persistence.changed observed medium "Persistence inventory differs from the user-selected baseline" security.persistence maho "$result" ;;
+        changed)
+            if [ "$attention" = clean ]; then
+                emit_security_event persistence.expected-transition verified info "Persistence differs from baseline only through verified expected Maho wiring" security.persistence maho "$result"
+            else
+                emit_security_event persistence.changed observed medium "Persistence inventory has unexplained differences from the user-selected baseline" security.persistence maho "$result"
+            fi
+            ;;
     esac
 }
 
