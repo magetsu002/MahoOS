@@ -1,0 +1,27 @@
+#!/usr/bin/bash
+
+build() {
+    : "${MAHO_R1_SOURCE_ROOT:?MAHO_R1_SOURCE_ROOT is required}"
+    add_module btrfs
+    add_module vfat
+    for binary in bash blkid findmnt jq logger mkdir mount mv sha256sum sleep sync systemctl umount uname awk head; do
+        add_binary "$binary"
+    done
+    add_file "$MAHO_R1_SOURCE_ROOT/lib/maho-guardian-recovery-r1" \
+        /usr/lib/maho/guardian-recovery-r1 755
+    for name in maho_trust_identity.py maho_generation_v2.py maho_kernel_generation.py guardian_offline_recovery.py; do
+        add_file "$MAHO_R1_SOURCE_ROOT/lib/$name" \
+            "/usr/lib/maho/guardian-r1-contracts/$name" 644
+    done
+    add_file "$MAHO_R1_SOURCE_ROOT/config/systemd/initrd/maho-guardian-recovery-r1.service" \
+        /usr/lib/systemd/system/maho-guardian-recovery-r1.service 644
+    add_symlink \
+        /usr/lib/systemd/system/initrd-switch-root.target.requires/maho-guardian-recovery-r1.service \
+        /usr/lib/systemd/system/maho-guardian-recovery-r1.service
+}
+
+help() {
+    cat <<'HELP'
+Builds the dedicated Maho Guardian Recovery R1 verifier into an initramfs.
+HELP
+}
