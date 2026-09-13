@@ -28,7 +28,7 @@ hardware acceptance before it is a release boundary.
 - finish unified recovery history/status surfaces and product-facing recovery receipts
 - harden signed boot/update authority and define Secure Boot/key lifecycle
 - finish Arch/CachyOS packaging, installation flow, and ArchISO image
-- add deterministic recovery/update build checks where inputs permit reproducible output
+- extend deterministic build checks from recovery evidence generation into initramfs/update payload assembly where toolchains permit reproducible output
 - expand interruption, power-loss, stale-evidence, and hostile-input regression campaigns
 - broaden hardware, NVIDIA, suspend/resume, multi-monitor, and failure testing
 - finish release packaging, documentation, and final acceptance
