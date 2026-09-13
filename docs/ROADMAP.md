@@ -1,41 +1,47 @@
 # Roadmap
 
 MahoOS V1 is focused on turning the current desktop into a complete system that
-can be installed, updated, recovered, and tested as one product.
+can be installed, updated, admitted, recovered, and tested as one product.
 
-## Already in the V1 line
+## Proven foundations
 
-- Maho Edge and control center
-- Maho Dock
-- Maho Launcher
-- Maho Link
-- Maho Notify
-- Maho Lock and SDDM theme
-- Maho Files
-- Maho Power
-- Maho Clipboard
-- wallpaper-based palette generation
-- immutable Maho runtime releases
-- security observation and containment tools
-- Guardian severity and service-recovery verification
+- complete Hyprland/Quickshell desktop surfaces and immutable Maho runtime releases
+- Guardian observation, containment, incident history, and bounded service recovery
+- M3B full-generation Btrfs restore mechanics with `/home` preservation
+- R1 independent recovery-kernel execution
+- R2 independently trusted SystemGeneration + KernelGeneration selection
+- R3 native kernel-only rollback on hardware with exact postboot proof
+- dependency-light Guardian Recovery TUI with plan-bound authorization requests
+- candidate-first Native Admission V1 with exact mutation-graph promotion authority
+- revocation-to-recovery planning for kernel-only, full-generation, or external recovery
+
+These claims are scoped. R3 certifies recovery mechanics, not a hostile boot chain;
+Secure Boot/signing hardening remains separate. Native Admission is source- and
+contract-complete but still needs production update promotion integration and
+hardware acceptance before it is a release boundary.
 
 ## Before V1
 
-- finish Guardian acceptance and recovery history
-- standardize component manifests and installation ownership
-- finish Arch/CachyOS platform packaging
-- add transactional Btrfs system recovery
-- add current, previous, and recovery boot generations
-- integrate Limine with verified fallback entries
-- build the installation flow
-- build the ArchISO image
-- add signed transactional updates
-- connect Guardian to system/runtime recovery providers
-- run controlled failure and rollback testing
+- integrate Native Admission promotion authority into the production update/activation path
+- complete M4B native update hardware certification against a genuine newer coherent Primary kernel generation
+- turn Guardian Recovery TUI into the default human-visible native recovery flow without weakening independent recovery authority
+- finish unified recovery history/status surfaces and product-facing recovery receipts
+- harden signed boot/update authority and define Secure Boot/key lifecycle
+- finish Arch/CachyOS packaging, installation flow, and ArchISO image
+- add deterministic recovery/update build checks where inputs permit reproducible output
+- expand interruption, power-loss, stale-evidence, and hostile-input regression campaigns
+- broaden hardware, NVIDIA, suspend/resume, multi-monitor, and failure testing
 - finish release packaging, documentation, and final acceptance
+
+## Blocked by external availability
+
+M4B hardware certification remains blocked until CachyOS publishes a real newer
+coherent Primary kernel generation. Do not manufacture this proof with partial
+upgrades, same-version reinstalls, hidden driver migration, or relaxed package
+authority.
 
 ## After V1
 
 Planned work after the first stable release includes broader personalization,
 Maho Themes, more recovery providers, deeper Guardian diagnosis, and additional
-hardware and multi-monitor coverage.
+hardware coverage.

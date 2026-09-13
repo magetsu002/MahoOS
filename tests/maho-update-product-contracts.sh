@@ -54,7 +54,7 @@ require "$ROOT/bin/maho-power" 'exec systemctl poweroff' "ordinary Shut Down no 
 reject "$ROOT/bin/maho-power" 'maho-update' "ordinary power actions were coupled to update execution"
 echo "PASS Power preserves plain Restart and Shut Down while consuming meaningful status"
 
-if rg -n 'pacman|reboot|shutdown|poweroff|efibootmgr|BootOrder|BootNext' "$ROOT/bin/maho-update" "$ROOT/lib/maho_update_cli.py"; then
+if grep -En 'pacman|reboot|shutdown|poweroff|efibootmgr|BootOrder|BootNext' "$ROOT/bin/maho-update" "$ROOT/lib/maho_update_cli.py"; then
     fail "read-only product CLI contains host mutation authority"
 fi
 echo "ALL MAHO UPDATE PRODUCT INTEGRATION CONTRACTS PASS"

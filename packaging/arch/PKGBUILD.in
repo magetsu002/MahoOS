@@ -89,6 +89,8 @@ package() {
     "$pkgdir/usr/bin/maho-recovery"
   install -Dm755 "$source_root/bin/maho-admit" \
     "$pkgdir/usr/bin/maho-admit"
+  install -Dm755 "$source_root/bin/maho-trust" \
+    "$pkgdir/usr/bin/maho-trust"
   install -Dm644 "$source_root/README.md" \
     "$pkgdir/usr/share/doc/maho-os/README.md"
 }

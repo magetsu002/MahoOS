@@ -4,8 +4,9 @@ MahoOS is an Arch-based desktop operating system built around Hyprland and Quick
 It provides its own shell, launcher, connectivity panel, notifications, lock screen,
 file manager, power controls, wallpaper system, and recovery tooling.
 
-MahoOS is still in development. The desktop is usable, but V1 installation,
-updates, boot recovery, and full system recovery are not finished yet.
+MahoOS is still in development. The desktop is usable and the core recovery
+mechanics have native certification, but V1 installation, production update
+promotion, signed boot trust, and release hardening are not finished yet.
 
 ## Desktop
 
@@ -70,6 +71,8 @@ docs/        Architecture and component documentation
 
 ## V1 direction
 
-V1 is focused on making the current desktop installable and recoverable as a
-complete operating system: packaging, installer, boot generations, Btrfs
-recovery, signed updates, Guardian integration, and failure testing.
+V1 is focused on making the current desktop installable, admission-gated,
+recoverable, and releasable as one operating system. Independent kernel recovery,
+trusted-generation selection, native kernel rollback, candidate admission, and
+revocation recovery planning now exist; production update certification, signed
+boot trust, installer/ISO work, and broader hardware acceptance remain.
