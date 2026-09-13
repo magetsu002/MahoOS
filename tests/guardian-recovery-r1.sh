@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HELPER="$ROOT/lib/maho-guardian-recovery-r1"
 BUILDER="$ROOT/bin/maho-guardian-recovery-r1-build"
 STAGER="$ROOT/bin/maho-guardian-recovery-r1-stage"
+LIMINE_HELPER="$ROOT/lib/maho_guardian_r1_limine.py"
 HOOK="$ROOT/config/mkinitcpio/install/sd-maho-guardian-recovery-r1"
 UNIT="$ROOT/config/systemd/initrd/maho-guardian-recovery-r1.service"
 TMP="$(mktemp -d)"
@@ -157,5 +158,51 @@ if run_helper "$digest" 'ro,relatime,subvol=/@' 1 >/dev/null 2>&1; then
 fi
 [ "$(cat "$TMP/state/reason")" = report_persistence_failed ] || fail "report persistence failure was not surfaced"
 pass "report persistence failure blocks certification"
+
+# limine-snapper-sync may rewrite limine.conf and can strand an old R1 stanza
+# without its opening marker. Staging must remove that stale authority first.
+cat > "$TMP/limine-stale.conf" <<'EOF'
+default_entry: MahoOS/Primary
+/MahoOS
+//Primary
+protocol: linux
+/Guardian Recovery R1
+comment: stale
+protocol: linux
+kernel_cmdline: maho.guardian_campaign=r1-old
+# MAHO-GUARDIAN-R1-END
+/Other OS
+protocol: linux
+EOF
+python3 "$LIMINE_HELPER" sanitize "$TMP/limine-stale.conf" "$TMP/limine-clean.conf"
+! grep -Fq 'Guardian Recovery R1' "$TMP/limine-clean.conf" || fail "stale markerless R1 entry survived sanitization"
+! grep -Fq 'MAHO-GUARDIAN-R1' "$TMP/limine-clean.conf" || fail "orphan R1 marker survived sanitization"
+grep -Fxq '/Other OS' "$TMP/limine-clean.conf" || fail "sanitization removed following top-level entry"
+pass "stale markerless R1 authority is removed safely"
+
+digest="$(sha256sum "$TMP/esp/MahoOS/guardian-recovery-r1/manifest.json" | awk '{print $1}')"
+cat > "$TMP/r1-entry.conf" <<EOF
+/Guardian Recovery R1
+comment: Maho native R1 read-only independent-kernel certification
+protocol: linux
+kernel_path: boot():/MahoOS/guardian-recovery-r1/vmlinuz
+module_path: boot():/MahoOS/guardian-recovery-r1/intel-ucode.img
+module_path: boot():/MahoOS/guardian-recovery-r1/initramfs.img
+kernel_cmdline: root=UUID=test-root-uuid ro rootflags=subvol=@,ro maho.guardian_recovery=r1 maho.guardian_manifest_sha256=$digest maho.guardian_esp_partuuid=12345678-abcd-1234-abcd-1234567890ab maho.guardian_campaign=r1-test-00000000
+EOF
+{
+  cat "$TMP/limine-clean.conf"
+  echo '# MAHO-GUARDIAN-R1-BEGIN'
+  cat "$TMP/r1-entry.conf"
+  echo '# MAHO-GUARDIAN-R1-END'
+} > "$TMP/limine-bound.conf"
+python3 "$LIMINE_HELPER" verify "$TMP/limine-bound.conf" "$TMP/r1-entry.conf" "$TMP/esp/MahoOS/guardian-recovery-r1/manifest.json" || fail "exact R1 Limine binding was rejected"
+pass "exact staged manifest and Limine entry binding verifies"
+
+sed 's/r1-test-00000000/r1-stale-00000000/' "$TMP/limine-bound.conf" > "$TMP/limine-drift.conf"
+if python3 "$LIMINE_HELPER" verify "$TMP/limine-drift.conf" "$TMP/r1-entry.conf" "$TMP/esp/MahoOS/guardian-recovery-r1/manifest.json" >/dev/null 2>&1; then
+    fail "stale Limine campaign binding was accepted"
+fi
+pass "Limine rewrite drift fails closed before reboot"
 
 echo 'ALL GUARDIAN RECOVERY R1 CONTRACTS PASS'

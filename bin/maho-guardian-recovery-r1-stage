@@ -3,6 +3,8 @@ set -euo pipefail
 
 ACTION="${1:-status}"
 CAMPAIGN_DIR="${2:-}"
+SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LIMINE_HELPER="$SOURCE_ROOT/lib/maho_guardian_r1_limine.py"
 ESP="/boot"
 TARGET_REL="MahoOS/guardian-recovery-r1"
 TARGET="$ESP/$TARGET_REL"
@@ -17,6 +19,7 @@ fail() { echo "maho-guardian-recovery-r1-stage: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 require_root() { (( EUID == 0 )) || fail "root privileges are required for $ACTION"; }
 for cmd in findmnt sha256sum python3 install cp mv rm grep awk tr cat sync flock; do need "$cmd"; done
+[ -r "$LIMINE_HELPER" ] || fail "missing R1 Limine helper: $LIMINE_HELPER"
 
 root_uuid() { findmnt -no UUID / | tail -n1; }
 esp_partuuid() { findmnt -no PARTUUID "$ESP" | tail -n1; }
@@ -67,29 +70,14 @@ PY
 }
 strip_existing_entry() {
     local input="$1" output="$2"
-    python3 - "$input" "$output" <<'PY'
-from pathlib import Path
-import sys
-src = Path(sys.argv[1]).read_text().splitlines()
-out, inside = [], False
-for line in src:
-    if line == "# MAHO-GUARDIAN-R1-BEGIN":
-        if inside:
-            raise SystemExit("nested R1 marker")
-        inside = True
-        continue
-    if line == "# MAHO-GUARDIAN-R1-END":
-        if not inside:
-            raise SystemExit("orphan R1 end marker")
-        inside = False
-        continue
-    if not inside:
-        out.append(line)
-if inside:
-    raise SystemExit("unterminated R1 marker")
-Path(sys.argv[2]).write_text("\n".join(out).rstrip() + "\n")
-PY
+    python3 "$LIMINE_HELPER" sanitize "$input" "$output"
 }
+
+verify_limine_binding() {
+    local config="$1" entry="$2" manifest="$3"
+    python3 "$LIMINE_HELPER" verify "$config" "$entry" "$manifest"
+}
+
 
 backup_current() {
     local campaign="$1" dir="$BACKUPS/$campaign"
@@ -150,6 +138,7 @@ stage_command() {
     cp "$CAMPAIGN_DIR/intel-ucode.img" "$temp_target/intel-ucode.img"
     cp "$CAMPAIGN_DIR/manifest.json" "$temp_target/manifest.json"
     cp "$CAMPAIGN_DIR/manifest.sha256" "$temp_target/manifest.sha256"
+    cp "$CAMPAIGN_DIR/limine-entry.conf" "$temp_target/limine-entry.conf"
     rm -f "$temp_target/report.json" "$temp_target/report.json.tmp"
     python3 - "$temp_target" <<'PY'
 import hashlib, json, pathlib, sys
@@ -175,8 +164,7 @@ PY
     rm -f "$temp_conf"
     sync "$ESP" 2>/dev/null || sync
 
-    grep -Fxq "$BEGIN_MARKER" "$LIMINE" || fail "staged Limine marker missing"
-    grep -Fq '/Guardian Recovery R1' "$LIMINE" || fail "staged R1 entry missing"
+    verify_limine_binding "$LIMINE" "$TARGET/limine-entry.conf" "$TARGET/manifest.json" || fail "staged R1 boot entry is not bound to exact campaign"
     grep -Fxq 'default_entry: MahoOS/Primary' "$LIMINE" || fail "default boot entry changed"
     [ "$(sha256sum "$TARGET/manifest.json" | awk '{print $1}')" = "$(awk 'NR==1 {print $1}' "$TARGET/manifest.sha256")" ] || fail "staged manifest verification failed"
 
@@ -195,6 +183,7 @@ verify_staged() {
     validate_layout
     [ -r "$TARGET/manifest.json" ] || fail "R1 is not staged"
     [ -r "$TARGET/manifest.sha256" ] || fail "staged manifest checksum missing"
+    [ -r "$TARGET/limine-entry.conf" ] || fail "staged Limine entry source missing"
     local expected actual
     expected="$(awk 'NR==1 {print $1}' "$TARGET/manifest.sha256")"
     actual="$(sha256sum "$TARGET/manifest.json" | awk '{print $1}')"
@@ -206,8 +195,7 @@ for key, filename in (("kernel","vmlinuz"),("initramfs","initramfs.img"),("micro
     if hashlib.sha256((root/filename).read_bytes()).hexdigest() != m["payload"][key]["sha256"]:
         raise SystemExit(f"staged payload mismatch: {key}")
 PYVERIFY
-    grep -Fxq "$BEGIN_MARKER" "$LIMINE" || fail "R1 Limine marker missing"
-    grep -Fxq "$END_MARKER" "$LIMINE" || fail "R1 Limine end marker missing"
+    verify_limine_binding "$LIMINE" "$TARGET/limine-entry.conf" "$TARGET/manifest.json" || fail "R1 Limine config no longer matches staged campaign"
     grep -Fxq 'default_entry: MahoOS/Primary' "$LIMINE" || fail "default boot entry changed"
     echo "PASS  Guardian Recovery R1 staged state verified"
 }
