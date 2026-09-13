@@ -1,0 +1,67 @@
+#!/usr/bin/bash
+set -euo pipefail
+TARGET="${MAHO_R3_TARGET:-/boot/MahoOS/guardian-recovery-r3}"
+LIMINE="${MAHO_R3_LIMINE:-/boot/limine.conf}"
+STATE_ROOT="${MAHO_R3_STATE_ROOT:-/var/lib/maho/guardian-recovery-r3}"
+fail(){ echo "maho-guardian-recovery-r3-postboot: $*" >&2; exit 1; }
+(( EUID == 0 )) || fail "root privileges are required"
+for cmd in jq findmnt sha256sum btrfs uname install cp sync; do
+  command -v "$cmd" >/dev/null 2>&1 || fail "missing command: $cmd"
+done
+manifest="$TARGET/manifest.json"; report="$TARGET/report.json"
+[ -r "$manifest" ] || fail "staged R3 manifest missing"
+[ -r "$report" ] || fail "R3 execution receipt missing"
+campaign="$(jq -er .campaign_id "$manifest")"
+target_release="$(jq -er .target_kernel_release "$manifest")"
+target_kernel="$(jq -er .target_kernel_generation_id "$manifest")"
+target_system="$(jq -er .target_system_generation_id "$manifest")"
+root_uuid="$(jq -er .root.uuid "$manifest")"
+manifest_sha="$(sha256sum "$manifest" | awk '{print $1}')"
+if ! jq -e --arg c "$campaign" --arg m "$manifest_sha" --arg k "$target_kernel" --arg s "$target_system" '
+  .schema_version==1 and .outcome=="PASS" and .phase=="AWAITING_REBOOT" and
+  .campaign_id==$c and .manifest_sha256==$m and
+  .target_kernel_generation_id==$k and .target_system_generation_id==$s and
+  .mutation_started==true and .firmware_mutated==false and
+  .next_default_entry=="MahoOS/Fallback (LTS)"
+' "$report" >/dev/null; then fail "execution receipt is not certifiable"; fi
+case " $(cat /proc/cmdline) " in *" maho.guardian_recovery=r3 "*) fail "still running recovery environment";; esac
+[ "$(uname -r)" = "$target_release" ] || fail "running kernel is not selected recovery kernel"
+[ "$(findmnt -no FSTYPE / | tail -1)" = btrfs ] || fail "normal root is not Btrfs"
+[ "$(findmnt -no FSROOT / | tail -1)" = /@ ] || fail "normal /@ root is not active"
+observed_root_uuid="$(findmnt -no UUID / | tail -1)"
+[ "${observed_root_uuid,,}" = "${root_uuid,,}" ] || fail "root filesystem identity changed"
+for spec in \
+  "kernel:/boot/vmlinuz-linux-cachyos-lts" \
+  "initramfs:/boot/initramfs-linux-cachyos-lts.img" \
+  "microcode:/boot/intel-ucode.img"; do
+  key="${spec%%:*}"; path="${spec#*:}"
+  artifact="$(jq -er ".target_artifact_ids.$key" "$manifest")"
+  expected="${artifact#art-}"
+  [ -r "$path" ] || fail "postboot artifact missing: $key"
+  [ "$(sha256sum "$path" | awk '{print $1}')" = "$expected" ] || fail "postboot artifact digest mismatch: $key"
+done
+home_info="$(btrfs subvolume show /home 2>/dev/null || true)"
+home_uuid="$(awk '$1=="UUID:" {print $2; exit}' <<<"$home_info")"
+[ -n "$home_uuid" ] || fail "postboot home identity unavailable"
+[ "$home_uuid" = "$(jq -er .home_subvolume_uuid "$report")" ] || fail "home identity changed"
+[ "$(awk -F': ' '/^default_entry:/ {print $2; exit}' "$LIMINE")" = "MahoOS/Fallback (LTS)" ] || fail "recovered LTS is not persistent boot authority"
+archive="$STATE_ROOT/campaigns/$campaign"
+install -d -m 700 "$archive"
+cp "$manifest" "$archive/manifest.json"
+cp "$report" "$archive/execution-report.json"
+jq -n --arg campaign "$campaign" --arg kernel "$target_kernel" --arg system "$target_system" \
+  --arg release "$target_release" --arg root "$root_uuid" --arg home "$home_uuid" \
+  '{schema_version:1,outcome:"PASS",phase:"VERIFIED",campaign_id:$campaign,
+    reason:"native_kernel_recovery_postboot_verified",target_kernel_generation_id:$kernel,
+    target_system_generation_id:$system,running_kernel_release:$release,root_uuid:$root,
+    home_subvolume_uuid:$home,normal_root_active:true,boot_artifacts_verified:true,
+    firmware_mutated:false,default_entry:"MahoOS/Fallback (LTS)"}' > "$archive/postboot.json.tmp"
+mv -f "$archive/postboot.json.tmp" "$archive/postboot.json"
+sync
+jq -e '.outcome=="PASS" and .phase=="VERIFIED" and .normal_root_active==true and .boot_artifacts_verified==true and .firmware_mutated==false' "$archive/postboot.json" >/dev/null || fail "durable postboot proof failed"
+echo "PASS  Guardian Recovery R3 native kernel recovery verified"
+echo "Campaign: $campaign"
+echo "Kernel:   $target_release ($target_kernel)"
+echo "Root:     /@ preserved"
+echo "Home:     $home_uuid preserved"
+echo "Evidence: $archive/postboot.json"
