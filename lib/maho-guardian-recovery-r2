@@ -25,7 +25,9 @@ sha_file(){ sha256sum "$1" | awk '{print $1}'; }
 json_get(){ jq -er "$1" "$2"; }
 write_report(){
     local outcome="$1" reason="$2" campaign="$3" manifest_sha="$4"
-    local esp_partuuid="$5" selection="${6:-{}}" esp_dev tmp
+    local esp_partuuid="$5" selection="${6-}" esp_dev tmp
+    [ -n "$selection" ] || selection='{}'
+    jq -e 'type == "object"' <<<"$selection" >/dev/null 2>&1 || return 1
     mkdir -p "$STATE" "$ESP_MOUNT"
     printf '%s\n' "$outcome" > "$STATE/outcome"
     printf '%s\n' "$reason" > "$STATE/reason"
@@ -49,7 +51,7 @@ write_report(){
 }
 finish(){
     local outcome="$1" reason="$2" campaign="$3" manifest_sha="$4"
-    local esp="$5" selection="${6:-{}}"
+    local esp="$5" selection="${6-}"
     if ! write_report "$outcome" "$reason" "$campaign" "$manifest_sha" "$esp" "$selection"; then
         outcome=FAIL
         reason=report_persistence_failed

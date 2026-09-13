@@ -78,6 +78,8 @@ def main() -> int:
     check("R2 verifier runs before initrd cleanup", "Before=initrd-cleanup.service initrd-switch-root.target" in service)
     check("R2 initramfs carries manifest-copy primitive", " cp " in (" " + hook + " "))
     check("R2 copies staged manifest into stable initrd state", 'cp "$esp_manifest" "$LOCAL_MANIFEST"' in verifier)
+    check("R2 report selection JSON avoids shell brace corruption", '${6:-{}}' not in verifier and 'selection="${6-}"' in verifier)
+    check("R2 report selection JSON is validated before persistence", 'type == "object"' in verifier)
     check("R2 stager preserves Primary default", "default_entry: MahoOS/Primary" in stage)
     check("R2 stager binds exact Limine campaign", "verify_limine_binding" in stage)
     check("R2 verifier requires read-only root", "root_not_read_only" in verifier)
