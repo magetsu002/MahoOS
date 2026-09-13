@@ -1,0 +1,13 @@
+[Unit]
+Description=Maho Guardian Recovery R2 independent-kernel certification
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=initrd-cleanup.service initrd-switch-root.target
+ConditionKernelCommandLine=maho.guardian_recovery=r2
+OnFailure=emergency.target
+OnFailureJobMode=replace-irreversibly
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/maho/guardian-recovery-r2
+RemainAfterExit=yes
