@@ -115,6 +115,8 @@ class RevocationAnalysis:
     revoked_artifact_ids: tuple[ArtifactID, ...]
     affected_transaction_ids: tuple[TransactionID, ...]
     first_affected_generation_id: GenerationID | None
+    directly_affected_generation_ids: tuple[GenerationID, ...]
+    kernel_induced_generation_ids: tuple[GenerationID, ...]
     affected_generation_ids: tuple[GenerationID, ...]
     affected_kernel_generation_ids: tuple[KernelGenerationID, ...]
     generation_trust: Mapping[GenerationID, TrustState]
@@ -237,12 +239,13 @@ def analyze_revocations(
         kernel_graph, _kernel_descendants(kernel_graph, kernel_seeds), kernel_seeds,
     )
 
-    system_seeds: set[GenerationID] = set()
+    direct_system_seeds: set[GenerationID] = set()
+    kernel_system_seeds: set[GenerationID] = set()
     for item in system_graph.generations.values():
         if any(artifact_id in revoked for artifact_id in item.artifact_ids):
-            system_seeds.add(item.generation_id)
+            direct_system_seeds.add(item.generation_id)
         if item.kernel_generation_id in affected_kernels:
-            system_seeds.add(item.generation_id)
+            kernel_system_seeds.add(item.generation_id)
     use_rows = tuple(item for item in uses if item.artifact_id in revoked)
     for item in use_rows:
         if item.generation_id not in system_graph.generations:
@@ -250,7 +253,12 @@ def analyze_revocations(
         evidence = artifact_index.get(item.artifact_id)
         if evidence is None or evidence.transaction_id != item.transaction_id:
             raise ValueError("artifact use transaction contradicts provenance")
-    system_seeds.update(item.generation_id for item in use_rows)
+    direct_system_seeds.update(item.generation_id for item in use_rows if not item.affected_kernel)
+    kernel_system_seeds.update(item.generation_id for item in use_rows if item.affected_kernel)
+    system_seeds = direct_system_seeds | kernel_system_seeds
+    directly_affected_systems = _apply_revalidation_boundaries(
+        system_graph, _descendants(system_graph, direct_system_seeds), direct_system_seeds,
+    )
     affected_systems = _apply_revalidation_boundaries(
         system_graph, _descendants(system_graph, system_seeds), system_seeds,
     )
@@ -282,6 +290,8 @@ def analyze_revocations(
         revoked_artifact_ids=tuple(sorted(revoked)),
         affected_transaction_ids=tuple(sorted(transactions)),
         first_affected_generation_id=first,
+        directly_affected_generation_ids=tuple(sorted(directly_affected_systems)),
+        kernel_induced_generation_ids=tuple(sorted(affected_systems - directly_affected_systems)),
         affected_generation_ids=tuple(sorted(affected_systems)),
         affected_kernel_generation_ids=tuple(sorted(affected_kernels)),
         generation_trust=trust, exposure=exposure, history_complete=history_complete,

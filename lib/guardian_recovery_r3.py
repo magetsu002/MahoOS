@@ -106,7 +106,18 @@ def _target_snapshot(system: SystemGeneration) -> tuple[str, int | None]:
     return identity, int(match.group(1))
 
 
-def _full_generation_ops() -> tuple[str, ...]:
+def recovery_operations(mode: str) -> tuple[str, ...]:
+    if mode == "KERNEL_ONLY":
+        return (
+            "preserve-incident-evidence",
+            "verify-selected-generation-again",
+            "stage-exact-selected-kernel-artifacts",
+            "verify-boot-artifacts-and-current-root-identity",
+            "request-reboot",
+            "verify-postboot-kernel-and-home-identity",
+        )
+    if mode != "FULL_GENERATION":
+        raise ValueError("unknown recovery mode")
     return (
         "preserve-incident-evidence",
         "verify-selected-generation-again",
@@ -116,16 +127,6 @@ def _full_generation_ops() -> tuple[str, ...]:
         "verify-restored-root-and-boot-artifacts",
         "request-reboot",
         "verify-postboot-generation-and-home-identity",
-    )
-
-def _kernel_only_ops() -> tuple[str, ...]:
-    return (
-        "preserve-incident-evidence",
-        "verify-selected-generation-again",
-        "stage-exact-selected-kernel-artifacts",
-        "verify-boot-artifacts-and-current-root-identity",
-        "request-reboot",
-        "verify-postboot-kernel-and-home-identity",
     )
 
 
@@ -176,12 +177,12 @@ def plan_r3_recovery(
         raise R3PlanningError("incident_identity_missing")
     if selected_system_id == current_system_generation_id:
         mode = "KERNEL_ONLY"
-        operations = _kernel_only_ops()
+        operations = recovery_operations(mode)
     else:
         if snapshot_id is None:
             raise R3PlanningError("full_recovery_target_is_not_bounded_btrfs_snapshot")
         mode = "FULL_GENERATION"
-        operations = _full_generation_ops()
+        operations = recovery_operations(mode)
     return R3RecoveryIntent(
         mode=mode,
         incident_id=incident_id,
