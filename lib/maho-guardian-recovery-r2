@@ -188,7 +188,7 @@ observed_pkg="$(find "$TOP_MOUNT/${target_path#/}/var/lib/pacman/local" -mindept
 "$UMOUNT_BIN" "$TOP_MOUNT" || true
 selection="$(python3 "$SELECTOR" "$EVIDENCE_ROOT" "$manifest" 2>"$STATE/selector.err" || true)"
 if ! jq -e '.selection_matches_expected==true and .outcome=="READY"' <<<"$selection" >/dev/null 2>&1; then
-    finish FAIL generation_selection_failed "$campaign" "$manifest_sha" "$esp_partuuid" "${selection:-{}}"
+    finish FAIL generation_selection_failed "$campaign" "$manifest_sha" "$esp_partuuid" "$selection"
     exit 1
 fi
 finish PASS independently_trusted_generation_pair_selected \
