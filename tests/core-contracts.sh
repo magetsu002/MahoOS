@@ -178,6 +178,7 @@ python "$ROOT/tests/test_guardian_admission.py"
 python "$ROOT/tests/test_guardian_native_admission.py"
 python "$ROOT/tests/test_guardian_revocation.py"
 python "$ROOT/tests/test_guardian_revocation_recovery.py"
+python "$ROOT/tests/test_guardian_trust_status.py"
 
 echo "=== Adaptive policy A1-A15 ==="
 for test in "$ROOT"/tests/test_adaptive_*.py; do

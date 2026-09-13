@@ -28,7 +28,7 @@ COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
-  maho-files maho-link maho-lock maho-power maho-update maho-clipboard
+  maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust
   maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
@@ -263,6 +263,7 @@ preflight() {
     "$ROOT/lib/maho_kernel_generation.py" "$ROOT/lib/guardian_offline_recovery.py" \
     "$ROOT/lib/guardian_admission.py" "$ROOT/lib/guardian_native_admission.py" \
     "$ROOT/lib/guardian_revocation.py" "$ROOT/lib/guardian_revocation_recovery.py" \
+    "$ROOT/lib/guardian_trust_status.py" \
     "$ROOT/lib/maho_runtime_release.py" \
     "$ROOT/lib/maho_update_state.py" "$ROOT/lib/maho_update_discovery.py" \
     "$ROOT/lib/maho_update_staging.py" "$ROOT/lib/maho_update_preparation.py" \
