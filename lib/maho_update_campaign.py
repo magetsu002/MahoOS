@@ -230,6 +230,7 @@ def _relationships(transaction: Mapping[str, Any], runtime: Mapping[str, Any]) -
         "fallback_headers": {"package": "linux-cachyos-lts-headers", "version": expected["linux-cachyos-lts-headers"]},
         "nvidia_dkms": {"status": "planned" if nvidia else "not-installed", "packages": nvidia},
         "boot_artifacts": [
+            "/boot/intel-ucode.img",
             "/boot/vmlinuz-linux-cachyos", "/boot/initramfs-linux-cachyos.img",
             "/boot/vmlinuz-linux-cachyos-lts", "/boot/initramfs-linux-cachyos-lts.img",
         ],

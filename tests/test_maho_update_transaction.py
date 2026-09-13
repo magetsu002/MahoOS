@@ -76,6 +76,7 @@ def relationships(**changes) -> dict:
         "fallback_headers": {"package": "linux-cachyos-lts-headers", "version": "6.18"},
         "nvidia_dkms": {"status": "planned", "packages": ["nvidia-dkms"]},
         "boot_artifacts": [
+            "/boot/intel-ucode.img",
             "/boot/vmlinuz-linux-cachyos", "/boot/initramfs-linux-cachyos.img",
             "/boot/vmlinuz-linux-cachyos-lts", "/boot/initramfs-linux-cachyos-lts.img",
         ],
