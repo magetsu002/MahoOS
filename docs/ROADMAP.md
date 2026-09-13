@@ -24,7 +24,7 @@ hardware acceptance before it is a release boundary.
 
 - integrate Native Admission promotion authority into the production update/activation path
 - complete M4B native update hardware certification against a genuine newer coherent Primary kernel generation
-- turn Guardian Recovery TUI into the default human-visible native recovery flow without weakening independent recovery authority
+- extend the now-wired Guardian Recovery TUI beyond R3 into every native recovery mode without weakening independent recovery authority
 - finish unified recovery history/status surfaces and product-facing recovery receipts
 - harden signed boot/update authority and define Secure Boot/key lifecycle
 - finish Arch/CachyOS packaging, installation flow, and ArchISO image

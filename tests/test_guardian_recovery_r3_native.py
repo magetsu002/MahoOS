@@ -32,6 +32,9 @@ def main() -> int:
                    "maho_generation_v2.py", "maho_kernel_generation.py", "maho_trust_identity.py")
     check("R3 initrd carries complete verifier import closure", all(name in hook for name in initrd_deps))
     check("R3 initrd carries dependency-light Guardian Recovery TUI", "maho-guardian-recovery-tui" in hook and "guardian_recovery_tui.py" in hook)
+    check("R3 native renders verified plan before mutation", "render_tui\nrollback_boot" in verifier and verifier.index("render_tui\nrollback_boot") < verifier.index("mutation_started=true"))
+    check("R3 native renders durable reboot-gate state", 'render_tui "$report"' in verifier and verifier.index('render_tui "$report"') < verifier.index('umount "$ESP_MOUNT" || { durable_fail final_esp_unmount_failed'))
+    check("R3 TUI remains presentation-only", '--render' in verifier and '--request-path' not in verifier)
     with tempfile.TemporaryDirectory() as import_td:
         maho = pathlib.Path(import_td) / "usr/lib/maho"; maho.mkdir(parents=True)
         for name in ("guardian_r3_native_verify.py", *initrd_deps):
