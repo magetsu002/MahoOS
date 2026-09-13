@@ -5,7 +5,7 @@ build() {
     : "${MAHO_R2_EVIDENCE_ROOT:?MAHO_R2_EVIDENCE_ROOT is required}"
     add_module btrfs
     add_module vfat
-    for binary in bash blkid find findmnt jq logger mkdir mount mv python3 sha256sum sleep sort sync systemctl umount uname awk head tr; do
+    for binary in bash blkid cp find findmnt jq logger mkdir mount mv python3 sha256sum sleep sort sync systemctl umount uname awk head tr; do
         add_binary "$binary"
     done
     add_full_dir /usr/lib/python3.14

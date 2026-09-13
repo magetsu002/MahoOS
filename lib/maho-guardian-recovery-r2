@@ -7,6 +7,7 @@ ESP_MOUNT="$STATE/esp"
 TOP_MOUNT="$STATE/btrfs-top"
 MANIFEST_REL="MahoOS/guardian-recovery-r2/manifest.json"
 REPORT_REL="MahoOS/guardian-recovery-r2/report.json"
+LOCAL_MANIFEST="$STATE/manifest.json"
 NO_REBOOT="${MAHO_R2_NO_REBOOT:-0}"
 MOUNT_BIN="${MAHO_R2_MOUNT_BIN:-mount}"
 UMOUNT_BIN="${MAHO_R2_UMOUNT_BIN:-umount}"
@@ -90,17 +91,43 @@ esp_dev="$(blkid -t "PARTUUID=$esp_partuuid" -o device 2>/dev/null | head -n1 ||
     finish FAIL esp_read_only_mount_failed "$campaign" "$manifest_sha" "$esp_partuuid"
     exit 1
 }
-manifest="$ESP_MOUNT/$MANIFEST_REL"
-[ -r "$manifest" ] || {
+esp_manifest="$ESP_MOUNT/$MANIFEST_REL"
+[ -r "$esp_manifest" ] || {
     "$UMOUNT_BIN" "$ESP_MOUNT" || true
     finish FAIL manifest_missing "$campaign" "$manifest_sha" "$esp_partuuid"
     exit 1
 }
-[ "$(sha_file "$manifest")" = "$manifest_sha" ] || {
+[ "$(sha_file "$esp_manifest")" = "$manifest_sha" ] || {
     "$UMOUNT_BIN" "$ESP_MOUNT" || true
     finish FAIL manifest_digest_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"
     exit 1
 }
+cp "$esp_manifest" "$LOCAL_MANIFEST" || {
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL manifest_copy_failed "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+}
+manifest="$LOCAL_MANIFEST"
+if ! jq -e '
+    .schema_version == 1 and
+    (.campaign_id | type == "string") and
+    (.root.uuid | type == "string") and
+    (.esp.partuuid | type == "string") and
+    (.recovery_kernel.release | type == "string") and
+    (.suspected_running_kernel.release | type == "string") and
+    (.selection_fixture.expected_snapshot_path | type == "string") and
+    (.selection_fixture.expected_snapshot_package_set_sha256 | test("^[0-9a-f]{64}$")) and
+    (.payload.kernel.path | type == "string") and
+    (.payload.kernel.sha256 | test("^[0-9a-f]{64}$")) and
+    (.payload.initramfs.path | type == "string") and
+    (.payload.initramfs.sha256 | test("^[0-9a-f]{64}$")) and
+    (.payload.microcode.path | type == "string") and
+    (.payload.microcode.sha256 | test("^[0-9a-f]{64}$"))
+' "$manifest" >/dev/null 2>&1; then
+    "$UMOUNT_BIN" "$ESP_MOUNT" || true
+    finish FAIL manifest_fields_invalid "$campaign" "$manifest_sha" "$esp_partuuid"
+    exit 1
+fi
 [ "$(json_get .campaign_id "$manifest")" = "$campaign" ] || {
     "$UMOUNT_BIN" "$ESP_MOUNT" || true
     finish FAIL campaign_mismatch "$campaign" "$manifest_sha" "$esp_partuuid"

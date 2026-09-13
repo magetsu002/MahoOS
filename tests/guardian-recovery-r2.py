@@ -73,6 +73,11 @@ def run_selector(evidence: pathlib.Path, manifest: pathlib.Path):
 def main() -> int:
     stage = (ROOT/"bin/maho-guardian-recovery-r2-stage").read_text()
     verifier = (ROOT/"lib/maho-guardian-recovery-r2").read_text()
+    service = (ROOT/"config/systemd/initrd/maho-guardian-recovery-r2.service").read_text()
+    hook = (ROOT/"config/mkinitcpio/install/sd-maho-guardian-recovery-r2").read_text()
+    check("R2 verifier runs before initrd cleanup", "Before=initrd-cleanup.service initrd-switch-root.target" in service)
+    check("R2 initramfs carries manifest-copy primitive", " cp " in (" " + hook + " "))
+    check("R2 copies staged manifest into stable initrd state", 'cp "$esp_manifest" "$LOCAL_MANIFEST"' in verifier)
     check("R2 stager preserves Primary default", "default_entry: MahoOS/Primary" in stage)
     check("R2 stager binds exact Limine campaign", "verify_limine_binding" in stage)
     check("R2 verifier requires read-only root", "root_not_read_only" in verifier)
