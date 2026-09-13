@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import hashlib
 from typing import Any, Mapping, Protocol
 
-from guardian_recovery_r3 import R3RecoveryIntent
+from guardian_recovery_r3 import R3RecoveryIntent, recovery_operations
 from maho_trust_identity import GenerationID, KernelGenerationID, canonical_json
 
 
@@ -118,27 +118,8 @@ def _op_ok(result: Mapping[str, Any]) -> bool:
     return result.get("ok") is True
 
 
-_EXPECTED_FULL = (
-    "preserve-incident-evidence",
-    "verify-selected-generation-again",
-    "create-read-only-emergency-backup",
-    "restore-exact-selected-btrfs-generation",
-    "stage-exact-selected-kernel-artifacts",
-    "verify-restored-root-and-boot-artifacts",
-    "request-reboot",
-    "verify-postboot-generation-and-home-identity",
-)
-_EXPECTED_KERNEL = (
-    "preserve-incident-evidence",
-    "verify-selected-generation-again",
-    "stage-exact-selected-kernel-artifacts",
-    "verify-boot-artifacts-and-current-root-identity",
-    "request-reboot",
-    "verify-postboot-kernel-and-home-identity",
-)
-
 def _expected_ops(intent: R3RecoveryIntent) -> tuple[str, ...]:
-    return _EXPECTED_FULL if intent.mode == "FULL_GENERATION" else _EXPECTED_KERNEL
+    return recovery_operations(intent.mode)
 
 def _result(
     intent: R3RecoveryIntent, phase: str, mutation_started: bool,

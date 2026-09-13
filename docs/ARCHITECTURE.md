@@ -105,6 +105,21 @@ produces only a plan-bound authorization request; Guardian and the certified
 recovery provider retain authority and must independently validate that request.
 Invalid, incomplete, or cross-bound evidence produces a safe refusal.
 
+### Revocation recovery
+
+Guardian maps a revoked artifact or signing authority back to exact
+transactions and every contaminated SystemGeneration and KernelGeneration
+descendant. It keeps execution, privilege, persistence, kernel, and credential
+exposure visible while selecting the newest independently trusted compatible
+state from the bounded current lineage.
+
+Kernel-only recovery is selected only when contamination is isolated to the
+kernel and exact compatibility evidence proves the current root can use a
+trusted kernel ancestor. Root contamination selects a full generation from a
+bounded Btrfs snapshot. Missing compatibility, artifact, or trusted-history
+evidence requires external recovery. The planner emits certified operation
+identities, never repair commands.
+
 ## Theme data
 
 Wallpaper changes produce one canonical palette. Desktop components consume

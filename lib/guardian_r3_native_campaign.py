@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, pathlib, shutil, sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
-from guardian_recovery_r3 import R3RecoveryIntent, intent_envelope
+from guardian_recovery_r3 import R3RecoveryIntent, intent_envelope, recovery_operations
 from maho_trust_identity import GenerationID, KernelGenerationID
 
 def fail(msg: str) -> None:
@@ -43,10 +43,7 @@ def main() -> int:
         target_system_generation_id=GenerationID(current_system),
         target_kernel_generation_id=KernelGenerationID(target_kernel),
         target_snapshot_identity="btrfs:@", target_snapshot_id=None,
-        operations=("preserve-incident-evidence", "verify-selected-generation-again",
-                    "stage-exact-selected-kernel-artifacts",
-                    "verify-boot-artifacts-and-current-root-identity",
-                    "request-reboot", "verify-postboot-kernel-and-home-identity"),
+        operations=recovery_operations("KERNEL_ONLY"),
     )
     out.mkdir(parents=True, exist_ok=False)
     evidence = out / "r2-evidence"
