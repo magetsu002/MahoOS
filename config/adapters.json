@@ -4,6 +4,11 @@
       "adapter": "adapters/appearance/wallpaper-theme.sh",
       "domain": "appearance",
       "resource": "appearance.hyprland.borders"
+    },
+    "set-adaptive-notify-quiet": {
+      "adapter": "adapters/notifications/adaptive-quiet.sh",
+      "domain": "adaptive",
+      "resource": "notifications.presentation.adaptive-quiet"
     }
   },
   "version": 1

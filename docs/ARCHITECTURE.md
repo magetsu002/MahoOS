@@ -41,6 +41,19 @@ Every supported mutation should have:
 4. a postcondition
 5. a rollback or handoff path when appropriate
 
+### Native admission
+
+System candidates cross a candidate-first admission boundary before they can
+receive promotion authority. Maho inspects an isolated candidate against its
+exact base and builds a content- and metadata-bound mutation graph covering
+files, services, persistence, privilege boundaries, package hooks, boot state,
+kernel modules, package ownership collisions, and isolated listener evidence.
+
+The result is `ALLOW`, `REVIEW`, or `REJECT`. Only `ALLOW` can produce an exact
+transaction-, candidate-, and graph-bound promotion authority, and the
+candidate is inspected again when that authority is consumed. Incomplete,
+unisolated, ambiguous, or drifted evidence fails closed.
+
 ### Guardian
 
 Guardian coordinates failures across these layers.
@@ -79,6 +92,18 @@ still `active/running` after the bounded verification interval.
 If systemd does not produce that replacement within the bounded provider
 window, the incident remains visible and becomes diagnosis-only; Guardian does
 not bypass start limits with another restart.
+
+## Guardian Recovery interface
+
+Guardian Recovery has a dependency-light terminal interface for recovery and
+initramfs environments. It displays the lost-trust evidence, exact selected
+SystemGeneration and KernelGeneration, smallest authorized recovery scope,
+execution progress, and verified result from Guardian-owned JSON documents.
+
+The interface cannot create repair steps or execute them. User confirmation
+produces only a plan-bound authorization request; Guardian and the certified
+recovery provider retain authority and must independently validate that request.
+Invalid, incomplete, or cross-bound evidence produces a safe refusal.
 
 ## Theme data
 

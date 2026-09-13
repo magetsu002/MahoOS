@@ -15,6 +15,7 @@ ROOT = Path(os.environ.get("MAHO_ROOT", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_recovery_registry import certified_service_recovery, certified_service_units  # noqa: E402
+from guardian_session_incident import reconcile_service_session  # noqa: E402
 from guardian_service_incident import (  # noqa: E402
     ServiceIncidentStore,
     ServiceSnapshot,
@@ -152,10 +153,11 @@ def _startup_reconcile(store: ServiceIncidentStore, boot_id: str) -> None:
             )
 
 
-def _verify_due(store: ServiceIncidentStore) -> None:
+def _verify_due(store: ServiceIncidentStore, root: Path) -> None:
     now = time.time()
     for state in store.due_verifications(now):
         store.verify(state, snapshot(str(state["unit"])))
+    reconcile_service_session(root, now=now)
 
 
 def watch(root: Path) -> int:
@@ -163,6 +165,7 @@ def watch(root: Path) -> int:
     cursor_path = _cursor_path(root)
     cursor = cursor_path.read_text().strip() if cursor_path.is_file() else ""
     _startup_reconcile(store, _boot_id())
+    reconcile_service_session(root)
     process = subprocess.Popen(
         _journal_argv(cursor), stdout=subprocess.PIPE, stderr=sys.stderr,
         bufsize=0,
@@ -176,7 +179,7 @@ def watch(root: Path) -> int:
             timeout = 30.0 if deadline is None else max(0.0, min(30.0, deadline - time.time()))
             ready, _, _ = select.select([process.stdout], [], [], timeout)
             if not ready:
-                _verify_due(store)
+                _verify_due(store, root)
                 if process.poll() is not None:
                     return process.returncode or 1
                 continue
@@ -187,7 +190,9 @@ def watch(root: Path) -> int:
             for raw in rows:
                 event = normalize_journal_event(raw)
                 if event is not None:
-                    store.process(event, now=time.time())
+                    observed_at = time.time()
+                    store.process(event, now=observed_at)
+                    reconcile_service_session(root, now=observed_at)
                 event_cursor = raw.get("__CURSOR")
                 if isinstance(event_cursor, str) and event_cursor:
                     _atomic_private(cursor_path, event_cursor + "\n")

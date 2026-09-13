@@ -26,12 +26,13 @@ FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
 
 COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
-  maho-adapt maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
+  maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard
   maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
+PASSIVE_UNITS=()
 GRAPHICAL_UNITS=(
   maho-awww-daemon.service
   maho-wallpaper.service
@@ -39,9 +40,10 @@ GRAPHICAL_UNITS=(
   maho-dock.service
   maho-notify.service
   maho-clipboard-history.service
+  maho-adaptive.service
 )
 SESSION_TARGET_UNIT=maho-hyprland-session.target
-UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "$SESSION_TARGET_UNIT")
+UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "${PASSIVE_UNITS[@]}" "$SESSION_TARGET_UNIT")
 
 die() { echo "maho-setup: $*" >&2; return 1; }
 command_path() { printf '%s/%s\n' "$BIN_DIR" "$1"; }
@@ -254,13 +256,19 @@ preflight() {
   python_parse_only \
     "$ROOT/lib/security_probe.py" "$ROOT/lib/security_containment.py" "$ROOT/lib/security_incident.py" \
     "$ROOT/lib/security_preflight.py" "$ROOT/lib/security_boundary.py" "$ROOT/lib/maho_app_model.py" \
+    "$ROOT/lib/guardian_incident.py" "$ROOT/lib/guardian_explain.py" \
     "$ROOT/lib/guardian_service_incident.py" "$ROOT/lib/guardian_service_watcher.py" \
-    "$ROOT/lib/guardian_runtime_recovery.py" "$ROOT/lib/maho_runtime_release.py" \
+    "$ROOT/lib/guardian_session_incident.py" "$ROOT/lib/guardian_runtime_recovery.py" \
+    "$ROOT/lib/maho_trust_identity.py" "$ROOT/lib/maho_generation_v2.py" \
+    "$ROOT/lib/maho_kernel_generation.py" "$ROOT/lib/guardian_offline_recovery.py" \
+    "$ROOT/lib/guardian_admission.py" "$ROOT/lib/guardian_native_admission.py" \
+    "$ROOT/lib/guardian_revocation.py" \
+    "$ROOT/lib/maho_runtime_release.py" \
     "$ROOT/lib/maho_update_state.py" "$ROOT/lib/maho_update_discovery.py" \
     "$ROOT/lib/maho_update_staging.py" "$ROOT/lib/maho_update_preparation.py" \
     "$ROOT/lib/maho_update_maintenance.py" "$ROOT/lib/maho_update_transaction.py" \
     "$ROOT/lib/maho_update_receipts.py" "$ROOT/lib/maho_update_cli.py" \
-    "$ROOT/lib/guardian_update.py" \
+    "$ROOT/lib/guardian_update.py" "$ROOT"/lib/maho_adaptive_*.py \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
@@ -486,6 +494,7 @@ wire_ownership() {
   mkdir -p "$UNIT_DIR/default.target.wants" "$UNIT_DIR/graphical-session.target.wants" "$UNIT_DIR/$SESSION_TARGET_UNIT.wants"
   for name in "${CORE_UNITS[@]}"; do remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; atomic_link "$UNIT_DIR/$name" "$UNIT_DIR/default.target.wants/$name"; done
   for name in "${GRAPHICAL_UNITS[@]}"; do remove_managed_wants_link "$name" default.target.wants; remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; done
+  for name in "${PASSIVE_UNITS[@]}"; do remove_managed_wants_link "$name" default.target.wants; remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; done
   remove_managed_wants_link "$SESSION_TARGET_UNIT" default.target.wants
   remove_managed_wants_link "$SESSION_TARGET_UNIT" graphical-session.target.wants
   remove_managed_wants_link "$SESSION_TARGET_UNIT" "$SESSION_TARGET_UNIT.wants"
@@ -679,6 +688,7 @@ status() {
   if systemd_available; then
     for name in "${CORE_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  core ownership $name"; failed=1; }; done
     for name in "${GRAPHICAL_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants; then echo "FAIL  stale graphical ownership $name"; failed=1; fi; done
+    for name in "${PASSIVE_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants || managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; then echo "FAIL  passive unit unexpectedly enabled $name"; failed=1; fi; done
     if managed_wants_link "$SESSION_TARGET_UNIT" default.target.wants || managed_wants_link "$SESSION_TARGET_UNIT" graphical-session.target.wants; then echo "FAIL  stale session target ownership"; failed=1; fi
   fi
   return "$failed"
@@ -695,7 +705,7 @@ rollback() {
 }
 uninstall() {
   local name path wants
-  if systemd_available; then systemctl --user stop "$SESSION_TARGET_UNIT" >/dev/null 2>&1 || true; for name in "${CORE_UNITS[@]}"; do systemctl --user disable --now "$name" >/dev/null 2>&1 || true; done; fi
+  if systemd_available; then systemctl --user stop "$SESSION_TARGET_UNIT" >/dev/null 2>&1 || true; for name in "${CORE_UNITS[@]}"; do systemctl --user disable --now "$name" >/dev/null 2>&1 || true; done; for name in "${PASSIVE_UNITS[@]}"; do systemctl --user stop "$name" >/dev/null 2>&1 || true; done; fi
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do remove_managed_wants_link "$name" "$wants"; done; done
   for name in "${UNITS[@]}"; do path="$(unit_path "$name")"; if managed_unit "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged user unit $path"; fi; done
   managed_shell && rm -f -- "$SHELL_TARGET" || true

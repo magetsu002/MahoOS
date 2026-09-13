@@ -1,0 +1,27 @@
+#!/usr/bin/bash
+
+build() {
+    : "${MAHO_R3_SOURCE_ROOT:?MAHO_R3_SOURCE_ROOT is required}"
+    : "${MAHO_R3_CAMPAIGN_ROOT:?MAHO_R3_CAMPAIGN_ROOT is required}"
+    add_module btrfs
+    add_module vfat
+    for binary in bash blkid btrfs cp find findmnt grep jq mkdir mount mv python3 sha256sum sleep sort sync systemctl umount uname awk head tr; do
+        add_binary "$binary"
+    done
+    add_full_dir /usr/lib/python3.14
+    add_file "$MAHO_R3_SOURCE_ROOT/lib/maho-guardian-recovery-r3" /usr/lib/maho/guardian-recovery-r3 755
+    add_file "$MAHO_R3_SOURCE_ROOT/bin/maho-guardian-recovery-tui" /usr/bin/maho-guardian-recovery-tui 755
+    add_file "$MAHO_R3_SOURCE_ROOT/lib/guardian_recovery_tui.py" /usr/lib/maho/guardian_recovery_tui.py 644
+    add_file "$MAHO_R3_SOURCE_ROOT/lib/guardian_r3_native_verify.py" /usr/lib/maho/guardian_r3_native_verify.py 755
+    for name in guardian_recovery_r3.py guardian_recovery_r3_executor.py guardian_offline_recovery.py maho_generation_v2.py maho_kernel_generation.py maho_trust_identity.py; do
+        add_file "$MAHO_R3_SOURCE_ROOT/lib/$name" "/usr/lib/maho/$name" 644
+    done
+    while IFS= read -r -d '' file; do
+        rel="${file#"$MAHO_R3_CAMPAIGN_ROOT/"}"
+        add_file "$file" "/usr/lib/maho/guardian-r3-campaign/$rel" 644
+    done < <(find "$MAHO_R3_CAMPAIGN_ROOT" -type f -print0)
+    add_file "$MAHO_R3_SOURCE_ROOT/config/systemd/initrd/maho-guardian-recovery-r3.service" /usr/lib/systemd/system/maho-guardian-recovery-r3.service 644
+    add_symlink /usr/lib/systemd/system/initrd-switch-root.target.requires/maho-guardian-recovery-r3.service /usr/lib/systemd/system/maho-guardian-recovery-r3.service
+}
+
+help() { echo 'Builds Guardian Recovery R3 bounded kernel recovery environment.'; }

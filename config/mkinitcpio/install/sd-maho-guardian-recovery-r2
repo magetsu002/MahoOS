@@ -1,0 +1,25 @@
+#!/usr/bin/bash
+
+build() {
+    : "${MAHO_R2_SOURCE_ROOT:?MAHO_R2_SOURCE_ROOT is required}"
+    : "${MAHO_R2_EVIDENCE_ROOT:?MAHO_R2_EVIDENCE_ROOT is required}"
+    add_module btrfs
+    add_module vfat
+    for binary in bash blkid cp find findmnt jq logger mkdir mount mv python3 sha256sum sleep sort sync systemctl umount uname awk head tr; do
+        add_binary "$binary"
+    done
+    add_full_dir /usr/lib/python3.14
+    add_file "$MAHO_R2_SOURCE_ROOT/lib/maho-guardian-recovery-r2" /usr/lib/maho/guardian-recovery-r2 755
+    add_file "$MAHO_R2_SOURCE_ROOT/lib/maho_guardian_r2_select.py" /usr/lib/maho/maho_guardian_r2_select.py 755
+    for name in maho_trust_identity.py maho_generation_v2.py maho_kernel_generation.py guardian_offline_recovery.py; do
+        add_file "$MAHO_R2_SOURCE_ROOT/lib/$name" "/usr/lib/maho/guardian-r2-contracts/$name" 644
+    done
+    while IFS= read -r -d '' evidence; do
+        rel="${evidence#"$MAHO_R2_EVIDENCE_ROOT/"}"
+        add_file "$evidence" "/usr/lib/maho/guardian-r2-evidence/$rel" 644
+    done < <(find "$MAHO_R2_EVIDENCE_ROOT" -type f -print0)
+    add_file "$MAHO_R2_SOURCE_ROOT/config/systemd/initrd/maho-guardian-recovery-r2.service" /usr/lib/systemd/system/maho-guardian-recovery-r2.service 644
+    add_symlink /usr/lib/systemd/system/initrd-switch-root.target.requires/maho-guardian-recovery-r2.service /usr/lib/systemd/system/maho-guardian-recovery-r2.service
+}
+
+help() { echo 'Builds Guardian Recovery R2 native generation-selection verifier.'; }

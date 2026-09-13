@@ -162,4 +162,25 @@ python "$ROOT/tests/test_guardian_update.py"
 python "$ROOT/tests/test_maho_update_adversarial.py"
 python "$ROOT/tests/test_maho_update_native.py"
 
+echo "=== Trust, generations, admission, and independent recovery ==="
+python "$ROOT/tests/test_trust_identity.py"
+python "$ROOT/tests/test_generation_v2.py"
+python "$ROOT/tests/test_kernel_generation.py"
+python "$ROOT/tests/test_guardian_offline_recovery.py"
+bash "$ROOT/tests/guardian-recovery-r1.sh"
+python "$ROOT/tests/guardian-recovery-r2.py"
+python "$ROOT/tests/test_guardian_recovery_r3.py"
+python "$ROOT/tests/test_guardian_recovery_r3_executor.py"
+python "$ROOT/tests/test_guardian_recovery_r3_postboot.py"
+python "$ROOT/tests/test_guardian_recovery_r3_native.py"
+python "$ROOT/tests/test_guardian_recovery_tui.py"
+python "$ROOT/tests/test_guardian_admission.py"
+python "$ROOT/tests/test_guardian_native_admission.py"
+python "$ROOT/tests/test_guardian_revocation.py"
+
+echo "=== Adaptive policy A1-A15 ==="
+for test in "$ROOT"/tests/test_adaptive_*.py; do
+  python "$test"
+done
+
 echo "ALL CORE CONTRACTS PASS"

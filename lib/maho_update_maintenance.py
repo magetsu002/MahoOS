@@ -23,6 +23,9 @@ class MaintenanceContext:
     unattended_allowed: bool
     serious_security_issue: bool
     update_debt_days: int
+    # Optional adaptive-policy projection. "unknown" preserves the exact M4A
+    # behavior for callers that have not integrated the adaptive layer yet.
+    adaptive_maintenance: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,8 @@ def _validate_context(context: MaintenanceContext) -> None:
         raise ValueError("maintenance durations cannot be negative")
     if context.battery_percent is not None and not 0 <= context.battery_percent <= 100:
         raise ValueError("battery percentage is invalid")
+    if context.adaptive_maintenance not in {"unknown", "unchanged", "eligible", "suspended"}:
+        raise ValueError("adaptive maintenance posture is invalid")
 
 
 def evaluate_maintenance(
@@ -92,6 +97,10 @@ def evaluate_maintenance(
         unsafe.append("system_not_safe")
     if context.concurrent_package_or_build_operation:
         unsafe.append("concurrent_package_or_build_operation")
+    # Adaptive policy is a veto/permission signal only. It cannot erase any
+    # native M4 safety reason and therefore cannot authorize around M4 gates.
+    if context.adaptive_maintenance == "suspended":
+        unsafe.append("adaptive_maintenance_suspended")
 
     authority = "none"
     if context.intent == "explicit-update" and not unsafe:

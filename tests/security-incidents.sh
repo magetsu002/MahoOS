@@ -135,6 +135,14 @@ assert sum(1 for r in rows if r.get('kind') == 'incident.resolved') == 2
 PY
 echo "PASS"
 
+echo "=== expected Maho wiring drift does not open a security incident ==="
+cat > "$MON/persistence.json" <<'EOF_EXPECTED_PERSIST'
+{"result":"changed","attention_result":"clean","added":[{"path":"/home/test/.config/systemd/user/maho-adaptive.service","expected":true,"attribution":{"classification":"expected-maho-wiring","owner":"maho-runtime"}}],"removed":[],"changed":[],"expected_changes":[{"change":"added","path":"/home/test/.config/systemd/user/maho-adaptive.service","expected":true}],"unexpected_added":[],"unexpected_removed":[],"unexpected_changed":[]}
+EOF_EXPECTED_PERSIST
+bash "$ROOT/bin/maho-guard" reconcile >/dev/null
+[ "$(find "$ACTIVE" -maxdepth 1 -type f -name 'inc-*.json' | wc -l)" -eq 0 ] || fail "expected Maho wiring opened an incident"
+echo "PASS"
+
 echo "=== guard doctor exposes friction and enforcement contract ==="
 DOCTOR="$(bash "$ROOT/bin/maho-guard" doctor)"
 grep -q 'unit of reasoning: correlated incident' <<< "$DOCTOR"
