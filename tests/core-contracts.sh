@@ -170,6 +170,7 @@ python "$ROOT/tests/test_guardian_offline_recovery.py"
 bash "$ROOT/tests/guardian-recovery-r1.sh"
 python "$ROOT/tests/guardian-recovery-r2.py"
 python "$ROOT/tests/test_guardian_recovery_r3.py"
+python "$ROOT/tests/test_guardian_recovery_r3_executor.py"
 python "$ROOT/tests/test_guardian_admission.py"
 python "$ROOT/tests/test_guardian_revocation.py"
 
