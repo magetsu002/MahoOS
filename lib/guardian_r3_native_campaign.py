@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, pathlib, shutil, sys
+import hashlib, json, pathlib, re, shutil, sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 from guardian_recovery_r3 import R3RecoveryIntent, intent_envelope, recovery_operations
@@ -8,6 +8,9 @@ from maho_trust_identity import GenerationID, KernelGenerationID
 
 def fail(msg: str) -> None:
     raise SystemExit(msg)
+
+def sha256_file(path: pathlib.Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def artifact_path(store: pathlib.Path, artifact_id: str) -> pathlib.Path:
     digest = artifact_id.removeprefix("art-")
@@ -18,6 +21,13 @@ def main() -> int:
         fail("usage: guardian_r3_native_campaign.py OUT R2_MANIFEST R2_REPORT R2_EVIDENCE")
     out, r2m_path, r2r_path, r2e = map(pathlib.Path, sys.argv[1:])
     r2m = json.loads(r2m_path.read_text()); r2r = json.loads(r2r_path.read_text())
+    manifest_sha = r2r.get("manifest_sha256")
+    if not isinstance(manifest_sha, str) or re.fullmatch(r"[0-9a-f]{64}", manifest_sha) is None:
+        fail("R2 report manifest binding is invalid")
+    if sha256_file(r2m_path) != manifest_sha:
+        fail("R2 manifest digest does not match certified report")
+    if r2m.get("campaign_id") != r2r.get("campaign_id"):
+        fail("R2 campaign identity mismatch")
     if r2r.get("outcome") != "PASS" or r2r.get("reason") != "independently_trusted_generation_pair_selected":
         fail("R2 report is not certified PASS")
     selection = r2r.get("selection", {})
