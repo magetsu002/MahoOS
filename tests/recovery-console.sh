@@ -47,6 +47,16 @@ export MAHO_ROOT="$ROOT"
 export MAHO_SETUP_COMMAND="$TMP/fake-setup"
 export MAHO_PLATFORM_COMMAND="$TMP/fake-platform"
 
+GUARDIAN_TUI_LOG="$TMP/guardian-tui.log"
+export GUARDIAN_TUI_LOG
+cat >"$TMP/fake-guardian-tui" <<'EOF_GUARDIAN_TUI'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GUARDIAN_TUI_LOG"
+printf 'guardian tui fixture\n'
+EOF_GUARDIAN_TUI
+chmod +x "$TMP/fake-guardian-tui"
+export MAHO_GUARDIAN_RECOVERY_TUI="$TMP/fake-guardian-tui"
+
 inspect="$(bash "$ROOT/bin/maho-recovery" inspect)"
 grep -Fq "$CURRENT_RELEASE" <<<"$inspect"
 grep -Fq 'current-revision' <<<"$inspect"
@@ -79,6 +89,15 @@ plan="$(bash "$ROOT/bin/maho-recovery" plan "$TMP/failure.json")"
 [ ! -s "$SETUP_LOG" ] || { echo 'FAIL recovery planning invoked setup' >&2; exit 1; }
 grep -Fxq "plan $TMP/failure.json" "$PLATFORM_LOG"
 echo 'PASS recovery planning delegates to pure policy without mutation'
+
+guardian_tui="$(bash "$ROOT/bin/maho-recovery" guardian-tui --plan exact-plan.json --render)"
+[ "$guardian_tui" = 'guardian tui fixture' ]
+[ "$(cat "$GUARDIAN_TUI_LOG")" = '--plan exact-plan.json --render' ] || {
+  echo 'FAIL recovery command changed Guardian TUI evidence arguments' >&2
+  exit 1
+}
+[ ! -s "$SETUP_LOG" ] || { echo 'FAIL Guardian TUI delegation invoked setup' >&2; exit 1; }
+echo 'PASS Guardian TUI delegation preserves exact evidence arguments without mutation'
 
 echo '=== recovery snapshot overlay contracts ==='
 bash "$ROOT/tests/recovery-overlay.sh"

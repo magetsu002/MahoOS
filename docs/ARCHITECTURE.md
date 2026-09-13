@@ -80,6 +80,18 @@ If systemd does not produce that replacement within the bounded provider
 window, the incident remains visible and becomes diagnosis-only; Guardian does
 not bypass start limits with another restart.
 
+## Guardian Recovery interface
+
+Guardian Recovery has a dependency-light terminal interface for recovery and
+initramfs environments. It displays the lost-trust evidence, exact selected
+SystemGeneration and KernelGeneration, smallest authorized recovery scope,
+execution progress, and verified result from Guardian-owned JSON documents.
+
+The interface cannot create repair steps or execute them. User confirmation
+produces only a plan-bound authorization request; Guardian and the certified
+recovery provider retain authority and must independently validate that request.
+Invalid, incomplete, or cross-bound evidence produces a safe refusal.
+
 ## Theme data
 
 Wallpaper changes produce one canonical palette. Desktop components consume

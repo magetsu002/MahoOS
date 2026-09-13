@@ -31,12 +31,23 @@ def main() -> int:
     initrd_deps = ("guardian_recovery_r3.py", "guardian_recovery_r3_executor.py", "guardian_offline_recovery.py",
                    "maho_generation_v2.py", "maho_kernel_generation.py", "maho_trust_identity.py")
     check("R3 initrd carries complete verifier import closure", all(name in hook for name in initrd_deps))
+    check("R3 initrd carries dependency-light Guardian Recovery TUI", "maho-guardian-recovery-tui" in hook and "guardian_recovery_tui.py" in hook)
     with tempfile.TemporaryDirectory() as import_td:
         maho = pathlib.Path(import_td) / "usr/lib/maho"; maho.mkdir(parents=True)
         for name in ("guardian_r3_native_verify.py", *initrd_deps):
             shutil.copy2(ROOT / "lib" / name, maho / name)
         probe = subprocess.run([sys.executable, str(maho / "guardian_r3_native_verify.py")], text=True, capture_output=True)
         check("R3 initrd-layout verifier imports successfully", "usage: guardian_r3_native_verify.py COMMAND" in probe.stderr)
+        shutil.copy2(ROOT / "lib/guardian_recovery_tui.py", maho / "guardian_recovery_tui.py")
+        usr_bin = pathlib.Path(import_td) / "usr/bin"; usr_bin.mkdir()
+        shutil.copy2(ROOT / "bin/maho-guardian-recovery-tui", usr_bin / "maho-guardian-recovery-tui")
+        wrapper = (usr_bin / "maho-guardian-recovery-tui").read_text().replace('"/usr/lib/maho"', f'"{maho}"')
+        (usr_bin / "maho-guardian-recovery-tui").write_text(wrapper)
+        tui_probe = subprocess.run(
+            [sys.executable, str(usr_bin / "maho-guardian-recovery-tui"), "--help"],
+            text=True, capture_output=True,
+        )
+        check("R3 initrd-layout TUI imports successfully", tui_probe.returncode == 0 and "--plan" in tui_probe.stdout)
     check("R3 build fails before reboot on package drift", "live package set drifted since certified R2 selection" in build)
     check("R3 build fails before reboot on selected modules drift", "live root no longer contains exact selected kernel modules" in build)
     check("R3 postboot requires exact selected kernel", "running kernel is not selected recovery kernel" in postboot)

@@ -8,6 +8,7 @@ CURRENT="$RUNTIME_ROOT/current"
 PREVIOUS="$RUNTIME_ROOT/previous"
 SETUP="${MAHO_SETUP_COMMAND:-$HOME/.local/bin/maho-setup}"
 PLATFORM="${MAHO_PLATFORM_COMMAND:-$ROOT/bin/maho-platform}"
+GUARDIAN_TUI="${MAHO_GUARDIAN_RECOVERY_TUI:-$ROOT/bin/maho-guardian-recovery-tui}"
 
 usage() {
   cat <<'EOF'
@@ -19,6 +20,7 @@ Commands:
   rollback-runtime         Ask before switching to the previous Maho runtime.
   rollback-runtime --yes   Explicit non-interactive confirmation.
   console                  Open the dependency-light interactive recovery console.
+  guardian-tui ARGS...     Open the plan-bound Guardian Recovery interface.
 
 System-state and kernel recovery are deliberately not mutated by this command
 until MahoOS certifies boot-state + Btrfs rollback coherence. The console can
@@ -71,6 +73,14 @@ inspect() {
 plan() {
   [ "$#" -eq 1 ] || { usage >&2; return 2; }
   MAHO_ROOT="$ROOT" bash "$PLATFORM" plan "$1"
+}
+
+guardian_tui() {
+  [ -x "$GUARDIAN_TUI" ] || {
+    echo "Maho Recovery: Guardian TUI unavailable: $GUARDIAN_TUI" >&2
+    return 1
+  }
+  "$GUARDIAN_TUI" "$@"
 }
 
 confirm_runtime_rollback() {
@@ -183,6 +193,10 @@ case "${1:-}" in
     ;;
   console)
     console
+    ;;
+  guardian-tui)
+    shift
+    guardian_tui "$@"
     ;;
   -h|--help|help|"")
     usage
