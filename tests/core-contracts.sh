@@ -174,6 +174,7 @@ python "$ROOT/tests/test_guardian_recovery_r3_executor.py"
 python "$ROOT/tests/test_guardian_recovery_r3_postboot.py"
 python "$ROOT/tests/test_guardian_recovery_r3_native.py"
 python "$ROOT/tests/test_guardian_admission.py"
+python "$ROOT/tests/test_guardian_native_admission.py"
 python "$ROOT/tests/test_guardian_revocation.py"
 
 echo "=== Adaptive policy A1-A15 ==="
