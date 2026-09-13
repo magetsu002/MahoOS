@@ -3,6 +3,7 @@
 build() {
     : "${MAHO_R1_SOURCE_ROOT:?MAHO_R1_SOURCE_ROOT is required}"
     add_module btrfs
+    add_module vfat
     for binary in bash blkid findmnt jq logger mkdir mount mv sha256sum sleep sync systemctl umount uname awk head; do
         add_binary "$binary"
     done

@@ -35,31 +35,47 @@ write_report() {
     mkdir -p "$STATE"
     printf '%s\n' "$outcome" > "$STATE/outcome"
     printf '%s\n' "$reason" > "$STATE/reason"
-    [ -n "$esp_partuuid" ] || return 0
+    [ -n "$esp_partuuid" ] || return 1
     esp_dev="$(blkid -t "PARTUUID=$esp_partuuid" -o device 2>/dev/null | head -n1 || true)"
-    [ -n "$esp_dev" ] || return 0
+    [ -n "$esp_dev" ] || return 1
     mkdir -p "$ESP_MOUNT"
     "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true
-    "$MOUNT_BIN" -t vfat -o rw,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" >/dev/null 2>&1 || return 0
-    mkdir -p "$ESP_MOUNT/$(dirname "$REPORT_REL")"
+    "$MOUNT_BIN" -t vfat -o rw,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" >/dev/null 2>&1 || return 1
+    mkdir -p "$ESP_MOUNT/$(dirname "$REPORT_REL")" || { "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true; return 1; }
     tmp="$ESP_MOUNT/$REPORT_REL.tmp"
-    jq -n \
+    if ! jq -n \
         --arg outcome "$outcome" --arg reason "$reason" \
         --arg campaign "$campaign" --arg manifest_sha256 "$manifest_sha" \
         --arg kernel_release "$(uname -r)" \
         --arg root_uuid "$(findmnt -no UUID "$ROOT" 2>/dev/null | tail -n1 || true)" \
         --arg root_fsroot "$(findmnt -no FSROOT "$ROOT" 2>/dev/null | tail -n1 || true)" \
         '{schema_version:1,outcome:$outcome,reason:$reason,campaign_id:$campaign,manifest_sha256:$manifest_sha256,kernel_release:$kernel_release,root_uuid:$root_uuid,root_fsroot:$root_fsroot}' \
-        > "$tmp" || true
-    mv -f "$tmp" "$ESP_MOUNT/$REPORT_REL" 2>/dev/null || true
-    sync || true
-    "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true
+        > "$tmp"; then
+        "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true
+        return 1
+    fi
+    if ! mv -f "$tmp" "$ESP_MOUNT/$REPORT_REL"; then
+        "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true
+        return 1
+    fi
+    jq -e --arg outcome "$outcome" --arg campaign "$campaign" \
+        '.schema_version == 1 and .outcome == $outcome and .campaign_id == $campaign' \
+        "$ESP_MOUNT/$REPORT_REL" >/dev/null || { "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true; return 1; }
+    sync || { "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || true; return 1; }
+    "$UMOUNT_BIN" "$ESP_MOUNT" >/dev/null 2>&1 || return 1
+    return 0
 }
 
 finish() {
     local outcome="$1" reason="$2" campaign="$3"
     local manifest_sha="$4" esp_partuuid="$5"
-    write_report "$outcome" "$reason" "$campaign" "$manifest_sha" "$esp_partuuid"
+    if ! write_report "$outcome" "$reason" "$campaign" "$manifest_sha" "$esp_partuuid"; then
+        log "FAIL: report_persistence_failed (original=$outcome:$reason)"
+        outcome=FAIL
+        reason=report_persistence_failed
+        printf '%s\n' "$outcome" > "$STATE/outcome"
+        printf '%s\n' "$reason" > "$STATE/reason"
+    fi
     log "$outcome: $reason"
     if [ "$NO_REBOOT" = 1 ]; then
         [ "$outcome" = PASS ]

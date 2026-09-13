@@ -17,6 +17,8 @@ bash -n "$HELPER" "$BUILDER" "$STAGER" "$HOOK"
 grep -Fxq 'ConditionKernelCommandLine=maho.guardian_recovery=r1' "$UNIT" || fail "R1 unit is not explicitly gated"
 grep -Fq 'suspected_kernel_cannot_certify_itself' "$HELPER" || fail "self-certification refusal is missing"
 grep -Fq 'root_not_read_only' "$HELPER" || fail "read-only-root enforcement is missing"
+grep -Fq 'add_module vfat' "$HOOK" || fail "R1 initramfs cannot mount the FAT ESP for durable evidence"
+grep -Fq 'report_persistence_failed' "$HELPER" || fail "report persistence is not fail-closed"
 grep -Fq 'default_entry: MahoOS/Primary' "$STAGER" || fail "stager does not preserve normal default authority"
 ! grep -Eq 'efibootmgr|BootOrder|BootNext|/dev/nvme' "$HELPER" "$BUILDER" "$STAGER" || fail "R1 contains forbidden firmware/device authority"
 pass "static R1 safety contract"
@@ -53,6 +55,7 @@ cat > "$TMP/bin/mount" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 target="${@: -1}"
+[ "${FAKE_MOUNT_FAIL:-0}" != 1 ] || exit 32
 mkdir -p "$target"
 cp -a "${FAKE_ESP_SOURCE:?}/." "$target/"
 printf '%s\n' "mount $*" >> "${FAKE_MOUNT_LOG:?}"
@@ -102,7 +105,7 @@ print(hashlib.sha256(text.encode()).hexdigest())
 PY
 }
 run_helper() {
-    local digest="$1" root_opts="${2:-ro,relatime,subvol=/@}"
+    local digest="$1" root_opts="${2:-ro,relatime,subvol=/@}" mount_fail="${3:-0}"
     printf '%s\n' "root=UUID=test-root-uuid ro rootflags=subvol=@,ro maho.guardian_recovery=r1 maho.guardian_manifest_sha256=$digest maho.guardian_esp_partuuid=12345678-abcd-1234-abcd-1234567890ab maho.guardian_campaign=r1-test-00000000" > "$TMP/cmdline"
     rm -rf "$TMP/state" && mkdir -p "$TMP/state"
     PATH="$TMP/bin:/usr/bin:/usr/sbin" \
@@ -117,6 +120,7 @@ run_helper() {
     FAKE_ROOT_OPTS="$root_opts" \
     FAKE_ESP_SOURCE="$TMP/esp" \
     FAKE_MOUNT_LOG="$TMP/mount.log" \
+    FAKE_MOUNT_FAIL="$mount_fail" \
     "$HELPER"
 }
 
@@ -146,5 +150,12 @@ if run_helper "$digest" >/dev/null 2>&1; then
 fi
 [ "$(jq -r .reason "$TMP/esp/MahoOS/guardian-recovery-r1/report.json")" = payload_kernel_digest_mismatch ] || fail "wrong payload-integrity refusal reason"
 pass "tampered recovery payload fails closed"
+
+digest="$(make_manifest 7.1-test)"
+if run_helper "$digest" 'ro,relatime,subvol=/@' 1 >/dev/null 2>&1; then
+    fail "R1 accepted a PASS when durable report persistence failed"
+fi
+[ "$(cat "$TMP/state/reason")" = report_persistence_failed ] || fail "report persistence failure was not surfaced"
+pass "report persistence failure blocks certification"
 
 echo 'ALL GUARDIAN RECOVERY R1 CONTRACTS PASS'
