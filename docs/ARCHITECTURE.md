@@ -41,6 +41,19 @@ Every supported mutation should have:
 4. a postcondition
 5. a rollback or handoff path when appropriate
 
+### Native admission
+
+System candidates cross a candidate-first admission boundary before they can
+receive promotion authority. Maho inspects an isolated candidate against its
+exact base and builds a content- and metadata-bound mutation graph covering
+files, services, persistence, privilege boundaries, package hooks, boot state,
+kernel modules, package ownership collisions, and isolated listener evidence.
+
+The result is `ALLOW`, `REVIEW`, or `REJECT`. Only `ALLOW` can produce an exact
+transaction-, candidate-, and graph-bound promotion authority, and the
+candidate is inspected again when that authority is consumed. Incomplete,
+unisolated, ambiguous, or drifted evidence fails closed.
+
 ### Guardian
 
 Guardian coordinates failures across these layers.

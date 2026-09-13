@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import posixpath
 import re
 from typing import Any, Iterable, Mapping
 
@@ -42,12 +43,43 @@ class FileObservation:
     sha256: str
     mode: int
     package_owner: str | None
+    file_type: str = "file"
+    link_target: str | None = None
+    uid: int = 0
+    gid: int = 0
+    xattrs_sha256: str | None = None
+    security_capability: str | None = None
 
     def __post_init__(self) -> None:
         if re.fullmatch(r"[0-9a-f]{64}", self.sha256) is None:
             raise ValueError("file observation requires SHA-256")
         if self.mode < 0 or self.mode > 0o7777:
             raise ValueError("file mode is invalid")
+        if self.file_type not in {"file", "directory", "symlink", "other"}:
+            raise ValueError("file observation type is invalid")
+        if self.file_type == "symlink" and not isinstance(self.link_target, str):
+            raise ValueError("symlink observation requires link target")
+        if self.file_type != "symlink" and self.link_target is not None:
+            raise ValueError("non-symlink observation cannot have link target")
+        if self.uid < 0 or self.gid < 0:
+            raise ValueError("file ownership identity is invalid")
+        if self.xattrs_sha256 is not None and re.fullmatch(r"[0-9a-f]{64}", self.xattrs_sha256) is None:
+            raise ValueError("extended attribute identity is invalid")
+        if self.security_capability is not None and re.fullmatch(r"[0-9a-f]+", self.security_capability) is None:
+            raise ValueError("file capability evidence is invalid")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "sha256": self.sha256,
+            "mode": self.mode,
+            "package_owner": self.package_owner,
+            "file_type": self.file_type,
+            "link_target": self.link_target,
+            "uid": self.uid,
+            "gid": self.gid,
+            "xattrs_sha256": self.xattrs_sha256,
+            "security_capability": self.security_capability,
+        }
 
 
 @dataclass(frozen=True)
@@ -60,7 +92,12 @@ class CandidateDeclaration:
         if not self.package_identity:
             raise ValueError("candidate package identity is required")
         for prefix in self.path_prefixes:
-            if not prefix.startswith("/") or ".." in prefix.split("/"):
+            if (
+                not prefix.startswith("/")
+                or prefix == "/"
+                or ".." in prefix.split("/")
+                or posixpath.normpath(prefix) != prefix
+            ):
                 raise ValueError("declared path prefix must be absolute and bounded")
 
     def declares(self, path: str, kind: EffectKind) -> bool:
@@ -76,12 +113,16 @@ class MutationEffect:
     declared: bool
     owner_before: str | None = None
     owner_after: str | None = None
+    before: FileObservation | None = None
+    after: FileObservation | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind.value, "operation": self.operation,
             "subject": self.subject, "declared": self.declared,
             "owner_before": self.owner_before, "owner_after": self.owner_after,
+            "before": self.before.as_dict() if self.before else None,
+            "after": self.after.as_dict() if self.after else None,
         }
 
 
@@ -109,7 +150,7 @@ class MutationGraph:
 
     def identity_material(self) -> dict[str, Any]:
         return {
-            "schema_version": 1, "transaction_id": str(self.transaction_id),
+            "schema_version": 2, "transaction_id": str(self.transaction_id),
             "effects": [item.as_dict() for item in self.effects],
             "inspection_complete": self.inspection_complete,
         }
@@ -119,19 +160,34 @@ class MutationGraph:
 
 
 def _kind(path: str) -> EffectKind:
-    if path in {"/etc/kernel/cmdline"} or path.startswith("/etc/kernel/cmdline.d/") or path.startswith("/boot/loader/"):
+    if path in {"/etc/kernel/cmdline", "/etc/ld.so.preload", "/etc/securetty"} or path.startswith("/etc/kernel/cmdline.d/") or path.startswith("/boot/loader/"):
         return EffectKind.LOADER_POLICY
-    if path.startswith(("/boot/", "/efi/")):
+    if path.startswith((
+        "/boot/", "/efi/", "/etc/mkinitcpio", "/usr/lib/initcpio/",
+        "/usr/lib/kernel/install.d/", "/etc/kernel/install.d/",
+    )):
         return EffectKind.BOOT_STATE
-    if path.startswith(("/usr/lib/modules/", "/lib/modules/")):
+    if path.startswith((
+        "/usr/lib/modules/", "/lib/modules/", "/usr/src/", "/var/lib/dkms/",
+        "/etc/modules-load.d/", "/etc/modprobe.d/",
+    )):
         return EffectKind.KERNEL_MODULE
-    if path.startswith(("/etc/sudoers", "/etc/polkit-1/", "/usr/share/polkit-1/rules.d/")):
+    if path in {"/etc/passwd", "/etc/group", "/etc/shadow", "/etc/gshadow"} or path.startswith((
+        "/etc/sudoers", "/etc/polkit-1/", "/usr/share/polkit-1/rules.d/",
+        "/etc/pam.d/", "/usr/lib/security/", "/etc/ssh/",
+    )):
         return EffectKind.PRIVILEGE_AUTHORITY
     if path.startswith(("/usr/share/libalpm/hooks/", "/etc/pacman.d/hooks/")):
         return EffectKind.PACMAN_HOOK
-    if path.startswith(("/etc/xdg/autostart/", "/etc/systemd/user/", "/usr/lib/systemd/user/")):
+    if path.startswith((
+        "/etc/xdg/autostart/", "/etc/systemd/user/", "/usr/lib/systemd/user/",
+        "/etc/cron", "/var/spool/cron/", "/etc/profile.d/",
+    )):
         return EffectKind.STARTUP_PERSISTENCE
-    if path.startswith(("/etc/systemd/system/", "/usr/lib/systemd/system/")) and path.endswith((".service", ".socket", ".timer", ".path")):
+    if path.startswith(("/etc/systemd/system/", "/usr/lib/systemd/system/")):
+        if any(part.endswith((".wants", ".requires", ".upholds")) for part in path.split("/")):
+            return EffectKind.STARTUP_PERSISTENCE
+    if path.startswith(("/etc/systemd/system/", "/usr/lib/systemd/system/")) and path.endswith((".service", ".socket", ".timer", ".path", ".mount", ".automount")):
         return EffectKind.SYSTEM_SERVICE
     return EffectKind.FILE
 
@@ -158,13 +214,28 @@ def derive_mutation_graph(
             kind=kind, operation=operation, subject=path,
             declared=declaration.declares(path, kind),
             owner_before=owner_before, owner_after=owner_after,
+            before=old, after=new,
         ))
+        if (
+            new is not None
+            and new.file_type == "file"
+            and (new.mode & 0o6000 or new.security_capability is not None)
+            and kind is not EffectKind.PRIVILEGE_AUTHORITY
+        ):
+            privileged = EffectKind.PRIVILEGE_AUTHORITY
+            effects.append(MutationEffect(
+                kind=privileged, operation=operation, subject=path,
+                declared=declaration.declares(path, privileged),
+                owner_before=owner_before, owner_after=owner_after,
+                before=old, after=new,
+            ))
         if old is not None and owner_before not in {None, declaration.package_identity}:
             override = EffectKind.PACKAGE_FILE_OVERRIDE
             effects.append(MutationEffect(
                 kind=override, operation=operation, subject=path,
                 declared=declaration.declares(path, override),
                 owner_before=owner_before, owner_after=owner_after,
+                before=old, after=new,
             ))
     for listener in sorted(listeners, key=lambda item: item.subject):
         kind = EffectKind.NETWORK_LISTENER
@@ -174,7 +245,7 @@ def derive_mutation_graph(
         ))
     effects.sort(key=lambda item: (item.subject, item.kind.value, item.operation))
     material = {
-        "schema_version": 1, "transaction_id": str(transaction_id),
+        "schema_version": 2, "transaction_id": str(transaction_id),
         "effects": [item.as_dict() for item in effects],
         "inspection_complete": inspection_complete,
     }
@@ -207,6 +278,8 @@ def evaluate_admission(
     known = {ArtifactID(str(item)) for item in known_safe_graph_ids}
     if not graph.inspection_complete:
         return AdmissionDecision(AdmissionOutcome.REJECT, ("candidate_inspection_incomplete",), graph.transaction_id, graph.graph_id, False)
+    if not graph.effects:
+        return AdmissionDecision(AdmissionOutcome.REJECT, ("candidate_has_no_observed_mutation",), graph.transaction_id, graph.graph_id, False)
     if graph.graph_id in known:
         return AdmissionDecision(AdmissionOutcome.ALLOW, ("exact_known_safe_transition",), graph.transaction_id, graph.graph_id, True)
     undeclared_boundary = [item for item in graph.effects if item.kind in SECURITY_BOUNDARY_EFFECTS and not item.declared]

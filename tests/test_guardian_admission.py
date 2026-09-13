@@ -33,6 +33,9 @@ safe = derive_mutation_graph(before, after, transaction_id=TX, declaration=safe_
 decision = evaluate_admission(safe)
 check("known package update with unchanged authority follows normal path", decision.outcome is AdmissionOutcome.ALLOW and decision.promotion_authorized)
 
+different_content = derive_mutation_graph(before, {"/usr/bin/demo": observed(b"v3", "demo", 0o755)}, transaction_id=TX, declaration=safe_declaration)
+check("mutation graph identity binds exact file content", different_content.graph_id != safe.graph_id)
+
 reordered = derive_mutation_graph(dict(reversed(list(before.items()))), dict(reversed(list(after.items()))), transaction_id=TX, declaration=safe_declaration)
 check("mutation graph identity is deterministic", reordered.graph_id == safe.graph_id and reordered.canonical() == safe.canonical())
 
@@ -45,6 +48,11 @@ check("exact reviewed graph can become a known-safe silent transition", evaluate
 sudo_path = "/etc/sudoers.d/demo"
 sudo = derive_mutation_graph({}, {sudo_path: observed(b"demo ALL=(ALL) ALL", "demo")}, transaction_id=TX, declaration=safe_declaration)
 check("undeclared privilege expansion is rejected", evaluate_admission(sudo).outcome is AdmissionOutcome.REJECT)
+
+capability = FileObservation(hashlib.sha256(b"capable").hexdigest(), 0o755, "demo", security_capability="0102")
+capability_graph = derive_mutation_graph({}, {"/usr/bin/capable": capability}, transaction_id=TX, declaration=CandidateDeclaration("demo", ("/usr/bin/capable",), (EffectKind.FILE,)))
+check("file capabilities are privileged effects", any(item.kind is EffectKind.PRIVILEGE_AUTHORITY for item in capability_graph.effects))
+check("undeclared file capability is rejected", evaluate_admission(capability_graph).outcome is AdmissionOutcome.REJECT)
 
 module_path = "/usr/lib/modules/6.18/extra/demo.ko"
 module = derive_mutation_graph({}, {module_path: observed(b"module", "demo")}, transaction_id=TX, declaration=safe_declaration)
