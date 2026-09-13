@@ -11,7 +11,7 @@ build() {
     add_full_dir /usr/lib/python3.14
     add_file "$MAHO_R3_SOURCE_ROOT/lib/maho-guardian-recovery-r3" /usr/lib/maho/guardian-recovery-r3 755
     add_file "$MAHO_R3_SOURCE_ROOT/lib/guardian_r3_native_verify.py" /usr/lib/maho/guardian_r3_native_verify.py 755
-    for name in guardian_recovery_r3.py guardian_recovery_r3_executor.py maho_trust_identity.py; do
+    for name in guardian_recovery_r3.py guardian_recovery_r3_executor.py guardian_offline_recovery.py maho_generation_v2.py maho_kernel_generation.py maho_trust_identity.py; do
         add_file "$MAHO_R3_SOURCE_ROOT/lib/$name" "/usr/lib/maho/$name" 644
     done
     while IFS= read -r -d '' file; do

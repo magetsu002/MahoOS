@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import hashlib, json, pathlib, sys, tempfile
+import hashlib, json, pathlib, shutil, subprocess, sys, tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 from maho_guardian_r3_limine import sanitize_text, verify_config
@@ -27,6 +27,16 @@ def main() -> int:
     check("R3 native never mutates firmware or root topology", all(x not in verifier for x in forbidden))
     check("R3 staging leaves Primary default before execution", "R3 staging requires Primary as current default" in stage)
     check("R3 campaign embeds certified content-addressed evidence", "guardian-r2-evidence" in build)
+    hook = (ROOT / "config/mkinitcpio/install/sd-maho-guardian-recovery-r3").read_text()
+    initrd_deps = ("guardian_recovery_r3.py", "guardian_recovery_r3_executor.py", "guardian_offline_recovery.py",
+                   "maho_generation_v2.py", "maho_kernel_generation.py", "maho_trust_identity.py")
+    check("R3 initrd carries complete verifier import closure", all(name in hook for name in initrd_deps))
+    with tempfile.TemporaryDirectory() as import_td:
+        maho = pathlib.Path(import_td) / "usr/lib/maho"; maho.mkdir(parents=True)
+        for name in ("guardian_r3_native_verify.py", *initrd_deps):
+            shutil.copy2(ROOT / "lib" / name, maho / name)
+        probe = subprocess.run([sys.executable, str(maho / "guardian_r3_native_verify.py")], text=True, capture_output=True)
+        check("R3 initrd-layout verifier imports successfully", "usage: guardian_r3_native_verify.py COMMAND" in probe.stderr)
     check("R3 build fails before reboot on package drift", "live package set drifted since certified R2 selection" in build)
     check("R3 build fails before reboot on selected modules drift", "live root no longer contains exact selected kernel modules" in build)
     check("R3 postboot requires exact selected kernel", "running kernel is not selected recovery kernel" in postboot)

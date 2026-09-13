@@ -92,7 +92,10 @@ chmod 644 "$out/initramfs.img"
 listing="$out/initramfs.list"; lsinitcpio "$out/initramfs.img" > "$listing"
 for required in usr/lib/maho/guardian-recovery-r3 usr/lib/maho/guardian_r3_native_verify.py \
  usr/lib/systemd/system/maho-guardian-recovery-r3.service usr/lib/maho/guardian-r3-campaign/manifest.json \
- usr/lib/maho/guardian-r3-campaign/intent.json usr/lib/maho/guardian-r3-campaign/r2-report.json usr/bin/python3 usr/bin/jq usr/bin/btrfs; do
+ usr/lib/maho/guardian-r3-campaign/intent.json usr/lib/maho/guardian-r3-campaign/r2-report.json \
+ usr/lib/maho/guardian_recovery_r3.py usr/lib/maho/guardian_recovery_r3_executor.py \
+ usr/lib/maho/guardian_offline_recovery.py usr/lib/maho/maho_generation_v2.py usr/lib/maho/maho_kernel_generation.py usr/lib/maho/maho_trust_identity.py \
+ usr/bin/python3 usr/bin/jq usr/bin/btrfs; do
   grep -Fxq "$required" "$listing" || fail "initramfs missing $required"
 done
 kernel_sha="$(sha256sum "$out/vmlinuz" | awk '{print $1}')"

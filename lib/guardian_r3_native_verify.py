@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import hashlib, json, pathlib, sys
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "lib"))
+HERE = pathlib.Path(__file__).resolve().parent
+SOURCE_LIB = HERE if (HERE / "guardian_recovery_r3_executor.py").is_file() else HERE.parent / "lib"
+sys.path.insert(0, str(SOURCE_LIB))
 from guardian_recovery_r3_executor import parse_envelope
 from maho_trust_identity import ArtifactID, canonical_bytes
 
