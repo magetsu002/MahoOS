@@ -1,0 +1,215 @@
+#!/usr/bin/bash
+set -euo pipefail
+ROOT="${MAHO_R3_ROOT:-/sysroot}"
+STATE="${MAHO_R3_STATE:-/run/maho-guardian-recovery-r3}"
+CMDLINE_FILE="${MAHO_R3_CMDLINE_FILE:-/proc/cmdline}"
+ESP_MOUNT="$STATE/esp"
+TOP_MOUNT="$STATE/top"
+MANIFEST_REL="MahoOS/guardian-recovery-r3/manifest.json"
+REPORT_REL="MahoOS/guardian-recovery-r3/report.json"
+CAMPAIGN_ROOT="${MAHO_R3_CAMPAIGN_ROOT:-/usr/lib/maho/guardian-r3-campaign}"
+EVIDENCE_ROOT="$CAMPAIGN_ROOT/r2-evidence"
+VERIFY="${MAHO_R3_VERIFY:-/usr/lib/maho/guardian_r3_native_verify.py}"
+NO_REBOOT="${MAHO_R3_NO_REBOOT:-0}"
+log(){ printf '%s\n' "maho-guardian-recovery-r3: $*"; }
+cmdline_value(){ local key="$1" token; for token in $(cat "$CMDLINE_FILE" 2>/dev/null || true); do case "$token" in "$key"=*) printf '%s\n' "${token#*=}"; return 0;; esac; done; return 1; }
+sha_file(){ sha256sum "$1" | awk '{print $1}'; }
+json_get(){ jq -er "$1" "$2"; }
+fail_now(){ local reason="$1"; log "FAIL: $reason"; printf '%s\n' "$reason" > "$STATE/failure"; exit 1; }
+campaign="unknown"; manifest_sha="unknown"; esp_partuuid=""; mutation_started=false
+durable_fail(){
+    local reason="$1" esp_dev="" tmp=""
+    mkdir -p "$STATE" "$ESP_MOUNT"; printf '%s\n' "$reason" > "$STATE/failure"
+    if [ -n "$esp_partuuid" ]; then
+        esp_dev="$(blkid -t "PARTUUID=$esp_partuuid" -o device 2>/dev/null | head -n1 || true)"
+    fi
+    if [ -n "$esp_dev" ]; then
+        umount "$ESP_MOUNT" >/dev/null 2>&1 || true
+        if mount -t vfat -o rw,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" >/dev/null 2>&1; then
+            mkdir -p "$ESP_MOUNT/$(dirname "$REPORT_REL")" || true
+            tmp="$ESP_MOUNT/$REPORT_REL.tmp"
+            jq -n --arg campaign "$campaign" --arg reason "$reason" --arg manifest "$manifest_sha" \
+              --arg kernel "$(uname -r)" --argjson mutated "$mutation_started" \
+              '{schema_version:1,outcome:"FAIL",phase:"FAILED",campaign_id:$campaign,reason:$reason,manifest_sha256:$manifest,recovery_kernel_release:$kernel,mutation_started:$mutated}' > "$tmp" 2>/dev/null || true
+            [ ! -s "$tmp" ] || mv -f "$tmp" "$ESP_MOUNT/$REPORT_REL" || true
+            sync || true; umount "$ESP_MOUNT" >/dev/null 2>&1 || true
+        fi
+    fi
+    log "FAIL: $reason"
+    if [ "$NO_REBOOT" = 1 ]; then return 1; fi
+    systemctl --no-block reboot || reboot -f || true; sleep infinity
+}
+cmdline="$(cat "$CMDLINE_FILE" 2>/dev/null || true)"
+case " $cmdline " in *" maho.guardian_recovery=r3 "*) ;; *) exit 0;; esac
+manifest_sha="$(cmdline_value maho.guardian_manifest_sha256 || true)"
+esp_partuuid="$(cmdline_value maho.guardian_esp_partuuid || true)"
+campaign="$(cmdline_value maho.guardian_campaign || true)"
+authorized="$(cmdline_value maho.guardian_authorized || true)"
+[[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]] || { durable_fail manifest_digest_missing; exit 1; }
+[[ "$campaign" =~ ^r3-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$ ]] || { durable_fail campaign_invalid; exit 1; }
+[ "$authorized" = 1 ] || { durable_fail explicit_authorization_missing; exit 1; }
+mkdir -p "$STATE" "$ESP_MOUNT" "$TOP_MOUNT"
+root_type="$(findmnt -no FSTYPE "$ROOT" 2>/dev/null | tail -n1 || true)"
+root_uuid="$(findmnt -no UUID "$ROOT" 2>/dev/null | tail -n1 || true)"
+root_opts="$(findmnt -no OPTIONS "$ROOT" 2>/dev/null | tail -n1 || true)"
+[ "$root_type" = btrfs ] || { durable_fail root_not_btrfs; exit 1; }
+case ",$root_opts," in *,ro,*) ;; *) durable_fail production_root_not_read_only; exit 1;; esac
+manifest="$CAMPAIGN_ROOT/manifest.json"
+intent="$CAMPAIGN_ROOT/intent.json"
+r2report="$CAMPAIGN_ROOT/r2-report.json"
+[ -r "$manifest" ] && [ -r "$intent" ] && [ -r "$r2report" ] || { durable_fail embedded_campaign_missing; exit 1; }
+[ "$(sha_file "$manifest")" = "$manifest_sha" ] || { durable_fail embedded_manifest_digest_mismatch; exit 1; }
+if ! jq -e --arg c "$campaign" --arg u "$root_uuid" '
+  .schema_version==1 and .campaign_id==$c and .certification_scope=="native-r3-kernel-only-recovery" and
+  .explicit_authorization==true and .root.uuid==$u and
+  (.target_kernel_release|type=="string") and (.target_kernel_generation_id|type=="string") and
+  (.target_system_generation_id|type=="string") and (.current_package_set_sha256|test("^[0-9a-f]{64}$"))
+' "$manifest" >/dev/null 2>&1; then durable_fail manifest_fields_invalid; exit 1; fi
+recovery_release="$(json_get .recovery_kernel.release "$manifest")"
+suspected_release="$(json_get .suspected_running_kernel.release "$manifest")"
+target_release="$(json_get .target_kernel_release "$manifest")"
+[ "$(uname -r)" = "$recovery_release" ] || { durable_fail recovery_kernel_release_mismatch; exit 1; }
+[ "$recovery_release" != "$suspected_release" ] || { durable_fail suspected_kernel_cannot_certify_itself; exit 1; }
+[ "$recovery_release" = "$target_release" ] || { durable_fail recovery_kernel_is_not_selected_target; exit 1; }
+if ! jq -e --arg r2 "$(json_get .r2_campaign_id "$manifest")" --arg k "$(json_get .target_kernel_generation_id "$manifest")" '
+  .schema_version==2 and .outcome=="PASS" and .reason=="independently_trusted_generation_pair_selected" and
+  .campaign_id==$r2 and .selection.outcome=="READY" and .selection.selection_matches_expected==true and
+  .selection.target_kernel_generation_id==$k
+' "$r2report" >/dev/null 2>&1; then durable_fail r2_certification_binding_invalid; exit 1; fi
+if ! python3 "$VERIFY" intent "$intent" > "$STATE/intent.normalized.json" 2>"$STATE/intent.err"; then
+    durable_fail r3_intent_invalid; exit 1
+fi
+root_fsroot="$(findmnt -no FSROOT "$ROOT" 2>/dev/null | tail -n1 || true)"
+[ "$root_fsroot" = /@ ] || { durable_fail current_root_identity_changed; exit 1; }
+root_dev="$(blkid -t "UUID=$root_uuid" -o device 2>/dev/null | head -n1 || true)"
+[ -n "$root_dev" ] || { durable_fail root_device_not_found; exit 1; }
+mount -t btrfs -o ro,subvolid=5 "$root_dev" "$TOP_MOUNT" || { durable_fail top_level_read_only_mount_failed; exit 1; }
+expected_pkg="$(json_get .current_package_set_sha256 "$manifest")"
+observed_pkg="$(python3 "$VERIFY" package-set "$TOP_MOUNT/@" 2>/dev/null || true)"
+[ "$observed_pkg" = "$expected_pkg" ] || { umount "$TOP_MOUNT" || true; durable_fail current_package_set_drifted; exit 1; }
+expected_modules="$(json_get .target_modules_tree_id "$manifest")"
+observed_modules="$(python3 "$VERIFY" modules-id "$TOP_MOUNT/@" "$target_release" 2>/dev/null || true)"
+[ "$observed_modules" = "$expected_modules" ] || { umount "$TOP_MOUNT" || true; durable_fail selected_kernel_modules_incompatible; exit 1; }
+home_info="$(btrfs subvolume show "$TOP_MOUNT/@home" 2>/dev/null || true)"
+home_uuid="$(awk '$1=="UUID:" {print $2; exit}' <<<"$home_info")"
+[ -n "$home_uuid" ] || { umount "$TOP_MOUNT" || true; durable_fail home_identity_unavailable; exit 1; }
+umount "$TOP_MOUNT" || { durable_fail top_level_unmount_failed; exit 1; }
+esp_dev="$(blkid -t "PARTUUID=$esp_partuuid" -o device 2>/dev/null | head -n1 || true)"
+[ -n "$esp_dev" ] || { durable_fail esp_not_found; exit 1; }
+mount -t vfat -o ro,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" || { durable_fail esp_read_only_mount_failed; exit 1; }
+esp_manifest="$ESP_MOUNT/$MANIFEST_REL"
+[ -r "$esp_manifest" ] && [ "$(sha_file "$esp_manifest")" = "$manifest_sha" ] || {
+    umount "$ESP_MOUNT" || true; durable_fail staged_manifest_binding_invalid; exit 1; }
+for key in kernel initramfs microcode; do
+    artifact_id="$(json_get ".target_artifact_ids.$key" "$manifest")"
+    artifact="$(python3 "$VERIFY" artifact-path "$EVIDENCE_ROOT" "$artifact_id" 2>/dev/null || true)"
+    [ -n "$artifact" ] || { umount "$ESP_MOUNT" || true; durable_fail "selected_${key}_artifact_missing"; exit 1; }
+    expected="${artifact_id#art-}"
+    [ "$(sha_file "$artifact")" = "$expected" ] || { umount "$ESP_MOUNT" || true; durable_fail "selected_${key}_artifact_tampered"; exit 1; }
+done
+previous_default="$(awk -F': ' '/^default_entry:/ {print $2; exit}' "$ESP_MOUNT/limine.conf")"
+[ "$previous_default" = "MahoOS/Primary" ] || { umount "$ESP_MOUNT" || true; durable_fail default_boot_authority_unexpected; exit 1; }
+[ "$(grep -c '^/Guardian Recovery R3$' "$ESP_MOUNT/limine.conf" || true)" -eq 1 ] || { umount "$ESP_MOUNT" || true; durable_fail r3_boot_entry_binding_missing; exit 1; }
+umount "$ESP_MOUNT" || { durable_fail esp_read_only_unmount_failed; exit 1; }
+rollback_boot(){
+    local backup="$1"
+    [ -r "$backup/limine.conf" ] && cp -f "$backup/limine.conf" "$ESP_MOUNT/limine.conf" || true
+    [ -r "$backup/vmlinuz-linux-cachyos-lts" ] && cp -f "$backup/vmlinuz-linux-cachyos-lts" "$ESP_MOUNT/vmlinuz-linux-cachyos-lts" || true
+    [ -r "$backup/initramfs-linux-cachyos-lts.img" ] && cp -f "$backup/initramfs-linux-cachyos-lts.img" "$ESP_MOUNT/initramfs-linux-cachyos-lts.img" || true
+    [ -r "$backup/intel-ucode.img" ] && cp -f "$backup/intel-ucode.img" "$ESP_MOUNT/intel-ucode.img" || true
+    sync || true
+}
+mount -t vfat -o rw,nosuid,nodev,noexec "$esp_dev" "$ESP_MOUNT" || { durable_fail esp_writable_mount_failed; exit 1; }
+backup="$ESP_MOUNT/MahoOS/guardian-recovery-r3/backup"
+[ ! -e "$backup" ] || { umount "$ESP_MOUNT" || true; durable_fail recovery_backup_already_exists; exit 1; }
+mkdir -p "$backup"
+cp "$ESP_MOUNT/limine.conf" "$backup/limine.conf"
+cp "$ESP_MOUNT/vmlinuz-linux-cachyos-lts" "$backup/vmlinuz-linux-cachyos-lts"
+cp "$ESP_MOUNT/initramfs-linux-cachyos-lts.img" "$backup/initramfs-linux-cachyos-lts.img"
+cp "$ESP_MOUNT/intel-ucode.img" "$backup/intel-ucode.img"
+sync || { rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail backup_sync_failed; exit 1; }
+mutation_started=true
+kernel_id="$(json_get .target_artifact_ids.kernel "$manifest")"
+initramfs_id="$(json_get .target_artifact_ids.initramfs "$manifest")"
+microcode_id="$(json_get .target_artifact_ids.microcode "$manifest")"
+kernel_art="$(python3 "$VERIFY" artifact-path "$EVIDENCE_ROOT" "$kernel_id")"
+initramfs_art="$(python3 "$VERIFY" artifact-path "$EVIDENCE_ROOT" "$initramfs_id")"
+microcode_art="$(python3 "$VERIFY" artifact-path "$EVIDENCE_ROOT" "$microcode_id")"
+for spec in \
+  "$kernel_art:$ESP_MOUNT/vmlinuz-linux-cachyos-lts:${kernel_id#art-}" \
+  "$initramfs_art:$ESP_MOUNT/initramfs-linux-cachyos-lts.img:${initramfs_id#art-}" \
+  "$microcode_art:$ESP_MOUNT/intel-ucode.img:${microcode_id#art-}"; do
+    src="${spec%%:*}"; rest="${spec#*:}"; dst="${rest%%:*}"; expected="${rest##*:}"
+    tmp="$dst.maho-r3.tmp"; cp "$src" "$tmp" || { rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail artifact_stage_copy_failed; exit 1; }
+    [ "$(sha_file "$tmp")" = "$expected" ] || { rm -f "$tmp"; rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail artifact_stage_digest_mismatch; exit 1; }
+    mv -f "$tmp" "$dst" || { rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail artifact_publish_failed; exit 1; }
+done
+for spec in \
+  "$ESP_MOUNT/vmlinuz-linux-cachyos-lts:${kernel_id#art-}" \
+  "$ESP_MOUNT/initramfs-linux-cachyos-lts.img:${initramfs_id#art-}" \
+  "$ESP_MOUNT/intel-ucode.img:${microcode_id#art-}"; do
+    path="${spec%%:*}"; expected="${spec##*:}"
+    [ "$(sha_file "$path")" = "$expected" ] || {
+        rollback_boot "$backup"; umount "$ESP_MOUNT" || true
+        durable_fail published_artifact_digest_mismatch; exit 1
+    }
+done
+python3 - "$ESP_MOUNT/limine.conf" <<'PY' || {
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = "default_entry: MahoOS/Primary"
+new = "default_entry: MahoOS/Fallback (LTS)"
+if text.count(old) != 1 or "/MahoOS\n" not in text or "//Fallback (LTS)" not in text:
+    raise SystemExit(1)
+path.write_text(text.replace(old, new, 1))
+PY
+    rollback_boot "$backup"; umount "$ESP_MOUNT" || true
+    durable_fail boot_authority_switch_failed; exit 1
+}
+sync || { rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail boot_authority_sync_failed; exit 1; }
+next_default="$(awk -F': ' '/^default_entry:/ {print $2; exit}' "$ESP_MOUNT/limine.conf")"
+[ "$next_default" = "MahoOS/Fallback (LTS)" ] || {
+    rollback_boot "$backup"; umount "$ESP_MOUNT" || true
+    durable_fail boot_authority_postcondition_failed; exit 1
+}
+report="$ESP_MOUNT/$REPORT_REL"
+tmp="$report.tmp"
+mkdir -p "$(dirname "$report")"
+jq -n \
+  --arg campaign "$campaign" --arg manifest "$manifest_sha" \
+  --arg recovery_kernel "$(uname -r)" --arg root_uuid "$root_uuid" \
+  --arg home_uuid "$home_uuid" --arg previous_default "$previous_default" \
+  --arg next_default "$next_default" \
+  --arg system "$(json_get .target_system_generation_id "$manifest")" \
+  --arg kernel "$(json_get .target_kernel_generation_id "$manifest")" \
+  --arg intent "$(json_get .intent_sha256 "$manifest")" \
+  '{schema_version:1,outcome:"PASS",phase:"AWAITING_REBOOT",campaign_id:$campaign,
+    reason:"exact_selected_kernel_staged",manifest_sha256:$manifest,
+    recovery_kernel_release:$recovery_kernel,root_uuid:$root_uuid,
+    home_subvolume_uuid:$home_uuid,target_system_generation_id:$system,
+    target_kernel_generation_id:$kernel,intent_sha256:$intent,
+    previous_default_entry:$previous_default,next_default_entry:$next_default,
+    mutation_started:true,firmware_mutated:false}' > "$tmp" || {
+      rollback_boot "$backup"; rm -f "$tmp"; umount "$ESP_MOUNT" || true
+      durable_fail receipt_build_failed; exit 1
+  }
+mv -f "$tmp" "$report" || {
+    rollback_boot "$backup"; umount "$ESP_MOUNT" || true
+    durable_fail receipt_publish_failed; exit 1
+}
+if ! jq -e --arg c "$campaign" --arg k "$(json_get .target_kernel_generation_id "$manifest")" '
+  .schema_version==1 and .outcome=="PASS" and .phase=="AWAITING_REBOOT" and
+  .campaign_id==$c and .target_kernel_generation_id==$k and
+  .mutation_started==true and .firmware_mutated==false and
+  .next_default_entry=="MahoOS/Fallback (LTS)"
+' "$report" >/dev/null; then
+    rollback_boot "$backup"; umount "$ESP_MOUNT" || true
+    durable_fail receipt_postcondition_failed; exit 1
+fi
+sync || { rollback_boot "$backup"; umount "$ESP_MOUNT" || true; durable_fail final_sync_failed; exit 1; }
+umount "$ESP_MOUNT" || { durable_fail final_esp_unmount_failed; exit 1; }
+log "PASS: exact selected KernelGeneration staged; rebooting into normal LTS root"
+if [ "$NO_REBOOT" = 1 ]; then exit 0; fi
+systemctl --no-block reboot || reboot -f || true
+sleep infinity

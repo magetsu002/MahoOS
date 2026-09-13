@@ -1,0 +1,114 @@
+#!/usr/bin/bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT_PARENT="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/maho/guardian-recovery-r3}"
+fail(){ echo "maho-guardian-recovery-r3-build: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
+for cmd in git find findmnt jq mkinitcpio lsinitcpio sha256sum python3 pacman file; do need "$cmd"; done
+[ "$(id -u)" -ne 0 ] || fail "build as normal user"
+[ "${MAHO_R3_ALLOW_DIRTY:-0}" = 1 ] || [ -z "$(git -C "$ROOT" status --porcelain)" ] || fail "source worktree must be clean"
+source_revision="$(git -C "$ROOT" rev-parse HEAD)"
+[ "$(findmnt -no FSTYPE / | tail -n1)" = btrfs ] || fail "root is not Btrfs"
+[ "$(findmnt -no FSTYPE /boot | tail -n1)" = vfat ] || fail "/boot is not the FAT ESP"
+root_uuid="$(findmnt -no UUID / | tail -n1)"
+root_fsroot="$(findmnt -no FSROOT / | tail -n1)"
+esp_partuuid="$(findmnt -no PARTUUID /boot | tail -n1)"
+[ "$root_fsroot" = /@ ] || fail "R3 native build requires normal /@ root"
+suspected_release="$(uname -r)"
+recovery_release="$(basename "$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -name '*-cachyos-lts' | head -n1)")"
+[ -n "$recovery_release" ] && [ "$recovery_release" != "$suspected_release" ] || fail "independent LTS recovery kernel unavailable"
+file /boot/vmlinuz-linux-cachyos-lts | grep -Fq "version $recovery_release" || fail "LTS image/modules mismatch"
+cert_root="$HOME/.local/state/maho/certification/guardian-r2"
+r2_report="$(find "$cert_root" -maxdepth 1 -type f -name 'r2-*-report.json' -print | sort | tail -n1)"
+[ -n "$r2_report" ] || fail "certified R2 report unavailable"
+r2_campaign="$(jq -er '.campaign_id' "$r2_report")"
+r2_manifest="$cert_root/$r2_campaign-manifest.json"
+[ -r "$r2_manifest" ] || fail "certified R2 manifest unavailable"
+jq -e '.outcome=="PASS" and .reason=="independently_trusted_generation_pair_selected" and .selection.selection_matches_expected==true' "$r2_report" >/dev/null || fail "R2 report is not certified PASS"
+r2_build="$(find "$HOME/.cache/maho/guardian-recovery-r2" -type d -name "$r2_campaign" -print | head -n1)"
+[ -n "$r2_build" ] || fail "R2 evidence build directory unavailable"
+r2_evidence="$r2_build/initrd-extra/usr/lib/maho/guardian-r2-evidence"
+[ -d "$r2_evidence/manifests/kernel" ] || fail "R2 content-addressed evidence unavailable"
+expected_pkg="$(jq -er '.selection_fixture.current_package_set_sha256' "$r2_manifest")"
+observed_pkg="$(python3 "$ROOT/lib/guardian_r3_native_verify.py" package-set /)"
+[ "$observed_pkg" = "$expected_pkg" ] || fail "live package set drifted since certified R2 selection"
+target_kernel_id="$(jq -er '.selection.target_kernel_generation_id' "$r2_report")"
+target_kernel_manifest="$r2_evidence/manifests/kernel/$target_kernel_id.json"
+[ -r "$target_kernel_manifest" ] || fail "selected R2 KernelGeneration manifest unavailable"
+expected_modules="$(jq -er .modules_tree_id "$target_kernel_manifest")"
+target_modules_release="$(jq -er .modules_abi "$target_kernel_manifest")"
+observed_modules="$(python3 "$ROOT/lib/guardian_r3_native_verify.py" modules-id / "$target_modules_release")"
+[ "$observed_modules" = "$expected_modules" ] || fail "live root no longer contains exact selected kernel modules"
+short="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
+campaign="r3-$(date -u +%Y%m%dT%H%M%SZ)-$short"
+out="$OUT_PARENT/$campaign"
+[ ! -e "$out" ] || fail "output already exists: $out"
+mkdir -p "$out/hookdir"
+printf '%s\n' "$campaign" > "$out/CAMPAIGN_ID"
+printf '%s\n' "$source_revision" > "$out/SOURCE_REVISION"
+python3 "$ROOT/lib/guardian_r3_native_campaign.py" "$out/campaign" "$r2_manifest" "$r2_report" "$r2_evidence" > "$out/generator.json"
+metadata="$out/campaign/metadata.json"
+export ROOT out campaign source_revision root_uuid root_fsroot esp_partuuid suspected_release recovery_release r2_campaign metadata
+python3 - <<'PY'
+import json, os, pathlib
+out=pathlib.Path(os.environ['out']); meta=json.loads(pathlib.Path(os.environ['metadata']).read_text())
+manifest={
+ 'schema_version':1,'campaign_id':os.environ['campaign'],'source_revision':os.environ['source_revision'],
+ 'certification_scope':'native-r3-kernel-only-recovery','trust_claim':'mechanics-only-not-secure-boot-certified',
+ 'explicit_authorization':True,'policy':'smallest-known-good-kernel-only-recovery',
+ 'root':{'uuid':os.environ['root_uuid'],'fsroot':os.environ['root_fsroot']},
+ 'esp':{'partuuid':os.environ['esp_partuuid']},
+ 'suspected_running_kernel':{'release':os.environ['suspected_release']},
+ 'recovery_kernel':{'release':os.environ['recovery_release']},
+ 'r2_campaign_id':os.environ['r2_campaign'],
+ 'target_system_generation_id':meta['target_system_generation_id'],
+ 'target_kernel_generation_id':meta['target_kernel_generation_id'],
+ 'target_kernel_release':meta['target_kernel_release'],
+ 'target_modules_tree_id':meta['artifact_ids']['modules'],
+ 'current_package_set_sha256':meta['current_package_set_sha256'],
+ 'target_artifact_ids':{k:meta['artifact_ids'][k] for k in ('kernel','initramfs','microcode')},
+ 'intent_sha256':meta['intent_sha256']}
+text=json.dumps(manifest,sort_keys=True,separators=(',',':'))+'\n'
+(out/'campaign/manifest.json').write_text(text); (out/'manifest.json').write_text(text)
+PY
+manifest_sha="$(sha256sum "$out/manifest.json" | awk '{print $1}')"
+printf '%s  manifest.json\n' "$manifest_sha" > "$out/manifest.sha256"
+cp -a /usr/lib/initcpio/. "$out/hookdir/"
+cp "$ROOT/config/mkinitcpio/install/sd-maho-guardian-recovery-r3" "$out/hookdir/install/sd-maho-guardian-recovery-r3"
+chmod 755 "$out/hookdir/install/sd-maho-guardian-recovery-r3"
+cat > "$out/mkinitcpio.conf" <<'CFG'
+MODULES=()
+BINARIES=()
+FILES=()
+HOOKS=(base systemd autodetect microcode modconf keyboard block filesystems sd-maho-guardian-recovery-r3)
+COMPRESSION="zstd"
+CFG
+cp /boot/vmlinuz-linux-cachyos-lts "$out/vmlinuz"
+cp /boot/intel-ucode.img "$out/intel-ucode.img"
+chmod 644 "$out/vmlinuz" "$out/intel-ucode.img"
+MAHO_R3_SOURCE_ROOT="$ROOT" MAHO_R3_CAMPAIGN_ROOT="$out/campaign" mkinitcpio \
+  -D "$out/hookdir" -c "$out/mkinitcpio.conf" -k "$recovery_release" -g "$out/initramfs.img"
+chmod 644 "$out/initramfs.img"
+listing="$out/initramfs.list"; lsinitcpio "$out/initramfs.img" > "$listing"
+for required in usr/lib/maho/guardian-recovery-r3 usr/lib/maho/guardian_r3_native_verify.py \
+ usr/lib/systemd/system/maho-guardian-recovery-r3.service usr/lib/maho/guardian-r3-campaign/manifest.json \
+ usr/lib/maho/guardian-r3-campaign/intent.json usr/lib/maho/guardian-r3-campaign/r2-report.json usr/bin/python3 usr/bin/jq usr/bin/btrfs; do
+  grep -Fxq "$required" "$listing" || fail "initramfs missing $required"
+done
+kernel_sha="$(sha256sum "$out/vmlinuz" | awk '{print $1}')"
+initramfs_sha="$(sha256sum "$out/initramfs.img" | awk '{print $1}')"
+microcode_sha="$(sha256sum "$out/intel-ucode.img" | awk '{print $1}')"
+printf '%s  vmlinuz\n%s  initramfs.img\n%s  intel-ucode.img\n' \
+  "$kernel_sha" "$initramfs_sha" "$microcode_sha" > "$out/payload.sha256"
+rootflags="subvol=${root_fsroot#/},ro"
+cat > "$out/limine-entry.conf" <<EOF
+/Guardian Recovery R3
+comment: Maho native R3 bounded kernel-only recovery certification
+protocol: linux
+kernel_path: boot():/MahoOS/guardian-recovery-r3/vmlinuz
+module_path: boot():/MahoOS/guardian-recovery-r3/intel-ucode.img
+module_path: boot():/MahoOS/guardian-recovery-r3/initramfs.img
+kernel_cmdline: root=UUID=$root_uuid ro rootflags=$rootflags maho.guardian_recovery=r3 maho.guardian_authorized=1 maho.guardian_manifest_sha256=$manifest_sha maho.guardian_esp_partuuid=$esp_partuuid maho.guardian_campaign=$campaign
+EOF
+printf 'PASS  Guardian Recovery R3 campaign built\n'
+printf 'Campaign: %s\nSource:   %s\nRecovery: %s\nOutput:   %s\n' "$campaign" "$source_revision" "$recovery_release" "$out"
