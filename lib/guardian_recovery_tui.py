@@ -79,6 +79,7 @@ def _selection_reason(
     selection_report: Mapping[str, Any] | None,
     *,
     r2_campaign_id: str,
+    scope: str,
     target_system: str,
     target_kernel: str,
 ) -> str:
@@ -91,10 +92,12 @@ def _selection_reason(
     selection = _object(selection_report.get("selection"), "selection")
     if selection.get("outcome") != "READY" or selection.get("selection_matches_expected") is not True:
         raise TUIEvidenceError("selection_report_not_ready")
-    if selection.get("target_system_generation_id") != target_system:
-        raise TUIEvidenceError("selection_report_system_target_mismatch")
     if selection.get("target_kernel_generation_id") != target_kernel:
         raise TUIEvidenceError("selection_report_kernel_target_mismatch")
+    if scope == "FULL_GENERATION" and selection.get("target_system_generation_id") != target_system:
+        raise TUIEvidenceError("selection_report_system_target_mismatch")
+    if scope not in {"KERNEL_ONLY", "FULL_GENERATION"}:
+        raise TUIEvidenceError("selection_scope_invalid")
     explicit = selection.get("lost_trust_reason")
     if isinstance(explicit, str) and explicit:
         return explicit
@@ -204,6 +207,7 @@ def build_presentation(
     selection_reason = _selection_reason(
         selection_report,
         r2_campaign_id=intent.r2_campaign_id,
+        scope=intent.mode,
         target_system=system_id,
         target_kernel=kernel_id,
     )
