@@ -88,6 +88,11 @@ def main() -> None:
     plan = fixture_plan()
     pending = build_presentation(plan, selection_report=selection_report())
     screen = render(pending, evidence=True)
+    kernel_only_selection = selection_report()
+    kernel_only_selection["selection"]["target_system_generation_id"] = str(GenerationID.derive({"tui": "older-r2-system"}))
+    rebound = build_presentation(plan, selection_report=kernel_only_selection)
+    check("kernel-only view accepts R2 kernel selection with preserved current userspace", rebound.scope == "KERNEL_ONLY")
+
     check("overview shows evidence-sourced trust-loss reason", "independently_trusted_generation_pair_selected" in screen)
     compact_screen = "".join(screen.split())
     check("selected exact system and kernel are visible", str(SYSTEM) in compact_screen and str(TARGET_KERNEL) in compact_screen)
