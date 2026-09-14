@@ -31,6 +31,7 @@ class TUIEvidenceError(ValueError):
 
 
 PAGES = ("Recovery", "Trust", "Generations", "Logs", "Confirm")
+DEFAULT_EVIDENCE_ROOT = Path("/usr/lib/maho/guardian-r3-campaign/r2-evidence")
 ANSI = {
     "reset": "\033[0m",
     "green": "\033[32m",
@@ -330,8 +331,8 @@ def _generation_rows(
             markers = []
             if sid == current_system:
                 markers.append("current")
-            if sid == target_system and (kid == target_kernel or target_system == current_system):
-                markers.append("target")
+            if sid == target_system:
+                markers.append("target" if kid == target_kernel else "target userspace")
             if selected_system and sid == selected_system:
                 markers.append("selection source")
             rows.append(GenerationRow(
@@ -1076,12 +1077,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         state = _read_json(args.state, "execution_state") if args.state else None
         revocation = _read_json(args.revocation_plan, "revocation_plan") if args.revocation_plan else None
         logs = _read_logs(args.log_file)
+        evidence_root = args.evidence_root
+        if evidence_root is None and DEFAULT_EVIDENCE_ROOT.is_dir():
+            evidence_root = str(DEFAULT_EVIDENCE_ROOT)
         presentation = build_presentation(
             plan,
             selection_report=selection,
             authority=authority,
             state=state,
-            evidence_root=args.evidence_root,
+            evidence_root=evidence_root,
             revocation_plan=revocation,
             logs=logs,
         )
