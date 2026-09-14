@@ -8,6 +8,9 @@ SOURCE_REPO=""
 EXPECTED_REV=""
 FILES=(
   config/platform.json
+  lib/maho_trust_identity.py
+  lib/guardian_admission.py
+  lib/guardian_native_admission.py
   lib/maho_runtime_release.py
   lib/maho_recovery_generation.py
   lib/maho_recovery_discovery.py
@@ -27,6 +30,7 @@ FILES=(
   lib/maho_update_transaction.py
   lib/maho_update_receipts.py
   lib/maho_update_native.py
+  lib/maho_update_admission.py
   lib/maho_update_campaign.py
   bin/maho-update-campaign
 )

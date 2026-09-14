@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import shutil
 import tempfile
 import sys
 
@@ -15,6 +16,7 @@ from maho_update_native import (  # noqa: E402
     NativeCandidateUpdateOps,
     RootIdentity,
     activation_confirmation,
+    admission_base_name,
     backup_name,
     candidate_boot_proven,
     candidate_name,
@@ -60,6 +62,13 @@ class FixtureBtrfs(NativeBtrfsOps):
     def close(self) -> None:
         return None
 
+    def _run(self, command, *, check=False):
+        argv = tuple(command)
+        if argv[:3] == ("btrfs", "subvolume", "delete"):
+            shutil.rmtree(Path(argv[-1]))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return super()._run(command, check=check)
+
     def _show_uuid(self, path: Path) -> str:
         value = (path / ".uuid").read_text().strip()
         if self.fail_after_swap and path.name == "@" and value == CANDIDATE_UUID:
@@ -104,6 +113,7 @@ def seed_fixture(ops: FixtureBtrfs) -> tuple[dict[str, str], dict[str, bytes]]:
 
 def main() -> None:
     check("candidate name is transaction-bound", candidate_name(TX1) == "@maho-update-candidate-abcdef123456")
+    check("admission base name is transaction-bound", admission_base_name(TX1) == "@maho-update-admission-base-abcdef123456")
     check("backup name is transaction-bound", backup_name(TX1) == "@maho-update-backup-abcdef123456")
     check("update confirmation binds package generation", update_confirmation(TX1, "pkg-abc") == f"UPDATE:{TX1}:pkg-abc")
     check("activation confirmation binds candidate UUID", activation_confirmation(TX1, CANDIDATE_UUID) == f"ACTIVATE:{TX1}:{CANDIDATE_UUID}")
@@ -158,14 +168,42 @@ def main() -> None:
         backup_dir = Path(result["boot_backup_dir"])
         check("activation preserves old boot artifacts", all((backup_dir / Path(a).name).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
         check("activation never reboots or mutates firmware", result["reboot_performed"] is False and result["firmware_mutated"] is False)
+        try:
+            ops.arm_activation(machine_id=MACHINE, expected_candidate_uuid=CANDIDATE_UUID, expected_boot_hashes=expected)
+        except RuntimeError as exc:
+            check("activation replay fails closed on consumed candidate topology", "topology" in str(exc))
+        else:
+            raise AssertionError("activation replay unexpectedly succeeded")
         frozen_previous = ops.freeze_previous_root(backup_name(TX1), CURRENT_UUID, CANDIDATE_UUID)
         check("postboot finalization freezes exact previous root", frozen_previous["read_only"] is True and (ops.top / backup_name(TX1) / ".ro").exists())
+        admission_base = ops.top / admission_base_name(TX1)
+        admission_base.mkdir()
+        (admission_base / ".uuid").write_text(FSUUID)
+        (admission_base / ".ro").touch()
+        rejected_cleanup = ops.cleanup_admission_base(CANDIDATE_UUID)
+        check("Admission base cleanup rejects UUID drift", rejected_cleanup["ok"] is False and admission_base.exists())
+        cleanup = ops.cleanup_admission_base(FSUUID)
+        check("verified postboot lifecycle retires exact Admission base", cleanup["ok"] is True and not admission_base.exists())
         try:
             ops.freeze_previous_root(backup_name(TX1), CANDIDATE_UUID, CANDIDATE_UUID)
         except RuntimeError as exc:
             check("previous-root freeze rejects UUID drift", "UUID drifted" in str(exc))
         else:
             raise AssertionError("previous-root UUID drift unexpectedly accepted")
+
+    with tempfile.TemporaryDirectory(prefix="maho-m4b-boot-drift-") as temporary:
+        base = Path(temporary)
+        ops = FixtureBtrfs(TX2, base)
+        expected, _ = seed_fixture(ops)
+        drifted = ops.top / candidate_name(TX2) / BOOT_ARTIFACTS[0].lstrip("/")
+        drifted.write_bytes(b"post-admission-boot-drift")
+        try:
+            ops.arm_activation(machine_id=MACHINE, expected_candidate_uuid=CANDIDATE_UUID, expected_boot_hashes=expected)
+        except RuntimeError as exc:
+            check("changed candidate boot artifact fails closed before activation", "boot hashes drifted" in str(exc))
+        else:
+            raise AssertionError("changed candidate boot artifact unexpectedly activated")
+        check("boot drift refusal leaves original root active", (ops.top / "@/.uuid").read_text().strip() == CURRENT_UUID)
 
     with tempfile.TemporaryDirectory(prefix="maho-m4b-rollback-") as temporary:
         base = Path(temporary)

@@ -6,7 +6,7 @@ file manager, power controls, wallpaper system, and recovery tooling.
 
 MahoOS is still in development. The desktop is usable and the core recovery
 mechanics have native certification, but V1 installation, production update
-promotion, signed boot trust, and release hardening are not finished yet.
+hardware certification, signed boot trust, and release hardening are not finished yet.
 
 ## Desktop
 
@@ -73,6 +73,6 @@ docs/        Architecture and component documentation
 
 V1 is focused on making the current desktop installable, admission-gated,
 recoverable, and releasable as one operating system. Independent kernel recovery,
-trusted-generation selection, native kernel rollback, candidate admission, and
-revocation recovery planning now exist; production update certification, signed
+trusted-generation selection, native kernel rollback, production candidate admission,
+and revocation recovery planning now exist; production update certification, signed
 boot trust, installer/ISO work, and broader hardware acceptance remain.

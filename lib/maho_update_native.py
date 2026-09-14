@@ -59,6 +59,12 @@ def backup_name(transaction_id: str) -> str:
     return "@maho-update-backup-" + transaction_id.rsplit("-", 1)[1]
 
 
+def admission_base_name(transaction_id: str) -> str:
+    if _TXID.fullmatch(transaction_id) is None:
+        raise ValueError("invalid update transaction identity")
+    return "@maho-update-admission-base-" + transaction_id.rsplit("-", 1)[1]
+
+
 def update_confirmation(transaction_id: str, package_generation_id: str) -> str:
     if _TXID.fullmatch(transaction_id) is None or not package_generation_id.startswith("pkg-"):
         raise ValueError("invalid update confirmation identity")
@@ -108,6 +114,7 @@ class NativeBtrfsOps:
         self.offline_root = self.run_root / "root"
         self.candidate = candidate_name(transaction_id)
         self.backup = backup_name(transaction_id)
+        self.admission_base = admission_base_name(transaction_id)
 
     @staticmethod
     def _run(command: Sequence[str], *, check: bool = False) -> CommandResult:
@@ -189,28 +196,67 @@ class NativeBtrfsOps:
         identity = self.root_identity()
         self._mount_top(identity)
         destination = self.top / self.candidate
+        admission_base = self.top / self.admission_base
         if destination.exists():
             raise RuntimeError("candidate subvolume already exists")
+        if admission_base.exists():
+            raise RuntimeError("admission base subvolume already exists")
         if (self.top / self.backup).exists():
             raise RuntimeError("previous-root backup name already exists")
-        self._run(("btrfs", "subvolume", "snapshot", "/", str(destination)), check=True)
-        uuid = self._show_uuid(destination)
-        self.offline_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._run((
-            "mount", "-t", "btrfs", "-o", f"subvol={self.candidate}",
-            identity.device, str(self.offline_root),
-        ), check=True)
-        mounted = self._run(("findmnt", "-no", "FSROOT", str(self.offline_root)), check=True).stdout.strip()
-        if mounted != f"/{self.candidate}":
-            self.close()
-            raise RuntimeError("candidate root mounted with unexpected Btrfs identity")
+
+        # Freeze the exact pre-mutation root first, then derive the candidate
+        # from that immutable base. Admission can therefore compare the
+        # candidate against precisely what it inherited, not a later live /.
+        self._run(("btrfs", "subvolume", "snapshot", "/", str(admission_base)), check=True)
+        base_uuid = self._show_uuid(admission_base)
+        self._set_read_only(admission_base, True)
+        if not self._read_only(admission_base):
+            raise RuntimeError("admission base did not become read-only")
+        try:
+            self._run(("btrfs", "subvolume", "snapshot", str(admission_base), str(destination)), check=True)
+            self._set_read_only(destination, False)
+            uuid = self._show_uuid(destination)
+            self.offline_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self._run((
+                "mount", "-t", "btrfs", "-o", f"subvol={self.candidate}",
+                identity.device, str(self.offline_root),
+            ), check=True)
+            mounted = self._run(("findmnt", "-no", "FSROOT", str(self.offline_root)), check=True).stdout.strip()
+            if mounted != f"/{self.candidate}":
+                self.close()
+                raise RuntimeError("candidate root mounted with unexpected Btrfs identity")
+        except Exception:
+            if destination.exists():
+                self._set_read_only(destination, False)
+                self._run(("btrfs", "subvolume", "delete", str(destination)))
+            if admission_base.exists():
+                self._set_read_only(admission_base, False)
+                self._run(("btrfs", "subvolume", "delete", str(admission_base)))
+            raise
         return {
             "name": self.candidate,
             "uuid": uuid,
             "parent_root_uuid": identity.subvolume_uuid,
             "filesystem_uuid": identity.filesystem_uuid,
             "offline_root": str(self.offline_root),
+            "admission_base_name": self.admission_base,
+            "admission_base_uuid": base_uuid,
         }
+
+    def admission_roots(self, expected_candidate_uuid: str, expected_base_uuid: str) -> dict[str, str]:
+        self.require_root()
+        self._unmount(self.offline_root)
+        identity = self.root_identity()
+        self._mount_top(identity)
+        candidate = self.top / self.candidate
+        base = self.top / self.admission_base
+        if not candidate.exists() or not base.exists():
+            raise RuntimeError("admission candidate/base topology is incomplete")
+        if self._show_uuid(candidate) != expected_candidate_uuid:
+            raise RuntimeError("admission candidate UUID drifted")
+        if self._show_uuid(base) != expected_base_uuid or not self._read_only(base):
+            raise RuntimeError("admission base identity drifted")
+        return {"base_root": str(base), "candidate_root": str(candidate)}
 
     def freeze_candidate(self, expected_uuid: str) -> dict[str, Any]:
         self.require_root()
@@ -232,13 +278,35 @@ class NativeBtrfsOps:
         identity = self.root_identity()
         self._mount_top(identity)
         path = self.top / self.candidate
-        if not path.exists():
-            return {"ok": True, "candidate_removed": True, "already_absent": True}
-        if self._show_uuid(path) != expected_uuid:
-            return {"ok": False, "reason": "candidate UUID drifted"}
-        self._set_read_only(path, False)
-        result = self._run(("btrfs", "subvolume", "delete", str(path)))
-        return {"ok": result.returncode == 0, "candidate_removed": result.returncode == 0}
+        candidate_removed = not path.exists()
+        if path.exists():
+            if self._show_uuid(path) != expected_uuid:
+                return {"ok": False, "reason": "candidate UUID drifted"}
+            self._set_read_only(path, False)
+            candidate_removed = self._run(("btrfs", "subvolume", "delete", str(path))).returncode == 0
+        base = self.top / self.admission_base
+        base_removed = not base.exists()
+        if base.exists():
+            self._set_read_only(base, False)
+            base_removed = self._run(("btrfs", "subvolume", "delete", str(base))).returncode == 0
+        return {
+            "ok": candidate_removed and base_removed,
+            "candidate_removed": candidate_removed,
+            "admission_base_removed": base_removed,
+        }
+
+    def cleanup_admission_base(self, expected_uuid: str) -> dict[str, Any]:
+        self.require_root()
+        identity = self.root_identity()
+        self._mount_top(identity)
+        base = self.top / self.admission_base
+        if not base.exists():
+            return {"ok": True, "admission_base_removed": True, "already_absent": True}
+        if self._show_uuid(base) != expected_uuid:
+            return {"ok": False, "reason": "admission base UUID drifted"}
+        self._set_read_only(base, False)
+        removed = self._run(("btrfs", "subvolume", "delete", str(base))).returncode == 0
+        return {"ok": removed, "admission_base_removed": removed}
 
     def freeze_previous_root(self, previous_root_name: str, expected_uuid: str, active_candidate_uuid: str) -> dict[str, Any]:
         """Freeze the exact previous /@ only after the candidate is the live normal root."""
