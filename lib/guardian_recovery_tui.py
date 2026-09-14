@@ -14,9 +14,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import select
 import shutil
 import sys
+import termios
 import textwrap
+import tty
 from typing import Any, Mapping, Sequence, TextIO
 
 from guardian_offline_recovery import DirectoryRecoveryProvider
@@ -574,32 +578,38 @@ def _paint(text: str, semantic: str, enabled: bool) -> str:
     return ANSI[color] + text + ANSI["reset"]
 
 
+_COLOR_SEMANTICS = {
+    "Selection evidence missing": "warn",
+    "Evidence not supplied": "warn",
+    "None established": "good",
+    "Needs approval": "warn",
+    "Verified kernel": "good",
+    "Verified pair": "good",
+    "Trust lost": "bad",
+    "CONTAMINATED": "bad",
+    "REVALIDATED": "good",
+    "REVOKED": "bad",
+    "VERIFIED": "good",
+    "UNKNOWN": "warn",
+    "Unresolved": "warn",
+    "Possible": "warn",
+    "Preserved": "good",
+    "Verified": "good",
+    "Granted": "good",
+    "Success": "good",
+    "Missing": "warn",
+    "Pending": "warn",
+    "Refused": "bad",
+    "Failed": "bad",
+}
+_COLOR_PATTERN = re.compile("|".join(re.escape(item) for item in sorted(_COLOR_SEMANTICS, key=len, reverse=True)))
+
+
 def _colorize_line(text: str) -> str:
-    phrases = (
-        ("Selection evidence missing", "warn"),
-        ("Evidence not supplied", "warn"),
-        ("None established", "good"),
-        ("Needs approval", "warn"),
-        ("Verified kernel", "good"),
-        ("Verified pair", "good"),
-        ("Trust lost", "bad"),
-        ("CONTAMINATED", "bad"),
-        ("REVALIDATED", "good"),
-        ("REVOKED", "bad"),
-        ("Unresolved", "warn"),
-        ("Possible", "warn"),
-        ("Preserved", "good"),
-        ("Verified", "good"),
-        ("Granted", "good"),
-        ("Success", "good"),
-        ("Missing", "warn"),
-        ("Pending", "warn"),
-        ("Refused", "bad"),
-        ("Failed", "bad"),
+    return _COLOR_PATTERN.sub(
+        lambda match: _paint(match.group(0), _COLOR_SEMANTICS[match.group(0)], True),
+        text,
     )
-    for phrase, semantic in phrases:
-        text = text.replace(phrase, _paint(phrase, semantic, True))
-    return text
 
 
 def _field_rows(label: str, value: str, width: int) -> list[str]:
@@ -785,7 +795,13 @@ def _confirm_body(p: RecoveryPresentation, width: int) -> list[str]:
         ("Plan", _short_id(p.plan_sha256, max(24, width - 24))),
     ):
         rows.extend(_field_rows(label, value, width - 4))
-    rows.extend(("", "Press [c] here to request authorization for this exact plan.", "No recovery action is executed by this interface."))
+    if p.authorization == "REQUIRED":
+        action = "Press [c] to request authorization for this exact plan."
+    elif p.authorization == "GRANTED":
+        action = "Authorization is already granted for this exact plan."
+    else:
+        action = "Guardian has refused authorization for this plan."
+    rows.extend(("", action, "No recovery action is executed by this interface."))
     return _box("Confirm recovery request", rows, width)
 
 
@@ -809,13 +825,15 @@ def _header(p: RecoveryPresentation, width: int) -> list[str]:
     return [_clip(title + " " * gap + status, width), "─" * width]
 
 
-def _footer(page: str, width: int) -> list[str]:
+def _footer(page: str, width: int, authorization: str) -> list[str]:
     if page == "Generations":
         help_text = "[↑↓] Inspect  [Tab/←→] Section  [c] Confirm  [q] Quit"
     elif page == "Logs":
         help_text = "[↑↓] Scroll  [Tab/←→] Section  [c] Confirm  [q] Quit"
     elif page == "Trust":
         help_text = "[e] Evidence  [Tab/←→] Section  [c] Confirm  [q] Quit"
+    elif page == "Confirm":
+        help_text = "[c] Request approval  [Tab/←→] Section  [q] Quit" if authorization == "REQUIRED" else "[Tab/←→] Section  [q] Quit"
     else:
         help_text = "[Tab/←→] Section  [Enter] Inspect  [c] Continue  [q] Quit"
     return ["─" * width, _clip(help_text, width)]
@@ -833,7 +851,7 @@ def _compose(
     height = max(height, 18)
     page = PAGES[state.page_index]
     header = _header(p, width)
-    footer = _footer(page, width)
+    footer = _footer(page, width, p.authorization)
     if width >= 100:
         sidebar_width = 18
         content_width = width - sidebar_width - 3
@@ -852,8 +870,6 @@ def _compose(
         lines = header[:]
         for index, row in enumerate(body):
             left = side[index] if index < len(side) else ""
-            if color and left.startswith("›"):
-                left = _paint(left, "active", True)
             lines.append(left.ljust(sidebar_width) + " │ " + _clip(row, content_width))
         while len(lines) < height - len(footer):
             lines.append("")
@@ -875,7 +891,13 @@ def _compose(
             lines.append("")
         lines += footer
     if color:
-        lines = [_colorize_line(line) for line in lines]
+        active = f"› {page}"
+        painted = []
+        for line in lines:
+            line = _colorize_line(line)
+            line = line.replace(active, _paint(active, "active", True))
+            painted.append(line)
+        lines = painted
     return "\n".join(_clip(line, width) if not color else line for line in lines) + "\n"
 
 
@@ -958,10 +980,44 @@ def write_authorization_request(path: str | os.PathLike[str], request: Mapping[s
 
 
 def _read_key(stdin: TextIO) -> str:
-    value = stdin.readline()
-    if not value:
-        return "q"
-    return value.strip().lower()
+    """Read one navigation key; use raw terminal input only for a real TTY."""
+    is_tty = bool(getattr(stdin, "isatty", lambda: False)())
+    if not is_tty:
+        value = stdin.readline()
+        if not value:
+            return "q"
+        return value.strip().lower()
+
+    fd = stdin.fileno()
+    previous = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        first = os.read(fd, 1)
+        if not first:
+            return "q"
+        if first == b"\x1b":
+            sequence = bytearray(first)
+            while len(sequence) < 3:
+                ready, _, _ = select.select([fd], [], [], 0.04)
+                if not ready:
+                    break
+                sequence.extend(os.read(fd, 1))
+            return {
+                b"\x1b[A": "up",
+                b"\x1b[B": "down",
+                b"\x1b[C": "right",
+                b"\x1b[D": "left",
+                b"\x1b[Z": "shift-tab",
+            }.get(bytes(sequence), "escape")
+        if first == b"\t":
+            return "tab"
+        if first in {b"\r", b"\n"}:
+            return "enter"
+        if first == b"\x03":
+            return "q"
+        return first.decode("utf-8", errors="ignore").lower()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
 
 
 def _pause(stdin: TextIO, stdout: TextIO, message: str) -> None:
@@ -1016,7 +1072,6 @@ def interactive(
     while True:
         stdout.write("\033[2J\033[H")
         stdout.write(_compose(presentation, state, width=width, height=height, color=color))
-        stdout.write("Selection: ")
         stdout.flush()
         key = _read_key(stdin)
         if key in {"q", "quit", "exit"}:

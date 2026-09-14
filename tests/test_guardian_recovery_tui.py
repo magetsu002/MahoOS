@@ -358,6 +358,12 @@ def main() -> None:
     )
     check("exact native manifest binding displays granted authorization", granted.authorization == "GRANTED")
     check("certified target release is visible", granted.target_kernel_release == "6.18.42-1-cachyos-lts")
+    granted_confirm = render(granted, page="confirm", width=100, height=28)
+    check(
+        "granted confirmation does not request duplicate approval",
+        "Authorization is already granted for this exact plan." in granted_confirm
+        and "Press [c] to request authorization" not in granted_confirm,
+    )
     try:
         authorization_request(granted)
     except TUIEvidenceError as exc:
