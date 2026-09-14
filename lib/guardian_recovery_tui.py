@@ -574,15 +574,32 @@ def _paint(text: str, semantic: str, enabled: bool) -> str:
     return ANSI[color] + text + ANSI["reset"]
 
 
-def _semantic(text: str) -> str:
-    lower = text.lower()
-    if any(word in lower for word in ("failed", "refused", "revoked", "contaminated", "trust lost")):
-        return "bad"
-    if any(word in lower for word in ("needs approval", "pending", "missing", "unresolved", "possible", "not supplied")):
-        return "warn"
-    if any(word in lower for word in ("verified", "granted", "success", "preserved", "revalidated", "none established")):
-        return "good"
-    return ""
+def _colorize_line(text: str) -> str:
+    phrases = (
+        ("Selection evidence missing", "warn"),
+        ("Evidence not supplied", "warn"),
+        ("None established", "good"),
+        ("Needs approval", "warn"),
+        ("Verified kernel", "good"),
+        ("Verified pair", "good"),
+        ("Trust lost", "bad"),
+        ("CONTAMINATED", "bad"),
+        ("REVALIDATED", "good"),
+        ("REVOKED", "bad"),
+        ("Unresolved", "warn"),
+        ("Possible", "warn"),
+        ("Preserved", "good"),
+        ("Verified", "good"),
+        ("Granted", "good"),
+        ("Success", "good"),
+        ("Missing", "warn"),
+        ("Pending", "warn"),
+        ("Refused", "bad"),
+        ("Failed", "bad"),
+    )
+    for phrase, semantic in phrases:
+        text = text.replace(phrase, _paint(phrase, semantic, True))
+    return text
 
 
 def _field_rows(label: str, value: str, width: int) -> list[str]:
@@ -858,13 +875,7 @@ def _compose(
             lines.append("")
         lines += footer
     if color:
-        painted = []
-        for line in lines:
-            semantic = _semantic(line)
-            if semantic:
-                line = _paint(line, semantic, True)
-            painted.append(line)
-        lines = painted
+        lines = [_colorize_line(line) for line in lines]
     return "\n".join(_clip(line, width) if not color else line for line in lines) + "\n"
 
 
