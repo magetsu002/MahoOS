@@ -168,6 +168,12 @@ def main() -> None:
         backup_dir = Path(result["boot_backup_dir"])
         check("activation preserves old boot artifacts", all((backup_dir / Path(a).name).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
         check("activation never reboots or mutates firmware", result["reboot_performed"] is False and result["firmware_mutated"] is False)
+        try:
+            ops.arm_activation(machine_id=MACHINE, expected_candidate_uuid=CANDIDATE_UUID, expected_boot_hashes=expected)
+        except RuntimeError as exc:
+            check("activation replay fails closed on consumed candidate topology", "topology" in str(exc))
+        else:
+            raise AssertionError("activation replay unexpectedly succeeded")
         frozen_previous = ops.freeze_previous_root(backup_name(TX1), CURRENT_UUID, CANDIDATE_UUID)
         check("postboot finalization freezes exact previous root", frozen_previous["read_only"] is True and (ops.top / backup_name(TX1) / ".ro").exists())
         admission_base = ops.top / admission_base_name(TX1)
@@ -184,6 +190,20 @@ def main() -> None:
             check("previous-root freeze rejects UUID drift", "UUID drifted" in str(exc))
         else:
             raise AssertionError("previous-root UUID drift unexpectedly accepted")
+
+    with tempfile.TemporaryDirectory(prefix="maho-m4b-boot-drift-") as temporary:
+        base = Path(temporary)
+        ops = FixtureBtrfs(TX2, base)
+        expected, _ = seed_fixture(ops)
+        drifted = ops.top / candidate_name(TX2) / BOOT_ARTIFACTS[0].lstrip("/")
+        drifted.write_bytes(b"post-admission-boot-drift")
+        try:
+            ops.arm_activation(machine_id=MACHINE, expected_candidate_uuid=CANDIDATE_UUID, expected_boot_hashes=expected)
+        except RuntimeError as exc:
+            check("changed candidate boot artifact fails closed before activation", "boot hashes drifted" in str(exc))
+        else:
+            raise AssertionError("changed candidate boot artifact unexpectedly activated")
+        check("boot drift refusal leaves original root active", (ops.top / "@/.uuid").read_text().strip() == CURRENT_UUID)
 
     with tempfile.TemporaryDirectory(prefix="maho-m4b-rollback-") as temporary:
         base = Path(temporary)

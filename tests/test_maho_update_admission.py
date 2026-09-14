@@ -204,6 +204,45 @@ def main() -> None:
             "promotion_authority_binding_mismatch",
         )
 
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-boot-drift-") as td:
+        boot_roots = candidate_roots(Path(td), boundary_effect=True)
+        boot_plan = SimpleNamespace(boot_artifacts=("/boot/vmlinuz-demo",))
+        reviewed = evaluate_production_candidate(boot_roots, transaction(), boot_plan)
+        approved = evaluate_production_candidate(
+            boot_roots, transaction(), boot_plan,
+            known_safe_graph_ids=(reviewed.inspection.graph.graph_id,),
+        )
+        boot_authority = issue_activation_authority(
+            approved, update_transaction_id=TX, transaction=transaction(), source_revision=SOURCE,
+        )
+        write_file(boot_roots.candidate_root, "/boot/vmlinuz-demo", b"boot-drift", 0o644)
+        rejected(
+            "post-admission boot artifact drift invalidates activation authority",
+            lambda: verify_activation_authority(
+                boot_authority.as_dict(), roots=boot_roots, update_transaction_id=TX,
+                transaction=transaction(), plan=boot_plan, source_revision=SOURCE,
+            ),
+            "promotion_authority_binding_mismatch",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-module-drift-") as td:
+        module_roots = candidate_roots(Path(td))
+        module_tx = transaction()
+        module_plan = SimpleNamespace(boot_artifacts=())
+        admitted = evaluate_production_candidate(module_roots, module_tx, module_plan)
+        module_authority = issue_activation_authority(
+            admitted, update_transaction_id=TX, transaction=module_tx, source_revision=SOURCE,
+        )
+        write_file(module_roots.candidate_root, "/usr/lib/modules/7.2/extra/drift.ko", b"module-drift", 0o644)
+        rejected(
+            "post-admission kernel-module drift invalidates activation authority",
+            lambda: verify_activation_authority(
+                module_authority.as_dict(), roots=module_roots, update_transaction_id=TX,
+                transaction=module_tx, plan=module_plan, source_revision=SOURCE,
+            ),
+            "promotion_authority_binding_mismatch",
+        )
+
     print("ALL MAHO PRODUCTION ADMISSION CONTRACTS PASS")
 
 
