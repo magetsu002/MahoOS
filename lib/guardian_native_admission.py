@@ -389,7 +389,9 @@ def inspect_candidate(
     errors = tuple(sorted(set(
         (*before_owner_errors, *after_owner_errors, *before_errors, *after_errors)
     )))
-    if declaration.package_identity not in package_identities(roots.candidate_root):
+    available_packages = package_identities(roots.candidate_root)
+    missing_packages = declaration.allowed_package_identities - available_packages
+    if missing_packages:
         errors = tuple(sorted((*errors, "candidate_package_identity_unavailable")))
     complete = not errors and runtime.complete and runtime.isolated
     graph = derive_mutation_graph(
@@ -510,17 +512,27 @@ def candidate_first_admission(
 
 
 def parse_declaration(value: Mapping[str, Any]) -> CandidateDeclaration:
-    if set(value) != {"schema_version", "package_identity", "path_prefixes", "effect_kinds"} or value.get("schema_version") != 1:
+    version = value.get("schema_version")
+    required = {"schema_version", "package_identity", "path_prefixes", "effect_kinds"}
+    if version == 1:
+        allowed = required
+    elif version == 2:
+        allowed = required | {"package_identities"}
+    else:
+        raise NativeAdmissionError("candidate_declaration_schema_invalid")
+    if set(value) != allowed:
         raise NativeAdmissionError("candidate_declaration_schema_invalid")
     paths = value.get("path_prefixes")
     effects = value.get("effect_kinds")
-    if not isinstance(paths, list) or not isinstance(effects, list):
+    packages = value.get("package_identities", [])
+    if not isinstance(paths, list) or not isinstance(effects, list) or not isinstance(packages, list):
         raise NativeAdmissionError("candidate_declaration_lists_invalid")
     try:
         return CandidateDeclaration(
             package_identity=str(value["package_identity"]),
             path_prefixes=tuple(str(item) for item in paths),
             effect_kinds=tuple(EffectKind(str(item)) for item in effects),
+            package_identities=tuple(str(item) for item in packages),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise NativeAdmissionError("candidate_declaration_invalid") from exc

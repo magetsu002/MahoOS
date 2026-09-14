@@ -269,6 +269,7 @@ preflight() {
     "$ROOT/lib/maho_update_staging.py" "$ROOT/lib/maho_update_preparation.py" \
     "$ROOT/lib/maho_update_maintenance.py" "$ROOT/lib/maho_update_transaction.py" \
     "$ROOT/lib/maho_update_receipts.py" "$ROOT/lib/maho_update_cli.py" \
+    "$ROOT/lib/maho_update_admission.py" \
     "$ROOT/lib/guardian_update.py" "$ROOT"/lib/maho_adaptive_*.py \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \

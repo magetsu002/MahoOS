@@ -16,14 +16,13 @@ can be installed, updated, admitted, recovered, and tested as one product.
 - revocation-to-recovery planning for kernel-only, full-generation, or external recovery
 
 These claims are scoped. R3 certifies recovery mechanics, not a hostile boot chain;
-Secure Boot/signing hardening remains separate. Native Admission is source- and
-contract-complete but still needs production update promotion integration and
-hardware acceptance before it is a release boundary.
+Secure Boot/signing hardening remains separate. Native Admission is now bound into
+the production M4B candidate promotion path with exact activation authority and
+promotion-time drift revalidation, but hardware acceptance remains pending.
 
 ## Before V1
 
-- integrate Native Admission promotion authority into the production update/activation path
-- complete M4B native update hardware certification against a genuine newer coherent Primary kernel generation
+- complete M4B + Native Admission hardware certification against a genuine newer coherent Primary kernel generation
 - extend the now-wired Guardian Recovery TUI beyond R3 into every native recovery mode without weakening independent recovery authority
 - finish unified recovery history/status surfaces and product-facing recovery receipts
 - harden signed boot/update authority and define Secure Boot/key lifecycle

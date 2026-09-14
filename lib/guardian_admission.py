@@ -87,10 +87,13 @@ class CandidateDeclaration:
     package_identity: str
     path_prefixes: tuple[str, ...]
     effect_kinds: tuple[EffectKind, ...]
+    package_identities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.package_identity:
             raise ValueError("candidate package identity is required")
+        if any(not item for item in self.package_identities) or len(set(self.package_identities)) != len(self.package_identities):
+            raise ValueError("candidate package identities must be unique and non-empty")
         for prefix in self.path_prefixes:
             if (
                 not prefix.startswith("/")
@@ -99,6 +102,10 @@ class CandidateDeclaration:
                 or posixpath.normpath(prefix) != prefix
             ):
                 raise ValueError("declared path prefix must be absolute and bounded")
+
+    @property
+    def allowed_package_identities(self) -> frozenset[str]:
+        return frozenset(self.package_identities or (self.package_identity,))
 
     def declares(self, path: str, kind: EffectKind) -> bool:
         path_ok = any(path == prefix or path.startswith(prefix.rstrip("/") + "/") for prefix in self.path_prefixes)
@@ -229,7 +236,7 @@ def derive_mutation_graph(
                 owner_before=owner_before, owner_after=owner_after,
                 before=old, after=new,
             ))
-        if old is not None and owner_before not in {None, declaration.package_identity}:
+        if old is not None and owner_before is not None and owner_before not in declaration.allowed_package_identities:
             override = EffectKind.PACKAGE_FILE_OVERRIDE
             effects.append(MutationEffect(
                 kind=override, operation=operation, subject=path,

@@ -41,6 +41,14 @@ assert p['update']['required_repositories'] == ['core','extra','multilib','cachy
 s=Path(sys.argv[2]).read_text()
 start=s.index('def prepare_native_campaign')
 assert s.index('stage_transaction(', start) < s.index('seed_campaign(', start)
+execute=s.index('def execute_native_campaign')
+approve=s.index('def approve_native_admission')
+activate=s.index('def arm_native_activation')
+verify=s.index('def verify_native_activation')
+assert s.index('evaluate_production_candidate(', execute) < approve
+assert s.index('verify_activation_authority(', activate) < s.index('btrfs.arm_activation(', activate)
+assert s.index('cleanup_admission_base(', verify) > verify
+assert 'admission-review' in s and 'admission-rejected' in s
 assert 'package_repo_set_mismatch' in s
 assert '"phase": "blocked"' in s
 PY

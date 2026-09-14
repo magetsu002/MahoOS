@@ -161,6 +161,7 @@ bash "$ROOT/tests/maho-update-product-contracts.sh"
 python "$ROOT/tests/test_guardian_update.py"
 python "$ROOT/tests/test_maho_update_adversarial.py"
 python "$ROOT/tests/test_maho_update_native.py"
+python "$ROOT/tests/test_maho_update_admission.py"
 
 echo "=== Trust, generations, admission, and independent recovery ==="
 python "$ROOT/tests/test_trust_identity.py"

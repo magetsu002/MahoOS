@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import shutil
 import tempfile
 import sys
 
@@ -15,6 +16,7 @@ from maho_update_native import (  # noqa: E402
     NativeCandidateUpdateOps,
     RootIdentity,
     activation_confirmation,
+    admission_base_name,
     backup_name,
     candidate_boot_proven,
     candidate_name,
@@ -60,6 +62,13 @@ class FixtureBtrfs(NativeBtrfsOps):
     def close(self) -> None:
         return None
 
+    def _run(self, command, *, check=False):
+        argv = tuple(command)
+        if argv[:3] == ("btrfs", "subvolume", "delete"):
+            shutil.rmtree(Path(argv[-1]))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return super()._run(command, check=check)
+
     def _show_uuid(self, path: Path) -> str:
         value = (path / ".uuid").read_text().strip()
         if self.fail_after_swap and path.name == "@" and value == CANDIDATE_UUID:
@@ -104,6 +113,7 @@ def seed_fixture(ops: FixtureBtrfs) -> tuple[dict[str, str], dict[str, bytes]]:
 
 def main() -> None:
     check("candidate name is transaction-bound", candidate_name(TX1) == "@maho-update-candidate-abcdef123456")
+    check("admission base name is transaction-bound", admission_base_name(TX1) == "@maho-update-admission-base-abcdef123456")
     check("backup name is transaction-bound", backup_name(TX1) == "@maho-update-backup-abcdef123456")
     check("update confirmation binds package generation", update_confirmation(TX1, "pkg-abc") == f"UPDATE:{TX1}:pkg-abc")
     check("activation confirmation binds candidate UUID", activation_confirmation(TX1, CANDIDATE_UUID) == f"ACTIVATE:{TX1}:{CANDIDATE_UUID}")
@@ -160,6 +170,14 @@ def main() -> None:
         check("activation never reboots or mutates firmware", result["reboot_performed"] is False and result["firmware_mutated"] is False)
         frozen_previous = ops.freeze_previous_root(backup_name(TX1), CURRENT_UUID, CANDIDATE_UUID)
         check("postboot finalization freezes exact previous root", frozen_previous["read_only"] is True and (ops.top / backup_name(TX1) / ".ro").exists())
+        admission_base = ops.top / admission_base_name(TX1)
+        admission_base.mkdir()
+        (admission_base / ".uuid").write_text(FSUUID)
+        (admission_base / ".ro").touch()
+        rejected_cleanup = ops.cleanup_admission_base(CANDIDATE_UUID)
+        check("Admission base cleanup rejects UUID drift", rejected_cleanup["ok"] is False and admission_base.exists())
+        cleanup = ops.cleanup_admission_base(FSUUID)
+        check("verified postboot lifecycle retires exact Admission base", cleanup["ok"] is True and not admission_base.exists())
         try:
             ops.freeze_previous_root(backup_name(TX1), CANDIDATE_UUID, CANDIDATE_UUID)
         except RuntimeError as exc:

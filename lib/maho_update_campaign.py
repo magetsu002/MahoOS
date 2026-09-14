@@ -15,11 +15,20 @@ import shutil
 import subprocess
 from typing import Any, Mapping
 
+from guardian_admission import AdmissionOutcome
+from guardian_native_admission import CandidateRoots
 from maho_runtime_release import verify_release
 from maho_system_restore_campaign import prepare_campaign as prepare_l3_campaign, seed_campaign
 from maho_system_restore_host import SystemPreparationOps
 from maho_system_restore_journal import read_journal as read_l3_journal
 from maho_update_discovery import IsolatedPacmanDiscovery, discover_updates
+from maho_update_admission import (
+    admission_review_confirmation,
+    evaluate_production_candidate,
+    guardian_transaction_id,
+    issue_activation_authority,
+    verify_activation_authority,
+)
 from maho_update_native import (
     NativeBtrfsOps,
     NativeCandidateUpdateOps,
@@ -41,6 +50,7 @@ from maho_update_state import (
     validate_transaction,
 )
 from maho_update_transaction import ExecutionPlan, build_execution_plan, execute_update, verify_activation
+from maho_trust_identity import ArtifactID
 
 _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
 _SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -522,23 +532,64 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
         # Persist every in-flight/recovery state on the still-running root.
         # The candidate receives authority only after the full offline install
         # reaches INSTALLED_PENDING_ACTIVATION.
-        result = execute_update(ready, plan, ops, journal_path=tx_path)
-        if result.transaction["state"] != UpdateState.INSTALLED_PENDING_ACTIVATION.value:
-            publish_transaction(_STATE_ROOT, result.transaction)
-            if candidate is not None and result.transaction["state"] == UpdateState.FAILED_RECOVERABLE.value:
+        execution = execute_update(ready, plan, ops, journal_path=tx_path)
+        if execution.transaction["state"] != UpdateState.INSTALLED_PENDING_ACTIVATION.value:
+            publish_transaction(_STATE_ROOT, execution.transaction)
+            if candidate is not None and execution.transaction["state"] == UpdateState.FAILED_RECOVERABLE.value:
                 btrfs.cleanup_candidate(candidate["uuid"])
-            _transition_campaign(path, journal, "execution-failed", transaction_state=result.transaction["state"])
-            return {"transaction_id": transaction_id, "phase": result.transaction["state"], "activation_ready": False}
-        publish_transaction(candidate_state_root, result.transaction)
-        publish_transaction(_STATE_ROOT, result.transaction)
+            _transition_campaign(path, journal, "execution-failed", transaction_state=execution.transaction["state"])
+            return {"transaction_id": transaction_id, "phase": execution.transaction["state"], "activation_ready": False}
+        publish_transaction(candidate_state_root, execution.transaction)
+        publish_transaction(_STATE_ROOT, execution.transaction)
         frozen = btrfs.freeze_candidate(candidate["uuid"])
+        candidate = {**candidate, **frozen}
+        admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
+        roots = CandidateRoots.create(
+            transaction_id=guardian_transaction_id(transaction_id),
+            candidate_id=candidate["uuid"],
+            base_root=admission_paths["base_root"],
+            candidate_root=admission_paths["candidate_root"],
+        )
+        admission = evaluate_production_candidate(roots, execution.transaction, plan)
+        admission_payload = admission.as_dict()
+        if admission.decision.outcome is AdmissionOutcome.REJECT:
+            cleanup = btrfs.cleanup_candidate(candidate["uuid"])
+            _transition_campaign(
+                path, journal, "admission-rejected", candidate=candidate, plan=plan.as_dict(),
+                transaction_state=execution.transaction["state"], admission=admission_payload,
+                candidate_cleanup=cleanup,
+            )
+            return {
+                "transaction_id": transaction_id, "phase": "admission-rejected",
+                "activation_ready": False, "admission": admission.decision.as_dict(),
+            }
+        if admission.decision.outcome is AdmissionOutcome.REVIEW:
+            journal = _transition_campaign(
+                path, journal, "admission-review", candidate=candidate, plan=plan.as_dict(),
+                transaction_state=execution.transaction["state"], admission=admission_payload,
+            )
+            success = True
+            return {
+                "transaction_id": transaction_id, "phase": "admission-review",
+                "candidate_uuid": candidate["uuid"], "activation_ready": False,
+                "admission": admission.decision.as_dict(),
+                "admission_confirmation": admission_review_confirmation(
+                    transaction_id, admission.inspection.graph.graph_id,
+                ),
+            }
+        activation_authority = issue_activation_authority(
+            admission, update_transaction_id=transaction_id,
+            transaction=execution.transaction, source_revision=source_revision,
+        )
         journal = _transition_campaign(
             path,
             journal,
             "installed-pending-activation",
-            candidate={**candidate, **frozen},
+            candidate=candidate,
             plan=plan.as_dict(),
-            transaction_state=result.transaction["state"],
+            transaction_state=execution.transaction["state"],
+            admission=admission_payload,
+            activation_authority=activation_authority.as_dict(),
         )
         success = True
         return {
@@ -547,6 +598,7 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
             "candidate_uuid": candidate["uuid"],
             "candidate_name": candidate["name"],
             "boot_sha256": frozen["boot_sha256"],
+            "admission_authority_id": str(activation_authority.authority_id),
             "reboot_performed": False,
             "activation_confirmation": activation_confirmation(transaction_id, candidate["uuid"]),
         }
@@ -567,6 +619,63 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
     finally:
         btrfs.close()
 
+
+
+def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str, Any]:
+    _require_root()
+    root = _root()
+    source_revision = _source_revision(root)
+    machine_id = _machine_id()
+    path = _campaign_path(machine_id, transaction_id)
+    journal = _read_campaign(path)
+    if journal.get("phase") != "admission-review" or journal.get("source_revision") != source_revision:
+        raise RuntimeError("M4B campaign is not awaiting exact Admission review")
+    transaction = read_transaction(transaction_path(_STATE_ROOT, transaction_id))
+    if transaction["state"] != UpdateState.INSTALLED_PENDING_ACTIVATION.value:
+        raise RuntimeError("update authority is not pending activation")
+    candidate = journal.get("candidate")
+    admission_payload = journal.get("admission")
+    if not isinstance(candidate, Mapping) or not isinstance(admission_payload, Mapping):
+        raise RuntimeError("Admission review evidence is incomplete")
+    mutation_graph = admission_payload.get("mutation_graph")
+    if not isinstance(mutation_graph, Mapping):
+        raise RuntimeError("Admission mutation graph is missing")
+    graph_id = ArtifactID(str(mutation_graph.get("graph_id", "")))
+    if confirmation != admission_review_confirmation(transaction_id, graph_id):
+        raise RuntimeError("exact Admission graph confirmation token is required")
+    plan = _plan_from_dict(journal["plan"])
+    btrfs = NativeBtrfsOps(transaction_id)
+    try:
+        admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
+        roots = CandidateRoots.create(
+            transaction_id=guardian_transaction_id(transaction_id),
+            candidate_id=candidate["uuid"],
+            base_root=admission_paths["base_root"],
+            candidate_root=admission_paths["candidate_root"],
+        )
+        admission = evaluate_production_candidate(
+            roots, transaction, plan, known_safe_graph_ids=(graph_id,),
+        )
+        if admission.decision.outcome is not AdmissionOutcome.ALLOW:
+            raise RuntimeError("reviewed Admission graph no longer reaches ALLOW")
+        authority = issue_activation_authority(
+            admission, update_transaction_id=transaction_id,
+            transaction=transaction, source_revision=source_revision,
+        )
+    finally:
+        btrfs.close()
+    _transition_campaign(
+        path, journal, "installed-pending-activation",
+        admission=admission.as_dict(), activation_authority=authority.as_dict(),
+    )
+    return {
+        "transaction_id": transaction_id,
+        "phase": "installed-pending-activation",
+        "candidate_uuid": candidate["uuid"],
+        "admission_authority_id": str(authority.authority_id),
+        "activation_confirmation": activation_confirmation(transaction_id, candidate["uuid"]),
+        "reboot_performed": False,
+    }
 
 def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, Any]:
     _require_root()
@@ -592,8 +701,23 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
         raise RuntimeError("Maho runtime identity drifted before activation")
     if read_l3_journal(Path(journal["l3_prepared"]["journal_path"]))["phase"] != "prepared":
         raise RuntimeError("M3B recovery transaction is no longer prepared")
+    activation_authority = journal.get("activation_authority")
+    if not isinstance(activation_authority, Mapping):
+        raise RuntimeError("Native Admission activation authority is missing")
+    plan = _plan_from_dict(journal["plan"])
     btrfs = NativeBtrfsOps(transaction_id)
     try:
+        admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
+        roots = CandidateRoots.create(
+            transaction_id=guardian_transaction_id(transaction_id),
+            candidate_id=candidate["uuid"],
+            base_root=admission_paths["base_root"],
+            candidate_root=admission_paths["candidate_root"],
+        )
+        verified_authority = verify_activation_authority(
+            activation_authority, roots=roots, update_transaction_id=transaction_id,
+            transaction=transaction, plan=plan, source_revision=source_revision,
+        )
         evidence = btrfs.arm_activation(
             machine_id=machine_id,
             expected_candidate_uuid=candidate["uuid"],
@@ -601,7 +725,10 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
         )
     finally:
         btrfs.close()
-    journal = _transition_campaign(path, journal, "activation-armed", activation=evidence)
+    journal = _transition_campaign(
+        path, journal, "activation-armed", activation=evidence,
+        admission_authority_consumed=str(verified_authority.authority_id),
+    )
     return {
         "transaction_id": transaction_id,
         "phase": "activation-armed",
@@ -639,16 +766,32 @@ def verify_native_activation(transaction_id: str) -> dict[str, Any]:
         machine_id=machine_id,
     )
     result = verify_activation(transaction, plan, ops, journal_path=tx_path)
+    admission_cleanup: dict[str, Any] | None = None
+    if result.transaction["state"] == UpdateState.HEALTHY.value:
+        candidate = journal.get("candidate")
+        if not isinstance(candidate, Mapping) or not isinstance(candidate.get("admission_base_uuid"), str):
+            raise RuntimeError("postboot Admission base identity is missing")
+        btrfs = NativeBtrfsOps(transaction_id)
+        try:
+            admission_cleanup = btrfs.cleanup_admission_base(candidate["admission_base_uuid"])
+        finally:
+            btrfs.close()
+        if admission_cleanup.get("ok") is not True:
+            raise RuntimeError("verified update could not retire its Admission base")
     publish_transaction(_STATE_ROOT, result.transaction)
     receipt = record_receipt(_STATE_ROOT, result.transaction)
     final_phase = "verified" if result.transaction["state"] == UpdateState.HEALTHY.value else "attention-required"
-    _transition_campaign(path, journal, final_phase, transaction_state=result.transaction["state"], receipt_path=str(receipt))
+    _transition_campaign(
+        path, journal, final_phase, transaction_state=result.transaction["state"],
+        receipt_path=str(receipt), admission_base_cleanup=admission_cleanup,
+    )
     return {
         "transaction_id": transaction_id,
         "phase": final_phase,
         "transaction_state": result.transaction["state"],
         "blockers": result.transaction.get("blockers", []),
         "receipt_path": str(receipt),
+        "admission_base_cleanup": admission_cleanup,
         "reboot_performed": False,
     }
 
@@ -678,6 +821,9 @@ def main() -> None:
     execute = sub.add_parser("execute")
     execute.add_argument("transaction_id")
     execute.add_argument("--confirm", required=True)
+    approve = sub.add_parser("approve-admission")
+    approve.add_argument("transaction_id")
+    approve.add_argument("--confirm", required=True)
     activate = sub.add_parser("activate")
     activate.add_argument("transaction_id")
     activate.add_argument("--confirm", required=True)
@@ -691,6 +837,8 @@ def main() -> None:
             payload = prepare_native_campaign()
         elif args.command == "execute":
             payload = execute_native_campaign(args.transaction_id, args.confirm)
+        elif args.command == "approve-admission":
+            payload = approve_native_admission(args.transaction_id, args.confirm)
         elif args.command == "activate":
             payload = arm_native_activation(args.transaction_id, args.confirm)
         elif args.command == "verify":
