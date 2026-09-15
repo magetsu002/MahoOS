@@ -15,6 +15,7 @@ BOUNDARY="$ROOT/lib/security_boundary.py"
 SECURITY="$ROOT/bin/maho-security"
 PROVENANCE="$ROOT/bin/maho-provenance"
 GUARD="$ROOT/bin/maho-guard"
+PROVIDER_STATE="$ROOT/lib/guardian_provider_state.py"
 
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
     maho_event_emit() { return 0; }
@@ -37,6 +38,39 @@ boundary() {
     python "$BOUNDARY" "$@"
 }
 
+provider_record() {
+    local provider="$1" domain="$2" success="$3" health="$4" error="${5:-}" details="${6:-}"
+    [ -n "$details" ] || details='{}'
+    [ -r "$PROVIDER_STATE" ] || return 1
+    local -a args=(python "$PROVIDER_STATE" record --state-root "$SEC_STATE" --provider-id "$provider" --domain "$domain" --source maho-security-monitor --authority-boundary read-only-observer --health "$health" --details-json "$details")
+    [ "$success" = 1 ] && args+=(--success)
+    [ -z "$error" ] || args+=(--error "$error")
+    "${args[@]}" >/dev/null 2>&1
+}
+
+provider_from_payload() {
+    local provider="$1" domain="$2" payload="$3" result details
+    result="$(python - "$payload" <<'PY_RESULT'
+import json,sys
+try: value=json.loads(sys.argv[1])
+except Exception:
+    print("invalid")
+    raise SystemExit(0)
+print(value.get("result", "unknown") if isinstance(value,dict) else "invalid")
+PY_RESULT
+)"
+    details="$(python - "$result" <<'PY_DETAILS'
+import json,sys
+print(json.dumps({"result":sys.argv[1]},sort_keys=True,separators=(",",":")))
+PY_DETAILS
+)"
+    case "$result" in
+        unavailable|invalid|error) provider_record "$provider" "$domain" 0 failed "observation_${result}" "$details" ;;
+        partial) provider_record "$provider" "$domain" 1 degraded observation_partial "$details" ;;
+        *) provider_record "$provider" "$domain" 1 healthy "" "$details" ;;
+    esac
+}
+
 record_state() {
     local key="$1" payload="$2"
     python - "$MONITOR_STATE" "$key" "$payload" <<'PY'
@@ -51,14 +85,7 @@ if path.is_file():
     except Exception: previous=None
 raw=lambda v: json.dumps(v,sort_keys=True,separators=(",",":"))
 changed=previous is None or raw(previous) != raw(payload)
-result={
-    "changed":changed,
-    "first":previous is None,
-    "previous_result":previous.get("result") if isinstance(previous,dict) else None,
-    "current_result":payload.get("result") if isinstance(payload,dict) else None,
-    "previous_attention":previous.get("attention_result", previous.get("result")) if isinstance(previous,dict) else None,
-    "current_attention":payload.get("attention_result", payload.get("result")) if isinstance(payload,dict) else None,
-}
+result={"changed":changed,"first":previous is None,"previous_result":previous.get("result") if isinstance(previous,dict) else None,"current_result":payload.get("result") if isinstance(payload,dict) else None,"previous_attention":previous.get("attention_result", previous.get("result")) if isinstance(previous,dict) else None,"current_attention":payload.get("attention_result", payload.get("result")) if isinstance(payload,dict) else None}
 if changed:
     data=(json.dumps(payload,indent=2,sort_keys=True)+"\n").encode()
     tmp=path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
@@ -111,121 +138,73 @@ PY
 package_cycle() {
     local payload transition changed first previous current
     payload="$(package_state)" || return 1
+    provider_from_payload security.packages system "$payload" || return 1
     transition="$(record_state packages "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
     [ "$current" = observed ] || return 0
     [ "$changed" = 1 ] || return 0
-
     if [ -r "$PROVENANCE" ]; then
         bash "$PROVENANCE" snapshot >/dev/null 2>&1 || true
-        if [ -f "$SEC_STATE/provenance/baseline.json" ]; then
-            bash "$PROVENANCE" check >/dev/null 2>&1 || true
-        fi
+        if [ -f "$SEC_STATE/provenance/baseline.json" ]; then bash "$PROVENANCE" check >/dev/null 2>&1 || true; fi
     fi
-
-    if [ "$first" = 0 ]; then
-        emit_event packages.state-transition observed info \
-            "Observed installed package state change and captured a new untrusted provenance snapshot" \
-            security.packages pacman-local-db "$payload"
-    fi
+    if [ "$first" = 0 ]; then emit_event packages.state-transition observed info "Observed installed package state change and captured a new untrusted provenance snapshot" security.packages pacman-local-db "$payload"; fi
 }
 
 persistence_cycle() {
     local payload transition changed first previous current previous_attention current_attention
     payload="$(probe persistence check --state-root "$SEC_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    provider_from_payload security.persistence security "$payload" || return 1
     transition="$(record_state persistence "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
-    changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
-    previous_attention="${fields[4]:-${previous}}"; current_attention="${fields[5]:-${current}}"
+    changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"; previous_attention="${fields[4]:-${previous}}"; current_attention="${fields[5]:-${current}}"
     [ "$changed" = 1 ] || return 0
-
     case "$current" in
         changed)
-            if [ "$current_attention" = clean ]; then
-                emit_event persistence.expected-transition verified info \
-                    "Persistence changed only through verified expected Maho wiring" \
-                    security.persistence maho "$payload"
-            else
-                emit_event persistence.changed observed medium \
-                    "Security monitor observed unexplained persistence drift from the user-selected baseline" \
-                    security.persistence maho "$payload"
-            fi
-            ;;
-        clean)
-            if [ "$previous" = changed ]; then
-                emit_event persistence.restored verified info \
-                    "Persistence inventory returned to the user-selected baseline" \
-                    security.persistence maho "$payload"
-            fi
-            ;;
+            if [ "$current_attention" = clean ]; then emit_event persistence.expected-transition verified info "Persistence changed only through verified expected Maho wiring" security.persistence maho "$payload"; else emit_event persistence.changed observed medium "Security monitor observed unexplained persistence drift from the user-selected baseline" security.persistence maho "$payload"; fi ;;
+        clean) if [ "$previous" = changed ]; then emit_event persistence.restored verified info "Persistence inventory returned to the user-selected baseline" security.persistence maho "$payload"; fi ;;
     esac
-
-    if [ "$previous_attention" = changed ] && [ "$current_attention" = clean ] && [ "$current" = changed ]; then
-        emit_event persistence.attention-cleared verified info \
-            "Unexplained persistence evidence cleared; remaining drift is verified expected Maho wiring" \
-            security.persistence maho "$payload"
-    fi
+    if [ "$previous_attention" = changed ] && [ "$current_attention" = clean ] && [ "$current" = changed ]; then emit_event persistence.attention-cleared verified info "Unexplained persistence evidence cleared; remaining drift is verified expected Maho wiring" security.persistence maho "$payload"; fi
 }
 
 runtime_cycle() {
     local payload transition changed previous current
     payload="$(probe runtime --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --uid "$(id -u)" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    provider_from_payload security.runtime security "$payload" || return 1
     transition="$(record_state runtime "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; previous="${fields[2]}"; current="${fields[3]}"
     [ "$changed" = 1 ] || return 0
-
     case "$current" in
-        observed)
-            emit_event runtime.executable-observation observed medium \
-                "Security monitor observed new or changed runtime executable evidence; no process was modified" \
-                security.processes procfs "$payload"
-            ;;
-        clean)
-            if [ "$previous" = observed ]; then
-                emit_event runtime.executable-cleared verified info \
-                    "Previously observed runtime executable signals are no longer present" \
-                    security.processes procfs "$payload"
-            fi
-            ;;
+        observed) emit_event runtime.executable-observation observed medium "Security monitor observed new or changed runtime executable evidence; no process was modified" security.processes procfs "$payload" ;;
+        clean) if [ "$previous" = observed ]; then emit_event runtime.executable-cleared verified info "Previously observed runtime executable signals are no longer present" security.processes procfs "$payload"; fi ;;
     esac
 }
 
 privilege_cycle() {
     local payload transition changed first
     payload="$(boundary privilege --fs-root "$FS_ROOT" --home "$HOME" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    provider_from_payload security.privilege security "$payload" || return 1
     transition="$(record_state privilege "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"
     [ "$changed" = 1 ] || return 0
     [ "$first" = 0 ] || return 0
-    emit_event privilege.boundary-transition observed high \
-        "Security monitor observed a change in high-authority persistence or privilege boundary files; shadow policy only" \
-        security.privilege maho-boundary "$payload"
+    emit_event privilege.boundary-transition observed high "Security monitor observed a change in high-authority persistence or privilege boundary files; shadow policy only" security.privilege maho-boundary "$payload"
 }
 
 network_cycle() {
     local payload transition changed first previous current
     payload="$(boundary network --proc-root "$PROC_ROOT" --fs-root "$FS_ROOT" --uid "$(id -u)" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    provider_from_payload security.network security "$payload" || return 1
     transition="$(record_state network "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
     [ "$changed" = 1 ] || return 0
     [ "$first" = 0 ] || return 0
     case "$current" in
-        observed)
-            emit_event network.listener-transition observed low \
-                "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface" \
-                security.network procfs "$payload"
-            ;;
-        clean)
-            if [ "$previous" = observed ]; then
-                emit_event network.listener-cleared verified info \
-                    "Previously observed current-user non-loopback TCP listener exposure cleared" \
-                    security.network procfs "$payload"
-            fi
-            ;;
+        observed) emit_event network.listener-transition observed low "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface" security.network procfs "$payload" ;;
+        clean) if [ "$previous" = observed ]; then emit_event network.listener-cleared verified info "Previously observed current-user non-loopback TCP listener exposure cleared" security.network procfs "$payload"; fi ;;
     esac
 }
 
@@ -252,30 +231,16 @@ integrity_cycle() {
     integrity_due || return 0
     local payload transition changed first previous current
     payload="$(probe integrity --scope critical --db-root "$DB_ROOT" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    provider_from_payload security.integrity security "$payload" || return 1
     mark_integrity_run || true
     transition="$(record_state integrity "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
     [ "$changed" = 1 ] || return 0
-
     case "$current" in
-        changed)
-            emit_event files.integrity-drift observed high \
-                "Periodic critical package-file integrity scan observed drift from local pacman mtree metadata" \
-                security.files pacman-mtree "$payload"
-            ;;
-        partial)
-            emit_event files.integrity-partial observed low \
-                "Periodic critical package-file integrity scan was incomplete" \
-                security.files pacman-mtree "$payload"
-            ;;
-        clean)
-            if [ "$previous" = changed ] || [ "$previous" = partial ]; then
-                emit_event files.integrity-restored verified info \
-                    "Critical package-file integrity returned to expected local pacman mtree state" \
-                    security.files pacman-mtree "$payload"
-            fi
-            ;;
+        changed) emit_event files.integrity-drift observed high "Periodic critical package-file integrity scan observed drift from local pacman mtree metadata" security.files pacman-mtree "$payload" ;;
+        partial) emit_event files.integrity-partial observed low "Periodic critical package-file integrity scan was incomplete" security.files pacman-mtree "$payload" ;;
+        clean) if [ "$previous" = changed ] || [ "$previous" = partial ]; then emit_event files.integrity-restored verified info "Critical package-file integrity returned to expected local pacman mtree state" security.files pacman-mtree "$payload"; fi ;;
     esac
 }
 
@@ -297,8 +262,7 @@ if name and root.is_dir():
         while i < len(lines):
             if lines[i] in {"%NAME%","%VERSION%"} and i+1 < len(lines): values[lines[i].strip("%")]=lines[i+1]
             i+=1
-        if values.get("NAME") == name:
-            installed=values.get("VERSION"); break
+        if values.get("NAME") == name: installed=values.get("VERSION"); break
 result="affected" if installed in affected else "not-affected"
 print(json.dumps({"result":result,"finding_id":f.get("id"),"package":name,"installed_version":installed,"finding_sha256":hashlib.sha256(path.read_bytes()).hexdigest()},sort_keys=True))
 PY
@@ -313,11 +277,7 @@ findings_cycle() {
         transition="$(record_state "$key" "$payload")" || continue
         changed="$(printf '%s\n' "$transition" | python -c 'import json,sys; print("1" if json.load(sys.stdin).get("changed") else "0")')"
         [ "$changed" = 1 ] || continue
-        case "$(printf '%s\n' "$payload" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')" in
-            affected|not-affected)
-                bash "$SECURITY" process "$file" >/dev/null 2>&1 || true
-                ;;
-        esac
+        case "$(printf '%s\n' "$payload" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')" in affected|not-affected) bash "$SECURITY" process "$file" >/dev/null 2>&1 || true ;; esac
     done < <(find "$dir" -maxdepth 1 -type f -name '*.json' -print | sort)
 }
 
@@ -327,39 +287,44 @@ incident_cycle() {
 }
 
 cycle() {
-    package_cycle || true
-    persistence_cycle || true
-    runtime_cycle || true
-    privilege_cycle || true
-    network_cycle || true
-    integrity_cycle || true
-    findings_cycle || true
-    incident_cycle || true
+    local failed=0
+    package_cycle || failed=1
+    persistence_cycle || failed=1
+    runtime_cycle || failed=1
+    privilege_cycle || failed=1
+    network_cycle || failed=1
+    integrity_cycle || failed=1
+    findings_cycle || failed=1
+    incident_cycle || failed=1
+    if [ "$failed" -eq 0 ]; then
+        provider_record security.monitor security 1 healthy "" '{"cycle":"complete"}' || failed=1
+    else
+        provider_record security.monitor security 1 degraded subprovider_cycle_failed '{"cycle":"degraded"}' || true
+    fi
+    return "$failed"
 }
 
 watch() {
     local poll="${MAHO_SECURITY_POLL:-300}"
     [[ "$poll" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll=300
-    while :; do
-        cycle
-        sleep "$poll"
-    done
+    while :; do cycle || true; sleep "$poll"; done
 }
 
 doctor() {
     echo "Maho security monitor"
     [ -r "$PROBE" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PROBE" >/dev/null 2>&1 && echo "PASS  security probe" || echo "FAIL  security probe unavailable"
     [ -r "$BOUNDARY" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$BOUNDARY" >/dev/null 2>&1 && echo "PASS  privilege/network boundary observer" || echo "FAIL  privilege/network boundary observer"
+    [ -r "$PROVIDER_STATE" ] && python -m py_compile "$PROVIDER_STATE" >/dev/null 2>&1 && echo "PASS  durable provider heartbeat state" || echo "FAIL  durable provider heartbeat state"
     [ -r "$PROVENANCE" ] && echo "PASS  package provenance engine" || echo "FAIL  package provenance engine"
     [ -r "$SECURITY" ] && echo "PASS  security finding pipeline" || echo "FAIL  security finding pipeline"
     [ -r "$GUARD" ] && echo "PASS  incident shadow-prevention guard" || echo "FAIL  incident shadow-prevention guard"
     echo "INFO  package state: captures untrusted evidence snapshots on change"
+    echo "INFO  provider freshness: successful observations are heartbeated even when state is unchanged"
     echo "INFO  persistence: transition-aware; user baseline required"
     echo "INFO  runtime: transition-aware heuristic evidence only"
     echo "INFO  privilege boundaries: transition-aware, no trust claim"
     echo "INFO  network exposure: current-user non-loopback TCP listeners"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
-    echo "INFO  finding reevaluation: only when finding/install relationship changes"
     echo "INFO  incident correlation: every monitor cycle after observations settle"
     echo "INFO  automatic system mutation: none"
 }
@@ -381,8 +346,8 @@ The monitor captures package-state evidence without trusting it, detects
 persistence/runtime/privilege/network transitions without repeating identical
 alerts, performs a periodic critical package-file integrity scan, reevaluates
 stored package findings, then reconciles that evidence into incident-level
-shadow prevention decisions. It never performs containment or recovery
-mutation automatically.
+shadow prevention decisions. Successful observations are heartbeated separately
+from state changes. It never performs containment or recovery mutation.
 HELP
         ;;
 esac

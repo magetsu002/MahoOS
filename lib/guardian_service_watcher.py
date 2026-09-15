@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,12 @@ import time
 ROOT = Path(os.environ.get("MAHO_ROOT", Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(ROOT / "lib"))
 
+from guardian_evidence import ProviderHealth  # noqa: E402
+from guardian_journal_stream import (  # noqa: E402
+    CursorProbe, StreamContinuity, begin_stream, load_stream, mark_dropped,
+    mark_event, mark_failed, persist_stream,
+)
+from guardian_provider_state import record_heartbeat  # noqa: E402
 from guardian_recovery_registry import certified_service_recovery, certified_service_units  # noqa: E402
 from guardian_session_incident import reconcile_service_session  # noqa: E402
 from guardian_service_incident import (  # noqa: E402
@@ -23,17 +30,11 @@ from guardian_service_incident import (  # noqa: E402
     normalize_journal_event,
 )
 
-
 def state_root() -> Path:
     return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "maho/security"
 
-
 def snapshot(unit: str) -> ServiceSnapshot:
-    argv = [
-        "systemctl", "--user", "show", unit,
-        "--property=LoadState", "--property=ActiveState", "--property=SubState",
-        "--property=Result", "--property=InvocationID", "--property=Restart", "--property=ControlGroup",
-    ]
+    argv = ["systemctl", "--user", "show", unit, "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=Result", "--property=InvocationID", "--property=Restart", "--property=ControlGroup"]
     result = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=10)
     values = {}
     if result.returncode == 0:
@@ -44,24 +45,9 @@ def snapshot(unit: str) -> ServiceSnapshot:
     contract = certified_service_recovery(unit)
     health_check = contract.health_check if contract is not None else "uncertified"
     health_ok, health_evidence = _service_health(contract, values.get("ControlGroup", ""))
-    return ServiceSnapshot(
-        unit=unit,
-        load_state=values.get("LoadState", "unknown"),
-        active_state=values.get("ActiveState", "unknown"),
-        sub_state=values.get("SubState", "unknown"),
-        result=values.get("Result", "unknown"),
-        invocation_id=values.get("InvocationID", ""),
-        restart=values.get("Restart", "unknown"),
-        health_check=health_check,
-        health_ok=health_ok,
-        health_evidence=health_evidence,
-        boot_id=_boot_id(),
-    )
-
-
+    return ServiceSnapshot(unit=unit, load_state=values.get("LoadState", "unknown"), active_state=values.get("ActiveState", "unknown"), sub_state=values.get("SubState", "unknown"), result=values.get("Result", "unknown"), invocation_id=values.get("InvocationID", ""), restart=values.get("Restart", "unknown"), health_check=health_check, health_ok=health_ok, health_evidence=health_evidence, boot_id=_boot_id())
 
 def _service_health(contract, control_group: str) -> tuple[bool, tuple[str, ...]]:
-    """Verify the certified runtime identity inside the unit's own cgroup."""
     if contract is None or not control_group.startswith("/"):
         return False, ()
     procs = Path("/sys/fs/cgroup") / control_group.lstrip("/") / "cgroup.procs"
@@ -84,10 +70,14 @@ def _service_health(contract, control_group: str) -> tuple[bool, tuple[str, ...]
 def _boot_id() -> str:
     return Path("/proc/sys/kernel/random/boot_id").read_text().strip().replace("-", "")
 
-
 def _cursor_path(root: Path) -> Path:
     return root / "guardian" / "service-events" / "journal.cursor"
 
+def _journal_base() -> list[str]:
+    argv = ["journalctl", "--user"]
+    for unit in certified_service_units():
+        argv.extend(["--unit", unit])
+    return argv
 
 def _journal_argv(cursor: str) -> list[str]:
     argv = ["journalctl", "--user", "--follow", "--output=json", "--no-pager"]
@@ -96,62 +86,68 @@ def _journal_argv(cursor: str) -> list[str]:
     argv.append(f"--after-cursor={cursor}" if cursor else "--lines=0")
     return argv
 
+def _journal_probe_argv(cursor: str) -> list[str]:
+    argv = ["journalctl", "--user", "--output=json", "--no-pager"]
+    for unit in certified_service_units():
+        argv.extend(["--unit", unit])
+    argv.extend([f"--after-cursor={cursor}", "--lines=0"])
+    return argv
 
-def _decode_chunk(buffer: bytes, chunk: bytes) -> tuple[bytes, list[dict]]:
-    """Drain every complete JSON line already delivered by journalctl."""
+def _classify_cursor_probe(cursor: str, *, returncode: int | None = None, stderr: str = "", source_error: bool = False) -> CursorProbe:
+    if not cursor:
+        return CursorProbe.MISSING
+    if source_error:
+        return CursorProbe.SOURCE_FAILED
+    if returncode == 0:
+        return CursorProbe.VALID
+    message = stderr.lower()
+    if "cursor" in message or "seek" in message or "invalid argument" in message:
+        return CursorProbe.INVALID
+    return CursorProbe.SOURCE_FAILED
+
+def _probe_cursor(cursor: str) -> CursorProbe:
+    if not cursor:
+        return CursorProbe.MISSING
+    try:
+        result = subprocess.run(_journal_probe_argv(cursor), check=False, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return CursorProbe.SOURCE_FAILED
+    return _classify_cursor_probe(cursor, returncode=result.returncode, stderr=result.stderr)
+
+def _decode_chunk_health(buffer: bytes, chunk: bytes) -> tuple[bytes, list[dict], int]:
     parts = (buffer + chunk).split(b"\n")
     remainder = parts.pop()
-    rows = []
+    rows: list[dict] = []
+    dropped = 0
     for line in parts:
+        if not line:
+            continue
         try:
             raw = json.loads(line)
         except (UnicodeDecodeError, ValueError):
+            dropped += 1
             continue
         if isinstance(raw, dict):
             rows.append(raw)
-    return remainder, rows
+        else:
+            dropped += 1
+    return remainder, rows, dropped
 
+def _decode_chunk(buffer: bytes, chunk: bytes) -> tuple[bytes, list[dict]]:
+    remainder, rows, _ = _decode_chunk_health(buffer, chunk)
+    return remainder, rows
 
 def _startup_reconcile(store: ServiceIncidentStore, boot_id: str) -> None:
     now = time.time()
     for unit in certified_service_units():
         current = snapshot(unit)
         contract = certified_service_recovery(unit)
-        if (
-            contract is not None
-            and current.load_state == "loaded"
-            and current.active_state == "activating"
-            and current.sub_state == "auto-restart"
-            and current.result not in {"", "success"}
-            and len(current.invocation_id) == 32
-        ):
-            base = {
-                "unit": unit,
-                "boot_id": boot_id,
-                "invocation_id": current.invocation_id,
-                "result": current.result,
-                "timestamp_usec": "0",
-                "cursor": "",
-            }
+        if contract is not None and current.load_state == "loaded" and current.active_state == "activating" and current.sub_state == "auto-restart" and current.result not in {"", "success"} and len(current.invocation_id) == 32:
+            base = {"unit": unit, "boot_id": boot_id, "invocation_id": current.invocation_id, "result": current.result, "timestamp_usec": "0", "cursor": ""}
             store.process({**base, "kind": "failed"}, now=now)
             store.process({**base, "kind": "recovering"}, now=now)
-        elif (
-            contract is not None
-            and current.load_state == "loaded"
-            and current.active_state == contract.healthy_active_state
-            and current.sub_state == contract.healthy_sub_state
-            and current.restart == contract.expected_restart
-            and current.health_check == contract.health_check
-            and current.health_ok is True
-            and len(current.invocation_id) == 32
-        ):
-            store.arm_supersession(
-                unit=unit,
-                boot_id=boot_id,
-                invocation_id=current.invocation_id,
-                now=now,
-            )
-
+        elif contract is not None and current.load_state == "loaded" and current.active_state == contract.healthy_active_state and current.sub_state == contract.healthy_sub_state and current.restart == contract.expected_restart and current.health_check == contract.health_check and current.health_ok is True and len(current.invocation_id) == 32:
+            store.arm_supersession(unit=unit, boot_id=boot_id, invocation_id=current.invocation_id, now=now)
 
 def _verify_due(store: ServiceIncidentStore, root: Path) -> None:
     now = time.time()
@@ -159,19 +155,48 @@ def _verify_due(store: ServiceIncidentStore, root: Path) -> None:
         store.verify(state, snapshot(str(state["unit"])))
     reconcile_service_session(root, now=now)
 
+def _provider_heartbeat(root: Path, provider_id: str, *, success: bool, health: ProviderHealth, boot_id: str, errors: tuple[str, ...] = (), details: dict | None = None) -> bool:
+    try:
+        record_heartbeat(root, provider_id=provider_id, domain="guardian", source="systemd-user-journal", authority_boundary="read-only-observer", success=success, health=health, errors=errors, boot_id=boot_id, details=details or {})
+        return True
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+
+def _record_stream_health(root: Path, stream, boot_id: str) -> None:
+    _provider_heartbeat(root, "guardian.watch", success=True, health=ProviderHealth.HEALTHY, boot_id=boot_id, details={"continuity": stream.continuity.value})
+    if stream.continuity is StreamContinuity.CONTINUOUS:
+        health = ProviderHealth.HEALTHY; success = True; errors = ()
+    elif stream.continuity is StreamContinuity.FAILED:
+        health = ProviderHealth.FAILED; success = False; errors = (stream.reason,)
+    else:
+        health = ProviderHealth.UNKNOWN; success = False; errors = (stream.reason,)
+    _provider_heartbeat(root, "guardian.service-events", success=success, health=health, boot_id=boot_id, errors=errors, details={"continuity": stream.continuity.value, "dropped_events": stream.dropped_events, "last_cursor": stream.last_cursor})
 
 def watch(root: Path) -> int:
     store = ServiceIncidentStore(root)
     cursor_path = _cursor_path(root)
-    cursor = cursor_path.read_text().strip() if cursor_path.is_file() else ""
-    _startup_reconcile(store, _boot_id())
+    try:
+        cursor = cursor_path.read_text().strip() if cursor_path.is_file() else ""
+    except OSError:
+        cursor = ""
+    previous_invalid = False
+    try:
+        previous = load_stream(root)
+    except (OSError, ValueError, json.JSONDecodeError):
+        previous = None; previous_invalid = True
+    boot_id = _boot_id()
+    probe = _probe_cursor(cursor)
+    stream = begin_stream(previous, cursor=cursor or None, probe=probe, boot_id=boot_id, now=datetime.now(timezone.utc))
+    if previous_invalid:
+        stream = mark_failed(stream, reason="historical_stream_state_invalid")
+    persist_stream(root, stream)
+    _record_stream_health(root, stream, boot_id)
+    _startup_reconcile(store, boot_id)
     reconcile_service_session(root)
-    process = subprocess.Popen(
-        _journal_argv(cursor), stdout=subprocess.PIPE, stderr=sys.stderr,
-        bufsize=0,
-    )
+    resume_cursor = cursor if probe is CursorProbe.VALID else ""
+    process = subprocess.Popen(_journal_argv(resume_cursor), stdout=subprocess.PIPE, stderr=sys.stderr, bufsize=0)
     if process.stdout is None:
-        return 1
+        stream = persist_stream(root, mark_failed(stream, reason="event_source_stdout_unavailable")); _record_stream_health(root, stream, boot_id); return 1
     buffer = b""
     try:
         while True:
@@ -181,25 +206,31 @@ def watch(root: Path) -> int:
             if not ready:
                 _verify_due(store, root)
                 if process.poll() is not None:
-                    return process.returncode or 1
+                    stream = persist_stream(root, mark_failed(stream, reason="event_source_exited")); _record_stream_health(root, stream, boot_id); return process.returncode or 1
+                _record_stream_health(root, stream, boot_id)
                 continue
             chunk = os.read(process.stdout.fileno(), 65536)
             if not chunk:
-                return process.wait() or 1
-            buffer, rows = _decode_chunk(buffer, chunk)
+                stream = persist_stream(root, mark_failed(stream, reason="event_source_eof")); _record_stream_health(root, stream, boot_id); return process.wait() or 1
+            buffer, rows, dropped = _decode_chunk_health(buffer, chunk)
+            if dropped:
+                stream = persist_stream(root, mark_dropped(stream, count=dropped, reason="journal_records_unparseable"))
             for raw in rows:
+                observed = datetime.now(timezone.utc)
+                event_cursor = raw.get("__CURSOR")
+                cursor_value = event_cursor if isinstance(event_cursor, str) and event_cursor else None
+                stream = persist_stream(root, mark_event(stream, cursor=cursor_value, now=observed))
+                if cursor_value:
+                    _atomic_private(cursor_path, cursor_value + "\n")
                 event = normalize_journal_event(raw)
                 if event is not None:
-                    observed_at = time.time()
+                    observed_at = observed.timestamp()
                     store.process(event, now=observed_at)
                     reconcile_service_session(root, now=observed_at)
-                event_cursor = raw.get("__CURSOR")
-                if isinstance(event_cursor, str) and event_cursor:
-                    _atomic_private(cursor_path, event_cursor + "\n")
+            _record_stream_health(root, stream, boot_id)
     finally:
         if process.poll() is None:
             process.terminate()
-
 
 def doctor() -> int:
     failed = False
@@ -208,14 +239,12 @@ def doctor() -> int:
     print("PASS  event source journalctl structured follow" if journal_available else "FAIL  event source journalctl unavailable")
     failed = failed or not journal_available
     for unit in certified_service_units():
-        contract = certified_service_recovery(unit)
-        current = snapshot(unit)
+        contract = certified_service_recovery(unit); current = snapshot(unit)
         valid = contract is not None and current.load_state == "loaded" and current.restart == contract.expected_restart
         print(("PASS  " if valid else "FAIL  ") + f"delegated contract {unit}")
         failed = failed or not valid
     print("INFO  Guardian issues no restart for delegated systemd-user recovery")
     return 1 if failed else 0
-
 
 def shutil_which(name: str) -> str | None:
     for directory in os.environ.get("PATH", "").split(os.pathsep):
@@ -224,14 +253,12 @@ def shutil_which(name: str) -> str | None:
             return str(candidate)
     return None
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(prog="maho-guardian-watch")
     parser.add_argument("command", choices=("watch", "doctor"))
     parser.add_argument("--state-root", type=Path, default=state_root())
     args = parser.parse_args()
     return watch(args.state_root) if args.command == "watch" else doctor()
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

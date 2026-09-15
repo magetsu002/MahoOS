@@ -21,6 +21,7 @@ GUARDIAN_ENGINE="$ROOT/lib/guardian_engine.py"
 GUARDIAN_SERVICE="$ROOT/lib/guardian_service_incident.py"
 GUARDIAN_WATCHER="$ROOT/lib/guardian_service_watcher.py"
 GUARDIAN_UPDATE="$ROOT/lib/guardian_update.py"
+GUARDIAN_LIVE="$ROOT/lib/guardian_live_cli.py"
 UPDATE_STATE="${MAHO_UPDATE_STATE_ROOT:-/var/lib/maho/update}"
 AUR_BUILD="$ROOT/bin/maho-aur-build"
 INTENT="$ROOT/lib/intent.sh"
@@ -211,6 +212,18 @@ guardian_update_status_command() {
     python "$GUARDIAN_UPDATE" --state-root "$UPDATE_STATE"
 }
 
+guardian_world_status_command() {
+    [ -r "$GUARDIAN_LIVE" ] || { echo "maho-guard: live Guardian projection unavailable" >&2; return 1; }
+    if [ "${1:-}" = "--json" ]; then
+        python "$GUARDIAN_LIVE" --json
+    elif [ -n "${1:-}" ]; then
+        echo "usage: maho-guard world-status [--json]" >&2
+        return 2
+    else
+        python "$GUARDIAN_LIVE"
+    fi
+}
+
 why_command() {
     local explainer="$ROOT/lib/guardian_explain.py" wanted="" verbose=0 arg
     [ -r "$explainer" ] || { echo "maho-guard: Guardian explainer unavailable" >&2; return 1; }
@@ -286,6 +299,7 @@ doctor_command() {
     parse_python "$GUARDIAN_SERVICE" && echo "PASS  Guardian service incident lifecycle" || echo "FAIL  Guardian service incident lifecycle"
     parse_python "$GUARDIAN_WATCHER" && echo "PASS  Guardian event watcher" || echo "FAIL  Guardian event watcher"
     parse_python "$GUARDIAN_UPDATE" && echo "PASS  Guardian update authority projection" || echo "FAIL  Guardian update authority projection"
+    parse_python "$GUARDIAN_LIVE" && echo "PASS  Guardian live world-state projection" || echo "FAIL  Guardian live world-state projection"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
@@ -302,6 +316,7 @@ case "${1:-}" in
     status) status_command ;;
     guardian-status) guardian_status_command "${2:-}" ;;
     guardian-update-status) guardian_update_status_command ;;
+    world-status) guardian_world_status_command "${2:-}" ;;
     why) shift; why_command "$@" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
@@ -316,6 +331,7 @@ Usage:
   maho-guard status
   maho-guard guardian-status [--json]
   maho-guard guardian-update-status
+  maho-guard world-status [--json]
   maho-guard why [INCIDENT_ID] [--verbose]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
@@ -325,6 +341,8 @@ Usage:
 The security detector remains shadow-only and never mutates the host. Guardian
 normalizes correlated incidents, classifies L0-L4, asks the independent
 recovery planner what is permitted, and persists an explanation/history record.
+world-status is the canonical read-only live system/trust/self-health projection;
+guardian-status remains the legacy active-assessment list used by current UI.
 No Guardian recovery adapter is executed by this frontend in this milestone.
 PKGBUILD static preflight never executes untrusted instructions. Optional AUR
 execution uses the separate bounded Bubblewrap build path and never installs

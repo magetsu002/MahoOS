@@ -1,0 +1,41 @@
+name: guardian-causality
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  causality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Branch diff hygiene
+        shell: bash
+        run: git diff --check origin/main...HEAD
+      - name: Compile causal contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            lib/guardian_causality.py \
+            lib/guardian_causal_projection.py \
+            lib/guardian_causal_status.py \
+            lib/guardian_live_cli.py \
+            tests/test_guardian_causality.py \
+            tests/test_guardian_causal_projection.py \
+            tests/test_guardian_causal_status.py
+      - name: Deterministic causal contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/test_guardian_causality.py
+          python tests/test_guardian_causal_projection.py
+          python tests/test_guardian_causal_status.py
