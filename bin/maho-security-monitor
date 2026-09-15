@@ -325,6 +325,7 @@ doctor() {
     echo "INFO  privilege boundaries: transition-aware, no trust claim"
     echo "INFO  network exposure: current-user non-loopback TCP listeners"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
+    echo "INFO  incident correlation: every monitor cycle after observations settle"
     echo "INFO  automatic system mutation: none"
 }
 
