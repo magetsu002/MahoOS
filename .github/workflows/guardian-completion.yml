@@ -1,0 +1,36 @@
+name: guardian-completion
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guardian-completion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Branch diff hygiene
+        shell: bash
+        run: git diff --check origin/main...HEAD
+      - name: Compile completion contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            lib/guardian_containment.py \
+            lib/guardian_containment_adapter.py \
+            tests/test_guardian_containment.py
+      - name: Guardian containment authority contracts
+        shell: bash
+        run: python tests/test_guardian_containment.py
+      - name: Existing reversible containment regression
+        shell: bash
+        run: bash tests/security-containment.sh
