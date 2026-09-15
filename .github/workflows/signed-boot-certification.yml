@@ -41,13 +41,18 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/qemu-secure-boot-certification.sh "$RUNNER_TEMP/maho-secure-boot"
+          install -Dm0644 \
+            "$RUNNER_TEMP/maho-secure-boot/plan.json" \
+            "$GITHUB_WORKSPACE/cert-receipts/plan.json"
+          install -Dm0644 \
+            "$RUNNER_TEMP/maho-secure-boot/result.json" \
+            "$GITHUB_WORKSPACE/cert-receipts/result.json"
 
       - name: Upload exact virtual certification receipts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: maho-qemu-secure-boot-certification
-          path: |
-            ${{ runner.temp }}/maho-secure-boot/plan.json
-            ${{ runner.temp }}/maho-secure-boot/result.json
+          path: cert-receipts/*.json
+          if-no-files-found: error
           retention-days: 30
