@@ -247,19 +247,29 @@ def main() -> None:
         )
         check(
             "top-level sections remain small and recovery focused",
-            all(name in recovery for name in ("Recovery", "Trust", "Generations", "Logs", "Confirm")),
+            all(name in recovery for name in ("Recovery", "Trust", "Generations", "Logs", "Plan")),
         )
 
         narrow = render(pending, width=52, height=24)
         check(
-            "narrow terminal degrades without overflowing",
-            all(len(line) <= 52 for line in narrow.splitlines()),
+            "undersized terminal shows only a resize guard",
+            "Terminal too small" in narrow
+            and "Required: 100x24" in narrow
+            and "Current system" not in narrow
+            and all(len(line) <= 52 for line in narrow.splitlines()),
+        )
+        short = render(pending, width=120, height=20)
+        check(
+            "short terminal also shows only a resize guard",
+            "Terminal too small" in short
+            and "Current: 120x20" in short
+            and "Current system" not in short,
         )
         long_reason = selection_report()
         long_reason["selection"]["lost_trust_reason"] = "x" * 500
         long_view = build_presentation(plan, selection_report=long_reason)
-        long_screen = render(long_view, width=56, height=28)
-        check("long evidence does not destroy layout", all(len(line) <= 56 for line in long_screen.splitlines()))
+        long_screen = render(long_view, width=100, height=28)
+        check("long evidence does not destroy layout", all(len(line) <= 100 for line in long_screen.splitlines()))
 
         no_optional = build_presentation(plan, selection_report=selection_report(explicit_reason=False))
         trust = render(no_optional, page="trust", width=100, height=36, evidence=True)
@@ -285,17 +295,21 @@ def main() -> None:
         empty_logs = build_presentation(plan, selection_report=selection_report())
         check(
             "empty logs are not fabricated",
-            "does not invent log entries" in render(empty_logs, page="logs", width=90, height=24),
+            "does not invent log entries" in render(empty_logs, page="logs", width=100, height=24),
         )
 
-        confirm = render(pending, page="confirm", width=100, height=30)
+        plan_screen = render(pending, page="plan", width=100, height=30)
         check(
-            "confirmation summarizes exact scope and preservation",
-            "Confirm recovery request" in confirm
-            and "Kernel only" in confirm
-            and "current userspace" in confirm
-            and "exact plan" in confirm,
+            "plan page explains scope, preservation, and authorization",
+            "Recovery plan" in plan_screen
+            and "Kernel only" in plan_screen
+            and "current userspace" in plan_screen
+            and "Approval required. Press [Enter]" in plan_screen
+            and "authorization for this exact" in plan_screen
+            and "Execution is owned by Guardian" in plan_screen,
         )
+        legacy_confirm = render(pending, page="confirm", width=100, height=30)
+        check("legacy confirm page alias resolves to Plan", "Recovery plan" in legacy_confirm)
 
         request = authorization_request(pending)
         check(
@@ -383,7 +397,7 @@ def main() -> None:
         )
         check(
             "section arrows clamp instead of wrapping",
-            rc == 0 and "› Recovery" in boundary_stdout.getvalue() and "› Confirm" not in boundary_stdout.getvalue(),
+            rc == 0 and "› Recovery" in boundary_stdout.getvalue() and "› Plan" not in boundary_stdout.getvalue(),
         )
 
         stdin = io.StringIO("c\nc\nAUTHORIZE " + pending.plan_sha256[:12] + "\n\nq\n")
@@ -406,11 +420,12 @@ def main() -> None:
     )
     check("exact native manifest binding displays granted authorization", granted.authorization == "GRANTED")
     check("certified target release is visible", granted.target_kernel_release == "6.18.42-1-cachyos-lts")
-    granted_confirm = render(granted, page="confirm", width=100, height=28)
+    granted_confirm = render(granted, page="plan", width=100, height=28)
     check(
-        "granted confirmation does not request duplicate approval",
+        "granted plan does not request duplicate approval",
         "Authorization is already granted for this exact plan." in granted_confirm
-        and "Press [c] to request authorization" not in granted_confirm,
+        and "request authorization for this exact plan" not in granted_confirm
+        and "Execution is owned by Guardian" in granted_confirm,
     )
     granted_stdout = io.StringIO()
     rc = interactive(
@@ -423,7 +438,7 @@ def main() -> None:
         color=False,
     )
     check(
-        "granted confirmation ignores duplicate approval shortcuts",
+        "granted plan ignores duplicate approval shortcuts",
         rc == 0 and "Authorization is Granted" not in granted_stdout.getvalue(),
     )
     try:
