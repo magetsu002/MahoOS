@@ -254,7 +254,7 @@ def main() -> None:
         check(
             "undersized terminal shows only a resize guard",
             "Terminal too small" in narrow
-            and "Required: 100x24" in narrow
+            and "Required: 100x28" in narrow
             and "Current system" not in narrow
             and all(len(line) <= 52 for line in narrow.splitlines()),
         )
@@ -265,6 +265,20 @@ def main() -> None:
             and "Current: 120x20" in short
             and "Current system" not in short,
         )
+        minimum = render(pending, width=100, height=28)
+        check(
+            "minimum supported terminal shows a complete recovery overview",
+            "Terminal too small" not in minimum
+            and "more content" not in minimum
+            and "Recent generations" in minimum
+            and all(len(line) <= 100 for line in minimum.splitlines()),
+        )
+        for page_name in ("recovery", "trust", "generations", "logs", "plan"):
+            page_screen = render(pending, page=page_name, width=100, height=28)
+            check(
+                f"minimum terminal fits {page_name} without clipping",
+                "more content" not in page_screen and all(len(line) <= 100 for line in page_screen.splitlines()),
+            )
         long_reason = selection_report()
         long_reason["selection"]["lost_trust_reason"] = "x" * 500
         long_view = build_presentation(plan, selection_report=long_reason)
@@ -295,7 +309,7 @@ def main() -> None:
         empty_logs = build_presentation(plan, selection_report=selection_report())
         check(
             "empty logs are not fabricated",
-            "does not invent log entries" in render(empty_logs, page="logs", width=100, height=24),
+            "does not invent log entries" in render(empty_logs, page="logs", width=100, height=28),
         )
 
         plan_screen = render(pending, page="plan", width=100, height=30)
@@ -365,6 +379,27 @@ def main() -> None:
         check(
             "vertical arrows navigate the vertical section list",
             rc == 0 and "› Trust" in nav_stdout.getvalue() and "[↑↓] Section" in nav_stdout.getvalue(),
+        )
+
+        help_stdout = io.StringIO()
+        rc = interactive(
+            pending,
+            request_path=None,
+            stdin=io.StringIO("?\n?\nq\n"),
+            stdout=help_stdout,
+            width=100,
+            height=28,
+            color=False,
+        )
+        help_output = help_stdout.getvalue()
+        check(
+            "help overlay explains interaction and safety without changing state",
+            rc == 0
+            and "┌ Help " in help_output
+            and "Move between sections" in help_output
+            and "Guardian remains the" in help_output
+            and "authority and executor" in help_output
+            and "[?/Esc] Close help" in help_output,
         )
 
         focus_stdout = io.StringIO()
