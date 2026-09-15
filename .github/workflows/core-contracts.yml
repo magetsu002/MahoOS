@@ -44,6 +44,7 @@ jobs:
             bin/maho-security \
             bin/maho-security-monitor \
             bin/maho-guard \
+            bin/maho-guardian-watch \
             bin/maho-contain \
             bin/maho-shell \
             bin/maho-notify \
@@ -103,6 +104,16 @@ jobs:
             lib/guardian_live_state.py \
             lib/guardian_live_cli.py \
             lib/guardian_signed_boot_provider.py \
+            lib/guardian_causality.py \
+            lib/guardian_causal_projection.py \
+            lib/guardian_causal_status.py \
+            lib/guardian_containment.py \
+            lib/guardian_containment_adapter.py \
+            lib/guardian_security_recovery.py \
+            lib/guardian_reliability.py \
+            lib/guardian_reliability_provider.py \
+            lib/guardian_watch_main.py \
+            lib/guardian_completion_status.py \
             lib/maho_boot_authority.py \
             lib/maho_boot_publication.py \
             lib/maho_kernel_security.py \
@@ -111,6 +122,13 @@ jobs:
             tools/build-qemu-secure-boot-fixtures.py \
             tools/qemu-secure-boot-certify.py \
             tools/qemu_secure_boot_common.py \
+            tests/test_guardian_causality.py \
+            tests/test_guardian_causal_projection.py \
+            tests/test_guardian_causal_status.py \
+            tests/test_guardian_containment.py \
+            tests/test_guardian_security_recovery.py \
+            tests/test_guardian_reliability.py \
+            tests/test_guardian_completion_status.py \
             config/quickshell/maho-shell/state.py \
             config/quickshell/maho-notify/state.py
 
