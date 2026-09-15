@@ -8,6 +8,7 @@ url='https://github.com/magetsu002/MahoOS'
 depends=(
   'bash'
   'python'
+  'python-cryptography'
   'systemd'
   'gnome-keyring'
   'hyprland'
@@ -41,6 +42,8 @@ optdepends=(
   'snapper: Btrfs system-state management'
   'snap-pac: automatic pre/post package transaction snapshots'
   'limine: MahoOS V1 boot manager policy'
+  'sbctl: low-level per-device Secure Boot provider'
+  'sbsigntools: PE/COFF signing and independent verification for signed boot certification'
   'limine-snapper-sync: recovery-only Btrfs snapshot boot entries'
 )
 source=(

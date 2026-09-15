@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Read-only Maho signed-boot inspection command."""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib"))
+
+from maho_secure_boot import inspect_boot_environment, inventory_boot_entries, inventory_efi_executables  # noqa: E402
+
+
+def mounted_esp_candidates() -> dict[str, str]:
+    candidates: dict[str, str] = {}
+    try:
+        rows = Path("/proc/self/mountinfo").read_text().splitlines()
+    except OSError:
+        return candidates
+    for row in rows:
+        before, separator, after = row.partition(" - ")
+        if not separator:
+            continue
+        fields, tail = before.split(), after.split()
+        if len(fields) < 5 or not tail:
+            continue
+        mount, fstype = fields[4].replace("\\040", " "), tail[0]
+        if fstype in {"vfat", "fat", "msdos"} and (mount.startswith("/boot") or mount.startswith("/efi")):
+            candidates[mount] = mount
+    return candidates
+
+
+def mounted_esp_identity(mount: str) -> tuple[str | None, str | None]:
+    source = None
+    try:
+        for row in Path("/proc/self/mountinfo").read_text().splitlines():
+            before, separator, after = row.partition(" - ")
+            if separator and len(before.split()) >= 5 and before.split()[4].replace("\\040", " ") == mount:
+                tail = after.split()
+                source = tail[1] if len(tail) > 1 else None
+                break
+    except OSError:
+        return None, None
+    if source is None or not source.startswith("/dev/"):
+        return None, None
+    try:
+        device = Path(source).resolve()
+    except OSError:
+        return None, None
+    def alias(directory: str) -> str | None:
+        try:
+            return next((item.name for item in Path(directory).iterdir() if item.resolve() == device), None)
+        except OSError:
+            return None
+    return alias("/dev/disk/by-partuuid"), alias("/dev/disk/by-uuid")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="maho-secure-boot")
+    parser.add_argument("command", choices=("inspect", "inventory"))
+    parser.add_argument("--efivars", default="/sys/firmware/efi/efivars")
+    parser.add_argument("--esp", action="append", default=[])
+    args = parser.parse_args(argv)
+    roots = {path: path for path in args.esp} if args.esp else mounted_esp_candidates()
+    if args.command == "inventory":
+        print(json.dumps({"schema_version": 1, "read_only": True,
+                          "efi_executables": [item.as_dict() for item in inventory_efi_executables(roots)],
+                          "boot_entries": [item.as_dict() for item in inventory_boot_entries(args.efivars)]},
+                         sort_keys=True))
+        return 0
+    partuuid = filesystem = None
+    if len(roots) == 1:
+        partuuid, filesystem = mounted_esp_identity(next(iter(roots)))
+    evidence = inspect_boot_environment(efivar_root=args.efivars, esp_candidates=roots,
+                                        esp_gpt_partuuid=partuuid, esp_filesystem_identity=filesystem)
+    print(json.dumps(evidence.as_dict() | {"inspection_mode": "read-only"}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

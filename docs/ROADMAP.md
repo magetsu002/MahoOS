@@ -25,7 +25,7 @@ promotion-time drift revalidation, but hardware acceptance remains pending.
 - complete M4B + Native Admission hardware certification against a genuine newer coherent Primary kernel generation
 - extend the now-wired Guardian Recovery TUI beyond R3 into every native recovery mode without weakening independent recovery authority
 - finish unified recovery history/status surfaces and product-facing recovery receipts
-- harden signed boot/update authority and define Secure Boot/key lifecycle
+- follow isolated signed-boot/QEMU certification with separately authorized physical key provisioning and hardware certification
 - finish Arch/CachyOS packaging, installation flow, and ArchISO image
 - extend deterministic build checks from recovery evidence generation into initramfs/update payload assembly where toolchains permit reproducible output
 - expand interruption, power-loss, stale-evidence, and hostile-input regression campaigns

@@ -120,6 +120,41 @@ def main() -> None:
             transaction=tx, plan=plan, source_revision=SOURCE,
         )
         check("exact Admission authority survives process-boundary serialization", verified.authority_id == authority.authority_id)
+        boot_generation = SimpleNamespace(
+            boot_generation_id="bootgen-" + "1" * 64,
+            source_revision=SOURCE,
+            package_generation_id=tx["package_generation"]["id"],
+            candidate_root_identity=result.inspection.candidate_root_identity,
+        )
+        boot_authority = SimpleNamespace(
+            boot_authority_id="bootauth-" + "2" * 64,
+            permitted_boot_generation_id=boot_generation.boot_generation_id,
+            source_revision=SOURCE,
+            release_sequence=7,
+            security_epoch=2,
+            device_signing_certificate_fingerprint="AB" * 32,
+        )
+        signed_authority = issue_activation_authority(
+            result, update_transaction_id=TX, transaction=tx, source_revision=SOURCE,
+            boot_generation=boot_generation, boot_authority=boot_authority,
+        )
+        signed_verified = verify_activation_authority(
+            signed_authority.as_dict(), roots=roots, update_transaction_id=TX,
+            transaction=tx, plan=plan, source_revision=SOURCE,
+            boot_generation=boot_generation, boot_authority=boot_authority,
+        )
+        check("activation authority binds BootGeneration, BootAuthority, sequence, epoch and signer",
+              signed_verified.boot_generation_id == boot_generation.boot_generation_id
+              and signed_verified.boot_authority_id == boot_authority.boot_authority_id
+              and signed_verified.release_sequence == 7 and signed_verified.security_epoch == 2)
+        rejected(
+            "signed activation authority cannot be consumed without boot evidence",
+            lambda: verify_activation_authority(
+                signed_authority.as_dict(), roots=roots, update_transaction_id=TX,
+                transaction=tx, plan=plan, source_revision=SOURCE,
+            ),
+            "signed_boot_context_missing",
+        )
         check("review token binds exact mutation graph", admission_review_confirmation(TX, result.inspection.graph.graph_id).endswith(str(result.inspection.graph.graph_id)))
 
         with tempfile.TemporaryDirectory(prefix="maho-production-admission-review-") as review_td:
