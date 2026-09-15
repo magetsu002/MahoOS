@@ -61,7 +61,7 @@ def _proven_package_integrity(graph: CausalGraph | None, package: str) -> bool:
     return any(
         edge.source == source
         and edge.strength is RelationStrength.PROVEN
-        and edge.relation == "package-contains-file"
+        and edge.relation == "package-owns-file"
         for edge in graph.edges
     )
 
