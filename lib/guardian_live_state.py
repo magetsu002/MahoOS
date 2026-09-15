@@ -28,6 +28,7 @@ from guardian_evidence import (
 )
 from guardian_journal_stream import JournalStreamState, StreamContinuity, load_stream
 from guardian_provider_state import ProviderHeartbeat, load_heartbeat
+from guardian_signed_boot_provider import SignedBootTrust, observe_signed_boot
 from guardian_trust_status import status_payload as recovery_status_payload
 from guardian_world_state import (
     GuardianSelfFacts,
@@ -75,6 +76,7 @@ class LivePaths:
     recovery_root: Path
     runtime_root: Path
     proc_root: Path = Path("/proc")
+    signed_boot_root: Path = Path("/var/lib/maho/signed-boot")
 
     @classmethod
     def defaults(cls) -> "LivePaths":
@@ -85,6 +87,7 @@ class LivePaths:
             update_root=Path(os.environ.get("MAHO_UPDATE_STATE_ROOT", "/var/lib/maho/update")),
             recovery_root=Path(os.environ.get("MAHO_GUARDIAN_RECOVERY_ROOT", "/var/lib/maho/guardian-recovery-r3/campaigns")),
             runtime_root=Path.home() / ".local/share/maho/runtime",
+            signed_boot_root=Path(os.environ.get("MAHO_SIGNED_BOOT_STATE_ROOT", "/var/lib/maho/signed-boot")),
         )
 
 
@@ -244,20 +247,12 @@ def collect_provider_evidence(
     if not schema_ok:
         schema_errors.append(stream_spec.provider_id)
 
-    rows.append(EvidenceEnvelope(
-        provider_id="boot.authority",
-        domain="boot",
-        schema_version=1,
-        observed_at=None,
-        source="signed-boot-provider-boundary",
-        freshness_policy=FreshnessPolicy(None, required=False),
-        health=ProviderHealth.UNKNOWN,
-        data={"integration": "pending-parallel-signed-boot-milestone"},
-        confidence=EvidenceConfidence.NONE,
-        errors=("signed_boot_provider_pending",),
-        authority_boundary="external-boot-authority-provider",
-        supported=False,
-    ))
+    signed_boot = observe_signed_boot(
+        paths.signed_boot_root,
+        boot_id_path=paths.proc_root / "sys/kernel/random/boot_id",
+        now=current,
+    )
+    rows.append(signed_boot.evidence)
     return tuple(rows), tuple(sorted(set(schema_errors))), stream
 
 
@@ -381,12 +376,30 @@ def _update_authority(paths: LivePaths) -> tuple[dict[str, Any] | None, list[dic
 def _trust_signals(
     evidence: tuple[EvidenceEnvelope, ...],
     runtime: Mapping[str, Any],
+    *,
+    now: datetime,
 ) -> tuple[TrustSignal, ...]:
     by_id = {item.provider_id: item for item in evidence}
     signals: list[TrustSignal] = [
-        TrustSignal("boot.authority", GuardianTrustState.UNKNOWN, "Signed Boot authority provider has not landed on main"),
         TrustSignal("system.generation", GuardianTrustState.UNKNOWN, "exact live SystemGeneration/KernelGeneration authority is unavailable"),
     ]
+    boot = by_id.get("boot.authority")
+    if boot is None or not boot.decision_usable(now=now):
+        reason = "Signed Boot evidence is missing, stale, or the provider is unavailable"
+        if boot is not None and isinstance(boot.data, Mapping):
+            reason = str(boot.data.get("trust_reason") or reason)
+        signals.append(TrustSignal("boot.authority", GuardianTrustState.UNKNOWN, reason))
+    else:
+        raw_state = str(boot.data.get("trust_state") or SignedBootTrust.UNKNOWN.value)
+        try:
+            state = GuardianTrustState(raw_state)
+        except ValueError:
+            state = GuardianTrustState.UNKNOWN
+        signals.append(TrustSignal(
+            "boot.authority",
+            state,
+            str(boot.data.get("trust_reason") or "Signed Boot provider returned no trust explanation"),
+        ))
     if runtime.get("verified") is True:
         signals.append(TrustSignal("maho.runtime", GuardianTrustState.VERIFIED, "immutable Maho runtime release verified"))
     elif runtime.get("reasons") == ["release_unavailable"]:
@@ -441,7 +454,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
     recovery = recovery_status_payload(paths.recovery_root, current_kernel_release=platform.release())
     transaction, authority_records, authority_errors = _update_authority(paths)
 
-    required = tuple(spec.provider_id for spec in (*SECURITY_SPECS, *GUARDIAN_SPECS) if spec.required)
+    required = tuple(spec.provider_id for spec in (*SECURITY_SPECS, *GUARDIAN_SPECS) if spec.required) + ("boot.authority",)
     security_current = [
         item for item in evidence
         if item.provider_id.startswith("security.") and item.decision_usable(now=current)
@@ -465,7 +478,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         evidence,
         required_provider_ids=required,
         self_facts=self_facts,
-        trust_signals=_trust_signals(evidence, runtime),
+        trust_signals=_trust_signals(evidence, runtime, now=current),
         severity=severity,
         recovering=bool(transaction and transaction.get("state") == UpdateState.RECOVERING.value),
         now=current,
@@ -483,6 +496,8 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         }
         for item in evidence
     }
+    boot_evidence = next((item for item in evidence if item.provider_id == "boot.authority"), None)
+    boot_data = dict(boot_evidence.data) if boot_evidence is not None else {}
     return {
         "schema_version": 1,
         "kind": "guardian-live-status",
@@ -498,7 +513,16 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         "boot": {
             "boot_id": boot_id,
             "kernel_release": platform.release(),
-            "signed_boot_authority": "pending-provider",
+            "signed_boot_authority": boot_data.get("trust_state", SignedBootTrust.UNKNOWN.value),
+            "provider_health": boot_evidence.health.value if boot_evidence is not None else ProviderHealth.UNKNOWN.value,
+            "boot_generation_id": boot_data.get("boot_generation_id"),
+            "boot_authority_id": boot_data.get("boot_authority_id"),
+            "boot_environment_id": boot_data.get("boot_environment_id"),
+            "release_sequence": boot_data.get("release_sequence"),
+            "security_epoch": boot_data.get("security_epoch"),
+            "secure_boot": boot_data.get("secure_boot"),
+            "setup_mode": boot_data.get("setup_mode"),
+            "trust_reason": boot_data.get("trust_reason"),
         },
         "recovery": recovery,
         "active_incidents": incidents,

@@ -102,6 +102,7 @@ jobs:
             lib/guardian_service_watcher.py \
             lib/guardian_live_state.py \
             lib/guardian_live_cli.py \
+            lib/guardian_signed_boot_provider.py \
             lib/maho_boot_authority.py \
             lib/maho_boot_publication.py \
             lib/maho_kernel_security.py \

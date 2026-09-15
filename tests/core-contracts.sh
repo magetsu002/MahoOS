@@ -200,6 +200,8 @@ python "$ROOT/tests/test_guardian_live_authority.py"
 python "$ROOT/tests/test_guardian_live_intent_boundary.py"
 python "$ROOT/tests/test_guardian_live_status.py"
 python "$ROOT/tests/test_guardian_live_status_render.py"
+python "$ROOT/tests/test_guardian_signed_boot_provider.py"
+python "$ROOT/tests/test_guardian_live_signed_boot.py"
 
 echo "=== Adaptive policy A1-A15 ==="
 for test in "$ROOT"/tests/test_adaptive_*.py; do

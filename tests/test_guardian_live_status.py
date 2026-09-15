@@ -30,10 +30,11 @@ def make_paths(root: Path) -> LivePaths:
     recovery = root / "recovery"
     runtime = root / "runtime"
     proc = root / "proc"
-    for item in (security, state, update, recovery, runtime / "releases", proc / "sys/kernel/random"):
+    signed_boot = root / "signed-boot"
+    for item in (security, state, update, recovery, runtime / "releases", proc / "sys/kernel/random", signed_boot):
         item.mkdir(parents=True, exist_ok=True)
     (proc / "sys/kernel/random/boot_id").write_text("a" * 32 + "\n", encoding="utf-8")
-    return LivePaths(security, state, update, recovery, runtime, proc)
+    return LivePaths(security, state, update, recovery, runtime, proc, signed_boot)
 
 
 def seed_security(p: LivePaths, at: datetime) -> None:
@@ -68,7 +69,8 @@ def main() -> None:
         seed_security(p, NOW - timedelta(seconds=5))
         payload = live_status(p, now=NOW)
         check("live projection has canonical kind", payload["kind"] == "guardian-live-status")
-        check("signed boot remains an explicit pending provider", payload["boot"]["signed_boot_authority"] == "pending-provider")
+        check("missing signed boot proof remains explicit UNKNOWN", payload["boot"]["signed_boot_authority"] == "UNKNOWN")
+        check("Signed Boot provider health remains separate from trust", payload["boot"]["provider_health"] == "healthy")
         check("generation trust is not invented", payload["system"]["current_system_generation"] is None and payload["system"]["current_kernel_generation"] is None)
         check("status reports provider freshness", payload["evidence_freshness"]["security.integrity"]["freshness"] == "current")
         check("plain status exposes trust and self-health", "Trust" in render_status(payload) and "Guardian self-health" in render_status(payload))
