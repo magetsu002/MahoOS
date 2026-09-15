@@ -27,10 +27,18 @@ jobs:
           python -m py_compile \
             lib/guardian_containment.py \
             lib/guardian_containment_adapter.py \
-            tests/test_guardian_containment.py
+            lib/guardian_security_recovery.py \
+            tests/test_guardian_containment.py \
+            tests/test_guardian_security_recovery.py
       - name: Guardian containment authority contracts
         shell: bash
         run: python tests/test_guardian_containment.py
+      - name: Security to recovery routing contracts
+        shell: bash
+        run: python tests/test_guardian_security_recovery.py
       - name: Existing reversible containment regression
         shell: bash
         run: bash tests/security-containment.sh
+      - name: Existing offline recovery regression
+        shell: bash
+        run: python tests/test_guardian_offline_recovery.py
