@@ -1,0 +1,53 @@
+name: signed-boot-certification
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qemu-ovmf:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 15
+    steps:
+      - name: Install isolated certification dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git python openssl cpio busybox linux limine \
+            qemu-system-x86 qemu-img edk2-ovmf \
+            sbsigntools mtools dosfstools virt-firmware
+
+      - uses: actions/checkout@v4
+
+      - name: Syntax and harness contracts
+        run: |
+          set -euo pipefail
+          bash -n tests/qemu-secure-boot-certification.sh
+          python -m py_compile \
+            tools/build-qemu-secure-boot-fixtures.py \
+            tools/qemu-secure-boot-certify.py \
+            tools/qemu_secure_boot_common.py \
+            tests/test_qemu_certification_contract.py
+          python tests/test_qemu_certification_contract.py
+
+      - name: QEMU OVMF Secure Boot proof matrix
+        run: |
+          set -euo pipefail
+          bash tests/qemu-secure-boot-certification.sh "$RUNNER_TEMP/maho-secure-boot"
+
+      - name: Upload exact virtual certification receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maho-qemu-secure-boot-certification
+          path: |
+            ${{ runner.temp }}/maho-secure-boot/plan.json
+            ${{ runner.temp }}/maho-secure-boot/result.json
+          retention-days: 30
