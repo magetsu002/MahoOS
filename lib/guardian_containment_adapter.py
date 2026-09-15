@@ -75,6 +75,16 @@ class ExactProcessContainmentDriver:
             return set(self.protected_pids)
         return ancestor_chain(self.proc_root, os.getpid())
 
+    def _stable_identity_failure(self, identity: ProcessIdentity) -> str | None:
+        current = read_process(self.proc_root / str(identity.pid), self.fs_root)
+        if not current or current.get("uid") != self.uid:
+            return "process-identity-unavailable"
+        if current.get("exe") != identity.exe:
+            return "executable-mismatch"
+        if process_start_ticks(self.proc_root, identity.pid) != identity.start_time_ticks:
+            return "process-start-mismatch"
+        return None
+
     def _validate(self, target: ContainmentTarget) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
         record = package_record(self.db_root, target.package)
         if not record or record.get("version") != target.version:
@@ -86,8 +96,7 @@ class ExactProcessContainmentDriver:
             if identity.pid in protected:
                 failures.append({"pid": identity.pid, "reason": "protected-ancestor"})
                 continue
-            proc = self.proc_root / str(identity.pid)
-            current = read_process(proc, self.fs_root)
+            current = read_process(self.proc_root / str(identity.pid), self.fs_root)
             if not current or current.get("uid") != self.uid:
                 failures.append({"pid": identity.pid, "reason": "process-identity-unavailable"})
                 continue
@@ -97,10 +106,23 @@ class ExactProcessContainmentDriver:
             if current.get("relative_exe") not in package_paths:
                 failures.append({"pid": identity.pid, "reason": "package-ownership-mismatch"})
                 continue
-            start = process_start_ticks(self.proc_root, identity.pid)
-            if start != identity.start_time_ticks:
+            if process_start_ticks(self.proc_root, identity.pid) != identity.start_time_ticks:
                 failures.append({"pid": identity.pid, "reason": "process-start-mismatch"})
         return record, failures
+
+    def _resume_and_verify(self, identity: ProcessIdentity) -> dict[str, Any] | None:
+        failure = self._stable_identity_failure(identity)
+        if failure:
+            return {"pid": identity.pid, "reason": failure}
+        try:
+            self.signaler(identity.pid, signal.SIGCONT)
+            self.sleeper(0.03)
+        except (ProcessLookupError, PermissionError, OSError) as exc:
+            return {"pid": identity.pid, "reason": type(exc).__name__}
+        state = process_state(self.proc_root, identity.pid)
+        if state is None or state.startswith(("T", "t")):
+            return {"pid": identity.pid, "reason": f"resume-not-verified:{state}"}
+        return None
 
     def freeze_exact(self, target: ContainmentTarget) -> dict[str, Any]:
         record, failures = self._validate(target)
@@ -125,11 +147,9 @@ class ExactProcessContainmentDriver:
         if execution_failures:
             rollback_failed: list[dict[str, Any]] = []
             for identity in reversed(stopped):
-                try:
-                    self.signaler(identity.pid, signal.SIGCONT)
-                    self.sleeper(0.03)
-                except (ProcessLookupError, PermissionError, OSError) as exc:
-                    rollback_failed.append({"pid": identity.pid, "reason": type(exc).__name__})
+                failure = self._resume_and_verify(identity)
+                if failure:
+                    rollback_failed.append(failure)
             return {
                 "result": "failed-rolled-back" if not rollback_failed else "failed-rollback-incomplete",
                 "session_id": None,
@@ -168,20 +188,11 @@ class ExactProcessContainmentDriver:
         released: list[dict[str, Any]] = []
         failed: list[dict[str, Any]] = []
         for identity in target.processes:
-            if process_start_ticks(self.proc_root, identity.pid) != identity.start_time_ticks:
-                failed.append({"pid": identity.pid, "reason": "process-start-mismatch"})
+            failure = self._resume_and_verify(identity)
+            if failure:
+                failed.append(failure)
                 continue
-            try:
-                self.signaler(identity.pid, signal.SIGCONT)
-                self.sleeper(0.03)
-            except (ProcessLookupError, PermissionError, OSError) as exc:
-                failed.append({"pid": identity.pid, "reason": type(exc).__name__})
-                continue
-            state = process_state(self.proc_root, identity.pid)
-            if state and state.startswith(("T", "t")):
-                failed.append({"pid": identity.pid, "reason": f"resume-not-verified:{state}"})
-                continue
-            released.append({"pid": identity.pid, "state": state})
+            released.append({"pid": identity.pid, "state": process_state(self.proc_root, identity.pid)})
         return {"result": "released" if not failed else "partial", "released": released, "failed": failed}
 
 

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import signal
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_containment import ContainmentAuthority, ContainmentPlanState, ContainmentTarget, ProcessIdentity, plan_containment
-from guardian_containment_adapter import execute_containment, release_containment
+from guardian_containment_adapter import ExactProcessContainmentDriver, execute_containment, release_containment
 
 NOW = "2026-09-15T12:00:00Z"
 
@@ -60,6 +63,69 @@ class FakeDriver:
         return {"result": "released", "released": [item.pid for item in value.processes], "failed": []}
 
 
+def _write_status(proc: Path, uid: int, state: str) -> None:
+    proc.joinpath("status").write_text(
+        f"Name:\tmaho-runtime\nState:\t{state}\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n",
+        encoding="utf-8",
+    )
+
+
+def _write_stat(proc: Path, pid: int, start_ticks: int, state: str = "S") -> None:
+    rest = [state, "1"] + ["0"] * 17 + [str(start_ticks)]
+    proc.joinpath("stat").write_text(f"{pid} (maho-runtime) {' '.join(rest)}\n", encoding="utf-8")
+
+
+def _real_driver_fixture(tmp: Path, *, fail_second_stop: bool = False, rollback_stuck: bool = False):
+    uid = 1000
+    db = tmp / "db"
+    fs = tmp / "fs"
+    proc_root = tmp / "proc"
+    state_root = tmp / "state"
+    pkg = db / "maho-runtime-1.2.3-1"
+    pkg.mkdir(parents=True)
+    pkg.joinpath("desc").write_text(
+        "%NAME%\nmaho-runtime\n\n%VERSION%\n1.2.3-1\n\n%FILES%\nusr/bin/maho-runtime\n\n",
+        encoding="utf-8",
+    )
+    binary = fs / "usr/bin/maho-runtime"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("test", encoding="utf-8")
+    identities: list[ProcessIdentity] = []
+    for pid, start in ((201, 9001), (202, 9002)):
+        proc = proc_root / str(pid)
+        proc.mkdir(parents=True)
+        proc.joinpath("exe").symlink_to(binary)
+        proc.joinpath("cmdline").write_bytes(b"maho-runtime\0")
+        _write_status(proc, uid, "S (sleeping)")
+        _write_stat(proc, pid, start)
+        identities.append(ProcessIdentity(pid, start, str(binary)))
+
+    signals: list[tuple[int, int]] = []
+
+    def signaler(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+        proc = proc_root / str(pid)
+        if sig == signal.SIGSTOP:
+            if fail_second_stop and pid == 202:
+                raise OSError("synthetic stop failure")
+            _write_status(proc, uid, "T (stopped)")
+        elif sig == signal.SIGCONT and not rollback_stuck:
+            _write_status(proc, uid, "S (sleeping)")
+
+    driver = ExactProcessContainmentDriver(
+        db_root=db,
+        proc_root=proc_root,
+        fs_root=fs,
+        state_root=state_root,
+        uid=uid,
+        signaler=signaler,
+        sleeper=lambda _seconds: None,
+        protected_pids=set(),
+    )
+    exact_target = ContainmentTarget("maho-runtime", "1.2.3-1", "finding-001", tuple(identities))
+    return driver, exact_target, proc_root, fs, state_root, signals
+
+
 def main() -> None:
     value = target()
     ready = plan_containment(value, authority(value), now=NOW)
@@ -98,6 +164,35 @@ def main() -> None:
 
     refused_receipt = execute_containment(unverified, FakeDriver())
     check("adapter cannot invent authority", refused_receipt.result == "refused")
+
+    with tempfile.TemporaryDirectory() as raw:
+        real_driver, exact, proc_root, _fs, _state, signals = _real_driver_fixture(Path(raw))
+        frozen = real_driver.freeze_exact(exact)
+        check("production adapter freezes the entire exact stable target", frozen["result"] == "contained" and len(frozen["contained"]) == 2)
+        check("production adapter verifies stopped process state", all((proc_root / str(pid) / "status").read_text().split("State:\t", 1)[1].startswith("T") for pid in (201, 202)))
+        resumed = real_driver.release_exact(frozen["session_id"], exact)
+        check("production adapter verifies exact release", resumed["result"] == "released" and len(resumed["released"]) == 2)
+        check("production release signaled only exact authorized pids", {pid for pid, sig in signals if sig == signal.SIGCONT} == {201, 202})
+
+    with tempfile.TemporaryDirectory() as raw:
+        rollback_driver, exact, _proc_root, _fs, _state, _signals = _real_driver_fixture(Path(raw), fail_second_stop=True, rollback_stuck=True)
+        rolled = rollback_driver.freeze_exact(exact)
+        check("partial freeze with unverifiable rollback is never reported safe", rolled["result"] == "failed-rollback-incomplete")
+        check("rollback state verification failure is explicit", any(str(item.get("reason", "")).startswith("resume-not-verified:") for item in rolled["failed"]))
+
+    with tempfile.TemporaryDirectory() as raw:
+        drift_driver, exact, proc_root, fs, _state, signals = _real_driver_fixture(Path(raw))
+        frozen = drift_driver.freeze_exact(exact)
+        drifted = fs / "usr/bin/drifted-runtime"
+        drifted.write_text("drift", encoding="utf-8")
+        exe_link = proc_root / "201/exe"
+        exe_link.unlink()
+        exe_link.symlink_to(drifted)
+        before = len(signals)
+        release = drift_driver.release_exact(frozen["session_id"], exact)
+        new_signals = signals[before:]
+        check("release revalidates bound executable identity", any(item.get("pid") == 201 and item.get("reason") == "executable-mismatch" for item in release["failed"]))
+        check("identity drift is not signaled during release", not any(pid == 201 and sig == signal.SIGCONT for pid, sig in new_signals))
 
     print("ALL GUARDIAN CONTAINMENT TESTS PASS")
 
