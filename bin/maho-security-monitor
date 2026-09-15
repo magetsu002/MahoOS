@@ -39,7 +39,8 @@ boundary() {
 }
 
 provider_record() {
-    local provider="$1" domain="$2" success="$3" health="$4" error="${5:-}" details="${6:-{}}"
+    local provider="$1" domain="$2" success="$3" health="$4" error="${5:-}" details="${6:-}"
+    [ -n "$details" ] || details='{}'
     [ -r "$PROVIDER_STATE" ] || return 1
     local -a args=(python "$PROVIDER_STATE" record --state-root "$SEC_STATE" --provider-id "$provider" --domain "$domain" --source maho-security-monitor --authority-boundary read-only-observer --health "$health" --details-json "$details")
     [ "$success" = 1 ] && args+=(--success)
