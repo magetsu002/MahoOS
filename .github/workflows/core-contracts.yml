@@ -16,6 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Branch diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git diff --check origin/main...HEAD
+
       - name: Shell syntax
         shell: bash
         run: |
