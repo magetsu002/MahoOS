@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from guardian_causal_status import enrich_status, render_enriched_status
+from guardian_completion_status import enrich_status, render_status
 from guardian_live_state import LivePaths, live_status
 
 
@@ -18,7 +18,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     else:
-        print(render_enriched_status(payload))
+        print(render_status(payload))
     return 0
 
 

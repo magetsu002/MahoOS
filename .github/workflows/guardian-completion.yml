@@ -28,14 +28,27 @@ jobs:
             lib/guardian_containment.py \
             lib/guardian_containment_adapter.py \
             lib/guardian_security_recovery.py \
+            lib/guardian_reliability.py \
+            lib/guardian_reliability_provider.py \
+            lib/guardian_watch_main.py \
+            lib/guardian_completion_status.py \
+            lib/guardian_live_cli.py \
             tests/test_guardian_containment.py \
-            tests/test_guardian_security_recovery.py
+            tests/test_guardian_security_recovery.py \
+            tests/test_guardian_reliability.py \
+            tests/test_guardian_completion_status.py
       - name: Guardian containment authority contracts
         shell: bash
         run: python tests/test_guardian_containment.py
       - name: Security to recovery routing contracts
         shell: bash
         run: python tests/test_guardian_security_recovery.py
+      - name: Reliability and recurrence contracts
+        shell: bash
+        run: python tests/test_guardian_reliability.py
+      - name: Canonical completion status contracts
+        shell: bash
+        run: python tests/test_guardian_completion_status.py
       - name: Existing reversible containment regression
         shell: bash
         run: bash tests/security-containment.sh
