@@ -34,7 +34,9 @@ class TUIEvidenceError(ValueError):
     """Raised when presentation evidence is ambiguous or not plan-bound."""
 
 
-PAGES = ("Recovery", "Trust", "Generations", "Logs", "Confirm")
+PAGES = ("Recovery", "Trust", "Generations", "Logs", "Plan")
+MIN_TUI_WIDTH = 100
+MIN_TUI_HEIGHT = 24
 DEFAULT_EVIDENCE_ROOT = Path("/usr/lib/maho/guardian-r3-campaign/r2-evidence")
 ANSI = {
     "reset": "\033[0m",
@@ -800,7 +802,7 @@ def _logs_body(p: RecoveryPresentation, width: int, offset: int) -> list[str]:
     return _box("Logs", rows, width)
 
 
-def _confirm_body(p: RecoveryPresentation, width: int) -> list[str]:
+def _plan_body(p: RecoveryPresentation, width: int) -> list[str]:
     passed = sum(item.status == "Verified" for item in p.verification)
     required = sum(item.status in {"Verified", "Failed", "Needs approval"} for item in p.verification)
     if p.scope == "KERNEL_ONLY":
@@ -821,13 +823,14 @@ def _confirm_body(p: RecoveryPresentation, width: int) -> list[str]:
     ):
         rows.extend(_field_rows(label, value, width - 4))
     if p.authorization == "REQUIRED":
-        action = "Press [Enter] or [c] to request authorization for this exact plan."
+        action = "Approval required. Press [Enter] to request authorization for this exact plan."
     elif p.authorization == "GRANTED":
         action = "Authorization is already granted for this exact plan."
     else:
         action = "Guardian has refused authorization for this plan."
     rows.extend(("", action, "No recovery action is executed by this interface."))
-    return _box("Confirm recovery request", rows, width)
+    rows[-1] = "Execution is owned by Guardian; this interface does not perform recovery."
+    return _box("Recovery plan", rows, width)
 
 
 def _page_body(p: RecoveryPresentation, state: UIState, width: int) -> list[str]:
@@ -840,7 +843,7 @@ def _page_body(p: RecoveryPresentation, state: UIState, width: int) -> list[str]
         return _generations_body(p, width, state.generation_index)
     if page == "Logs":
         return _logs_body(p, width, state.log_offset)
-    return _confirm_body(p, width)
+    return _plan_body(p, width)
 
 
 def _header(p: RecoveryPresentation, width: int) -> list[str]:
@@ -852,22 +855,43 @@ def _header(p: RecoveryPresentation, width: int) -> list[str]:
 
 def _footer(page: str, width: int, authorization: str, focus: str) -> list[str]:
     if focus == "content" and page == "Generations":
-        help_text = "[↑↓] Inspect  [←/Esc] Sections  [c] Confirm  [q] Quit"
+        help_text = "[↑↓] Inspect  [←/Esc] Sections  [p] Plan  [q] Quit"
     elif focus == "content" and page == "Logs":
-        help_text = "[↑↓] Scroll  [←/Esc] Sections  [c] Confirm  [q] Quit"
+        help_text = "[↑↓] Scroll  [←/Esc] Sections  [p] Plan  [q] Quit"
     elif page == "Recovery":
-        help_text = "[↑↓] Section  [Enter/→] Inspect generations  [c] Confirm  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/→] Inspect generations  [p] Plan  [q] Quit"
     elif page == "Trust":
-        help_text = "[↑↓] Section  [Enter/e] Evidence  [c] Confirm  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/e] Evidence  [p] Plan  [q] Quit"
     elif page == "Generations":
-        help_text = "[↑↓] Section  [Enter/→] Inspect list  [c] Confirm  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/→] Inspect list  [p] Plan  [q] Quit"
     elif page == "Logs":
-        help_text = "[↑↓] Section  [Enter/→] Scroll logs  [c] Confirm  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/→] Scroll logs  [p] Plan  [q] Quit"
     elif authorization == "REQUIRED":
-        help_text = "[↑↓] Section  [Enter/c] Request approval  [q] Quit"
+        help_text = "[↑↓] Section  [Enter] Request approval  [q] Quit"
     else:
         help_text = "[↑↓] Section  [q] Quit"
     return ["─" * width, _clip(help_text, width)]
+
+
+def _resize_prompt(width: int, height: int) -> str:
+    width = max(1, width)
+    height = max(1, height)
+    message = [
+        "MahoOS / Guardian Recovery",
+        "",
+        "Terminal too small",
+        f"Current: {width}x{height}   Required: {MIN_TUI_WIDTH}x{MIN_TUI_HEIGHT}",
+        "Resize the terminal to continue.",
+        "",
+        "[q] Quit",
+    ]
+    top = max(0, (height - len(message)) // 2)
+    lines = [""] * top
+    lines.extend(_clip(line, width).center(width) for line in message)
+    lines = lines[:height]
+    while len(lines) < height:
+        lines.append("")
+    return "\n".join(lines) + "\n"
 
 def _compose(
     p: RecoveryPresentation,
@@ -877,8 +901,9 @@ def _compose(
     height: int,
     color: bool,
 ) -> str:
-    width = min(max(width, 48), 180)
-    height = max(height, 18)
+    if width < MIN_TUI_WIDTH or height < MIN_TUI_HEIGHT:
+        return _resize_prompt(width, height)
+    width = min(width, 180)
     page = PAGES[state.page_index]
     header = _header(p, width)
     footer = _footer(page, width, p.authorization, state.focus)
@@ -944,8 +969,9 @@ def render(
     color: bool = False,
 ) -> str:
     """Render a deterministic screen; no privileged action is reachable here."""
+    normalized_page = "Plan" if page.lower() == "confirm" else page.title()
     try:
-        page_index = PAGES.index(page.title())
+        page_index = PAGES.index(normalized_page)
     except ValueError as exc:
         raise TUIEvidenceError("unknown_tui_page") from exc
     state = UIState(
@@ -1010,7 +1036,7 @@ def write_authorization_request(path: str | os.PathLike[str], request: Mapping[s
         os.close(fd)
 
 
-def _read_key(stdin: TextIO) -> str:
+def _read_key(stdin: TextIO, timeout: float | None = None) -> str:
     """Read one navigation key; use raw terminal input only for a real TTY."""
     is_tty = bool(getattr(stdin, "isatty", lambda: False)())
     if not is_tty:
@@ -1023,6 +1049,10 @@ def _read_key(stdin: TextIO) -> str:
     previous = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
+        if timeout is not None:
+            ready, _, _ = select.select([fd], [], [], timeout)
+            if not ready:
+                return "timeout"
         first = os.read(fd, 1)
         if not first:
             return "q"
@@ -1093,21 +1123,40 @@ def interactive(
     request_path: str | None,
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
-    width: int = 100,
-    height: int = 36,
+    width: int | None = None,
+    height: int | None = None,
     color: bool | None = None,
 ) -> int:
     state = UIState()
     if color is None:
         color = bool(getattr(stdout, "isatty", lambda: False)())
+    dynamic_size = width is None or height is None
+    last_size: tuple[int, int] | None = None
+    dirty = True
+
     while True:
-        stdout.write("\033[2J\033[H")
-        stdout.write(_compose(presentation, state, width=width, height=height, color=color))
-        stdout.flush()
-        key = _read_key(stdin)
+        terminal = shutil.get_terminal_size((MIN_TUI_WIDTH, 36))
+        screen_width = width if width is not None else terminal.columns
+        screen_height = height if height is not None else terminal.lines
+        size = (screen_width, screen_height)
+        too_small = screen_width < MIN_TUI_WIDTH or screen_height < MIN_TUI_HEIGHT
+
+        if dirty or size != last_size:
+            stdout.write("\033[2J\033[H")
+            stdout.write(_compose(presentation, state, width=screen_width, height=screen_height, color=color))
+            stdout.flush()
+            last_size = size
+            dirty = False
+
+        key = _read_key(stdin, timeout=0.20 if dynamic_size else None)
+        if key == "timeout":
+            continue
         if key in {"q", "quit", "exit"}:
             return 0
+        if too_small:
+            continue
 
+        dirty = True
         page = PAGES[state.page_index]
         if state.focus == "content":
             if key in {"escape", "left", "h", "tab", "shift-tab"}:
@@ -1152,7 +1201,7 @@ def interactive(
                 if page == "Logs" and presentation.logs:
                     state.focus = "content"
                     continue
-                if page == "Confirm" and key == "enter" and presentation.authorization == "REQUIRED":
+                if page == "Plan" and key == "enter" and presentation.authorization == "REQUIRED":
                     result = _request_authorization(
                         presentation, request_path=request_path, stdin=stdin, stdout=stdout,
                     )
@@ -1164,18 +1213,18 @@ def interactive(
         if key == "e" and page == "Trust":
             state.show_evidence = not state.show_evidence
             continue
-        if key == "c":
-            if page != "Confirm":
-                state.page_index = PAGES.index("Confirm")
+        if key in {"p", "c"}:
+            if page != "Plan":
+                state.page_index = PAGES.index("Plan")
                 state.focus = "nav"
                 continue
-            if presentation.authorization != "REQUIRED":
+            if key == "c" and presentation.authorization == "REQUIRED":
+                result = _request_authorization(
+                    presentation, request_path=request_path, stdin=stdin, stdout=stdout,
+                )
+                if result is not None:
+                    return result
                 continue
-            result = _request_authorization(
-                presentation, request_path=request_path, stdin=stdin, stdout=stdout,
-            )
-            if result is not None:
-                return result
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1189,7 +1238,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--request-path", help="New file for a non-authoritative user consent request")
     parser.add_argument("--render", action="store_true", help="Render once instead of reading terminal input")
     parser.add_argument("--evidence", action="store_true", help="Show technical evidence on Trust")
-    parser.add_argument("--page", choices=[name.lower() for name in PAGES], default="recovery")
+    parser.add_argument("--page", choices=[name.lower() for name in PAGES] + ["confirm"], default="recovery")
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--color", action="store_true", help="Enable semantic ANSI color in one-shot render")
@@ -1236,8 +1285,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return interactive(
         presentation,
         request_path=args.request_path,
-        width=width,
-        height=height,
+        width=args.width,
+        height=args.height,
     )
 
 
