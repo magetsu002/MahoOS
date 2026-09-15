@@ -80,6 +80,14 @@ jobs:
             lib/security_incident.py \
             lib/security_preflight.py \
             lib/security_boundary.py \
+            lib/guardian_evidence.py \
+            lib/guardian_intent.py \
+            lib/guardian_world_state.py \
+            lib/guardian_provider_state.py \
+            lib/guardian_journal_stream.py \
+            lib/guardian_service_watcher.py \
+            lib/guardian_live_state.py \
+            lib/guardian_live_cli.py \
             config/quickshell/maho-shell/state.py \
             config/quickshell/maho-notify/state.py
 
