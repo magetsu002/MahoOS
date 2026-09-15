@@ -114,6 +114,7 @@ class UIState:
     generation_index: int = 0
     log_offset: int = 0
     show_evidence: bool = False
+    focus: str = "nav"
 
 
 def _object(value: Any, label: str) -> Mapping[str, Any]:
@@ -647,54 +648,60 @@ def _columns(left: Sequence[str], right: Sequence[str], width: int, gap: int = 2
 
 
 def _recovery_body(p: RecoveryPresentation, width: int) -> list[str]:
+    wide = width >= 78
+    if wide:
+        left_box_width = (width - 2) // 2
+        right_box_width = width - 2 - left_box_width
+        current_field_width = max(20, left_box_width - 4)
+        target_field_width = max(20, right_box_width - 4)
+    else:
+        left_box_width = right_box_width = width
+        current_field_width = target_field_width = max(20, width - 4)
+
+    def id_width(field_width: int) -> int:
+        label_width = min(18, max(10, field_width // 4))
+        return max(12, field_width - label_width - 3)
+
     current = []
     for label, value in (
-        ("System", _short_id(p.current_system_generation_id, max(18, width // 3))),
-        ("Kernel", p.current_kernel_release or _short_id(p.current_kernel_generation_id, max(18, width // 3))),
+        ("System", _short_id(p.current_system_generation_id, id_width(current_field_width))),
+        ("Kernel", p.current_kernel_release or _short_id(p.current_kernel_generation_id, id_width(current_field_width))),
         ("State", p.current_trust_state),
         ("Reason", p.lost_trust_reason),
     ):
-        current.extend(_field_rows(label, value, max(20, width // 2 - 4)))
+        current.extend(_field_rows(label, value, current_field_width))
     target = []
     for label, value in (
-        ("System", _short_id(p.target_system_generation_id, max(18, width // 3))),
-        ("Kernel", p.target_kernel_release or _short_id(p.target_kernel_generation_id, max(18, width // 3))),
+        ("System", _short_id(p.target_system_generation_id, id_width(target_field_width))),
+        ("Kernel", p.target_kernel_release or _short_id(p.target_kernel_generation_id, id_width(target_field_width))),
         ("State", p.target_trust_state),
         ("Scope", _scope_label(p.scope)),
     ):
-        target.extend(_field_rows(label, value, max(20, width // 2 - 4)))
-    if width >= 78:
-        rows = _columns(
-            _box("Current system", current, (width - 2) // 2),
-            _box("Selected recovery", target, width - 2 - (width - 2) // 2),
-            width,
-        )
+        target.extend(_field_rows(label, value, target_field_width))
+
+    if wide:
+        rows = _columns(_box("Current system", current, left_box_width), _box("Selected recovery", target, right_box_width), width)
     else:
         rows = _box("Current system", current, width) + [""] + _box("Selected recovery", target, width)
+
     checks = []
     for item in p.verification[:6]:
         marker = {"Verified": "[ok]", "Failed": "[!!]", "Needs approval": "[!]", "Missing": "[?]"}.get(item.status, "[ ]")
         checks.append(f"{marker} {item.label:<20} {item.status}")
     impact = []
-    impact.extend(_field_rows("User data", "Preserved" if p.preserves_home else "Plan does not promise preservation", max(20, width // 2 - 4)))
-    impact.extend(_field_rows("Credentials", _credential_label(p.credential_exposure), max(20, width // 2 - 4)))
-    impact.extend(_field_rows("Live root", "Not mutated" if not p.mutates_live_root else "Mutation planned", max(20, width // 2 - 4)))
-    impact.extend(_field_rows("Approval", _status_word(p.authorization), max(20, width // 2 - 4)))
-    if width >= 78:
-        rows += [""] + _columns(
-            _box("Verification", checks, (width - 2) // 2),
-            _box("Recovery impact", impact, width - 2 - (width - 2) // 2),
-            width,
-        )
+    impact.extend(_field_rows("User data", "Preserved" if p.preserves_home else "Plan does not promise preservation", target_field_width))
+    impact.extend(_field_rows("Credentials", _credential_label(p.credential_exposure), target_field_width))
+    impact.extend(_field_rows("Live root", "Not mutated" if not p.mutates_live_root else "Mutation planned", target_field_width))
+    impact.extend(_field_rows("Approval", _status_word(p.authorization), target_field_width))
+    if wide:
+        rows += [""] + _columns(_box("Verification", checks, left_box_width), _box("Recovery impact", impact, right_box_width), width)
     else:
         rows += [""] + _box("Verification", checks, width) + [""] + _box("Recovery impact", impact, width)
     if p.generations:
-        table = _generation_table(p, width, 0, min(4, len(p.generations)))
-        rows += [""] + _box("Recent generations", table, width)
+        rows += [""] + _box("Recent generations", _generation_table(p, width, 0, min(4, len(p.generations))), width)
     else:
         rows += [""] + _box("Recent generations", [p.generation_history_status], width)
     return rows
-
 
 def _trust_body(p: RecoveryPresentation, width: int, show_evidence: bool) -> list[str]:
     rows = []
@@ -712,7 +719,7 @@ def _trust_body(p: RecoveryPresentation, width: int, show_evidence: bool) -> lis
         rows.append("Technical evidence")
         rows.extend(f"{key:<24} {value}" for key, value in p.evidence)
     else:
-        rows.extend(("", "Press [e] to show plan-bound technical evidence."))
+        rows.extend(("", "Press [Enter] or [e] to show plan-bound technical evidence."))
     return _box("Trust evidence", rows, width)
 
 
@@ -728,13 +735,32 @@ def _generation_table(
     start = max(0, min(selected - visible // 2, max(0, len(p.generations) - visible)))
     rows = p.generations[start:start + visible]
     if width >= 78:
-        out = [f"{'':2} {'System generation':28} {'Kernel':24} {'Trust':12} Marker"]
+        table_width = max(1, width - 4)
+        trust_width = 10
+        system_width = 28
+        kernel_width = 24
+        marker_width = table_width - (7 + system_width + kernel_width + trust_width)
+        if marker_width < 12:
+            deficit = 12 - marker_width
+            shrink = min(deficit, kernel_width - 16)
+            kernel_width -= shrink
+            deficit -= shrink
+            shrink = min(deficit, system_width - 18)
+            system_width -= shrink
+            marker_width = table_width - (7 + system_width + kernel_width + trust_width)
+        marker_width = max(5, marker_width)
+        out = [
+            f"{'':2} {'System generation':{system_width}} "
+            f"{'Kernel':{kernel_width}} {'Trust':{trust_width}} {_clip('Marker', marker_width)}"
+        ]
         for absolute, row in enumerate(rows, start):
             cursor = ">" if absolute == selected else " "
             trust = row.system_trust if row.system_trust != "VERIFIED" else row.kernel_trust
+            marker = _clip(row.marker or "-", marker_width)
             out.append(
-                f"{cursor:2} {_short_id(row.system_generation_id,28):28} "
-                f"{_short_id(row.kernel_generation_id,24):24} {trust:12} {row.marker or '-'}"
+                f"{cursor:2} {_short_id(row.system_generation_id, system_width):{system_width}} "
+                f"{_short_id(row.kernel_generation_id, kernel_width):{kernel_width}} "
+                f"{trust:{trust_width}} {marker}"
             )
     else:
         out = []
@@ -743,7 +769,6 @@ def _generation_table(
             out.append(f"{cursor} {_short_id(row.system_generation_id, width - 8)}")
             out.append(f"  trust {row.system_trust}/{row.kernel_trust}  {row.marker or ''}".rstrip())
     return out
-
 
 def _generations_body(p: RecoveryPresentation, width: int, selected: int) -> list[str]:
     if not p.generations:
@@ -796,7 +821,7 @@ def _confirm_body(p: RecoveryPresentation, width: int) -> list[str]:
     ):
         rows.extend(_field_rows(label, value, width - 4))
     if p.authorization == "REQUIRED":
-        action = "Press [c] to request authorization for this exact plan."
+        action = "Press [Enter] or [c] to request authorization for this exact plan."
     elif p.authorization == "GRANTED":
         action = "Authorization is already granted for this exact plan."
     else:
@@ -825,19 +850,24 @@ def _header(p: RecoveryPresentation, width: int) -> list[str]:
     return [_clip(title + " " * gap + status, width), "─" * width]
 
 
-def _footer(page: str, width: int, authorization: str) -> list[str]:
-    if page == "Generations":
-        help_text = "[↑↓] Inspect  [Tab/←→] Section  [c] Confirm  [q] Quit"
-    elif page == "Logs":
-        help_text = "[↑↓] Scroll  [Tab/←→] Section  [c] Confirm  [q] Quit"
+def _footer(page: str, width: int, authorization: str, focus: str) -> list[str]:
+    if focus == "content" and page == "Generations":
+        help_text = "[↑↓] Inspect  [←/Esc] Sections  [c] Confirm  [q] Quit"
+    elif focus == "content" and page == "Logs":
+        help_text = "[↑↓] Scroll  [←/Esc] Sections  [c] Confirm  [q] Quit"
+    elif page == "Recovery":
+        help_text = "[↑↓] Section  [Enter/→] Inspect generations  [c] Confirm  [q] Quit"
     elif page == "Trust":
-        help_text = "[e] Evidence  [Tab/←→] Section  [c] Confirm  [q] Quit"
-    elif page == "Confirm":
-        help_text = "[c] Request approval  [Tab/←→] Section  [q] Quit" if authorization == "REQUIRED" else "[Tab/←→] Section  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/e] Evidence  [c] Confirm  [q] Quit"
+    elif page == "Generations":
+        help_text = "[↑↓] Section  [Enter/→] Inspect list  [c] Confirm  [q] Quit"
+    elif page == "Logs":
+        help_text = "[↑↓] Section  [Enter/→] Scroll logs  [c] Confirm  [q] Quit"
+    elif authorization == "REQUIRED":
+        help_text = "[↑↓] Section  [Enter/c] Request approval  [q] Quit"
     else:
-        help_text = "[Tab/←→] Section  [Enter] Inspect  [c] Continue  [q] Quit"
+        help_text = "[↑↓] Section  [q] Quit"
     return ["─" * width, _clip(help_text, width)]
-
 
 def _compose(
     p: RecoveryPresentation,
@@ -851,7 +881,7 @@ def _compose(
     height = max(height, 18)
     page = PAGES[state.page_index]
     header = _header(p, width)
-    footer = _footer(page, width, p.authorization)
+    footer = _footer(page, width, p.authorization, state.focus)
     if width >= 100:
         sidebar_width = 18
         content_width = width - sidebar_width - 3
@@ -895,7 +925,8 @@ def _compose(
         painted = []
         for line in lines:
             line = _colorize_line(line)
-            line = line.replace(active, _paint(active, "active", True))
+            if state.focus == "nav":
+                line = line.replace(active, _paint(active, "active", True))
             painted.append(line)
         lines = painted
     return "\n".join(_clip(line, width) if not color else line for line in lines) + "\n"
@@ -1076,41 +1107,75 @@ def interactive(
         key = _read_key(stdin)
         if key in {"q", "quit", "exit"}:
             return 0
-        if key in {"tab", "right", "l"}:
-            state.page_index = (state.page_index + 1) % len(PAGES)
-            continue
-        if key in {"shift-tab", "left", "h"}:
-            state.page_index = (state.page_index - 1) % len(PAGES)
-            continue
+
         page = PAGES[state.page_index]
-        if key in {"up", "k"}:
-            if page == "Generations":
-                state.generation_index = max(0, state.generation_index - 1)
-            elif page == "Logs":
-                state.log_offset = max(0, state.log_offset - 1)
-            continue
-        if key in {"down", "j"}:
-            if page == "Generations" and presentation.generations:
-                state.generation_index = min(len(presentation.generations) - 1, state.generation_index + 1)
-            elif page == "Logs" and presentation.logs:
-                state.log_offset = min(max(0, len(presentation.logs) - 1), state.log_offset + 1)
-            continue
-        if key in {"enter", ""} and page == "Recovery":
-            state.page_index = PAGES.index("Generations")
-            continue
+        if state.focus == "content":
+            if key in {"escape", "left", "h", "tab", "shift-tab"}:
+                state.focus = "nav"
+                continue
+            if key in {"up", "k"}:
+                if page == "Generations":
+                    state.generation_index = max(0, state.generation_index - 1)
+                elif page == "Logs":
+                    state.log_offset = max(0, state.log_offset - 1)
+                continue
+            if key in {"down", "j"}:
+                if page == "Generations" and presentation.generations:
+                    state.generation_index = min(len(presentation.generations) - 1, state.generation_index + 1)
+                elif page == "Logs" and presentation.logs:
+                    state.log_offset = min(max(0, len(presentation.logs) - 1), state.log_offset + 1)
+                continue
+        else:
+            if key in {"up", "k"}:
+                state.page_index = max(0, state.page_index - 1)
+                continue
+            if key in {"down", "j"}:
+                state.page_index = min(len(PAGES) - 1, state.page_index + 1)
+                continue
+            if key == "tab":
+                state.page_index = (state.page_index + 1) % len(PAGES)
+                continue
+            if key == "shift-tab":
+                state.page_index = (state.page_index - 1) % len(PAGES)
+                continue
+            if key in {"enter", "right"}:
+                if page == "Recovery":
+                    state.page_index = PAGES.index("Generations")
+                    state.focus = "content" if presentation.generations else "nav"
+                    continue
+                if page == "Trust":
+                    state.show_evidence = not state.show_evidence
+                    continue
+                if page == "Generations" and presentation.generations:
+                    state.focus = "content"
+                    continue
+                if page == "Logs" and presentation.logs:
+                    state.focus = "content"
+                    continue
+                if page == "Confirm" and key == "enter" and presentation.authorization == "REQUIRED":
+                    result = _request_authorization(
+                        presentation, request_path=request_path, stdin=stdin, stdout=stdout,
+                    )
+                    if result is not None:
+                        return result
+                    continue
+
+        page = PAGES[state.page_index]
         if key == "e" and page == "Trust":
             state.show_evidence = not state.show_evidence
             continue
         if key == "c":
             if page != "Confirm":
                 state.page_index = PAGES.index("Confirm")
+                state.focus = "nav"
+                continue
+            if presentation.authorization != "REQUIRED":
                 continue
             result = _request_authorization(
                 presentation, request_path=request_path, stdin=stdin, stdout=stdout,
             )
             if result is not None:
                 return result
-
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)

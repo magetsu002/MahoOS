@@ -306,7 +306,7 @@ def main() -> None:
         )
 
         request_path = Path(td) / "authorization-request.json"
-        stdin = io.StringIO("right\nright\ndown\nc\nc\nAUTHORIZE " + pending.plan_sha256[:12] + "\n")
+        stdin = io.StringIO("down\ndown\nenter\ndown\nc\nc\nAUTHORIZE " + pending.plan_sha256[:12] + "\n")
         stdout = io.StringIO()
         rc = interactive(
             pending,
@@ -330,13 +330,61 @@ def main() -> None:
         rc = interactive(
             pending,
             request_path=str(nav_only),
-            stdin=io.StringIO("right\nright\ndown\nright\nq\n"),
+            stdin=io.StringIO("down\ndown\nenter\ndown\nescape\ndown\nq\n"),
             stdout=io.StringIO(),
             width=100,
             height=28,
             color=False,
         )
         check("navigation alone performs no privileged or consent action", rc == 0 and not nav_only.exists())
+
+        nav_stdout = io.StringIO()
+        rc = interactive(
+            pending,
+            request_path=None,
+            stdin=io.StringIO("down\nq\n"),
+            stdout=nav_stdout,
+            width=100,
+            height=28,
+            color=False,
+        )
+        check(
+            "vertical arrows navigate the vertical section list",
+            rc == 0 and "› Trust" in nav_stdout.getvalue() and "[↑↓] Section" in nav_stdout.getvalue(),
+        )
+
+        focus_stdout = io.StringIO()
+        rc = interactive(
+            pending,
+            request_path=None,
+            stdin=io.StringIO("down\ndown\nright\ndown\nleft\ndown\nq\n"),
+            stdout=focus_stdout,
+            width=116,
+            height=32,
+            color=False,
+        )
+        focus_output = focus_stdout.getvalue()
+        check(
+            "right enters content and left returns to section navigation",
+            rc == 0
+            and "[↑↓] Inspect  [←/Esc] Sections" in focus_output
+            and "› Logs" in focus_output,
+        )
+
+        boundary_stdout = io.StringIO()
+        rc = interactive(
+            pending,
+            request_path=None,
+            stdin=io.StringIO("up\nq\n"),
+            stdout=boundary_stdout,
+            width=100,
+            height=28,
+            color=False,
+        )
+        check(
+            "section arrows clamp instead of wrapping",
+            rc == 0 and "› Recovery" in boundary_stdout.getvalue() and "› Confirm" not in boundary_stdout.getvalue(),
+        )
 
         stdin = io.StringIO("c\nc\nAUTHORIZE " + pending.plan_sha256[:12] + "\n\nq\n")
         stdout = io.StringIO()
@@ -363,6 +411,20 @@ def main() -> None:
         "granted confirmation does not request duplicate approval",
         "Authorization is already granted for this exact plan." in granted_confirm
         and "Press [c] to request authorization" not in granted_confirm,
+    )
+    granted_stdout = io.StringIO()
+    rc = interactive(
+        granted,
+        request_path=None,
+        stdin=io.StringIO("c\nc\nq\n"),
+        stdout=granted_stdout,
+        width=100,
+        height=28,
+        color=False,
+    )
+    check(
+        "granted confirmation ignores duplicate approval shortcuts",
+        rc == 0 and "Authorization is Granted" not in granted_stdout.getvalue(),
     )
     try:
         authorization_request(granted)
