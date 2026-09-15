@@ -36,7 +36,7 @@ class TUIEvidenceError(ValueError):
 
 PAGES = ("Recovery", "Trust", "Generations", "Logs", "Plan")
 MIN_TUI_WIDTH = 100
-MIN_TUI_HEIGHT = 24
+MIN_TUI_HEIGHT = 28
 DEFAULT_EVIDENCE_ROOT = Path("/usr/lib/maho/guardian-r3-campaign/r2-evidence")
 ANSI = {
     "reset": "\033[0m",
@@ -116,6 +116,7 @@ class UIState:
     generation_index: int = 0
     log_offset: int = 0
     show_evidence: bool = False
+    show_help: bool = False
     focus: str = "nav"
 
 
@@ -833,7 +834,32 @@ def _plan_body(p: RecoveryPresentation, width: int) -> list[str]:
     return _box("Recovery plan", rows, width)
 
 
+def _help_body(p: RecoveryPresentation, width: int) -> list[str]:
+    rows = [
+        "Navigation",
+        "  [↑↓]       Move between sections",
+        "  [Enter/→]  Open the selected section or action",
+        "  [←/Esc]    Return from list/log focus",
+        "  [?]        Close this help",
+        "  [q]        Quit without changing recovery state",
+        "",
+        "Sections",
+        "  Recovery     Current failure, selected recovery, and impact",
+        "  Trust        Plan-bound trust and verification evidence",
+        "  Generations  Read-only generation inspection",
+        "  Logs         Supplied Guardian runtime evidence only",
+        "  Plan         Exact recovery scope, preservation, and authorization",
+        "",
+        "Safety",
+        "  Browsing never changes the Guardian-selected recovery target.",
+        "  Approval records consent for the exact plan; Guardian remains the authority and executor.",
+    ]
+    return _box("Help", rows, width)
+
+
 def _page_body(p: RecoveryPresentation, state: UIState, width: int) -> list[str]:
+    if state.show_help:
+        return _help_body(p, width)
     page = PAGES[state.page_index]
     if page == "Recovery":
         return _recovery_body(p, width)
@@ -853,23 +879,25 @@ def _header(p: RecoveryPresentation, width: int) -> list[str]:
     return [_clip(title + " " * gap + status, width), "─" * width]
 
 
-def _footer(page: str, width: int, authorization: str, focus: str) -> list[str]:
-    if focus == "content" and page == "Generations":
-        help_text = "[↑↓] Inspect  [←/Esc] Sections  [p] Plan  [q] Quit"
+def _footer(page: str, width: int, authorization: str, focus: str, show_help: bool) -> list[str]:
+    if show_help:
+        help_text = "[?/Esc] Close help  [q] Quit"
+    elif focus == "content" and page == "Generations":
+        help_text = "[↑↓] Inspect  [←/Esc] Sections  [p] Plan  [?] Help  [q] Quit"
     elif focus == "content" and page == "Logs":
-        help_text = "[↑↓] Scroll  [←/Esc] Sections  [p] Plan  [q] Quit"
+        help_text = "[↑↓] Scroll  [←/Esc] Sections  [p] Plan  [?] Help  [q] Quit"
     elif page == "Recovery":
-        help_text = "[↑↓] Section  [Enter/→] Inspect generations  [p] Plan  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/→] Inspect generations  [p] Plan  [?] Help  [q] Quit"
     elif page == "Trust":
-        help_text = "[↑↓] Section  [Enter/e] Evidence  [p] Plan  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/e] Evidence  [p] Plan  [?] Help  [q] Quit"
     elif page == "Generations":
-        help_text = "[↑↓] Section  [Enter/→] Inspect list  [p] Plan  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/→] Inspect list  [p] Plan  [?] Help  [q] Quit"
     elif page == "Logs":
-        help_text = "[↑↓] Section  [Enter/→] Scroll logs  [p] Plan  [q] Quit"
+        help_text = "[↑↓] Section  [Enter/→] Scroll logs  [p] Plan  [?] Help  [q] Quit"
     elif authorization == "REQUIRED":
-        help_text = "[↑↓] Section  [Enter] Request approval  [q] Quit"
+        help_text = "[↑↓] Section  [Enter] Request approval  [?] Help  [q] Quit"
     else:
-        help_text = "[↑↓] Section  [q] Quit"
+        help_text = "[↑↓] Section  [?] Help  [q] Quit"
     return ["─" * width, _clip(help_text, width)]
 
 
@@ -906,7 +934,7 @@ def _compose(
     width = min(width, 180)
     page = PAGES[state.page_index]
     header = _header(p, width)
-    footer = _footer(page, width, p.authorization, state.focus)
+    footer = _footer(page, width, p.authorization, state.focus, state.show_help)
     if width >= 100:
         sidebar_width = 18
         content_width = width - sidebar_width - 3
@@ -1157,6 +1185,14 @@ def interactive(
             continue
 
         dirty = True
+        if state.show_help:
+            if key in {"?", "escape", "enter", "left"}:
+                state.show_help = False
+            continue
+        if key == "?":
+            state.show_help = True
+            continue
+
         page = PAGES[state.page_index]
         if state.focus == "content":
             if key in {"escape", "left", "h", "tab", "shift-tab"}:
