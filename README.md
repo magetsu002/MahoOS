@@ -67,6 +67,7 @@ docs/        Architecture and component documentation
 - [Maho Shell](docs/MAHO-SHELL.md)
 - [Maho Notify](docs/MAHO-NOTIFY.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Signed boot authority](docs/SIGNED-BOOT-AUTHORITY.md)
 - [Theme engine](theme/README.md)
 
 ## V1 direction
@@ -74,5 +75,6 @@ docs/        Architecture and component documentation
 V1 is focused on making the current desktop installable, admission-gated,
 recoverable, and releasable as one operating system. Independent kernel recovery,
 trusted-generation selection, native kernel rollback, production candidate admission,
-and revocation recovery planning now exist; production update certification, signed
-boot trust, installer/ISO work, and broader hardware acceptance remain.
+revocation recovery planning, signed boot source authority, and isolated QEMU/OVMF
+Secure Boot certification now exist; production update hardware certification,
+physical key provisioning, installer/ISO work, and broader hardware acceptance remain.

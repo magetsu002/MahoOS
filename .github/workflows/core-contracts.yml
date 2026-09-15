@@ -24,6 +24,11 @@ jobs:
           set -euo pipefail
           git diff --check origin/main...HEAD
 
+      - name: Install signed-boot contract dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-cryptography
+
       - name: Shell syntax
         shell: bash
         run: |
@@ -76,7 +81,8 @@ jobs:
             tests/notify-contracts.sh \
             tests/glass-contracts.sh \
             tests/session-contracts.sh \
-            tests/shell-contracts.sh
+            tests/shell-contracts.sh \
+            tests/qemu-secure-boot-certification.sh
 
       - name: Python syntax
         shell: bash
@@ -96,6 +102,14 @@ jobs:
             lib/guardian_service_watcher.py \
             lib/guardian_live_state.py \
             lib/guardian_live_cli.py \
+            lib/maho_boot_authority.py \
+            lib/maho_boot_publication.py \
+            lib/maho_kernel_security.py \
+            lib/maho_release_manifest.py \
+            lib/maho_secure_boot.py \
+            tools/build-qemu-secure-boot-fixtures.py \
+            tools/qemu-secure-boot-certify.py \
+            tools/qemu_secure_boot_common.py \
             config/quickshell/maho-shell/state.py \
             config/quickshell/maho-notify/state.py
 

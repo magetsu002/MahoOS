@@ -25,6 +25,7 @@ from guardian_native_admission import (
     root_identity,
 )
 from maho_trust_identity import ArtifactID, TransactionID, canonical_bytes
+from maho_boot_authority import BootAuthority, BootGeneration
 from maho_update_state import validate_transaction
 from maho_update_transaction import ExecutionPlan
 
@@ -156,11 +157,16 @@ class ProductionActivationAuthority:
     candidate_root_identity: str
     runtime_evidence_sha256: str
     source_revision: str
+    boot_generation_id: str | None
+    boot_authority_id: str | None
+    release_sequence: int | None
+    security_epoch: int | None
+    signer_fingerprint: str | None
     native_promotion_authority: Mapping[str, Any]
 
     def identity_material(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": "maho-update-admission-activation-authority",
             "authority_scope": "activate-exact-native-admitted-update-candidate",
             "update_transaction_id": self.update_transaction_id,
@@ -172,6 +178,11 @@ class ProductionActivationAuthority:
             "candidate_root_identity": self.candidate_root_identity,
             "runtime_evidence_sha256": self.runtime_evidence_sha256,
             "source_revision": self.source_revision,
+            "boot_generation_id": self.boot_generation_id,
+            "boot_authority_id": self.boot_authority_id,
+            "release_sequence": self.release_sequence,
+            "security_epoch": self.security_epoch,
+            "signer_fingerprint": self.signer_fingerprint,
             "native_promotion_authority": dict(self.native_promotion_authority),
         }
 
@@ -185,6 +196,8 @@ def issue_activation_authority(
     update_transaction_id: str,
     transaction: Mapping[str, Any],
     source_revision: str,
+    boot_generation: BootGeneration | None = None,
+    boot_authority: BootAuthority | None = None,
 ) -> ProductionActivationAuthority:
     if _UPDATE_TX.fullmatch(update_transaction_id) is None or _SHA40.fullmatch(source_revision) is None:
         raise ProductionAdmissionError("activation_authority_context_invalid")
@@ -192,6 +205,17 @@ def issue_activation_authority(
         raise ProductionAdmissionError("native_admission_did_not_allow_activation")
     generation_id, _ = _package_generation(transaction)
     inspection = result.inspection
+    if (boot_generation is None) != (boot_authority is None):
+        raise ProductionAdmissionError("signed_boot_binding_incomplete")
+    if boot_generation is not None and boot_authority is not None:
+        if (
+            boot_generation.source_revision != source_revision
+            or boot_generation.package_generation_id != generation_id
+            or boot_generation.candidate_root_identity != inspection.candidate_root_identity
+            or boot_authority.permitted_boot_generation_id != boot_generation.boot_generation_id
+            or boot_authority.source_revision != source_revision
+        ):
+            raise ProductionAdmissionError("signed_boot_binding_mismatch")
     native = result.promotion_authority.as_dict()
     authority = ProductionActivationAuthority(
         authority_id=ArtifactID.from_content(b"placeholder"),
@@ -204,6 +228,11 @@ def issue_activation_authority(
         candidate_root_identity=inspection.candidate_root_identity,
         runtime_evidence_sha256=inspection.runtime_evidence_sha256,
         source_revision=source_revision,
+        boot_generation_id=boot_generation.boot_generation_id if boot_generation else None,
+        boot_authority_id=boot_authority.boot_authority_id if boot_authority else None,
+        release_sequence=boot_authority.release_sequence if boot_authority else None,
+        security_epoch=boot_authority.security_epoch if boot_authority else None,
+        signer_fingerprint=boot_authority.device_signing_certificate_fingerprint if boot_authority else None,
         native_promotion_authority=native,
     )
     material = authority.identity_material()
@@ -218,6 +247,11 @@ def issue_activation_authority(
         candidate_root_identity=authority.candidate_root_identity,
         runtime_evidence_sha256=authority.runtime_evidence_sha256,
         source_revision=authority.source_revision,
+        boot_generation_id=authority.boot_generation_id,
+        boot_authority_id=authority.boot_authority_id,
+        release_sequence=authority.release_sequence,
+        security_epoch=authority.security_epoch,
+        signer_fingerprint=authority.signer_fingerprint,
         native_promotion_authority=authority.native_promotion_authority,
     )
 
@@ -228,8 +262,10 @@ def _parse_authority(value: Mapping[str, Any]) -> ProductionActivationAuthority:
         "guardian_transaction_id", "candidate_id", "package_generation_id", "graph_id",
         "base_root_identity", "candidate_root_identity", "runtime_evidence_sha256",
         "source_revision", "native_promotion_authority", "authority_id",
+        "boot_generation_id", "boot_authority_id", "release_sequence", "security_epoch",
+        "signer_fingerprint",
     }
-    if set(value) != required or value.get("schema_version") != 1:
+    if set(value) != required or value.get("schema_version") != 2:
         raise ProductionAdmissionError("activation_authority_fields_invalid")
     native = value.get("native_promotion_authority")
     if not isinstance(native, Mapping):
@@ -246,12 +282,31 @@ def _parse_authority(value: Mapping[str, Any]) -> ProductionActivationAuthority:
             candidate_root_identity=str(value["candidate_root_identity"]),
             runtime_evidence_sha256=str(value["runtime_evidence_sha256"]),
             source_revision=str(value["source_revision"]),
+            boot_generation_id=str(value["boot_generation_id"]) if value["boot_generation_id"] is not None else None,
+            boot_authority_id=str(value["boot_authority_id"]) if value["boot_authority_id"] is not None else None,
+            release_sequence=int(value["release_sequence"]) if value["release_sequence"] is not None else None,
+            security_epoch=int(value["security_epoch"]) if value["security_epoch"] is not None else None,
+            signer_fingerprint=str(value["signer_fingerprint"]) if value["signer_fingerprint"] is not None else None,
             native_promotion_authority=dict(native),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ProductionAdmissionError("activation_authority_invalid") from exc
     if value != authority.as_dict():
         raise ProductionAdmissionError("activation_authority_contract_invalid")
+    signed_fields = (
+        authority.boot_generation_id, authority.boot_authority_id,
+        authority.release_sequence, authority.security_epoch, authority.signer_fingerprint,
+    )
+    if any(item is None for item in signed_fields) and any(item is not None for item in signed_fields):
+        raise ProductionAdmissionError("activation_authority_signed_boot_binding_incomplete")
+    if authority.boot_generation_id is not None:
+        if (
+            not authority.boot_generation_id.startswith("bootgen-")
+            or not authority.boot_authority_id.startswith("bootauth-")
+            or authority.release_sequence < 1 or authority.security_epoch < 1
+            or re.fullmatch(r"[0-9A-F]{40,128}", authority.signer_fingerprint or "") is None
+        ):
+            raise ProductionAdmissionError("activation_authority_signed_boot_binding_invalid")
     expected = ArtifactID.from_content(canonical_bytes(authority.identity_material()))
     if authority.authority_id != expected:
         raise ProductionAdmissionError("activation_authority_digest_mismatch")
@@ -266,6 +321,8 @@ def verify_activation_authority(
     transaction: Mapping[str, Any],
     plan: ExecutionPlan,
     source_revision: str,
+    boot_generation: BootGeneration | None = None,
+    boot_authority: BootAuthority | None = None,
 ) -> ProductionActivationAuthority:
     authority = _parse_authority(value)
     generation_id, _ = _package_generation(transaction)
@@ -278,6 +335,19 @@ def verify_activation_authority(
         or authority.source_revision != source_revision
     ):
         raise ProductionAdmissionError("activation_authority_context_mismatch")
+    bound = authority.boot_generation_id is not None
+    if bound != (boot_generation is not None and boot_authority is not None):
+        raise ProductionAdmissionError("activation_authority_signed_boot_context_missing")
+    if bound and boot_generation is not None and boot_authority is not None and (
+        authority.boot_generation_id != boot_generation.boot_generation_id
+        or authority.boot_authority_id != boot_authority.boot_authority_id
+        or authority.release_sequence != boot_authority.release_sequence
+        or authority.security_epoch != boot_authority.security_epoch
+        or authority.signer_fingerprint != boot_authority.device_signing_certificate_fingerprint
+        or boot_authority.permitted_boot_generation_id != boot_generation.boot_generation_id
+        or boot_generation.candidate_root_identity != authority.candidate_root_identity
+    ):
+        raise ProductionAdmissionError("activation_authority_signed_boot_context_mismatch")
     declaration = build_production_declaration(roots, transaction, plan)
     runtime = offline_runtime_evidence(roots)
     try:
