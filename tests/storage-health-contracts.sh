@@ -31,7 +31,11 @@ assert r['scrub']['service']['Result']=='success',r
 assert r['nvme']['inventory']['Devices'][0]['DevicePath']=='/dev/nvme0n1',r
 assert 'diagnostic' in r['trust_note'],r
 PY
-rm -f "$TMP/bin/nvme"
+cat > "$TMP/bin/nvme" <<'EOF'
+#!/usr/bin/env bash
+exit 127
+EOF
+chmod +x "$TMP/bin/nvme"
 OUT="$(PATH="$TMP/bin:/usr/bin:/bin" MAHO_ROOT="$ROOT" "$ROOT/bin/maho-storage-health")"
 python - "$OUT" <<'PY'
 import json,sys
