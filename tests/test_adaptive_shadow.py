@@ -103,7 +103,7 @@ def fixture(now=T0, *, battery=15, ac=False, thermal=70000, locked=False):
 
 
 def test_guardian_reliability_is_not_self_health() -> None:
-    healthy_payload = {
+    base_payload = {
         "captured_at": stamp(T0),
         "active_incidents": [{"incident_id": "l1"}],
         "world_state": {"guardian": {
@@ -111,24 +111,25 @@ def test_guardian_reliability_is_not_self_health() -> None:
             "self_health": {"state": "UNKNOWN", "missing_providers": ["boot.authority"]},
             "trust": {"state": "UNKNOWN"},
         }},
-        "reliability": {"state": "healthy"},
         "recovery": {"in_progress": False},
     }
-    degraded_payload = {**healthy_payload, "reliability": {"state": "degraded"}}
-    original = adaptive_shadow.guardian_live_status
+    original_live = adaptive_shadow.guardian_live_status
+    original_enrich = adaptive_shadow.enrich_guardian_status
     try:
-        adaptive_shadow.guardian_live_status = lambda *_args, **_kwargs: healthy_payload
+        adaptive_shadow.guardian_live_status = lambda *_args, **_kwargs: base_payload
+        adaptive_shadow.enrich_guardian_status = lambda payload, _root: {**payload, "reliability": {"state": "healthy"}}
         healthy = read_guardian(T0)
         assert healthy is not None
         assert healthy["data"]["severity_level"] == 1
         assert healthy["data"]["unresolved_reliability"] is False
 
-        adaptive_shadow.guardian_live_status = lambda *_args, **_kwargs: degraded_payload
+        adaptive_shadow.enrich_guardian_status = lambda payload, _root: {**payload, "reliability": {"state": "degraded"}}
         degraded = read_guardian(T0)
         assert degraded is not None
         assert degraded["data"]["unresolved_reliability"] is True
     finally:
-        adaptive_shadow.guardian_live_status = original
+        adaptive_shadow.guardian_live_status = original_live
+        adaptive_shadow.enrich_guardian_status = original_enrich
 
 
 def test_dwell_context() -> None:
@@ -234,6 +235,7 @@ def test_frontend_status() -> None:
 
 
 def main() -> None:
+    test_guardian_reliability_is_not_self_health()
     test_dwell_context()
     test_shadow_history_and_leases()
     test_corrupt_lease_fail_closed()

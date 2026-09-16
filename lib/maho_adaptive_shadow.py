@@ -30,6 +30,7 @@ from maho_adaptive_resolver import ResolvedPosture, resolve_posture
 from maho_adaptive_situation import SituationSnapshot, UNKNOWN, build_situation
 from maho_adaptive_thermal import thermal_proposals
 from maho_adaptive_workload import workload_proposals
+from guardian_completion_status import enrich_status as enrich_guardian_status
 from guardian_live_state import LivePaths, live_status as guardian_live_status
 
 SCHEMA_VERSION = 1
@@ -225,7 +226,8 @@ def read_maintenance(now: datetime) -> Mapping[str, Any] | None:
 
 def read_guardian(now: datetime) -> Mapping[str, Any] | None:
     try:
-        payload = guardian_live_status(LivePaths.defaults(), now=now)
+        paths = LivePaths.defaults()
+        payload = enrich_guardian_status(guardian_live_status(paths, now=now), paths.security_root)
     except (OSError, ValueError, json.JSONDecodeError):
         return None
     rows = payload.get("active_incidents") if isinstance(payload.get("active_incidents"), list) else []
