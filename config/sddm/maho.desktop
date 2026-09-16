@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=MahoOS
+Comment=MahoOS Hyprland session (SDDM managed)
+Exec=/usr/local/lib/maho/maho-session-launch
+TryExec=/usr/local/lib/maho/maho-session-launch
+DesktopNames=Maho;Hyprland
+Type=Application

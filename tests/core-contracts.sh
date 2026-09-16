@@ -211,6 +211,7 @@ python "$ROOT/tests/test_guardian_containment.py"
 python "$ROOT/tests/test_guardian_security_recovery.py"
 python "$ROOT/tests/test_guardian_reliability.py"
 python "$ROOT/tests/test_guardian_completion_status.py"
+bash "$ROOT/tests/platform-hardening-contracts.sh"
 
 echo "=== Adaptive policy A1-A15 ==="
 for test in "$ROOT"/tests/test_adaptive_*.py; do

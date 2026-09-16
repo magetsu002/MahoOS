@@ -1,0 +1,5 @@
+# managed-by: maho-platform v1
+[D-BUS Service]
+Name=org.gnome.keyring
+Exec=/usr/bin/false
+SystemdService=gnome-keyring-daemon.service

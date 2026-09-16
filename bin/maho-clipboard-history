@@ -27,7 +27,7 @@ serve() {
     require_command wl-paste || return 1
     require_command cliphist || return 1
 
-    local runtime_dir lock_file text_pid image_pid status
+    local runtime_dir lock_file text_pid="" image_pid="" status
     runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
     lock_file="$runtime_dir/maho-clipboard-history.lock"
 
@@ -45,8 +45,19 @@ serve() {
 
     cleanup() {
         trap - EXIT INT TERM
-        kill "$text_pid" "$image_pid" >/dev/null 2>&1 || true
-        wait "$text_pid" "$image_pid" >/dev/null 2>&1 || true
+        local pid
+        for pid in "$text_pid" "$image_pid"; do
+            case "$pid" in
+                ''|*[!0-9]*) continue ;;
+            esac
+            kill "$pid" >/dev/null 2>&1 || true
+        done
+        for pid in "$text_pid" "$image_pid"; do
+            case "$pid" in
+                ''|*[!0-9]*) continue ;;
+            esac
+            wait "$pid" >/dev/null 2>&1 || true
+        done
     }
 
     shutdown() {

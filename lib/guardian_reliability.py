@@ -176,6 +176,12 @@ def assess_observation(observation: ReliabilityObservation) -> ReliabilityFindin
                             "memory availability/pressure crossed the reliability threshold",
                             RemediationDisposition.OBSERVE_ONLY)
 
+    if observation.domain == "clock" and facts.get("reliable_wall_clock") is not True:
+        reason = str(facts.get("degraded_reason") or "wall-clock-reliability-unknown")
+        return _finding(observation, ReliabilityState.DEGRADED,
+                        f"reliable wall-clock evidence is unavailable: {reason}",
+                        RemediationDisposition.OBSERVE_ONLY)
+
     if observation.domain in {"thermal", "power"} and facts.get("critical") is True:
         return _finding(observation, ReliabilityState.DEGRADED,
                         f"{observation.domain} observer reports a critical condition",
@@ -223,6 +229,7 @@ _LIVE_PROVIDERS = {
     "reliability.memory": ("memory", "host-memory"),
     "reliability.storage": ("storage", "root-filesystem"),
     "reliability.services": ("services", "certified-services"),
+    "reliability.clock": ("clock", "host-wall-clock"),
 }
 
 

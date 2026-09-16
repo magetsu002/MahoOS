@@ -6,6 +6,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION_LUA="$ROOT/config/hypr/maho/core/session.lua"
 HYPRLAND_LUA="$ROOT/config/hypr/hyprland.lua"
 SESSION_BIN="$ROOT/bin/maho-session"
+SESSION_LAUNCH="$ROOT/bin/maho-session-launch"
 TARGET="$ROOT/systemd/user/maho-hyprland-session.target"
 AWWW_UNIT="$ROOT/systemd/user/maho-awww-daemon.service"
 WALLPAPER_UNIT="$ROOT/systemd/user/maho-wallpaper.service"
@@ -53,6 +54,52 @@ require_text "$SHELL_BIN" 'restore_waybar()' \
     "emergency Waybar fallback was removed from Maho Shell"
 require_text "$SHELL_BIN" 'trap restore_waybar EXIT INT TERM' \
     "Maho Shell crash fallback is no longer armed"
+echo "PASS"
+
+echo "=== SDDM compositor lifecycle authority ==="
+require_text "$ROOT/config/sddm/maho.desktop" 'Name=MahoOS' \
+    "MahoOS has no explicit SDDM session"
+require_text "$ROOT/config/sddm/maho.desktop" 'Exec=/usr/local/lib/maho/maho-session-launch' \
+    "SDDM session bypasses the Maho compositor lifecycle wrapper"
+require_text "$SESSION_LAUNCH" '# managed-by: maho-sddm-session v1' \
+    "session lifecycle wrapper lost its ownership marker"
+require_text "$SESSION_LAUNCH" 'stop_maho_session' \
+    "compositor exit no longer stops the Maho graphical target"
+require_text "$SESSION_LAUNCH" 'trap cleanup EXIT' \
+    "compositor crash/logout cleanup is not guaranteed"
+require_text "$SESSION_LAUNCH" 'export XDG_SESSION_DESKTOP="maho"' \
+    "Maho session identity is not exported"
+
+WRAPPER_TMP="$(mktemp -d)"
+trap 'rm -rf "${WRAPPER_TMP:-}" "${TMP:-}"' EXIT
+mkdir -p "$WRAPPER_TMP/bin"
+cat >"$WRAPPER_TMP/bin/compositor" <<'EOF_COMPOSITOR'
+#!/usr/bin/env bash
+exit "${MAHO_TEST_COMPOSITOR_STATUS:-0}"
+EOF_COMPOSITOR
+cat >"$WRAPPER_TMP/bin/session" <<'EOF_SESSION'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >>"$MAHO_TEST_SESSION_LOG"
+EOF_SESSION
+chmod +x "$WRAPPER_TMP/bin/compositor" "$WRAPPER_TMP/bin/session"
+MAHO_TEST_SESSION_LOG="$WRAPPER_TMP/session.log" \
+MAHO_COMPOSITOR_COMMAND="$WRAPPER_TMP/bin/compositor" \
+MAHO_SESSION_CONTROLLER="$WRAPPER_TMP/bin/session" \
+    "$SESSION_LAUNCH"
+grep -Fxq stop "$WRAPPER_TMP/session.log" \
+    || fail "normal compositor exit did not stop the Maho session target"
+set +e
+MAHO_TEST_COMPOSITOR_STATUS=23 \
+MAHO_TEST_SESSION_LOG="$WRAPPER_TMP/session-failed.log" \
+MAHO_COMPOSITOR_COMMAND="$WRAPPER_TMP/bin/compositor" \
+MAHO_SESSION_CONTROLLER="$WRAPPER_TMP/bin/session" \
+    "$SESSION_LAUNCH"
+wrapper_status=$?
+set -e
+[ "$wrapper_status" -eq 23 ] || fail "compositor failure status was not preserved"
+grep -Fxq stop "$WRAPPER_TMP/session-failed.log" \
+    || fail "failed compositor did not stop the Maho session target"
+rm -rf "$WRAPPER_TMP"
 echo "PASS"
 
 echo "=== durable session controller ==="
@@ -172,8 +219,35 @@ require_text "$CLIPBOARD_HISTORY_UNIT" 'ExecStart=%h/.local/bin/maho-clipboard-h
     "Clipboard history service bypasses the accepted capture owner"
 echo "PASS"
 
+echo "=== clean Clipboard capture teardown ==="
+CLIPBOARD_TMP="$(mktemp -d)"
+mkdir -p "$CLIPBOARD_TMP/bin" "$CLIPBOARD_TMP/runtime"
+cat >"$CLIPBOARD_TMP/bin/wl-paste" <<'EOF_WL_PASTE'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+EOF_WL_PASTE
+cat >"$CLIPBOARD_TMP/bin/cliphist" <<'EOF_CLIPHIST'
+#!/usr/bin/env bash
+exit 0
+EOF_CLIPHIST
+chmod +x "$CLIPBOARD_TMP/bin/wl-paste" "$CLIPBOARD_TMP/bin/cliphist"
+PATH="$CLIPBOARD_TMP/bin:$PATH" XDG_RUNTIME_DIR="$CLIPBOARD_TMP/runtime" \
+    "$ROOT/bin/maho-clipboard-history" serve \
+    >"$CLIPBOARD_TMP/stdout" 2>"$CLIPBOARD_TMP/stderr" &
+clipboard_pid=$!
+sleep 0.1
+kill -TERM "$clipboard_pid"
+wait "$clipboard_pid" || fail "expected Clipboard termination was reported as a failure"
+if grep -Fq 'unbound variable' "$CLIPBOARD_TMP/stderr"; then
+    fail "Clipboard teardown still dereferences an uninitialized child PID"
+fi
+rm -rf "$CLIPBOARD_TMP"
+echo "PASS"
+
 echo "=== syntax ==="
 bash -n "$SESSION_BIN"
+bash -n "$SESSION_LAUNCH"
 echo "PASS"
 
 echo "ALL MAHO SESSION CONTRACTS PASS"

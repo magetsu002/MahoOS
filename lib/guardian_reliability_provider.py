@@ -114,6 +114,53 @@ def service_facts(
     return {"services": services}
 
 
+def clock_facts(
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    """Report wall-clock usability without treating it as monotonic proof."""
+    result = runner(
+        [
+            "timedatectl", "show",
+            "--property=CanNTP", "--property=NTP",
+            "--property=NTPSynchronized",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise ValueError("timedatectl observation failed")
+    values: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            values[key] = value.strip().lower()
+    can_ntp = values.get("CanNTP") == "yes"
+    enabled = values.get("NTP") == "yes"
+    synchronized = values.get("NTPSynchronized") == "yes"
+    if not can_ntp:
+        degraded_reason = "ntp-unsupported"
+    elif not enabled:
+        degraded_reason = "clock-authority-disabled"
+    elif not synchronized:
+        degraded_reason = "wall-clock-unsynchronized"
+    else:
+        degraded_reason = None
+    return {
+        "provider": "systemd-timesyncd",
+        "can_ntp": can_ntp,
+        "enabled": enabled,
+        "synchronized": synchronized,
+        "reliable_wall_clock": can_ntp and enabled and synchronized,
+        "degraded_reason": degraded_reason,
+        # Guardian sequences/boot epochs remain authoritative during offline
+        # periods and gross wall-clock correction.
+        "security_monotonicity": "sequence-and-boot-epoch",
+    }
+
+
 def _persist_success(root: Path, provider_id: str, source: str, facts: Mapping[str, Any], boot_id: str | None) -> None:
     observed_at = utc_stamp(datetime.now(timezone.utc))
     _atomic_private(_state_path(root, provider_id), {
@@ -162,6 +209,7 @@ def refresh_once(
         ("reliability.memory", "procfs-meminfo", lambda: memory_facts(proc_root)),
         ("reliability.storage", "statvfs", lambda: storage_facts(storage_path)),
         ("reliability.services", "systemd-user", lambda: service_facts(runner=runner)),
+        ("reliability.clock", "timedatectl", lambda: clock_facts(runner=runner)),
     )
     for provider_id, source, sampler in samplers:
         try:
