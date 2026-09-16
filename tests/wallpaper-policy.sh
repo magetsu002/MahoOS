@@ -39,6 +39,12 @@ source "$ROOT/lib/events.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+echo "=== idle wallpaper observation backs off without losing prompt reset ==="
+[ "$(bash "$ROOT/bin/maho-wallpaper" poll-next 0.75 0.75 5)" = 1.275 ] || fail "wallpaper backoff first step is wrong"
+[ "$(bash "$ROOT/bin/maho-wallpaper" poll-next 5 0.75 5)" = 5 ] || fail "wallpaper backoff exceeded its bound"
+grep -Fq 'poll="$poll_min"' "$ROOT/bin/maho-wallpaper" || fail "wallpaper change does not reset observation delay"
+echo "PASS"
+
 IMAGE="$TMP/wallpaper.jpg"
 printf 'fake-image-data\n' > "$IMAGE"
 PROVIDER="$TMP/provider"

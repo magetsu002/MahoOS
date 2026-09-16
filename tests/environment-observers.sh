@@ -38,6 +38,13 @@ source "$ROOT/lib/events.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+echo "=== idle observer polling is bounded and transition-resettable ==="
+[ "$(bash "$ROOT/bin/maho-observe" backoff-next 15 15 60)" = 30 ] || fail "first backoff step is wrong"
+[ "$(bash "$ROOT/bin/maho-observe" backoff-next 30 15 60)" = 60 ] || fail "second backoff step is wrong"
+[ "$(bash "$ROOT/bin/maho-observe" backoff-next 60 15 60)" = 60 ] || fail "backoff exceeded its bound"
+grep -Fq 'delay="$minimum"' "$ROOT/bin/maho-observe" || fail "state transition does not reset polling delay"
+echo "PASS"
+
 event_count() {
     maho_event_tail 100 | grep -c 'thermal.changed' || true
 }

@@ -432,6 +432,9 @@ watch() {
     local last=""
     local reconcile_seconds="${MAHO_WALLPAPER_RECONCILE_SECONDS:-30}"
     local next_reconcile=0
+    local poll_min="${MAHO_WALLPAPER_POLL_MIN:-${MAHO_WALLPAPER_POLL:-0.75}}"
+    local poll_max="${MAHO_WALLPAPER_POLL_MAX:-5}"
+    local poll="$poll_min"
 
     [ "${1:-}" = "--theme" ] && force_theme=1
     [[ "$reconcile_seconds" =~ ^[0-9]+$ ]] || reconcile_seconds=30
@@ -457,9 +460,13 @@ print(d["provider"], d["kind"], d["path"], s.st_mtime_ns, s.st_size, sep="|")
                 process_state "$state" "$force_theme" >/dev/null 2>&1 || true
                 last="$fingerprint"
                 next_reconcile=$((now + reconcile_seconds))
+                poll="$poll_min"
             elif [ "$force_theme" = 0 ] && [ "$reconcile_seconds" -gt 0 ] && [ "$now" -ge "$next_reconcile" ]; then
                 reconcile_state "$state" >/dev/null 2>&1 || true
                 next_reconcile=$((now + reconcile_seconds))
+                poll="$(poll_next "$poll" "$poll_min" "$poll_max")"
+            else
+                poll="$(poll_next "$poll" "$poll_min" "$poll_max")"
             fi
         else
             rc=$?
@@ -470,8 +477,21 @@ print(d["provider"], d["kind"], d["path"], s.st_mtime_ns, s.st_size, sep="|")
             fi
         fi
 
-        sleep "${MAHO_WALLPAPER_POLL:-0.75}"
+        sleep "$poll"
     done
+}
+
+poll_next() {
+    python - "$1" "$2" "$3" <<'PY'
+import sys
+try:
+    current,minimum,maximum=map(float,sys.argv[1:])
+    if minimum <= 0 or maximum < minimum: raise ValueError
+except ValueError:
+    current,minimum,maximum=.75,.75,5.0
+value=min(maximum,max(minimum,current*1.7))
+print(f"{value:.3f}".rstrip("0").rstrip("."))
+PY
 }
 
 doctor() {
@@ -498,6 +518,7 @@ doctor() {
     echo "INFO  automatic border authority: $owner"
     echo "INFO  dynamic theme intent: $intent"
     echo "INFO  reconcile interval: ${MAHO_WALLPAPER_RECONCILE_SECONDS:-30}s"
+    echo "INFO  idle observation backoff: ${MAHO_WALLPAPER_POLL_MIN:-${MAHO_WALLPAPER_POLL:-0.75}}s..${MAHO_WALLPAPER_POLL_MAX:-5}s"
 }
 
 case "${1:-}" in
@@ -518,6 +539,9 @@ case "${1:-}" in
         ;;
     watch)
         watch "${2:-}"
+        ;;
+    poll-next)
+        poll_next "${2:-}" "${3:-}" "${4:-}"
         ;;
     *)
         cat <<'HELP'

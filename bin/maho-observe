@@ -239,9 +239,45 @@ once() {
 }
 
 watch() {
-    local poll="${MAHO_OBSERVE_POLL:-15}"
-    [[ "$poll" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll=15
-    while :; do once all || true; sleep "$poll"; done
+    local minimum="${MAHO_OBSERVE_POLL_MIN:-${MAHO_OBSERVE_POLL:-15}}"
+    local maximum="${MAHO_OBSERVE_POLL_MAX:-60}"
+    local delay before after
+    [[ "$minimum" =~ ^[0-9]+$ ]] && [ "$minimum" -ge 1 ] || minimum=15
+    [[ "$maximum" =~ ^[0-9]+$ ]] && [ "$maximum" -ge "$minimum" ] || maximum=60
+    delay="$minimum"
+    while :; do
+        before="$(watch_signature)"
+        once all || true
+        after="$(watch_signature)"
+        if [ "$before" != "$after" ]; then
+            delay="$minimum"
+        else
+            delay="$(backoff_next "$delay" "$minimum" "$maximum")"
+        fi
+        sleep "$delay"
+    done
+}
+
+watch_signature() {
+    python - "$OBSERVER_STATE/power.signature" "$OBSERVER_STATE/thermal.reference.json" <<'PY'
+import hashlib,sys
+from pathlib import Path
+h=hashlib.sha256()
+for raw in sys.argv[1:]:
+    path=Path(raw)
+    try: h.update(path.read_bytes())
+    except OSError: h.update(b"missing")
+print(h.hexdigest())
+PY
+}
+
+backoff_next() {
+    local current="$1" minimum="$2" maximum="$3" next
+    [[ "$current" =~ ^[0-9]+$ ]] || current="$minimum"
+    next=$((current * 2))
+    [ "$next" -le "$maximum" ] || next="$maximum"
+    [ "$next" -ge "$minimum" ] || next="$minimum"
+    printf '%s\n' "$next"
 }
 
 current_command() {
@@ -260,6 +296,7 @@ doctor() {
     command -v flock >/dev/null 2>&1 && echo "PASS  observer concurrency lock" || echo "INFO  flock unavailable; duplicate concurrent observations are not serialized"
     echo "INFO  thermal context bands: normal <75 C, warm >=75 C, hot >=85 C, critical >=95 C"
     echo "INFO  thermal downward hysteresis: 5 C below each transition"
+    echo "INFO  idle polling backs off from ${MAHO_OBSERVE_POLL_MIN:-${MAHO_OBSERVE_POLL:-15}}s to ${MAHO_OBSERVE_POLL_MAX:-60}s and resets on a state transition"
     true
 }
 
@@ -267,6 +304,7 @@ case "${1:-}" in
     current) current_command "${2:-}" ;;
     once) once "${2:-all}" ;;
     watch) watch ;;
+    backoff-next) backoff_next "${2:-}" "${3:-}" "${4:-}" ;;
     doctor) doctor ;;
     *)
         cat <<'HELP'
