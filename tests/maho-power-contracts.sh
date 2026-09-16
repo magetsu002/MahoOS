@@ -190,17 +190,25 @@ reject_text "$BINDS" 'xdg-open "$HOME"' 'SUPER+E still delegates Home to the MIM
 echo PASS
 
 echo '=== scope guard ==='
-for forbidden in \
-    config/quickshell/maho-link \
-    config/quickshell/maho-notify \
-    config/quickshell/maho-launcher \
-    config/quickshell/maho-shell/dock-shell.qml \
-    apps/maho-files
- do
-    if git -C "$ROOT" diff --name-only 32833a47df0483da70d5b7a9dd7f20dd498616ec...HEAD -- "$forbidden" | grep -q .; then
-        fail "Power branch touched unrelated scope: $forbidden"
-    fi
- done
+branch_context="${GITHUB_HEAD_REF:-$(git -C "$ROOT" branch --show-current 2>/dev/null || true)}"
+case "$branch_context" in
+  feat/maho-power-session|feat/maho-power-session-*|fix/maho-power-*)
+    for forbidden in \
+        config/quickshell/maho-link \
+        config/quickshell/maho-notify \
+        config/quickshell/maho-launcher \
+        config/quickshell/maho-shell/dock-shell.qml \
+        apps/maho-files
+    do
+        if git -C "$ROOT" diff --name-only 32833a47df0483da70d5b7a9dd7f20dd498616ec...HEAD -- "$forbidden" | grep -q .; then
+            fail "Power branch touched unrelated scope: $forbidden"
+        fi
+    done
+    ;;
+  *)
+    echo "INFO scope guard not applicable to aggregate branch: ${branch_context:-detached}"
+    ;;
+esac
 echo PASS
 
 echo 'ALL MAHO POWER CONTRACTS PASS'
