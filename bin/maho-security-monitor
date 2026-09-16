@@ -203,8 +203,8 @@ network_cycle() {
     [ "$changed" = 1 ] || return 0
     [ "$first" = 0 ] || return 0
     case "$current" in
-        observed) emit_event network.listener-transition observed low "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface" security.network procfs "$payload" ;;
-        clean) if [ "$previous" = observed ]; then emit_event network.listener-cleared verified info "Previously observed current-user non-loopback TCP listener exposure cleared" security.network procfs "$payload"; fi ;;
+        observed) emit_event network.listener-transition observed low "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface; host coverage remains partial" security.network procfs "$payload" ;;
+        clean) if [ "$previous" = observed ]; then emit_event network.listener-cleared verified info "Previously observed current-user TCP exposure cleared within the declared partial scope" security.network procfs "$payload"; fi ;;
     esac
 }
 
@@ -323,7 +323,7 @@ doctor() {
     echo "INFO  persistence: transition-aware; user baseline required"
     echo "INFO  runtime: transition-aware heuristic evidence only"
     echo "INFO  privilege boundaries: transition-aware, no trust claim"
-    echo "INFO  network exposure: current-user non-loopback TCP listeners"
+    echo "INFO  network exposure: current-user non-loopback TCP listeners (partial host scope; not host-network-clean)"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
     echo "INFO  incident correlation: every monitor cycle after observations settle"
     echo "INFO  automatic system mutation: none"

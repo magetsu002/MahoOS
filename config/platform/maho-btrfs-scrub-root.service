@@ -1,0 +1,16 @@
+# managed-by: maho-platform v1
+[Unit]
+Description=Maho read-only-result Btrfs root scrub
+ConditionPathIsMountPoint=/
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/btrfs scrub start -Bd /
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/

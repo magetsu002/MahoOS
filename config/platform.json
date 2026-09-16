@@ -11,7 +11,9 @@
     "normal_menu_visibility": "hidden-or-short-timeout",
     "default_kernel": "linux-cachyos",
     "recovery_kernel": "linux-cachyos-lts",
-    "snapshot_integration": "limine-snapper-sync",
+    "trusted_config_writer": "maho-signed-boot-publication",
+    "snapshot_integration": "recovery-input-only",
+    "legacy_snapshot_writer_guard": "/etc/maho/signed-boot-production",
     "kernel_update_snapshot_restore_certified": true,
     "boot_state_transaction_required": true
   },
@@ -19,10 +21,28 @@
     "filesystem": "btrfs",
     "root_snapper_config": "root",
     "package_transaction_snapshots": "snap-pac",
-    "maximum_recovery_entries": 10,
+    "snapshot_retention_authority": "snapper-cleanup-policy",
+    "recovery_eligibility_authority": "guardian",
+    "boot_publication_authority": "maho-signed-boot-publication",
+    "maximum_boot_candidates": 10,
+    "retained_snapshot_count_independent_of_boot_candidates": true,
     "timeline_snapshots": false,
     "home_rollback_policy": "exclude-personal-data-by-default",
     "snapshots_are_backups": false
+  },
+  "memory_pressure": {
+    "compressed_swap": "zram-generator",
+    "maximum_zram_mib": 8192,
+    "zram_fraction_of_ram": 0.5,
+    "oom_authority": "systemd-oomd",
+    "user_slice_pressure_limit_percent": 85,
+    "shell_preference": "avoid"
+  },
+  "storage_health": {
+    "root_scrub_schedule": "monthly",
+    "scrub_result_authority": "systemd-service-result",
+    "device_tools": ["nvme-cli", "smartmontools"],
+    "smart_attributes_are_diagnostic_not_categorical": true
   },
   "recovery": {
     "prefer_smallest_effective_scope": true,

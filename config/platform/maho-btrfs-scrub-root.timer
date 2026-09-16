@@ -1,0 +1,12 @@
+# managed-by: maho-platform v1
+[Unit]
+Description=Monthly Maho Btrfs root scrub
+
+[Timer]
+OnCalendar=monthly
+RandomizedDelaySec=6h
+Persistent=true
+Unit=maho-btrfs-scrub-root.service
+
+[Install]
+WantedBy=timers.target
