@@ -44,44 +44,58 @@ ShellRoot {
         return Math.max(margin, containerWidth - surfaceWidth - margin)
     }
 
+    function centerSurfaceItem() {
+        return centerLoader.item
+    }
+
     function maximumCenterX() {
-        return Math.max(centerMarginX, centerOverlay.width - centerSurface.width - centerMarginX)
+        const surface = centerSurfaceItem()
+        const surfaceWidth = surface ? surface.width : 432
+        return Math.max(centerMarginX, centerOverlay.width - surfaceWidth - centerMarginX)
     }
 
     function maximumCenterY() {
-        return Math.max(centerMarginY, centerOverlay.height - centerSurface.height - centerMarginY)
+        const surface = centerSurfaceItem()
+        const surfaceHeight = surface ? surface.height : 360
+        return Math.max(centerMarginY, centerOverlay.height - surfaceHeight - centerMarginY)
     }
 
     function applyCenterPlacement() {
+        const surface = centerSurfaceItem()
+        if (!surface)
+            return
         const maxX = maximumCenterX()
         const maxY = maximumCenterY()
 
         if (centerPlacement.valid) {
             const spanX = Math.max(0, maxX - centerMarginX)
             const spanY = Math.max(0, maxY - centerMarginY)
-            centerSurface.x = centerMarginX + spanX * clamp(Number(centerPlacement.normalizedX), 0, 1)
-            centerSurface.y = centerMarginY + spanY * clamp(Number(centerPlacement.normalizedY), 0, 1)
+            surface.x = centerMarginX + spanX * clamp(Number(centerPlacement.normalizedX), 0, 1)
+            surface.y = centerMarginY + spanY * clamp(Number(centerPlacement.normalizedY), 0, 1)
             return
         }
 
-        centerSurface.x = clamp(
-            surfaceX(centerOverlay.width, centerSurface.width, centerMarginX),
+        surface.x = clamp(
+            surfaceX(centerOverlay.width, surface.width, centerMarginX),
             centerMarginX,
             maxX
         )
-        centerSurface.y = clamp(centerMarginY, centerMarginY, maxY)
+        surface.y = clamp(centerMarginY, centerMarginY, maxY)
     }
 
     function persistCenterPlacement() {
+        const surface = centerSurfaceItem()
+        if (!surface)
+            return
         const maxX = maximumCenterX()
         const maxY = maximumCenterY()
-        centerSurface.x = clamp(centerSurface.x, centerMarginX, maxX)
-        centerSurface.y = clamp(centerSurface.y, centerMarginY, maxY)
+        surface.x = clamp(surface.x, centerMarginX, maxX)
+        surface.y = clamp(surface.y, centerMarginY, maxY)
 
         const spanX = Math.max(0, maxX - centerMarginX)
         const spanY = Math.max(0, maxY - centerMarginY)
-        centerPlacement.normalizedX = spanX > 0 ? (centerSurface.x - centerMarginX) / spanX : 0.5
-        centerPlacement.normalizedY = spanY > 0 ? (centerSurface.y - centerMarginY) / spanY : 0.5
+        centerPlacement.normalizedX = spanX > 0 ? (surface.x - centerMarginX) / spanX : 0.5
+        centerPlacement.normalizedY = spanY > 0 ? (surface.y - centerMarginY) / spanY : 0.5
         centerPlacement.valid = true
     }
 
@@ -208,6 +222,10 @@ ShellRoot {
             return root.centerOpen
         }
 
+        function centerLoaded(): bool {
+            return centerLoader.item !== null
+        }
+
         function dismissFirst(): bool {
             return notificationModel.dismissFirst()
         }
@@ -221,10 +239,15 @@ ShellRoot {
         centerCloseDelay.stop()
         centerPresented = true
         centerOpen = true
-        centerSurface.timeReference = new Date()
         historyModel.markAllRead()
-        Qt.callLater(root.applyCenterPlacement)
-        centerSurface.forceActiveFocus()
+        Qt.callLater(function() {
+            const surface = root.centerSurfaceItem()
+            if (!surface)
+                return
+            surface.timeReference = new Date()
+            root.applyCenterPlacement()
+            surface.forceActiveFocus()
+        })
     }
 
     function closeCenter() {
@@ -280,7 +303,7 @@ ShellRoot {
         focusable: root.centerOpen
         exclusionMode: ExclusionMode.Ignore
         visible: root.centerPresented
-        mask: Region { item: centerSurface }
+        mask: Region { item: centerLoader.item }
 
         onWidthChanged: {
             if (root.centerOpen && !root.centerDragging)
@@ -291,20 +314,28 @@ ShellRoot {
                 Qt.callLater(root.applyCenterPlacement)
         }
 
-        NotificationCenter {
-            id: centerSurface
-            x: root.surfaceX(centerOverlay.width, width, 18)
-            y: 18
-            theme: theme
-            historyModel: historyModel
-            identityResolver: appIdentityResolver
-            availableHeight: centerOverlay.height
-            shown: root.centerOpen
-            onHeightChanged: {
-                if (root.centerOpen && !root.centerDragging)
-                    Qt.callLater(root.applyCenterPlacement)
+        Loader {
+            id: centerLoader
+            active: root.centerPresented
+            asynchronous: false
+            onLoaded: Qt.callLater(root.applyCenterPlacement)
+
+            sourceComponent: Component {
+                NotificationCenter {
+                    x: root.surfaceX(centerOverlay.width, width, 18)
+                    y: 18
+                    theme: theme
+                    historyModel: historyModel
+                    identityResolver: appIdentityResolver
+                    availableHeight: centerOverlay.height
+                    shown: root.centerOpen
+                    onHeightChanged: {
+                        if (root.centerOpen && !root.centerDragging)
+                            Qt.callLater(root.applyCenterPlacement)
+                    }
+                    onCloseRequested: root.closeCenter()
+                }
             }
-            onCloseRequested: root.closeCenter()
         }
 
         // Only the quiet title region is draggable. The notification mark,
@@ -312,14 +343,14 @@ ShellRoot {
         MouseArea {
             id: centerDragArea
             z: 20
-            x: centerSurface.x + 60
-            y: centerSurface.y + 16
-            width: Math.max(100, centerSurface.width - 220)
+            x: centerLoader.item ? centerLoader.item.x + 60 : 0
+            y: centerLoader.item ? centerLoader.item.y + 16 : 0
+            width: centerLoader.item ? Math.max(100, centerLoader.item.width - 220) : 0
             height: 48
-            enabled: root.centerOpen
+            enabled: root.centerOpen && centerLoader.item !== null
             hoverEnabled: true
             cursorShape: Qt.SizeAllCursor
-            drag.target: centerSurface
+            drag.target: centerLoader.item
             drag.axis: Drag.XAndYAxis
             drag.minimumX: root.centerMarginX
             drag.maximumX: root.maximumCenterX()

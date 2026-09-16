@@ -72,8 +72,8 @@ require_text "$SHELL" 'Quickshell.statePath("center-position.json")' "notificati
 require_text "$SHELL" 'property real normalizedX: 0.5' "notification center horizontal position is not resolution-adaptive"
 require_text "$SHELL" 'property real normalizedY: 0.5' "notification center vertical position is not resolution-adaptive"
 require_text "$SHELL" 'function persistCenterPlacement()' "notification center drag completion is not persisted"
-require_text "$SHELL" 'drag.target: centerSurface' "notification center is not the drag target"
-require_text "$SHELL" 'width: Math.max(100, centerSurface.width - 220)' "notification center drag handle is not constrained to the safe title region"
+require_text "$SHELL" 'drag.target: centerLoader.item' "notification center is not the drag target"
+require_text "$SHELL" 'width: centerLoader.item ? Math.max(100, centerLoader.item.width - 220) : 0' "notification center drag handle is not constrained to the safe title region"
 require_text "$SHELL" 'drag.minimumX: root.centerMarginX' "notification center drag is not clamped horizontally"
 require_text "$SHELL" 'drag.maximumY: root.maximumCenterY()' "notification center drag is not clamped vertically"
 require_text "$SHELL" 'if (centerPlacement.valid)' "persisted notification center placement does not override first-run Edge placement"
@@ -101,7 +101,7 @@ if grep -RnsE 'layer_rule|blur[[:space:]]*=[[:space:]]*true|ignore_alpha' "$NOTI
     fail "Notify introduced compositor blur while its layer surfaces are full-screen"
 fi
 require_text "$SHELL" 'mask: Region { item: popupStack }' "popup input remains unconstrained"
-require_text "$SHELL" 'mask: Region { item: centerSurface }' "center input remains unconstrained"
+require_text "$SHELL" 'mask: Region { item: centerLoader.item }' "center input remains unconstrained"
 echo "PASS"
 
 echo "ALL MAHO NOTIFY GLASS CONTRACTS PASS"
