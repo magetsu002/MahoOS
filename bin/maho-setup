@@ -275,7 +275,7 @@ preflight() {
     "$ROOT/lib/maho_update_receipts.py" "$ROOT/lib/maho_update_cli.py" \
     "$ROOT/lib/maho_update_admission.py" \
     "$ROOT/lib/maho_boot_authority.py" "$ROOT/lib/maho_secure_boot.py" \
-    "$ROOT/lib/guardian_update.py" "$ROOT"/lib/maho_adaptive_*.py \
+    "$ROOT/lib/guardian_update.py" "$ROOT/lib/maho_platform_install.py" "$ROOT"/lib/maho_adaptive_*.py \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }

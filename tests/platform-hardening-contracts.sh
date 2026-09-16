@@ -14,9 +14,11 @@ cat >"$TMP/bin/systemctl" <<'EOF_SYSTEMCTL'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$MAHO_TEST_SYSTEMCTL_LOG"
 case "${1:-}:${2:-}:${3:-}" in
-    is-active:--quiet:chronyd.service|is-active:--quiet:ntpd.service|is-active:--quiet:openntpd.service) exit 3 ;;
+    is-active:--quiet:chronyd.service|is-active:--quiet:ntpd.service|is-active:--quiet:ntp.service|is-active:--quiet:openntpd.service) exit 3 ;;
+    is-enabled:--quiet:chronyd.service|is-enabled:--quiet:ntpd.service|is-enabled:--quiet:ntp.service|is-enabled:--quiet:openntpd.service) exit 1 ;;
     is-active:--quiet:systemd-timesyncd.service|is-active:--quiet:rtkit-daemon.service|is-active:--quiet:systemd-oomd.service|is-active:--quiet:maho-btrfs-scrub-root.timer|is-active:--quiet:systemd-zram-setup@zram0.service) exit 0 ;;
-    is-enabled:--quiet:systemd-timesyncd.service) exit 0 ;;
+    is-enabled:--quiet:systemd-timesyncd.service|is-enabled:--quiet:systemd-oomd.service|is-enabled:--quiet:maho-btrfs-scrub-root.timer) exit 0 ;;
+    is-enabled:*) printf 'disabled\n'; exit 1 ;;
 esac
 exit 0
 EOF_SYSTEMCTL
@@ -32,6 +34,18 @@ export MAHO_PLATFORM_ZRAM_ROOT="$TMP/zram"
 export MAHO_PLATFORM_SYSTEMD_ROOT="$TMP/systemd-system"
 export MAHO_PLATFORM_USER_SYSTEMD_ROOT="$TMP/systemd-user"
 export MAHO_PLATFORM_STATE_ROOT="$TMP/state"
+export MAHO_PLATFORM_LOCK_FILE="$TMP/maho-platform.lock"
+export MAHO_PLATFORM_SYSTEM_UNIT_DIRS="$TMP/deps/system"
+export MAHO_PLATFORM_USER_UNIT_DIRS="$TMP/deps/user"
+export MAHO_PLATFORM_PORTAL_DATA_ROOT="$TMP/deps/portals"
+export MAHO_PLATFORM_ZRAM_GENERATOR="$TMP/deps/zram-generator"
+export MAHO_PLATFORM_GNOME_KEYRING="$TMP/deps/gnome-keyring-daemon"
+export MAHO_PLATFORM_BTRFS="$TMP/deps/btrfs"
+mkdir -p "$TMP/deps/system" "$TMP/deps/user" "$TMP/deps/portals"
+for unit in systemd-timesyncd.service systemd-oomd.service rtkit-daemon.service; do printf '[Unit]\nDescription=fixture\n' > "$TMP/deps/system/$unit"; done
+printf '[Unit]\nDescription=fixture\n' > "$TMP/deps/user/gnome-keyring-daemon.service"
+for portal in gtk.portal hyprland.portal gnome-keyring.portal; do printf '[portal]\nDBusName=fixture\n' > "$TMP/deps/portals/$portal"; done
+for dep in "$MAHO_PLATFORM_ZRAM_GENERATOR" "$MAHO_PLATFORM_GNOME_KEYRING" "$MAHO_PLATFORM_BTRFS"; do printf '#!/usr/bin/env bash\nexit 0\n' > "$dep"; chmod +x "$dep"; done
 
 echo "=== deliberate platform authorities ==="
 "$INSTALLER" preflight >/dev/null
