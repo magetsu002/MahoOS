@@ -83,6 +83,7 @@ jobs:
           bash tests/firewall-certification-contracts.sh
           bash tests/firewall-policy-netns.sh
           bash tests/firewall-transaction-netns.sh
+          bash tests/memory-certification-contracts.sh
 
       - name: Read-only recovery generation contracts
         shell: bash
@@ -138,7 +139,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile lib/maho_firewall_transaction.py
+          python -m py_compile lib/maho_firewall_transaction.py lib/maho_memory_certify.py
           bash -n bin/maho-platform bin/maho-platform-install bin/maho-recovery bin/maho-recovery-overlay-install bin/maho-l3-campaign bin/maho-l3-campaign-install bin/maho-update-campaign bin/maho-update-campaign-install bin/maho-adaptive lib/maho-recovery-overlay tests/platform-doctor.sh tests/platform-hardening-contracts.sh tests/platform-transaction-contracts.sh tests/recovery-console.sh tests/recovery-overlay.sh tests/l3-campaign-install.sh tests/m4b-campaign-install.sh tests/adaptive-actuator-contracts.sh adapters/notifications/adaptive-quiet.sh
           python - <<'PY'
           import ast

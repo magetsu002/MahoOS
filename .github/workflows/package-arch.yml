@@ -58,6 +58,8 @@ jobs:
           grep -Fxq 'usr/lib/maho/bin/maho-setup' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/bin/maho-firewall' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/lib/maho_firewall_transaction.py' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/bin/maho-memory-certify' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/lib/maho_memory_certify.py' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/config/hypr/maho/core/session.lua' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/apps/maho-files/io.maho.Files.desktop' /tmp/maho-package-files.txt
           grep -Fxq 'usr/lib/maho/apps/maho-files/prebuilt/maho-files' /tmp/maho-package-files.txt
@@ -86,6 +88,8 @@ jobs:
           test -r /usr/lib/maho/bin/maho-setup
           test -x /usr/lib/maho/bin/maho-firewall
           test -r /usr/lib/maho/lib/maho_firewall_transaction.py
+          test -x /usr/lib/maho/bin/maho-memory-certify
+          test -r /usr/lib/maho/lib/maho_memory_certify.py
           test -x /usr/lib/maho/apps/maho-files/prebuilt/maho-files
           test -r /usr/lib/maho/share/maho/release.json
           QT_QPA_PLATFORM=offscreen /usr/lib/maho/apps/maho-files/prebuilt/maho-files --version
