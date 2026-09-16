@@ -54,6 +54,13 @@ jobs:
           assert p['system_states']['recovery_eligibility_authority'] == 'guardian'
           assert p['system_states']['maximum_boot_candidates'] == 10
           assert p['system_states']['retained_snapshot_count_independent_of_boot_candidates'] is True
+          fw = p['network']['firewall']
+          assert fw['ownership_model'] == 'maho-minimal-host-input'
+          assert fw['physical_activation_certified'] is False
+          assert fw['owned_table'] == 'inet maho_host'
+          assert fw['owned_hooks'] == ['input']
+          assert fw['unowned_hooks'] == ['forward', 'output']
+          assert fw['default_input_policy'] == 'drop'
           assert p['recovery']['prefer_smallest_effective_scope'] is True
           assert p['recovery']['destructive_actions_require_confirmation'] is True
           PY
@@ -74,6 +81,7 @@ jobs:
           python tests/reliability-policy-contracts.py
           bash tests/storage-health-contracts.sh
           bash tests/firewall-certification-contracts.sh
+          bash tests/firewall-policy-netns.sh
 
       - name: Read-only recovery generation contracts
         shell: bash

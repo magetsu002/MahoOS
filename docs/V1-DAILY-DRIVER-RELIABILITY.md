@@ -38,12 +38,33 @@ It does not cover UDP, every other user, or the complete host firewall, and its
 JSON coverage object preserves those limits. “clean” therefore means clean
 only within that declared scope.
 
+The V1 source architecture selects **Maho-owned minimal host input filtering**.
+`config/platform/maho-host-firewall.nft` owns only `table inet maho_host` and
+an `input` base chain with a default-drop policy. It preserves loopback,
+established/related flows, DHCP, required IPv6 control traffic, mDNS/LLMNR,
+and ZeroTier UDP transport. It deliberately does not own `forward`, `output`,
+provider-created tables, or expose SSH. The policy is not activated by the
+current platform transaction; physical activation remains an explicit
+administrator certification action.
+
+Mullvad remains a VPN provider, not permanent MahoOS host-firewall authority.
+Its daemon/tunnel state must be modeled independently, including disconnected
+and lockdown states. ZeroTier is an overlay provider, not host-filter
+authority. Neither silently substitutes for `inet maho_host`.
+
 `maho-firewall-certify capture CONTEXT` reads the effective nftables ruleset
-without changing it. Certification requires separate captures for
-`normal-wifi`, `mullvad-disconnected`, `mullvad-connected`, and
-`zerotier-active`; each must include IPv4 and IPv6 input visibility. Captures
-record evidence, not a blanket claim that a base-chain policy proves every
-overlay/interface path safe.
+without changing it. Evidence distinguishes `protected`, `unprotected`,
+`partial`, `insufficient-visibility`, `provider-conflict`, `unsupported`, and
+`stale`. A successfully read empty ruleset is `unprotected`; a privilege or
+netlink failure is `insufficient-visibility`. Status is complete only when all
+four named contexts have fresh, decision-usable IPv4+IPv6 protected evidence.
+Guardian must not translate missing, stale, unsupported, or
+`insufficient-visibility` firewall evidence into a clean result.
+
+Certification still requires separate captures for `normal-wifi`,
+`mullvad-disconnected`, `mullvad-connected`, and `zerotier-active`. A
+default-drop base chain proves a filtering baseline, not that every accepted
+service, interface, overlay path, or provider rule is safe.
 
 ## Sysctl candidate
 

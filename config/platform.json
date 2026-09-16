@@ -80,5 +80,24 @@
       "notifications"
     ],
     "service_enabled": true
+  },
+  "network": {
+    "firewall": {
+      "ownership_model": "maho-minimal-host-input",
+      "candidate_policy": "config/platform/maho-host-firewall.nft",
+      "physical_activation_certified": false,
+      "activation": "explicit-administrator-certification-only",
+      "owned_table": "inet maho_host",
+      "owned_hooks": [
+        "input"
+      ],
+      "unowned_hooks": [
+        "forward",
+        "output"
+      ],
+      "default_input_policy": "drop",
+      "mullvad_role": "vpn-provider-not-permanent-host-firewall-authority",
+      "zerotier_role": "overlay-provider-not-host-firewall-authority"
+    }
   }
 }
