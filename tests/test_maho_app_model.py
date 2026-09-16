@@ -125,17 +125,22 @@ class MahoAppModelTests(unittest.TestCase):
             empty.mkdir()
             desktop = self.write_desktop(data, "safe.desktop", "Name=Safe App\nExec=true\n")
 
+            def which(name: str):
+                return f"/usr/bin/{name}" if name in {"gio", "systemd-run"} else None
+
             with self.environment(data, [empty]), \
-                    mock.patch.object(app_model.shutil, "which", side_effect=lambda name: "/usr/bin/gio" if name == "gio" else None), \
-                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                    mock.patch.object(app_model.shutil, "which", side_effect=which), \
+                    mock.patch.object(app_model.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
                 result = app_model.launch_app("safe.desktop")
 
             self.assertEqual(result, 0)
-            popen.assert_called_once()
-            argv = popen.call_args.args[0]
-            self.assertEqual(argv, ["gio", "launch", str(desktop)])
-            self.assertNotIn("shell", popen.call_args.kwargs)
-            self.assertTrue(popen.call_args.kwargs["start_new_session"])
+            run.assert_called_once()
+            argv = run.call_args.args[0]
+            self.assertEqual(argv[-4:], ["--", "gio", "launch", str(desktop)])
+            self.assertIn("--property=Slice=app.slice", argv)
+            self.assertIn("--property=ExitType=cgroup", argv)
+            self.assertIn("--service-type=exec", argv)
+            self.assertNotIn("shell", run.call_args.kwargs)
 
     def test_launch_focuses_existing_vesktop_without_spawning(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,8 +180,7 @@ class MahoAppModelTests(unittest.TestCase):
 
             with self.environment(data, [empty], hyprland=True), \
                     mock.patch.object(app_model.shutil, "which", side_effect=which), \
-                    mock.patch.object(app_model.subprocess, "run", side_effect=run), \
-                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                    mock.patch.object(app_model.subprocess, "run", side_effect=run):
                 result = app_model.launch_app("dev.vencord.Vesktop.desktop")
 
             self.assertEqual(result, 0)
@@ -184,7 +188,6 @@ class MahoAppModelTests(unittest.TestCase):
                 ["hyprctl", "-j", "clients"],
                 ["hyprctl", "dispatch", "focuswindow", "address:0xabc123"],
             ])
-            popen.assert_not_called()
 
     def test_launch_falls_back_to_xdg_when_no_window_matches(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,6 +208,9 @@ class MahoAppModelTests(unittest.TestCase):
                         json.dumps([{"address": "0x111", "class": "firefox", "initialClass": "firefox", "mapped": True}]),
                         "",
                     )
+                if argv[0] == "/usr/bin/systemd-run":
+                    self.assertEqual(argv[-4:], ["--", "gio", "launch", str(desktop)])
+                    return subprocess.CompletedProcess(argv, 0, "", "")
                 self.fail(f"unexpected subprocess.run argv: {argv}")
 
             def which(name: str):
@@ -212,17 +218,16 @@ class MahoAppModelTests(unittest.TestCase):
                     return "/usr/bin/hyprctl"
                 if name == "gio":
                     return "/usr/bin/gio"
+                if name == "systemd-run":
+                    return "/usr/bin/systemd-run"
                 return None
 
             with self.environment(data, [empty], hyprland=True), \
                     mock.patch.object(app_model.shutil, "which", side_effect=which), \
-                    mock.patch.object(app_model.subprocess, "run", side_effect=run), \
-                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                    mock.patch.object(app_model.subprocess, "run", side_effect=run):
                 result = app_model.launch_app("dev.vencord.Vesktop.desktop")
 
             self.assertEqual(result, 0)
-            popen.assert_called_once()
-            self.assertEqual(popen.call_args.args[0], ["gio", "launch", str(desktop)])
 
     def test_launch_does_not_focus_ambiguous_runtime_class(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -248,6 +253,9 @@ class MahoAppModelTests(unittest.TestCase):
                         json.dumps([{"address": "0x222", "class": "Electron", "initialClass": "Electron", "mapped": True}]),
                         "",
                     )
+                if argv[0] == "/usr/bin/systemd-run":
+                    self.assertEqual(argv[-4:], ["--", "gio", "launch", str(target)])
+                    return subprocess.CompletedProcess(argv, 0, "", "")
                 self.fail(f"ambiguous client must not be focused: {argv}")
 
             def which(name: str):
@@ -255,17 +263,16 @@ class MahoAppModelTests(unittest.TestCase):
                     return "/usr/bin/hyprctl"
                 if name == "gio":
                     return "/usr/bin/gio"
+                if name == "systemd-run":
+                    return "/usr/bin/systemd-run"
                 return None
 
             with self.environment(data, [empty], hyprland=True), \
                     mock.patch.object(app_model.shutil, "which", side_effect=which), \
-                    mock.patch.object(app_model.subprocess, "run", side_effect=run), \
-                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                    mock.patch.object(app_model.subprocess, "run", side_effect=run):
                 result = app_model.launch_app("com.alpha.Editor.desktop")
 
             self.assertEqual(result, 0)
-            popen.assert_called_once()
-            self.assertEqual(popen.call_args.args[0], ["gio", "launch", str(target)])
 
     def test_launch_new_bypasses_existing_window_activation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -279,16 +286,39 @@ class MahoAppModelTests(unittest.TestCase):
                 "Name=Vesktop\nStartupWMClass=vesktop\nExec=/usr/bin/vesktop %U\n",
             )
 
+            def which(name: str):
+                return f"/usr/bin/{name}" if name in {"gio", "hyprctl", "systemd-run"} else None
+
             with self.environment(data, [empty], hyprland=True), \
-                    mock.patch.object(app_model.shutil, "which", side_effect=lambda name: "/usr/bin/gio" if name == "gio" else "/usr/bin/hyprctl" if name == "hyprctl" else None), \
-                    mock.patch.object(app_model.subprocess, "run") as run, \
-                    mock.patch.object(app_model.subprocess, "Popen") as popen:
+                    mock.patch.object(app_model.shutil, "which", side_effect=which), \
+                    mock.patch.object(app_model.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
                 result = app_model.launch_new_app("dev.vencord.Vesktop.desktop")
 
             self.assertEqual(result, 0)
-            run.assert_not_called()
-            popen.assert_called_once()
-            self.assertEqual(popen.call_args.args[0], ["gio", "launch", str(desktop)])
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[0][-4:], ["--", "gio", "launch", str(desktop)])
+
+    def test_launch_fails_closed_without_systemd_ownership_authority(self):
+        with mock.patch.object(app_model.shutil, "which", return_value=None), \
+                mock.patch.object(app_model.subprocess, "run") as run:
+            result = app_model.detached(["/usr/bin/true"])
+
+        self.assertEqual(result, 127)
+        run.assert_not_called()
+
+    def test_launch_propagates_transient_service_failure(self):
+        def which(name: str):
+            return "/usr/bin/systemd-run" if name == "systemd-run" else None
+
+        with mock.patch.object(app_model.shutil, "which", side_effect=which), \
+                mock.patch.object(
+                    app_model.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 1, "", "manager unavailable"),
+                ):
+            result = app_model.detached(["/usr/bin/true"])
+
+        self.assertEqual(result, 1)
 
     def test_identity_normalization_never_depends_on_window_title(self):
         self.assertEqual(app_model.normalize_identity("Code.desktop"), "code")

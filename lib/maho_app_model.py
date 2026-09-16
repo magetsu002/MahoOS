@@ -21,6 +21,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import uuid
 from typing import Iterable
 
 ICON_EXTENSIONS = {".svg": 60, ".png": 50, ".xpm": 20}
@@ -403,19 +404,99 @@ def discover_apps(resolve_icons: bool = True) -> list[dict[str, object]]:
     return output
 
 
+_GRAPHICAL_ENVIRONMENT = (
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "HYPRLAND_INSTANCE_SIGNATURE",
+    "XDG_ACTIVATION_TOKEN",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_DESKTOP",
+    "XDG_SESSION_TYPE",
+)
+
+
+def _application_unit_name() -> str:
+    """Return an unguessable, systemd-safe application service name."""
+    return f"app-maho-{os.getpid()}-{uuid.uuid4().hex}"
+
+
+def _application_service_command(argv: list[str], unit: str) -> list[str] | None:
+    systemd_run = shutil.which("systemd-run")
+    if systemd_run is None:
+        return None
+
+    command = [
+        systemd_run,
+        "--user",
+        "--collect",
+        "--quiet",
+        "--service-type=exec",
+        f"--unit={unit}",
+        "--property=Slice=app.slice",
+        "--property=ExitType=cgroup",
+        f"--property=Description=Maho application: {Path(argv[0]).name}",
+    ]
+    for name in _GRAPHICAL_ENVIRONMENT:
+        value = os.environ.get(name)
+        if value:
+            command.append(f"--setenv={name}={value}")
+    command.extend(("--", *argv))
+    return command
+
+
 def detached(argv: list[str]) -> int:
+    """Launch outside the calling Maho surface's lifecycle/resource domain.
+
+    A POSIX session is not a systemd ownership boundary.  Applications are
+    therefore started as transient user services in ``app.slice``.  Type=exec
+    makes a successful return authoritative for exec(2), while ExitType=cgroup
+    keeps helper-launched descendants (for example from ``gio launch``) owned
+    until the complete application cgroup exits.
+
+    There is deliberately no direct-Popen fallback: if independent ownership
+    cannot be established, launching fails instead of attaching the app to
+    Dock, Launcher, or another desktop surface.
+    """
+    if not argv:
+        print("maho-app-model: refusing empty launch request", file=sys.stderr)
+        return 2
+
+    unit = _application_unit_name()
+    command = _application_service_command(argv, unit)
+    if command is None:
+        print("maho-app-model: systemd-run is required for isolated application ownership", file=sys.stderr)
+        return 127
+
     try:
-        subprocess.Popen(
-            argv,
+        completed = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # Scope only this launch attempt.  The command may have reached the
+        # manager before the client timed out, so remove the ambiguous unit.
+        subprocess.run(
+            ("systemctl", "--user", "stop", f"{unit}.service"),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
+            timeout=3,
+            check=False,
         )
+        print("maho-app-model: timed out establishing independent application ownership", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"maho-app-model: {exc}", file=sys.stderr)
         return 1
+    if completed.returncode != 0:
+        detail = (completed.stderr or "systemd-run failed").strip().splitlines()[-1]
+        print(f"maho-app-model: independent application launch failed: {detail}", file=sys.stderr)
+        return completed.returncode or 1
     return 0
 
 

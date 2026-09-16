@@ -25,6 +25,7 @@ if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 from maho_app_model import (
+    detached,
     desktop_roots,
     discover_apps as shared_discover_apps,
     find_desktop_file,
@@ -58,22 +59,6 @@ def resolve_icon_paths(entries: list[dict[str, object]]) -> None:
 
 def list_apps() -> int:
     json.dump(discover_apps(), sys.stdout, ensure_ascii=False, separators=(",", ":"))
-    return 0
-
-
-def detached(argv: list[str]) -> int:
-    try:
-        subprocess.Popen(
-            argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            close_fds=True,
-        )
-    except OSError as exc:
-        print(f"maho-launcher-backend: {exc}", file=sys.stderr)
-        return 1
     return 0
 
 
