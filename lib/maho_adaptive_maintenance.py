@@ -46,7 +46,7 @@ def assess_maintenance(snapshot:SituationSnapshot)->MaintenanceEligibility:
  if m.prepared is not True or m.transaction_state!="PREPARED": reasons.append("m4_transaction_not_prepared")
  if m.recovery_prerequisites is not True: reasons.append("recovery_prerequisites_unready")
  if m.enough_disk is not True: reasons.append("disk_headroom_unconfirmed")
- if g.active_incident is True or g.recovery_in_progress is True or g.unresolved_reliability is True: reasons.append("guardian_reliability_state")
+ if g.recovery_in_progress is True or g.unresolved_reliability is True: reasons.append("guardian_reliability_state")
  if g.severity_level!=UNKNOWN and int(g.severity_level)>=2: reasons.append("guardian_severity_blocks_maintenance")
  return MaintenanceEligibility(not reasons,tuple(dict.fromkeys(reasons)),False,True)
 

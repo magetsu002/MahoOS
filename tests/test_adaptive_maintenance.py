@@ -36,6 +36,11 @@ def main():
  blocked("session_inhibitor_present",session={"inhibitors":["sleep:blocked"]})
  blocked("disk_headroom_unconfirmed",maintenance={"enough_disk":False})
  blocked("recovery_prerequisites_unready",maintenance={"recovery_prerequisites":False})
+ # A current low-confidence L1 remains Guardian-visible without becoming an
+ # indefinite maintenance veto. Canonical unresolved reliability still blocks.
+ assert assess_maintenance(snap(guardian={"active_incident":True,"severity_level":1})).eligible
+ blocked("guardian_severity_blocks_maintenance",guardian={"active_incident":True,"severity_level":2})
+ blocked("guardian_reliability_state",guardian={"active_incident":False,"unresolved_reliability":True})
  # Eligibility disappears immediately before mutation: fail closed.
  assert recheck_before_mutation(snap(session={"locked":False,"idle_seconds":0,"recent_input_seconds":0})).eligible is False
  critical=snap(maintenance={"in_critical_section":True,"interruption_safe":False})
