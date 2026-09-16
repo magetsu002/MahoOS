@@ -35,7 +35,8 @@ jobs:
           assert p['boot']['manager'] == 'limine'
           assert p['boot']['default_kernel'] == 'linux-cachyos'
           assert p['boot']['recovery_kernel'] == 'linux-cachyos-lts'
-          assert p['boot']['snapshot_integration'] == 'limine-snapper-sync'
+          assert p['boot']['trusted_config_writer'] == 'maho-signed-boot-publication'
+          assert p['boot']['snapshot_integration'] == 'recovery-input-only'
           assert p['boot']['kernel_update_snapshot_restore_certified'] is True
           assert p['boot']['boot_state_transaction_required'] is True
           assert p['update']['native_execution_certified'] is False
@@ -49,6 +50,10 @@ jobs:
           assert p['adaptive']['service_enabled'] is True
           assert p['system_states']['filesystem'] == 'btrfs'
           assert p['system_states']['home_rollback_policy'] == 'exclude-personal-data-by-default'
+          assert p['system_states']['snapshot_retention_authority'] == 'snapper-cleanup-policy'
+          assert p['system_states']['recovery_eligibility_authority'] == 'guardian'
+          assert p['system_states']['maximum_boot_candidates'] == 10
+          assert p['system_states']['retained_snapshot_count_independent_of_boot_candidates'] is True
           assert p['recovery']['prefer_smallest_effective_scope'] is True
           assert p['recovery']['destructive_actions_require_confirmation'] is True
           PY
@@ -64,6 +69,10 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/platform-doctor.sh
+          bash tests/platform-hardening-contracts.sh
+          python tests/reliability-policy-contracts.py
+          bash tests/storage-health-contracts.sh
+          bash tests/firewall-certification-contracts.sh
 
       - name: Read-only recovery generation contracts
         shell: bash
