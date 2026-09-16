@@ -209,8 +209,23 @@ network_cycle() {
 }
 
 integrity_due() {
-    local interval="${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}" path="$MONITOR_STATE/integrity-last-run"
+    local interval="${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}" path="$MONITOR_STATE/integrity-last-run" heartbeat
     [[ "$interval" =~ ^[0-9]+$ ]] || interval=1800
+
+    # The scan throttle is not authority.  After upgrades or state repair the
+    # persisted last-run timestamp can outlive Guardian provider evidence.  In
+    # that case run immediately so required integrity freshness is established
+    # instead of remaining UNKNOWN until the old throttle expires.
+    heartbeat="$(python "$PROVIDER_STATE" show --state-root "$SEC_STATE" --provider-id security.integrity 2>/dev/null || true)"
+    python - "$heartbeat" <<'PY_HEARTBEAT' || return 0
+import json,sys
+try:
+    value=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("last_success_at") else 1)
+PY_HEARTBEAT
+
     python - "$path" "$interval" <<'PY'
 import time,sys
 from pathlib import Path
