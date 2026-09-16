@@ -10,12 +10,14 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
+import maho_adaptive_shadow as adaptive_shadow
 from maho_adaptive_shadow import (
     apply_dwell,
     current_status,
     doctor_report,
     evaluate_shadow,
     history_rows,
+    read_guardian,
 )
 
 T0 = datetime(2026, 9, 12, 1, 0, tzinfo=timezone.utc)
@@ -98,6 +100,35 @@ def fixture(now=T0, *, battery=15, ac=False, thermal=70000, locked=False):
             "foreground_performance": False,
         }, now),
     }
+
+
+def test_guardian_reliability_is_not_self_health() -> None:
+    healthy_payload = {
+        "captured_at": stamp(T0),
+        "active_incidents": [{"incident_id": "l1"}],
+        "world_state": {"guardian": {
+            "severity": {"level": 1},
+            "self_health": {"state": "UNKNOWN", "missing_providers": ["boot.authority"]},
+            "trust": {"state": "UNKNOWN"},
+        }},
+        "reliability": {"state": "healthy"},
+        "recovery": {"in_progress": False},
+    }
+    degraded_payload = {**healthy_payload, "reliability": {"state": "degraded"}}
+    original = adaptive_shadow.guardian_live_status
+    try:
+        adaptive_shadow.guardian_live_status = lambda *_args, **_kwargs: healthy_payload
+        healthy = read_guardian(T0)
+        assert healthy is not None
+        assert healthy["data"]["severity_level"] == 1
+        assert healthy["data"]["unresolved_reliability"] is False
+
+        adaptive_shadow.guardian_live_status = lambda *_args, **_kwargs: degraded_payload
+        degraded = read_guardian(T0)
+        assert degraded is not None
+        assert degraded["data"]["unresolved_reliability"] is True
+    finally:
+        adaptive_shadow.guardian_live_status = original
 
 
 def test_dwell_context() -> None:

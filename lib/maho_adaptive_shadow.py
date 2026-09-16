@@ -232,7 +232,6 @@ def read_guardian(now: datetime) -> Mapping[str, Any] | None:
     world = payload.get("world_state") if isinstance(payload.get("world_state"), Mapping) else {}
     guardian = world.get("guardian") if isinstance(world.get("guardian"), Mapping) else {}
     severity = guardian.get("severity") if isinstance(guardian.get("severity"), Mapping) else {}
-    self_health = guardian.get("self_health") if isinstance(guardian.get("self_health"), Mapping) else {}
     reliability = payload.get("reliability") if isinstance(payload.get("reliability"), Mapping) else {}
     recovery = payload.get("recovery") if isinstance(payload.get("recovery"), Mapping) else {}
     level = severity.get("level")
@@ -240,13 +239,15 @@ def read_guardian(now: datetime) -> Mapping[str, Any] | None:
         level = 0
     trust = guardian.get("trust") if isinstance(guardian.get("trust"), Mapping) else {}
     recovering = trust.get("state") == "RECOVERING" or recovery.get("in_progress") is True
-    reliable = reliability.get("state") == "healthy"
-    self_healthy = self_health.get("state") == "HEALTHY"
+    # Canonical reliability is its own authority. Guardian self-health and trust
+    # remain visible elsewhere, but missing boot/trust proof must not be
+    # re-labelled as a reliability failure and permanently veto maintenance.
+    unresolved_reliability = reliability.get("state") != "healthy"
     data = {
         "active_incident": bool(rows),
         "severity_level": level,
         "recovery_in_progress": recovering,
-        "unresolved_reliability": not (reliable and self_healthy),
+        "unresolved_reliability": unresolved_reliability,
     }
     return {"observed_at": payload.get("captured_at") or stamp(now), "data": data}
 
