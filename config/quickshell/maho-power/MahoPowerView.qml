@@ -53,7 +53,7 @@ Item {
     }
 
     function requiresConfirmation(action) {
-        return action === "logout" || action === "restart" || action === "shutdown"
+        return action === "restart" || action === "shutdown"
     }
 
     function trigger(action) {

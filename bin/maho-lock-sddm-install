@@ -74,7 +74,7 @@ require_root() {
     die "system installation requires root; run: sudo bash bin/maho-lock-sddm-install install"
 }
 
-profile_assets() {
+profile_wallpaper() {
     local home="$1" profile="$home/.local/state/maho/lock/profile.json"
 
     python - "$profile" <<'PY_PROFILE'
@@ -89,40 +89,15 @@ try:
 except (OSError, ValueError, TypeError):
     pass
 
-for key in ("wallpaperPath", "avatarPath"):
-    value = payload.get(key, "")
-    print(value if isinstance(value, str) else "")
+value = payload.get("wallpaperPath", "")
+print(value if isinstance(value, str) else "")
 PY_PROFILE
-}
-
-round_avatar() {
-    local account="$1" source="$2" target="$3"
-    local -a command=(
-        magick "$source"
-        -auto-orient
-        -thumbnail '1024x1024^'
-        -gravity center
-        -extent 1024x1024
-        '(' -size 1024x1024 xc:none
-            -fill white -draw 'circle 512,512 512,0' ')'
-        -alpha off -compose CopyOpacity -composite
-        png:-
-    )
-
-    # Avatar files are user-selected input. When setup runs through sudo,
-    # decode them with the invoking user's privileges and let only the shell's
-    # root-owned redirection write into the protected theme stage.
-    if [ "$(id -u)" -eq 0 ] && [ "$account" != root ]; then
-        runuser -u "$account" -- "${command[@]}" > "$target"
-    else
-        "${command[@]}" > "$target"
-    fi
 }
 
 preflight() {
     local failed=0 dependency file
 
-    for dependency in python getent awk install cp mv magick runuser; do
+    for dependency in python getent awk install cp mv; do
         command -v "$dependency" >/dev/null 2>&1 \
             && printf 'PASS  dependency %-14s %s\n' "$dependency" "$(command -v "$dependency")" \
             || { printf 'FAIL  dependency %-14s missing\n' "$dependency"; failed=1; }
@@ -166,14 +141,11 @@ preflight() {
 }
 
 build_theme() {
-    local stage="$1" account home wallpaper avatar avatar_available=false icon
-    local -a assets
+    local stage="$1" account home wallpaper icon
 
     account="$(invoking_user)"
     home="$(user_home "$account")"
-    mapfile -t assets < <(profile_assets "$home")
-    wallpaper="${assets[0]:-}"
-    avatar="${assets[1]:-}"
+    wallpaper="$(profile_wallpaper "$home")"
 
     mkdir -p "$stage/assets/icons"
     install -m 0644 "$THEME_SOURCE/Main.qml" "$stage/Main.qml"
@@ -197,17 +169,7 @@ build_theme() {
         say "INFO  selected wallpaper unavailable; staged bundled fallback" >&2
     fi
 
-    if [ -n "$avatar" ] && [ -f "$avatar" ] && [ -r "$avatar" ]; then
-        round_avatar "$account" "$avatar" "$stage/assets/avatar.png"
-        chmod 0644 "$stage/assets/avatar.png"
-        avatar_available=true
-        say "PASS  staged selected avatar $avatar" >&2
-    else
-        say "INFO  selected avatar unavailable; greeter will show the user initial" >&2
-    fi
-
     sed -i \
-        -e "s/@AVATAR_AVAILABLE@/$avatar_available/g" \
         -e "s/@DEFAULT_USER@/$account/g" \
         "$stage/theme.conf"
     printf '%s\n' "$MARKER" > "$stage/.managed-by-maho-lock-sddm"
@@ -370,11 +332,6 @@ status() {
             && say "PASS  SDDM vector icon $icon" \
             || { say "FAIL  SDDM vector icon $icon"; failed=1; }
     done
-    if grep -Fxq 'avatarAvailable=true' "$THEME_TARGET/theme.conf"; then
-        [ -r "$THEME_TARGET/assets/avatar.png" ] \
-            && say "PASS  SDDM rounded avatar asset" \
-            || { say "FAIL  SDDM rounded avatar asset"; failed=1; }
-    fi
     grep -Fxq 'QtVersion=6' "$THEME_TARGET/metadata.desktop" \
         && say "PASS  installed theme selects the Qt 6 greeter" \
         || { say "FAIL  installed theme does not select the Qt 6 greeter"; failed=1; }
@@ -432,8 +389,8 @@ Usage:
   sudo bash bin/maho-lock-sddm-install status
   sudo bash bin/maho-lock-sddm-install uninstall
 
-Install copies the current Maho Lock wallpaper/avatar into an SDDM-readable,
-managed theme and persistently selects it for the next boot. It never restarts
+Install copies the current Maho Lock wallpaper into an SDDM-readable,
+managed no-avatar theme and persistently selects it for the next boot. It never restarts
 SDDM, so installing it does not terminate the current graphical session.
 EOF_HELP
         exit 2

@@ -21,8 +21,6 @@ grep -Fq -- '--with-sddm' "$ROOT/bin/maho-setup" \
     || fail "durable setup has no explicit SDDM activation path"
 grep -Fq -- '--with-sddm' "$ROOT/packaging/arch/maho-install" \
     || fail "packaged installer cannot request SDDM activation"
-grep -Fq "'imagemagick'" "$ROOT/packaging/arch/PKGBUILD.in" \
-    || fail "packaged SDDM avatar preparation lacks ImageMagick"
 grep -Fq "'qt6-5compat'" "$ROOT/packaging/arch/PKGBUILD.in" \
     || fail "packaged Qt 6 greeter lacks its compatibility module"
 pass "SDDM integration is reachable from release setup"
@@ -48,12 +46,16 @@ if grep -Fq 'Canvas {' "$THEME/MahoSddmIcon.qml"; then
 fi
 grep -Fq 'source: "assets/icons/" + root.name + ".svg"' "$THEME/MahoSddmIcon.qml" \
     || fail "SDDM vector icon source missing"
-grep -Fq 'sourceSize.width: Math.max(1024' "$THEME/Main.qml" \
-    || fail "SDDM avatar decode density regressed"
-grep -Fq 'runuser -u "$account"' "$INSTALLER" \
-    || fail "root SDDM setup decodes user-selected avatars as root"
-if grep -Eq 'OpacityMask|MultiEffect' "$THEME/Main.qml"; then
-    fail "SDDM avatar still depends on renderer-specific shader masking"
+if grep -Eq 'id: avatar|avatarImage|avatarAvailable|config\.avatar' "$THEME/Main.qml"; then
+    fail "SDDM greeter reintroduced an avatar surface"
+fi
+grep -Fq 'anchors.topMargin: 330 * root.uiScale' "$THEME/Main.qml" \
+    || fail "approved no-avatar authentication composition drifted"
+if grep -Eq 'avatar=|avatarAvailable=' "$THEME/theme.conf"; then
+    fail "SDDM theme still advertises avatar configuration"
+fi
+if grep -Eq 'round_avatar|avatarPath|assets/avatar\.png|staged selected avatar' "$INSTALLER"; then
+    fail "SDDM installer still stages profile avatars"
 fi
 grep -Fq 'hoverEnabled: true' "$THEME/MahoSddmActionButton.qml" \
     || fail "SDDM action hover state missing"
@@ -108,8 +110,7 @@ EOF_GETENT
 chmod +x "$sandbox/fake-bin/getent"
 export PATH="$sandbox/fake-bin:$PATH"
 
-# No selected avatar is a supported state: SDDM must use the user initial and
-# must not advertise a missing image as available.
+# The greeter intentionally has no profile avatar surface.
 bash "$INSTALLER" install >/dev/null
 bash "$INSTALLER" status >/dev/null
 [ -f "$MAHO_SDDM_SESSION_ROOT/maho.desktop" ] || fail "MahoOS SDDM session missing"
@@ -123,27 +124,12 @@ grep -Fxq 'Current=maho-lock' "$sandbox/config/90-maho-lock.conf" \
 [ -s "$sandbox/themes/maho-lock/assets/wallpaper" ] \
     || fail "staged wallpaper missing"
 [ ! -e "$sandbox/themes/maho-lock/assets/avatar.png" ] \
-    || fail "avatar asset was invented without a selected source"
-grep -Fxq 'avatarAvailable=false' "$sandbox/themes/maho-lock/theme.conf" \
-    || fail "missing avatar did not select the user-initial fallback"
-pass "sandbox install supports user-initial avatar fallback"
+    || fail "SDDM staged an avatar despite the no-avatar contract"
+if grep -Eq 'avatar=|avatarAvailable=' "$sandbox/themes/maho-lock/theme.conf"; then
+    fail "staged SDDM theme advertises avatar configuration"
+fi
+pass "sandbox install preserves no-avatar greeter contract"
 
-# A selected avatar must be converted to the renderer-independent high-density
-# circular asset used by the real greeter.
-profile_dir="$sandbox/home/.local/state/maho/lock"
-mkdir -p "$profile_dir"
-fixture_avatar="$ROOT/config/quickshell/maho-lock/assets/maho-lock-dusk.jpg"
-printf '{"avatarPath":"%s"}\n' "$fixture_avatar" >"$profile_dir/profile.json"
-bash "$INSTALLER" install >/dev/null
-bash "$INSTALLER" status >/dev/null
-[ -s "$sandbox/themes/maho-lock/assets/avatar.png" ] \
-    || fail "selected avatar was not staged"
-magick identify "$sandbox/themes/maho-lock/assets/avatar.png" | grep -Fq '1024x1024' \
-    || fail "staged avatar is not the high-resolution square contract"
-magick identify -verbose "$sandbox/themes/maho-lock/assets/avatar.png" | grep -Fq 'Alpha:' \
-    || fail "staged avatar lost its circular alpha mask"
-grep -Fxq 'avatarAvailable=true' "$sandbox/themes/maho-lock/theme.conf" \
-    || fail "selected avatar was not advertised to the greeter"
 grep -Fxq 'managed-by-maho-lock-sddm-v1' \
     "$sandbox/themes/maho-lock/.managed-by-maho-lock-sddm" \
     || fail "managed theme marker missing"
