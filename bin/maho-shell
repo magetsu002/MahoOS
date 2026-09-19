@@ -290,7 +290,7 @@ case "${1:-run}" in
         if systemd_available; then
             systemctl --user start maho-shell.service
         else
-            nohup "$0" run >/dev/null 2>&1 &
+            nohup bash "$0" run >/dev/null 2>&1 &
         fi
         ;;
     stop)
@@ -300,8 +300,8 @@ case "${1:-run}" in
         pkill -f 'quickshell -p.*/maho-shell/shell.qml' 2>/dev/null || true
         ;;
     restart|reload)
-        "$0" stop
-        "$0" start
+        bash "$0" stop
+        bash "$0" start
         ;;
     status)
         if [ "${2:-}" = "--json" ]; then

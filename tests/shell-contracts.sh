@@ -254,6 +254,9 @@ require_runtime_text 'status --json' "machine-readable shell status missing"
 require_runtime_text 'logs [LINES]' "bounded runtime log command missing"
 require_runtime_text 'if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]' "runtime log bound missing"
 require_runtime_text 'shell_count()' "singleton diagnostics missing"
+require_runtime_text 'nohup bash "$0" run' "fallback start still executes immutable runtime source directly"
+require_runtime_text 'bash "$0" stop' "reload stop still executes immutable runtime source directly"
+require_runtime_text 'bash "$0" start' "reload start still executes immutable runtime source directly"
 if grep -Fiq -- 'waybar' "$RUNTIME"; then
     fail "Maho Shell runtime still contains legacy Waybar behavior"
 fi
