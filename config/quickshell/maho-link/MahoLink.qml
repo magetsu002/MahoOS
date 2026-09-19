@@ -8,6 +8,7 @@ Item {
     required property var bluetooth
     required property real availableHeight
     property bool shown: false
+    property bool closing: false
     property string section: "wifi"
     property string page: "main"
     property var selectedNetwork: null
@@ -36,15 +37,15 @@ Item {
             : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
-    scale: shown ? 1 : 0.998
+    scale: shown ? 1 : (closing ? 1 : 0.988)
     transform: Translate {
-        y: root.shown ? 0 : -3
-        Behavior on y { NumberAnimation { duration: root.shown ? 90 : 60; easing.type: Easing.OutCubic } }
+        y: root.shown ? 0 : (root.closing ? 0 : -8)
+        Behavior on y { NumberAnimation { duration: root.closing ? 0 : 105; easing.type: Easing.OutCubic } }
     }
 
-    Behavior on height { enabled: root.shown; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: shown ? 90 : 60; easing.type: Easing.OutCubic } }
-    Behavior on scale { NumberAnimation { duration: shown ? 90 : 60; easing.type: Easing.OutCubic } }
+    Behavior on height { enabled: root.shown; NumberAnimation { duration: 92; easing.type: Easing.OutCubic } }
+    Behavior on opacity { NumberAnimation { duration: shown ? 105 : 55; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: root.closing ? 0 : 105; easing.type: Easing.OutCubic } }
 
     readonly property color textPrimary: theme.foreground
     readonly property color textSecondary: theme.alpha(theme.muted, 0.78)

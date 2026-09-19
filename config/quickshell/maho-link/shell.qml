@@ -11,15 +11,20 @@ ShellRoot {
     MahoLinkTheme { id: theme }
     MahoLinkState { id: wifi }
     BluetoothState { id: bluetooth }
-    LinkBackdrop { id: backdrop; active: root.backdropActive }
+    LinkBackdrop {
+        id: backdrop
+        active: root.backdropActive
+        shown: root.backdropVisible
+    }
 
     // Keep compositor blur on its own stable plane. The old architecture put
     // blur on the same full-screen surface whose dim layer and Link card were
     // animating, so Hyprland continuously recomputed the blur mask during the
     // entrance motion. That reads as a second/ghost layer under both Wi-Fi and
-    // Bluetooth. The backdrop now exists before the foreground reveals and is
-    // unmapped immediately when dismissal begins.
+    // Bluetooth. The backdrop now exists before foreground reveal, fades out
+    // over one very short frame window, then unmaps completely.
     property bool backdropActive: true
+    property bool backdropVisible: false
     property bool presented: false
     property bool overlayOpen: false
     property bool dragging: false
@@ -239,6 +244,7 @@ ShellRoot {
         if (activeMode === "wifi" && !wifi.statusReady)
             return
         applyPlacement()
+        linkSurface.closing = false
         linkSurface.shown = true
         linkSurface.forceActiveFocus()
     }
@@ -249,8 +255,10 @@ ShellRoot {
         idleRetireTimer.stop()
         closeAfterPlacementSave = false
         backdropActive = true
+        backdropVisible = false
         presented = true
         overlayOpen = true
+        Qt.callLater(function() { root.backdropVisible = true })
         if (placementSave.running || placementSavePending) {
             modeAfterPlacementSave = requestedMode !== activeMode ? requestedMode : ""
             return true
@@ -258,9 +266,10 @@ ShellRoot {
         const modeChanged = requestedMode !== activeMode
 
         // Hide the old geometry before switching section. Bluetooth is taller
-        // than compact Wi-Fi, and changing section while the card is visible
-        // lets the existing 190 ms height behavior paint a growing second edge
-        // underneath the entrance animation.
+        // than compact Wi-Fi, so switching section while visible can paint a
+        // growing second edge. Hide first; hidden geometry now snaps instantly
+        // to its final size before the short entrance animation.
+        linkSurface.closing = true
         linkSurface.shown = false
         activeMode = requestedMode
         linkSurface.page = "main"
@@ -292,8 +301,9 @@ ShellRoot {
         if (!overlayOpen)
             return
         modeAfterPlacementSave = ""
-        backdropActive = false
+        backdropVisible = false
         overlayOpen = false
+        linkSurface.closing = true
         linkSurface.shown = false
         if (placementSave.running || placementSavePending) {
             closeAfterPlacementSave = true
@@ -324,6 +334,7 @@ ShellRoot {
         function retire(nextIdentity: string): bool {
             if (nextIdentity === root.runtimeIdentity)
                 return false
+            root.backdropVisible = false
             root.backdropActive = false
             root.overlayOpen = false
             root.presented = false
@@ -359,9 +370,11 @@ ShellRoot {
 
     Timer {
         id: closeTimer
-        interval: 65
+        interval: 68
         onTriggered: {
             root.presented = false
+            root.backdropActive = false
+            linkSurface.closing = false
             idleRetireTimer.restart()
         }
     }
@@ -374,6 +387,26 @@ ShellRoot {
             if (!root.presented && !root.overlayOpen)
                 Qt.quit()
         }
+    }
+
+    PanelWindow {
+        id: warmKeepalive
+
+        anchors {
+            top: true
+            left: true
+        }
+        implicitWidth: 1
+        implicitHeight: 1
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        focusable: false
+        visible: true
+        mask: Region {}
+
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.namespace: "maho-link-keepalive"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     }
 
     PanelWindow {
@@ -390,7 +423,7 @@ ShellRoot {
         aboveWindows: true
         focusable: root.overlayOpen
         exclusionMode: ExclusionMode.Ignore
-        visible: true
+        visible: root.presented
         mask: Region { item: root.overlayOpen ? dimPlane : null }
 
         onWidthChanged: {
@@ -414,7 +447,7 @@ ShellRoot {
             color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.16 : 0)
             Behavior on color {
                 ColorAnimation {
-                    duration: root.overlayOpen ? 70 : 0
+                    duration: root.overlayOpen ? 72 : 48
                     easing.type: Easing.OutCubic
                 }
             }

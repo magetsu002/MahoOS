@@ -29,14 +29,12 @@ for file in "$SHELL_QML" "$BACKDROP" "$LINK_VIEW" "$DECORATIONS"; do
 done
 
 echo '=== dedicated Link blur plane ==='
-require "$SHELL_QML" 'LinkBackdrop { id: backdrop; active: root.backdropActive }' \
-    'Link does not own a dedicated compositor blur carrier'
+require "$SHELL_QML" 'shown: root.backdropVisible' \
+    'Link blur carrier has no fade state'
 require "$SHELL_QML" 'property bool backdropActive: true' \
     'Link blur carrier is not committed before foreground reveal'
 require "$SHELL_QML" 'backdropActive = true' \
     'Link reopen path does not restore blur carrier'
-require "$SHELL_QML" 'backdropActive = false' \
-    'Link close path does not unmap blur carrier immediately'
 
 require "$BACKDROP" 'WlrLayershell.namespace: "maho-link-backdrop"' \
     'Link backdrop namespace missing'
@@ -46,6 +44,10 @@ require "$BACKDROP" 'mask: Region {}' \
     'Link blur carrier can intercept input'
 require "$BACKDROP" 'Qt.rgba(0, 0, 0, 0.008)' \
     'Link blur carrier alpha is not stable'
+require "$BACKDROP" 'property bool shown: false' \
+    'Link backdrop has no explicit fade visibility state'
+require "$BACKDROP" 'duration: root.shown ? 70 : 52' \
+    'Link backdrop close is not a short fade'
 
 echo PASS
 
@@ -61,19 +63,35 @@ echo PASS
 echo '=== foreground motion preserved ==='
 require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link"' \
     'interactive Link namespace changed unexpectedly'
-require "$LINK_VIEW" 'scale: shown ? 1 : 0.998' \
-    'accepted Link panel scale motion was removed'
-require "$LINK_VIEW" 'y: root.shown ? 0 : -3' \
-    'accepted Link panel translation motion was removed'
+require "$LINK_VIEW" 'scale: shown ? 1 : (closing ? 1 : 0.988)' \
+    'Link no longer has a distinct open-only scale intro'
+require "$LINK_VIEW" 'y: root.shown ? 0 : (root.closing ? 0 : -8)' \
+    'Link no longer has a distinct open-only lift intro'
 require "$LINK_VIEW" 'Behavior on opacity' \
     'accepted Link opacity motion was removed'
 echo PASS
+require "$LINK_VIEW" 'property bool closing: false' \
+    'Link cannot distinguish intro motion from close-only fade'
+require "$SHELL_QML" 'backdropVisible = false' \
+    'Link close does not begin compositor blur fade immediately'
+require "$SHELL_QML" 'root.backdropActive = false' \
+    'Link blur carrier does not unmap after the close fade'
+require "$SHELL_QML" 'visible: root.presented' \
+    'interactive full-screen Link overlay remains mapped while warm-hidden'
+require "$SHELL_QML" 'namespace: "maho-link-keepalive"' \
+    'Link warm residency still depends on a full-screen overlay'
+require "$SHELL_QML" 'implicitWidth: 1' \
+    'Link keepalive is not bounded to a tiny compositor surface'
 
 echo '=== Bluetooth final-geometry reveal ==='
-require "$LINK_VIEW" 'Behavior on height { enabled: root.shown;'     'hidden Link geometry still animates and requires an artificial reveal delay'
-require "$SHELL_QML" 'Qt.callLater(root.revealSurfaceWhenReady)'     'Bluetooth does not reveal on the next event turn after hidden geometry snaps'
-reject "$SHELL_QML" 'bluetoothRevealTimer'     'Bluetooth still carries the old artificial geometry wait'
-reject "$SHELL_QML" 'bluetoothGeometryReady'     'Bluetooth still carries the old geometry gate'
+require "$LINK_VIEW" 'Behavior on height { enabled: root.shown;' \
+    'hidden Link geometry still animates and requires an artificial reveal delay'
+require "$SHELL_QML" 'Qt.callLater(root.revealSurfaceWhenReady)' \
+    'Bluetooth does not reveal on the next event turn after hidden geometry snaps'
+reject "$SHELL_QML" 'bluetoothRevealTimer' \
+    'Bluetooth still carries the old artificial geometry wait'
+reject "$SHELL_QML" 'bluetoothGeometryReady' \
+    'Bluetooth still carries the old geometry gate'
 echo PASS
 
 echo '=== authoritative Escape dismissal ==='

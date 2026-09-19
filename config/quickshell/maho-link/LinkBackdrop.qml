@@ -6,6 +6,7 @@ PanelWindow {
     id: root
 
     property bool active: true
+    property bool shown: false
 
     anchors {
         top: true
@@ -31,5 +32,12 @@ PanelWindow {
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.008)
+        opacity: root.shown ? 1 : 0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: root.shown ? 70 : 52
+                easing.type: Easing.OutCubic
+            }
+        }
     }
 }
