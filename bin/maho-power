@@ -186,7 +186,7 @@ run_action() {
             switch_user
             ;;
         logout)
-            exec hyprctl dispatch exit
+            exec hyprctl dispatch 'hl.dsp.exit()'
             ;;
         restart)
             exec systemctl reboot

@@ -151,7 +151,7 @@ require_text "$RUNTIME" 'exec "$HOME/.local/bin/maho-lock"' 'Lock does not route
 reject_text "$RUNTIME" 'hyprlock' 'Power must not bypass secure Maho Lock with hyprlock'
 require_text "$RUNTIME" 'exec systemctl suspend' 'Sleep action missing'
 require_text "$RUNTIME" 'SwitchToGreeter' 'Switch User display-manager action missing'
-require_text "$RUNTIME" 'exec hyprctl dispatch exit' 'Log Out action missing'
+require_text "$RUNTIME" "exec hyprctl dispatch 'hl.dsp.exit()'" 'Log Out action does not use current Hyprland Lua dispatcher syntax'
 require_text "$RUNTIME" 'exec systemctl reboot' 'Restart action missing'
 require_text "$RUNTIME" 'exec systemctl poweroff' 'Shut Down action missing'
 require_text "$RUNTIME" 'maho-power action {lock|sleep|switch-user|logout|restart|shutdown}' 'runtime action surface is not explicitly bounded'

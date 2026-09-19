@@ -57,7 +57,7 @@ restore_waybar() {
     shell_running && return 0
 
     if command -v hyprctl >/dev/null 2>&1 && ! pgrep -x waybar >/dev/null 2>&1; then
-        hyprctl dispatch exec waybar >/dev/null 2>&1 || true
+        hyprctl dispatch 'hl.dsp.exec_cmd("waybar")' >/dev/null 2>&1 || true
     fi
 }
 
