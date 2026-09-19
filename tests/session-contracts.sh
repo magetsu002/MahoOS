@@ -6,6 +6,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION_LUA="$ROOT/config/hypr/maho/core/session.lua"
 HYPRLAND_LUA="$ROOT/config/hypr/hyprland.lua"
 SESSION_BIN="$ROOT/bin/maho-session"
+SESSION_LAUNCH="$ROOT/bin/maho-session-launch"
 TARGET="$ROOT/systemd/user/maho-hyprland-session.target"
 AWWW_UNIT="$ROOT/systemd/user/maho-awww-daemon.service"
 WALLPAPER_UNIT="$ROOT/systemd/user/maho-wallpaper.service"
@@ -55,6 +56,52 @@ require_text "$SHELL_BIN" 'trap restore_waybar EXIT INT TERM' \
     "Maho Shell crash fallback is no longer armed"
 echo "PASS"
 
+echo "=== SDDM compositor lifecycle authority ==="
+require_text "$ROOT/config/sddm/maho.desktop" 'Name=MahoOS' \
+    "MahoOS has no explicit SDDM session"
+require_text "$ROOT/config/sddm/maho.desktop" 'Exec=/usr/local/lib/maho/maho-session-launch' \
+    "SDDM session bypasses the Maho compositor lifecycle wrapper"
+require_text "$SESSION_LAUNCH" '# managed-by: maho-sddm-session v1' \
+    "session lifecycle wrapper lost its ownership marker"
+require_text "$SESSION_LAUNCH" 'stop_maho_session' \
+    "compositor exit no longer stops the Maho graphical target"
+require_text "$SESSION_LAUNCH" 'trap cleanup EXIT' \
+    "compositor crash/logout cleanup is not guaranteed"
+require_text "$SESSION_LAUNCH" 'export XDG_SESSION_DESKTOP="maho"' \
+    "Maho session identity is not exported"
+
+WRAPPER_TMP="$(mktemp -d)"
+trap 'rm -rf "${WRAPPER_TMP:-}" "${TMP:-}"' EXIT
+mkdir -p "$WRAPPER_TMP/bin"
+cat >"$WRAPPER_TMP/bin/compositor" <<'EOF_COMPOSITOR'
+#!/usr/bin/env bash
+exit "${MAHO_TEST_COMPOSITOR_STATUS:-0}"
+EOF_COMPOSITOR
+cat >"$WRAPPER_TMP/bin/session" <<'EOF_SESSION'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >>"$MAHO_TEST_SESSION_LOG"
+EOF_SESSION
+chmod +x "$WRAPPER_TMP/bin/compositor" "$WRAPPER_TMP/bin/session"
+MAHO_TEST_SESSION_LOG="$WRAPPER_TMP/session.log" \
+MAHO_COMPOSITOR_COMMAND="$WRAPPER_TMP/bin/compositor" \
+MAHO_SESSION_CONTROLLER="$WRAPPER_TMP/bin/session" \
+    "$SESSION_LAUNCH"
+grep -Fxq stop "$WRAPPER_TMP/session.log" \
+    || fail "normal compositor exit did not stop the Maho session target"
+set +e
+MAHO_TEST_COMPOSITOR_STATUS=23 \
+MAHO_TEST_SESSION_LOG="$WRAPPER_TMP/session-failed.log" \
+MAHO_COMPOSITOR_COMMAND="$WRAPPER_TMP/bin/compositor" \
+MAHO_SESSION_CONTROLLER="$WRAPPER_TMP/bin/session" \
+    "$SESSION_LAUNCH"
+wrapper_status=$?
+set -e
+[ "$wrapper_status" -eq 23 ] || fail "compositor failure status was not preserved"
+grep -Fxq stop "$WRAPPER_TMP/session-failed.log" \
+    || fail "failed compositor did not stop the Maho session target"
+rm -rf "$WRAPPER_TMP"
+echo "PASS"
+
 echo "=== durable session controller ==="
 require_text "$SESSION_BIN" 'systemd_available()' \
     "systemd user-manager readiness check was dropped"
@@ -72,10 +119,40 @@ require_text "$SESSION_BIN" 'maho-clipboard-history.service' \
     "session controller no longer includes Clipboard history capture"
 require_text "$SESSION_BIN" 'systemctl --user reset-failed' \
     "session controller no longer clears recoverable graphical failures"
+require_text "$SESSION_BIN" 'quiesce_portals()' \
+    "session controller no longer quiesces portals during the logged-out gap"
+require_text "$SESSION_BIN" 'systemctl --user mask --runtime "${units[@]}"' \
+    "portal services are not runtime-masked while no graphical session exists"
+require_text "$SESSION_BIN" 'systemctl --user unmask --runtime "${units[@]}"' \
+    "portal services are not unmasked when the next graphical session starts"
+require_text "$SESSION_BIN" 'reconcile_portals()' \
+    "session controller no longer reconciles portals after graphical environment import"
+require_text "$SESSION_BIN" 'xdg-desktop-portal-hyprland.service' \
+    "Hyprland portal is not part of login reconciliation"
+require_text "$SESSION_BIN" 'xdg-desktop-portal-gtk.service' \
+    "GTK portal is not part of login reconciliation"
+require_text "$SESSION_BIN" 'systemctl --user restart "${backends[@]}"' \
+    "portal backends are not restarted after the new Wayland environment is imported"
+require_text "$SESSION_BIN" 'systemctl --user restart xdg-desktop-portal.service' \
+    "portal broker is not restarted after backend reconciliation"
+portal_import_line="$(grep -nF 'import_graphical_environment' "$SESSION_BIN" | tail -1 | cut -d: -f1)"
+portal_reconcile_line="$(grep -nF 'reconcile_portals || portal_rc=$?' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+portal_target_line="$(grep -nF 'systemctl --user start "$TARGET"' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+[ -n "$portal_import_line" ] && [ -n "$portal_reconcile_line" ] && [ -n "$portal_target_line" ] \
+    && [ "$portal_import_line" -lt "$portal_reconcile_line" ] \
+    && [ "$portal_reconcile_line" -lt "$portal_target_line" ] \
+    || fail "portal reconciliation is not ordered between environment import and Maho target start"
 require_text "$SESSION_BIN" 'systemctl --user start "$TARGET"' \
     "Maho session start no longer starts its target"
 require_text "$SESSION_BIN" 'systemctl --user stop "$TARGET"' \
     "Maho session stop no longer stops its target"
+portal_target_stop_line="$(grep -nF 'systemctl --user stop "$TARGET"' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+portal_quiesce_line="$(grep -nF 'quiesce_portals || {' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+portal_unset_line="$(grep -nF 'systemctl --user unset-environment' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+[ -n "$portal_target_stop_line" ] && [ -n "$portal_quiesce_line" ] && [ -n "$portal_unset_line" ] \
+    && [ "$portal_target_stop_line" -lt "$portal_quiesce_line" ] \
+    && [ "$portal_quiesce_line" -lt "$portal_unset_line" ] \
+    || fail "portal quiesce is not ordered between Maho target stop and graphical environment removal"
 require_text "$SESSION_BIN" 'systemctl --user unset-environment' \
     "session shutdown no longer clears graphical environment"
 require_text "$SESSION_BIN" 'archive_hyprland_log' \
@@ -172,8 +249,35 @@ require_text "$CLIPBOARD_HISTORY_UNIT" 'ExecStart=%h/.local/bin/maho-clipboard-h
     "Clipboard history service bypasses the accepted capture owner"
 echo "PASS"
 
+echo "=== clean Clipboard capture teardown ==="
+CLIPBOARD_TMP="$(mktemp -d)"
+mkdir -p "$CLIPBOARD_TMP/bin" "$CLIPBOARD_TMP/runtime"
+cat >"$CLIPBOARD_TMP/bin/wl-paste" <<'EOF_WL_PASTE'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+EOF_WL_PASTE
+cat >"$CLIPBOARD_TMP/bin/cliphist" <<'EOF_CLIPHIST'
+#!/usr/bin/env bash
+exit 0
+EOF_CLIPHIST
+chmod +x "$CLIPBOARD_TMP/bin/wl-paste" "$CLIPBOARD_TMP/bin/cliphist"
+PATH="$CLIPBOARD_TMP/bin:$PATH" XDG_RUNTIME_DIR="$CLIPBOARD_TMP/runtime" \
+    "$ROOT/bin/maho-clipboard-history" serve \
+    >"$CLIPBOARD_TMP/stdout" 2>"$CLIPBOARD_TMP/stderr" &
+clipboard_pid=$!
+sleep 0.1
+kill -TERM "$clipboard_pid"
+wait "$clipboard_pid" || fail "expected Clipboard termination was reported as a failure"
+if grep -Fq 'unbound variable' "$CLIPBOARD_TMP/stderr"; then
+    fail "Clipboard teardown still dereferences an uninitialized child PID"
+fi
+rm -rf "$CLIPBOARD_TMP"
+echo "PASS"
+
 echo "=== syntax ==="
 bash -n "$SESSION_BIN"
+bash -n "$SESSION_LAUNCH"
 echo "PASS"
 
 echo "ALL MAHO SESSION CONTRACTS PASS"

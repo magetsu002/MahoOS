@@ -30,6 +30,8 @@ from maho_adaptive_resolver import ResolvedPosture, resolve_posture
 from maho_adaptive_situation import SituationSnapshot, UNKNOWN, build_situation
 from maho_adaptive_thermal import thermal_proposals
 from maho_adaptive_workload import workload_proposals
+from guardian_completion_status import enrich_status as enrich_guardian_status
+from guardian_live_state import LivePaths, live_status as guardian_live_status
 
 SCHEMA_VERSION = 1
 DEFAULT_INTERVAL = 30.0
@@ -223,24 +225,33 @@ def read_maintenance(now: datetime) -> Mapping[str, Any] | None:
     return {"observed_at": stamp(now), "data": data}
 
 def read_guardian(now: datetime) -> Mapping[str, Any] | None:
-    sec_root = Path(os.environ.get("MAHO_SECURITY_STATE_ROOT", str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home()/'.local/state'))) / "maho/security")))
-    active = sec_root / "guardian" / "active"
-    if not active.is_dir():
+    try:
+        paths = LivePaths.defaults()
+        payload = enrich_guardian_status(guardian_live_status(paths, now=now), paths.security_root)
+    except (OSError, ValueError, json.JSONDecodeError):
         return None
-    rows = [value for path in sorted(active.glob("*.json")) if (value := read_json(path)) is not None]
-    levels = [int((((row.get("decision") or {}).get("severity") or {}).get("level", 0))) for row in rows]
-    recovering = any(
-        ((row.get("decision") or {}).get("execution_mode") in {"automatic", "delegated"})
-        and (((row.get("decision") or {}).get("recovery") or {}).get("action") not in {None, "diagnose-only", "diagnose-service-incident"})
-        for row in rows
-    )
+    rows = payload.get("active_incidents") if isinstance(payload.get("active_incidents"), list) else []
+    world = payload.get("world_state") if isinstance(payload.get("world_state"), Mapping) else {}
+    guardian = world.get("guardian") if isinstance(world.get("guardian"), Mapping) else {}
+    severity = guardian.get("severity") if isinstance(guardian.get("severity"), Mapping) else {}
+    reliability = payload.get("reliability") if isinstance(payload.get("reliability"), Mapping) else {}
+    recovery = payload.get("recovery") if isinstance(payload.get("recovery"), Mapping) else {}
+    level = severity.get("level")
+    if not isinstance(level, int) or isinstance(level, bool):
+        level = 0
+    trust = guardian.get("trust") if isinstance(guardian.get("trust"), Mapping) else {}
+    recovering = trust.get("state") == "RECOVERING" or recovery.get("in_progress") is True
+    # Canonical reliability is its own authority. Guardian self-health and trust
+    # remain visible elsewhere, but missing boot/trust proof must not be
+    # re-labelled as a reliability failure and permanently veto maintenance.
+    unresolved_reliability = reliability.get("state") != "healthy"
     data = {
         "active_incident": bool(rows),
-        "severity_level": max(levels, default=0),
+        "severity_level": level,
         "recovery_in_progress": recovering,
-        "unresolved_reliability": bool(rows),
+        "unresolved_reliability": unresolved_reliability,
     }
-    return {"observed_at": stamp(now), "data": data}
+    return {"observed_at": payload.get("captured_at") or stamp(now), "data": data}
 
 def _intent_values(root: Path) -> dict[str, Any]:
     merged: dict[str, Any] = {}

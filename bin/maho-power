@@ -186,7 +186,10 @@ run_action() {
             switch_user
             ;;
         logout)
-            exec hyprctl dispatch exit
+            if [ -x "$HOME/.local/bin/maho-session" ]; then
+                "$HOME/.local/bin/maho-session" stop || return 1
+            fi
+            exec hyprctl dispatch 'hl.dsp.exit()'
             ;;
         restart)
             exec systemctl reboot

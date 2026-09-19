@@ -35,7 +35,8 @@ jobs:
           assert p['boot']['manager'] == 'limine'
           assert p['boot']['default_kernel'] == 'linux-cachyos'
           assert p['boot']['recovery_kernel'] == 'linux-cachyos-lts'
-          assert p['boot']['snapshot_integration'] == 'limine-snapper-sync'
+          assert p['boot']['trusted_config_writer'] == 'maho-signed-boot-publication'
+          assert p['boot']['snapshot_integration'] == 'recovery-input-only'
           assert p['boot']['kernel_update_snapshot_restore_certified'] is True
           assert p['boot']['boot_state_transaction_required'] is True
           assert p['update']['native_execution_certified'] is False
@@ -49,6 +50,17 @@ jobs:
           assert p['adaptive']['service_enabled'] is True
           assert p['system_states']['filesystem'] == 'btrfs'
           assert p['system_states']['home_rollback_policy'] == 'exclude-personal-data-by-default'
+          assert p['system_states']['snapshot_retention_authority'] == 'snapper-cleanup-policy'
+          assert p['system_states']['recovery_eligibility_authority'] == 'guardian'
+          assert p['system_states']['maximum_boot_candidates'] == 10
+          assert p['system_states']['retained_snapshot_count_independent_of_boot_candidates'] is True
+          fw = p['network']['firewall']
+          assert fw['ownership_model'] == 'maho-minimal-host-input'
+          assert fw['physical_activation_certified'] is False
+          assert fw['owned_table'] == 'inet maho_host'
+          assert fw['owned_hooks'] == ['input']
+          assert fw['unowned_hooks'] == ['forward', 'output']
+          assert fw['default_input_policy'] == 'drop'
           assert p['recovery']['prefer_smallest_effective_scope'] is True
           assert p['recovery']['destructive_actions_require_confirmation'] is True
           PY
@@ -64,6 +76,14 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/platform-doctor.sh
+          bash tests/platform-hardening-contracts.sh
+          bash tests/platform-transaction-contracts.sh
+          python tests/reliability-policy-contracts.py
+          bash tests/storage-health-contracts.sh
+          bash tests/firewall-certification-contracts.sh
+          bash tests/firewall-policy-netns.sh
+          bash tests/firewall-transaction-netns.sh
+          bash tests/memory-certification-contracts.sh
 
       - name: Read-only recovery generation contracts
         shell: bash
@@ -119,11 +139,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n bin/maho-platform bin/maho-recovery bin/maho-recovery-overlay-install bin/maho-l3-campaign bin/maho-l3-campaign-install bin/maho-update-campaign bin/maho-update-campaign-install bin/maho-adaptive lib/maho-recovery-overlay tests/platform-doctor.sh tests/recovery-console.sh tests/recovery-overlay.sh tests/l3-campaign-install.sh tests/m4b-campaign-install.sh tests/adaptive-actuator-contracts.sh adapters/notifications/adaptive-quiet.sh
+          python -m py_compile lib/maho_firewall_transaction.py lib/maho_memory_certify.py
+          bash -n bin/maho-platform bin/maho-platform-install bin/maho-recovery bin/maho-recovery-overlay-install bin/maho-l3-campaign bin/maho-l3-campaign-install bin/maho-update-campaign bin/maho-update-campaign-install bin/maho-adaptive lib/maho-recovery-overlay tests/platform-doctor.sh tests/platform-hardening-contracts.sh tests/platform-transaction-contracts.sh tests/recovery-console.sh tests/recovery-overlay.sh tests/l3-campaign-install.sh tests/m4b-campaign-install.sh tests/adaptive-actuator-contracts.sh adapters/notifications/adaptive-quiet.sh
           python - <<'PY'
           import ast
           import pathlib
-          for file in ('lib/maho_recovery_policy.py', 'lib/maho_recovery_generation.py', 'lib/maho_recovery_discovery.py', 'lib/maho_recovery_cli.py', 'lib/maho_system_restore.py', 'lib/maho_system_restore_cli.py', 'lib/maho_system_restore_evidence.py', 'lib/maho_system_restore_journal.py', 'lib/maho_system_restore_provider.py', 'lib/maho_system_restore_transaction.py', 'lib/maho_system_restore_preparation.py', 'lib/maho_system_restore_host.py', 'lib/maho_system_restore_runtime.py', 'lib/maho_system_restore_campaign.py', 'tests/recovery-policy.py', 'tests/test_recovery_generations.py', 'tests/test_recovery_cli.py', 'tests/test_system_restore.py', 'tests/test_system_restore_evidence.py', 'tests/test_system_restore_journal.py', 'tests/test_system_restore_provider.py', 'tests/test_system_restore_transaction.py', 'tests/test_system_restore_preparation.py', 'tests/test_system_restore_host.py', 'tests/test_system_restore_runtime.py', 'tests/test_system_restore_campaign.py'):
+          for file in ('lib/maho_platform_install.py', 'lib/maho_recovery_policy.py', 'lib/maho_recovery_generation.py', 'lib/maho_recovery_discovery.py', 'lib/maho_recovery_cli.py', 'lib/maho_system_restore.py', 'lib/maho_system_restore_cli.py', 'lib/maho_system_restore_evidence.py', 'lib/maho_system_restore_journal.py', 'lib/maho_system_restore_provider.py', 'lib/maho_system_restore_transaction.py', 'lib/maho_system_restore_preparation.py', 'lib/maho_system_restore_host.py', 'lib/maho_system_restore_runtime.py', 'lib/maho_system_restore_campaign.py', 'tests/recovery-policy.py', 'tests/test_recovery_generations.py', 'tests/test_recovery_cli.py', 'tests/test_system_restore.py', 'tests/test_system_restore_evidence.py', 'tests/test_system_restore_journal.py', 'tests/test_system_restore_provider.py', 'tests/test_system_restore_transaction.py', 'tests/test_system_restore_preparation.py', 'tests/test_system_restore_host.py', 'tests/test_system_restore_runtime.py', 'tests/test_system_restore_campaign.py'):
               ast.parse(pathlib.Path(file).read_text(), filename=file)
           for file in sorted(pathlib.Path('lib').glob('maho_adaptive_*.py')) + sorted(pathlib.Path('tests').glob('test_adaptive_*.py')):
               ast.parse(file.read_text(), filename=str(file))

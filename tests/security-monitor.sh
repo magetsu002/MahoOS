@@ -68,6 +68,23 @@ SNAPDIR="$STATE/provenance/snapshots"
 [ "$(stat -c '%a' "$STATE/monitor-v2/packages.json")" = 600 ]
 echo "PASS"
 
+echo "=== integrity throttle cannot suppress required provider freshness ==="
+INTEGRITY_PROVIDER="$STATE/guardian/providers/security.integrity.json"
+[ -s "$INTEGRITY_PROVIDER" ]
+rm -f "$INTEGRITY_PROVIDER"
+date +%s > "$STATE/monitor-v2/integrity-last-run"
+bash "$MONITOR" cycle
+[ -s "$INTEGRITY_PROVIDER" ]
+python - "$INTEGRITY_PROVIDER" <<'PY_INTEGRITY_HEARTBEAT'
+import json,sys
+from pathlib import Path
+value=json.loads(Path(sys.argv[1]).read_text())
+assert value.get("provider_id") == "security.integrity"
+assert value.get("last_attempt_at")
+assert value.get("sequence") == 1
+PY_INTEGRITY_HEARTBEAT
+echo "PASS"
+
 echo "=== identical package state is quiet ==="
 bash "$MONITOR" cycle
 [ "$(find "$SNAPDIR" -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 1 ]

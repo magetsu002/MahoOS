@@ -28,8 +28,8 @@ COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
-  maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust
-  maho-clipboard-history maho-lock-sddm-install maho-setup
+  maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
+  maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 PASSIVE_UNITS=()
@@ -275,7 +275,7 @@ preflight() {
     "$ROOT/lib/maho_update_receipts.py" "$ROOT/lib/maho_update_cli.py" \
     "$ROOT/lib/maho_update_admission.py" \
     "$ROOT/lib/maho_boot_authority.py" "$ROOT/lib/maho_secure_boot.py" \
-    "$ROOT/lib/guardian_update.py" "$ROOT"/lib/maho_adaptive_*.py \
+    "$ROOT/lib/guardian_update.py" "$ROOT/lib/maho_platform_install.py" "$ROOT"/lib/maho_adaptive_*.py \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
@@ -684,6 +684,29 @@ install_sddm() {
   sudo env MAHO_SDDM_USER="$account" bash "$installer" status
 }
 
+install_platform() {
+  local account runtime installer
+
+  [ "$(id -u)" -ne 0 ] || {
+    die "run maho-setup as the desktop user; --with-platform requests root only for managed system policy"
+    return 1
+  }
+  command -v sudo >/dev/null 2>&1 || {
+    die "--with-platform requires sudo"
+    return 1
+  }
+  runtime="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  [ -n "$runtime" ] && [ -d "$runtime" ] || {
+    die "installed runtime is unavailable for platform integration"
+    return 1
+  }
+  installer="$runtime/bin/maho-platform-install"
+  account="$(id -un)"
+
+  sudo env MAHO_PLATFORM_USER="$account" bash "$installer" install
+  sudo env MAHO_PLATFORM_USER="$account" bash "$installer" status
+}
+
 status() {
   local failed=0 name
   [ -L "$CURRENT" ] && [ -d "$CURRENT" ] || { echo "FAIL  runtime current"; failed=1; }
@@ -728,17 +751,21 @@ case "${1:-}" in
   install)
     shift
     with_sddm=0
+    with_platform=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --adopt-live) ;;
         --with-sddm) with_sddm=1 ;;
+        --with-platform) with_platform=1 ;;
         *) die "unknown install option: $1"; exit 2 ;;
       esac
       shift
     done
     [ "$with_sddm" -eq 0 ] || bash "$ROOT/bin/maho-lock-sddm-install" preflight
+    [ "$with_platform" -eq 0 ] || bash "$ROOT/bin/maho-platform-install" preflight
     install_runtime
     [ "$with_sddm" -eq 0 ] || install_sddm
+    [ "$with_platform" -eq 0 ] || install_platform
     ;;
   preflight) preflight ;;
   status) status ;;
@@ -749,7 +776,7 @@ Maho OS durable V1 runtime setup
 
 Usage:
   bash bin/maho-setup preflight
-  bash bin/maho-setup install [--adopt-live] [--with-sddm]
+  bash bin/maho-setup install [--adopt-live] [--with-sddm] [--with-platform]
   maho-setup status
   maho-setup rollback
   maho-setup uninstall
@@ -767,6 +794,9 @@ configuration.
 --adopt-live is retained for compatibility and does not bypass validation.
 --with-sddm explicitly installs and verifies the persistent Maho Lock greeter
 without restarting SDDM or the current graphical session.
+--with-platform installs the singleton Secret Service activation, explicit
+Hyprland portal selection, RTKit, and systemd-timesyncd clock authority. It
+does not restart the current graphical session.
 HELP
   ;;
 esac

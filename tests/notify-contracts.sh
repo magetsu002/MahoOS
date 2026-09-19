@@ -95,6 +95,20 @@ if grep -Fq '.invoke()' "$NOTIFY_DIR/HistoryRow.qml"; then
 fi
 require_text "$NOTIFY_DIR/shell.qml" 'exclusionMode: ExclusionMode.Ignore' "center may reserve compositor space"
 require_text "$NOTIFY_DIR/shell.qml" 'visible: root.centerPresented' "center close animation does not remain independently presented"
+require_text "$NOTIFY_DIR/shell.qml" 'Loader {' "notification center visual tree is not lazy-loaded"
+require_text "$NOTIFY_DIR/shell.qml" 'active: root.centerPresented' "notification center loader does not unload after close animation"
+require_text "$NOTIFY_DIR/shell.qml" 'sourceComponent: Component {' "notification center is not isolated behind a loader component"
+require_text "$NOTIFY_DIR/shell.qml" 'mask: Region { item: centerLoader.item }' "notification center mask is not bound to the current lazy instance"
+require_text "$NOTIFY_DIR/shell.qml" 'function centerLoaded(): bool' "notification center lazy lifecycle is not observable for regression checks"
+require_text "$NOTIFY_DIR/shell.qml" 'return centerLoader.item !== null' "notification center loaded state is not exact"
+python - "$NOTIFY_DIR/shell.qml" <<'PY_LAZY'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+assert s.count('NotificationCenter {') == 1, 'duplicate center visual object definition'
+assert s.index('NotificationService {') < s.index('Loader {'), 'background notification authority moved into lazy visual lifecycle'
+assert s.index('sourceComponent: Component {') < s.index('NotificationCenter {'), 'center is not loader-owned'
+PY_LAZY
 require_text "$RUNTIME" 'open_center' "center runtime command missing"
 echo "PASS"
 

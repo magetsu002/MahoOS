@@ -204,6 +204,61 @@ python "$PROBE" persistence check \
 python -c 'import json,sys; assert json.load(sys.stdin)["result"] == "clean"'
 echo "PASS"
 
+echo "=== package-declared system enablement is attributed narrowly ==="
+mkdir -p \
+    "$MAHO_PACMAN_DB_ROOT/gpu-utils-1.0-1" \
+    "$MAHO_FS_ROOT/usr/lib/systemd/system" \
+    "$MAHO_FS_ROOT/etc/systemd/system/sleep.target.wants" \
+    "$MAHO_FS_ROOT/etc/systemd/system/multi-user.target.wants"
+printf '[Service]\nExecStart=/usr/bin/true\n' > "$MAHO_FS_ROOT/usr/lib/systemd/system/gpu-sleep.service"
+printf '[Service]\nExecStart=/usr/bin/true\n' > "$MAHO_FS_ROOT/usr/lib/systemd/system/gpu-power.service"
+SLEEP_SHA="$(sha256sum "$MAHO_FS_ROOT/usr/lib/systemd/system/gpu-sleep.service" | awk '{print $1}')"
+POWER_SHA="$(sha256sum "$MAHO_FS_ROOT/usr/lib/systemd/system/gpu-power.service" | awk '{print $1}')"
+cat > "$MAHO_PACMAN_DB_ROOT/gpu-utils-1.0-1/desc" <<'EOF_GPU_DESC'
+%NAME%
+gpu-utils
+
+%VERSION%
+1.0-1
+
+EOF_GPU_DESC
+cat > "$MAHO_PACMAN_DB_ROOT/gpu-utils-1.0-1/install" <<'EOF_GPU_INSTALL'
+post_install() {
+  systemctl enable gpu-sleep
+}
+post_upgrade() {
+  systemctl enable $service
+}
+EOF_GPU_INSTALL
+python - "$MAHO_PACMAN_DB_ROOT/gpu-utils-1.0-1/mtree" "$SLEEP_SHA" "$POWER_SHA" <<'PY_GPU_MTREE'
+import gzip,sys
+path,sleep_sha,power_sha=sys.argv[1:]
+with gzip.open(path,'wt') as f:
+    f.write(f'''#mtree
+./usr/lib/systemd/system/gpu-sleep.service type=file sha256digest={sleep_sha}
+./usr/lib/systemd/system/gpu-power.service type=file sha256digest={power_sha}
+''')
+PY_GPU_MTREE
+ln -s /usr/lib/systemd/system/gpu-sleep.service "$MAHO_FS_ROOT/etc/systemd/system/sleep.target.wants/gpu-sleep.service"
+ln -s /usr/lib/systemd/system/gpu-power.service "$MAHO_FS_ROOT/etc/systemd/system/multi-user.target.wants/gpu-power.service"
+PACKAGE_EXPECTED="$(python "$PROBE" persistence check --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" --db-root "$MAHO_PACMAN_DB_ROOT")"
+python - "$PACKAGE_EXPECTED" <<'PY_PACKAGE_EXPECTED'
+import json,sys
+r=json.loads(sys.argv[1])
+expected=[x for x in r['expected_changes'] if x.get('attribution',{}).get('classification')=='expected-package-enable']
+assert len(expected)==1,r
+assert expected[0]['path'].endswith('/gpu-sleep.service'),expected
+assert expected[0]['attribution']['owner']=='gpu-utils',expected
+unexpected={x['path'] for x in r['unexpected_added']}
+assert any(x.endswith('/gpu-power.service') for x in unexpected),r
+assert not any(x.endswith('/gpu-sleep.service') for x in unexpected),r
+assert r['attention_result']=='changed',r
+PY_PACKAGE_EXPECTED
+rm -f \
+    "$MAHO_FS_ROOT/etc/systemd/system/sleep.target.wants/gpu-sleep.service" \
+    "$MAHO_FS_ROOT/etc/systemd/system/multi-user.target.wants/gpu-power.service"
+echo "PASS"
+
 echo "=== exact verified Maho user-unit wiring is expected drift ==="
 python - "$ROOT" "$XDG_DATA_HOME" <<'PY_MAHO_RUNTIME'
 import json, os, pathlib, sys

@@ -17,7 +17,10 @@ def guardian_proposals(snapshot:SituationSnapshot,*,created_at:datetime|None=Non
  g=snapshot.guardian
  if g.freshness!="fresh": return ()
  severe=g.severity_level!=UNKNOWN and int(g.severity_level)>=2
- if not (g.active_incident is True or g.recovery_in_progress is True or g.unresolved_reliability is True or severe): return ()
+ # Guardian owns incident truth. A current L1 diagnostic remains visible but
+ # cannot become a permanent maintenance veto; only L2+, active recovery, or
+ # unresolved canonical reliability state has blocking authority.
+ if not (g.recovery_in_progress is True or g.unresolved_reliability is True or severe): return ()
  evidence=[f"incident={g.active_incident}",f"recovery={g.recovery_in_progress}",f"unresolved={g.unresolved_reliability}",f"severity={g.severity_level}"]
  effects=[Effect("maintenance","suspended")]
  if g.recovery_in_progress is True or (g.severity_level!=UNKNOWN and int(g.severity_level)>=3):

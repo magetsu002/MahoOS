@@ -17,6 +17,7 @@ def gs(level=0,incident=False,recovery=False,unresolved=False):
  return build_situation({"guardian":{"observed_at":F,"data":{"severity_level":level,"active_incident":incident,"recovery_in_progress":recovery,"unresolved_reliability":unresolved}}},captured_at=NOW)
 def main():
  assert guardian_proposals(gs(),created_at=NOW)==()
+ assert guardian_proposals(gs(1,True,False,False),created_at=NOW)==()
  rec=guardian_proposals(gs(3,True,True,True),created_at=NOW);fx={(e.key,e.value) for p in rec for e in p.requested_effects};assert ("maintenance","suspended") in fx and ("background_work","reduced") in fx
  # Adaptive suspension vetoes an otherwise native-eligible M4 opportunity.
  suspended=evaluate_maintenance(prepared(),project_m4_context(ctx(),{"maintenance":"suspended"}),now=NOW)

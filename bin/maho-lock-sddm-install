@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 THEME_SOURCE="$ROOT/config/sddm/maho-lock"
+SESSION_SOURCE="$ROOT/config/sddm/maho.desktop"
+SESSION_LAUNCH_SOURCE="$ROOT/bin/maho-session-launch"
 LOCK_ASSETS="$ROOT/config/quickshell/maho-lock/assets"
 LOCK_ICONS="$ROOT/config/quickshell/maho-lock/icons"
 
@@ -12,6 +14,10 @@ CONFIG_ROOT="${MAHO_SDDM_CONFIG_ROOT:-/etc/sddm.conf.d}"
 STATE_ROOT="${MAHO_SDDM_STATE_ROOT:-/var/lib/maho-lock-sddm}"
 THEME_TARGET="$THEME_ROOT/maho-lock"
 CONFIG_TARGET="$CONFIG_ROOT/90-maho-lock.conf"
+SESSION_ROOT="${MAHO_SDDM_SESSION_ROOT:-/usr/share/wayland-sessions}"
+SESSION_LAUNCH_ROOT="${MAHO_SDDM_SESSION_LAUNCH_ROOT:-/usr/local/lib/maho}"
+SESSION_TARGET="$SESSION_ROOT/maho.desktop"
+SESSION_LAUNCH_TARGET="$SESSION_LAUNCH_ROOT/maho-session-launch"
 MARKER="managed-by-maho-lock-sddm-v1"
 CONFIG_MARKER="# managed-by: maho-lock-sddm v1"
 
@@ -43,13 +49,25 @@ managed_config() {
     [ -f "$CONFIG_TARGET" ] && grep -Fxq "$CONFIG_MARKER" "$CONFIG_TARGET"
 }
 
+managed_session() {
+    [ -f "$SESSION_TARGET" ] && grep -Fxq 'Name=MahoOS' "$SESSION_TARGET" \
+        && grep -Fxq 'Exec=/usr/local/lib/maho/maho-session-launch' "$SESSION_TARGET"
+}
+
+managed_session_launcher() {
+    [ -f "$SESSION_LAUNCH_TARGET" ] \
+        && grep -Fxq '# managed-by: maho-sddm-session v1' "$SESSION_LAUNCH_TARGET"
+}
+
 require_root() {
     [ "$(id -u)" -eq 0 ] && return 0
 
     if [ "${MAHO_SDDM_ALLOW_UNPRIVILEGED:-0}" = 1 ] \
         && [ "$THEME_ROOT" != /usr/share/sddm/themes ] \
         && [ "$CONFIG_ROOT" != /etc/sddm.conf.d ] \
-        && [ "$STATE_ROOT" != /var/lib/maho-lock-sddm ]; then
+        && [ "$STATE_ROOT" != /var/lib/maho-lock-sddm ] \
+        && [ "$SESSION_ROOT" != /usr/share/wayland-sessions ] \
+        && [ "$SESSION_LAUNCH_ROOT" != /usr/local/lib/maho ]; then
         return 0
     fi
 
@@ -115,6 +133,12 @@ preflight() {
             && say "PASS  theme source $file" \
             || { say "FAIL  theme source $file"; failed=1; }
     done
+    [ -r "$SESSION_SOURCE" ] \
+        && say "PASS  MahoOS SDDM session source" \
+        || { say "FAIL  MahoOS SDDM session source"; failed=1; }
+    [ -x "$SESSION_LAUNCH_SOURCE" ] \
+        && say "PASS  MahoOS session lifecycle wrapper" \
+        || { say "FAIL  MahoOS session lifecycle wrapper"; failed=1; }
 
     grep -Fxq 'QtVersion=6' "$THEME_SOURCE/metadata.desktop" \
         && say "PASS  SDDM Qt 6 greeter selection" \
@@ -204,7 +228,8 @@ stage() {
 }
 
 install_theme() {
-    local stamp backup stage_path config_tmp had_theme=0 had_config=0 committed=0
+    local stamp backup stage_path config_tmp session_tmp launcher_tmp
+    local had_theme=0 had_config=0 had_session=0 had_launcher=0 committed=0
 
     require_root || return 1
     preflight || return 1
@@ -217,12 +242,22 @@ install_theme() {
         die "refusing to replace unmanaged config: $CONFIG_TARGET"
         return 1
     fi
+    if [ -e "$SESSION_TARGET" ] && ! managed_session; then
+        die "refusing to replace unmanaged session: $SESSION_TARGET"
+        return 1
+    fi
+    if [ -e "$SESSION_LAUNCH_TARGET" ] && ! managed_session_launcher; then
+        die "refusing to replace unmanaged session launcher: $SESSION_LAUNCH_TARGET"
+        return 1
+    fi
 
-    mkdir -p "$THEME_ROOT" "$CONFIG_ROOT" "$STATE_ROOT/backups"
+    mkdir -p "$THEME_ROOT" "$CONFIG_ROOT" "$STATE_ROOT/backups" "$SESSION_ROOT" "$SESSION_LAUNCH_ROOT"
     stamp="$(date +%Y%m%d-%H%M%S-%N)"
     backup="$STATE_ROOT/backups/$stamp"
     stage_path="$THEME_ROOT/.maho-lock.stage.$$"
     config_tmp="$CONFIG_ROOT/.90-maho-lock.conf.$$"
+    session_tmp="$SESSION_ROOT/.maho.desktop.$$"
+    launcher_tmp="$SESSION_LAUNCH_ROOT/.maho-session-launch.$$"
     mkdir -m 0700 "$backup" "$stage_path"
 
     build_theme "$stage_path"
@@ -235,14 +270,25 @@ install_theme() {
         mv "$CONFIG_TARGET" "$backup/90-maho-lock.conf"
         had_config=1
     fi
+    if managed_session; then
+        mv "$SESSION_TARGET" "$backup/maho.desktop"
+        had_session=1
+    fi
+    if managed_session_launcher; then
+        mv "$SESSION_LAUNCH_TARGET" "$backup/maho-session-launch"
+        had_launcher=1
+    fi
 
     rollback_install() {
         local rc=$?
         [ "$committed" -eq 1 ] && return "$rc"
         rm -rf -- "$THEME_TARGET" "$stage_path"
         rm -f -- "$CONFIG_TARGET" "$config_tmp"
+        rm -f -- "$SESSION_TARGET" "$session_tmp" "$SESSION_LAUNCH_TARGET" "$launcher_tmp"
         [ "$had_theme" -eq 1 ] && mv "$backup/theme" "$THEME_TARGET"
         [ "$had_config" -eq 1 ] && mv "$backup/90-maho-lock.conf" "$CONFIG_TARGET"
+        [ "$had_session" -eq 1 ] && mv "$backup/maho.desktop" "$SESSION_TARGET"
+        [ "$had_launcher" -eq 1 ] && mv "$backup/maho-session-launch" "$SESSION_LAUNCH_TARGET"
         return "$rc"
     }
     trap rollback_install EXIT
@@ -255,11 +301,17 @@ install_theme() {
     } > "$config_tmp"
     chmod 0644 "$config_tmp"
     mv "$config_tmp" "$CONFIG_TARGET"
+    install -m 0644 "$SESSION_SOURCE" "$session_tmp"
+    mv "$session_tmp" "$SESSION_TARGET"
+    install -m 0755 "$SESSION_LAUNCH_SOURCE" "$launcher_tmp"
+    mv "$launcher_tmp" "$SESSION_LAUNCH_TARGET"
 
     committed=1
     trap - EXIT
     say "PASS  installed SDDM theme $THEME_TARGET"
     say "PASS  selected persistent SDDM theme in $CONFIG_TARGET"
+    say "PASS  installed SDDM-owned MahoOS session $SESSION_TARGET"
+    say "PASS  installed compositor lifecycle wrapper $SESSION_LAUNCH_TARGET"
     say "PASS  no SDDM restart performed; the current graphical session is untouched"
     say "Backup: $backup"
 }
@@ -278,6 +330,18 @@ status() {
         say "PASS  persistent SDDM selection $CONFIG_TARGET"
     else
         say "FAIL  persistent SDDM selection missing"
+        failed=1
+    fi
+    if managed_session; then
+        say "PASS  SDDM MahoOS session authority $SESSION_TARGET"
+    else
+        say "FAIL  SDDM MahoOS session authority missing"
+        failed=1
+    fi
+    if managed_session_launcher; then
+        say "PASS  MahoOS compositor lifecycle wrapper $SESSION_LAUNCH_TARGET"
+    else
+        say "FAIL  MahoOS compositor lifecycle wrapper missing"
         failed=1
     fi
 
@@ -330,6 +394,14 @@ uninstall_theme() {
         die "refusing to remove unmanaged config: $CONFIG_TARGET"
         return 1
     fi
+    if [ -e "$SESSION_TARGET" ] && ! managed_session; then
+        die "refusing to remove unmanaged session: $SESSION_TARGET"
+        return 1
+    fi
+    if [ -e "$SESSION_LAUNCH_TARGET" ] && ! managed_session_launcher; then
+        die "refusing to remove unmanaged session launcher: $SESSION_LAUNCH_TARGET"
+        return 1
+    fi
 
     mkdir -p "$STATE_ROOT/backups"
     stamp="$(date +%Y%m%d-%H%M%S-%N)"
@@ -337,6 +409,8 @@ uninstall_theme() {
     mkdir -m 0700 "$backup"
     managed_theme && mv "$THEME_TARGET" "$backup/theme"
     managed_config && mv "$CONFIG_TARGET" "$backup/90-maho-lock.conf"
+    managed_session && mv "$SESSION_TARGET" "$backup/maho.desktop"
+    managed_session_launcher && mv "$SESSION_LAUNCH_TARGET" "$backup/maho-session-launch"
     say "PASS  removed managed SDDM selection and theme"
     say "Backup: $backup"
 }

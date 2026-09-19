@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import stat
 import sys
 import uuid
@@ -577,9 +578,96 @@ def _verified_maho_user_wiring(item: dict, home: Path, xdg_config: Path) -> dict
     }
 
 
-def _annotate_persistence_change(item: dict, home: Path, xdg_config: Path) -> dict:
+def _install_script_enables_unit(path: Path, unit: str) -> bool:
+    """Return true only for a literal, non-shell-expanded systemctl enable."""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return False
+    accepted = {unit, Path(unit).stem}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.endswith("\\"):
+            continue
+        try:
+            tokens = shlex.split(stripped, comments=True, posix=True)
+        except ValueError:
+            continue
+        if len(tokens) < 3 or Path(tokens[0]).name != "systemctl" or tokens[1] != "enable":
+            continue
+        arguments = tokens[2:]
+        if any(any(mark in token for mark in ("$", "`", ";", "&", "|")) for token in arguments):
+            continue
+        if accepted.intersection(token for token in arguments if not token.startswith("-")):
+            return True
+    return False
+
+
+def _verified_package_system_wiring(item: dict, db_root: Path, fs_root: Path) -> dict | None:
+    """Recognize exact system-unit enablement declared by an installed package.
+
+    Package ownership by itself is not enough. The link must target an intact
+    package-owned unit and the package install script must literally enable it.
+    """
+    if item.get("type") != "symlink" or item.get("kind") != "systemd-system":
+        return None
+    raw_path = item.get("path")
+    target = item.get("target")
+    if not isinstance(raw_path, str) or not isinstance(target, str):
+        return None
+    path = Path(raw_path)
+    try:
+        rel = path.relative_to(fs_root / "etc/systemd/system")
+    except ValueError:
+        return None
+    if len(rel.parts) != 2 or not rel.parts[0].endswith((".wants", ".requires")):
+        return None
+    unit = rel.name
+    if Path(target) != Path("/usr/lib/systemd/system") / unit:
+        return None
+    unit_rel = f"usr/lib/systemd/system/{unit}"
+    unit_path = fs_root / unit_rel
+    if not unit_path.is_file() or unit_path.is_symlink():
+        return None
+
+    for record in package_records(db_root):
+        mtree = record["dir"] / "mtree"
+        entry = next(((relpath, attrs) for relpath, attrs in (parse_mtree(mtree) or ()) if relpath == unit_rel), None)
+        if entry is None:
+            continue
+        digest = entry[1].get("sha256digest")
+        if not digest:
+            continue
+        try:
+            observed = hashlib.sha256(unit_path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        if observed != digest:
+            continue
+        install_script = record["dir"] / "install"
+        if not _install_script_enables_unit(install_script, unit):
+            continue
+        return {
+            "owner": record["name"],
+            "owner_version": record["version"],
+            "classification": "expected-package-enable",
+            "reason": "link targets an intact package-owned unit explicitly enabled by the package install script",
+            "unit": unit,
+            "unit_sha256": observed,
+        }
+    return None
+
+
+def _persistence_attribution(item: dict, home: Path, xdg_config: Path, db_root: Path, fs_root: Path) -> dict | None:
+    return (
+        _verified_maho_user_wiring(item, home, xdg_config)
+        or _verified_package_system_wiring(item, db_root, fs_root)
+    )
+
+
+def _annotate_persistence_change(item: dict, home: Path, xdg_config: Path, db_root: Path, fs_root: Path) -> dict:
     row = dict(item)
-    attribution = _verified_maho_user_wiring(row, home, xdg_config)
+    attribution = _persistence_attribution(row, home, xdg_config, db_root, fs_root)
     if attribution is not None:
         row["expected"] = True
         row["attribution"] = attribution
@@ -608,6 +696,7 @@ def persistence_command(args) -> dict:
     home = Path(args.home)
     xdg_config = Path(args.xdg_config)
     fs_root = Path(args.fs_root)
+    db_root = Path(args.db_root)
 
     if args.persistence_command == "snapshot":
         inventory = persistence_inventory(home, xdg_config, fs_root)
@@ -661,7 +750,7 @@ def persistence_command(args) -> dict:
         before = {x["path"]: x for x in base["inventory"]["items"]}
         after = {x["path"]: x for x in current_inventory["items"]}
         added = [
-            _annotate_persistence_change(after[p], home, xdg_config)
+            _annotate_persistence_change(after[p], home, xdg_config, db_root, fs_root)
             for p in sorted(set(after) - set(before))
         ]
         removed = [before[p] for p in sorted(set(before) - set(after))]
@@ -670,7 +759,7 @@ def persistence_command(args) -> dict:
             if before[p] == after[p]:
                 continue
             row = {"path": p, "before": before[p], "after": after[p]}
-            attribution = _verified_maho_user_wiring(after[p], home, xdg_config)
+            attribution = _persistence_attribution(after[p], home, xdg_config, db_root, fs_root)
             if attribution is not None:
                 row["expected"] = True
                 row["attribution"] = attribution
@@ -736,6 +825,7 @@ def build_parser() -> argparse.ArgumentParser:
     persist.add_argument("--home", required=True)
     persist.add_argument("--xdg-config", required=True)
     persist.add_argument("--fs-root", default="/")
+    persist.add_argument("--db-root", default="/var/lib/pacman/local")
 
     return parser
 

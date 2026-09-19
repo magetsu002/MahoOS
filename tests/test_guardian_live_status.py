@@ -75,6 +75,35 @@ def main() -> None:
         check("status reports provider freshness", payload["evidence_freshness"]["security.integrity"]["freshness"] == "current")
         check("plain status exposes trust and self-health", "Trust" in render_status(payload) and "Guardian self-health" in render_status(payload))
         check("no automatic containment authority is invented", payload["containment"]["automatic_authority"] is False)
+
+        incident_id = "inc-host-stale-demo"
+        source_dir = p.security_root / "incidents" / "active"
+        guardian_dir = p.security_root / "guardian" / "active"
+        source_dir.mkdir(parents=True)
+        guardian_dir.mkdir(parents=True)
+        source = {
+            "incident_id": incident_id,
+            "signals": [{"kind": "persistence-drift", "source": "persistence-baseline"}],
+        }
+        assessment = {
+            "incident_id": incident_id,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {"type": "host", "id": "local"},
+            "decision": {"severity": {"level": 1, "label": "minor", "reason": "fixture"}},
+        }
+        (source_dir / f"{incident_id}.json").write_text(json.dumps(source) + "\n", encoding="utf-8")
+        (guardian_dir / f"{incident_id}.json").write_text(json.dumps(assessment) + "\n", encoding="utf-8")
+
+        cleared = live_status(p, now=NOW)
+        check("fresh cleared provider supersedes retained incident latch", not cleared["active_incidents"] and cleared["retained_incidents"][0]["canonical_state"] == "superseded")
+        check("superseded retained L1 cannot set current severity", cleared["world_state"]["guardian"]["severity"]["level"] == 0)
+
+        persistence = p.security_root / "monitor-v2/persistence.json"
+        persistence.write_text(json.dumps({"result": "changed", "attention_result": "changed"}) + "\n", encoding="utf-8")
+        current = live_status(p, now=NOW)
+        check("fresh active provider condition keeps incident current", len(current["active_incidents"]) == 1 and not current["retained_incidents"])
+        check("current L1 severity remains Guardian-visible", current["world_state"]["guardian"]["severity"]["level"] == 1)
     print("ALL GUARDIAN LIVE STATUS TESTS PASS")
 
 

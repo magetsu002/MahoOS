@@ -1,0 +1,32 @@
+# MahoOS V1 host-input firewall candidate.
+# This file owns only table inet maho_host and the input hook.
+# It deliberately does not own output/forward or provider-created tables.
+
+destroy table inet maho_host
+
+table inet maho_host {
+    chain input {
+        type filter hook input priority 10; policy drop;
+
+        ct state invalid drop
+        ct state { established, related } accept
+        iifname "lo" accept
+
+        # DHCP client traffic for IPv4 and IPv6.
+        udp sport 67 udp dport 68 accept
+        udp sport 547 udp dport 546 accept
+
+        # IPv4 diagnostics and IPv6 control-plane traffic required for normal operation.
+        ip protocol icmp accept
+        icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, mld-listener-query, mld-listener-report, mld-listener-done, mld2-listener-report, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, nd-redirect } accept
+
+        # Preserve standard local discovery without opening arbitrary LAN services.
+        ip daddr 224.0.0.251 udp dport 5353 accept
+        ip6 daddr ff02::fb udp dport 5353 accept
+        ip daddr 224.0.0.252 udp dport 5355 accept
+        ip6 daddr ff02::1:3 udp dport 5355 accept
+
+        # ZeroTier transport. Overlay services themselves remain subject to input policy.
+        udp dport 9993 accept
+    }
+}

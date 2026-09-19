@@ -286,6 +286,91 @@ def _severity(incidents: list[dict[str, Any]]) -> dict[str, Any]:
     return best
 
 
+_SIGNAL_PROVIDERS = {
+    "integrity-drift": "security.integrity",
+    "persistence-drift": "security.persistence",
+    "privilege-boundary": "security.privilege",
+    "runtime-executable": "security.runtime",
+    "network-exposure": "security.network",
+}
+
+
+def _provider_condition_active(signal_kind: str, state: Mapping[str, Any]) -> bool | None:
+    result = state.get("result")
+    if signal_kind == "persistence-drift":
+        attention = state.get("attention_result", result)
+        return attention == "changed" if isinstance(attention, str) else None
+    expected = {
+        "integrity-drift": "changed",
+        "privilege-boundary": "observed",
+        "runtime-executable": "observed",
+        "network-exposure": "observed",
+    }.get(signal_kind)
+    if expected is None or not isinstance(result, str):
+        return None
+    return result == expected
+
+
+def _partition_incidents(
+    root: Path,
+    incidents: list[dict[str, Any]],
+    evidence: tuple[EvidenceEnvelope, ...],
+    *,
+    now: datetime,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Separate current incidents from retained stale/superseded assessments.
+
+    Guardian assessment files are durable history, not freshness authority.
+    Security incidents are decision-active only while every referenced provider
+    is current/healthy and still reports the condition represented by its
+    signal. The on-disk reconciliation loop remains the lifecycle owner and
+    archives resolved records; this read-only projection prevents the lagging
+    durable latch from being mistaken for current truth in the meantime.
+    """
+    by_provider = {item.provider_id: item for item in evidence}
+    current_rows: list[dict[str, Any]] = []
+    retained_rows: list[dict[str, Any]] = []
+    for row in incidents:
+        if row.get("source_kind") != "security-incident":
+            current_rows.append(row)
+            continue
+        incident_id = row.get("incident_id")
+        source, error = _read_object(root / "incidents" / "active" / f"{incident_id}.json")
+        if error is not None or source is None:
+            retained_rows.append({**row, "canonical_state": "superseded", "canonical_reason": "source-incident-not-active"})
+            continue
+        signals = source.get("signals") if isinstance(source.get("signals"), list) else []
+        provider_signals: list[tuple[str, str]] = []
+        for signal in signals:
+            if not isinstance(signal, Mapping):
+                continue
+            kind = signal.get("kind")
+            provider = _SIGNAL_PROVIDERS.get(str(kind))
+            if provider:
+                provider_signals.append((str(kind), provider))
+        if not provider_signals:
+            retained_rows.append({**row, "canonical_state": "unknown", "canonical_reason": "signal-provider-unmapped"})
+            continue
+        disposition = "current"
+        reason = "current-provider-condition"
+        for signal_kind, provider_id in provider_signals:
+            envelope = by_provider.get(provider_id)
+            if envelope is None or not envelope.decision_usable(now=now):
+                disposition, reason = "stale", f"{provider_id}-not-current"
+                break
+            state = envelope.data.get("state") if isinstance(envelope.data.get("state"), Mapping) else {}
+            active = _provider_condition_active(signal_kind, state)
+            if active is not True:
+                disposition = "superseded" if active is False else "unknown"
+                reason = f"{provider_id}-condition-cleared" if active is False else f"{provider_id}-condition-unknown"
+                break
+        if disposition == "current":
+            current_rows.append({**row, "canonical_state": "current", "canonical_reason": reason})
+        else:
+            retained_rows.append({**row, "canonical_state": disposition, "canonical_reason": reason})
+    return current_rows, retained_rows
+
+
 def _boot_id(paths: LivePaths) -> str | None:
     try:
         value = (paths.proc_root / "sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
@@ -447,7 +532,10 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
     paths = paths or LivePaths.defaults()
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     evidence, schema_errors, stream = collect_provider_evidence(paths, now=current)
-    incidents, incident_errors = _active_assessments(paths.security_root)
+    durable_incidents, incident_errors = _active_assessments(paths.security_root)
+    incidents, retained_incidents = _partition_incidents(
+        paths.security_root, durable_incidents, evidence, now=current,
+    )
     severity = _severity(incidents)
     runtime = _runtime_verification(paths)
     boot_id = _boot_id(paths)
@@ -526,6 +614,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         },
         "recovery": recovery,
         "active_incidents": incidents,
+        "retained_incidents": retained_incidents,
         "evidence_freshness": freshness,
         "authorized_operation_evidence": authority_records,
         "containment": {"state": "none", "active": [], "automatic_authority": False},

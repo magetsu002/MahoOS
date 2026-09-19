@@ -86,6 +86,8 @@ export MAHO_SDDM_ALLOW_UNPRIVILEGED=1
 export MAHO_SDDM_THEME_ROOT="$sandbox/themes"
 export MAHO_SDDM_CONFIG_ROOT="$sandbox/config"
 export MAHO_SDDM_STATE_ROOT="$sandbox/state"
+export MAHO_SDDM_SESSION_ROOT="$sandbox/wayland-sessions"
+export MAHO_SDDM_SESSION_LAUNCH_ROOT="$sandbox/lib"
 
 # Keep profile discovery inside the sandbox. The real installer resolves the
 # invoking account through getent, so the test supplies the same account with a
@@ -110,6 +112,10 @@ export PATH="$sandbox/fake-bin:$PATH"
 # must not advertise a missing image as available.
 bash "$INSTALLER" install >/dev/null
 bash "$INSTALLER" status >/dev/null
+[ -f "$MAHO_SDDM_SESSION_ROOT/maho.desktop" ] || fail "MahoOS SDDM session missing"
+[ -x "$MAHO_SDDM_SESSION_LAUNCH_ROOT/maho-session-launch" ] || fail "session lifecycle wrapper missing"
+grep -Fxq 'Exec=/usr/local/lib/maho/maho-session-launch' "$MAHO_SDDM_SESSION_ROOT/maho.desktop" \
+    || fail "SDDM session bypasses the managed lifecycle wrapper"
 grep -Fxq '# managed-by: maho-lock-sddm v1' "$sandbox/config/90-maho-lock.conf" \
     || fail "managed SDDM config marker missing"
 grep -Fxq 'Current=maho-lock' "$sandbox/config/90-maho-lock.conf" \
@@ -166,6 +172,10 @@ bash "$INSTALLER" uninstall >/dev/null
     || fail "SDDM selection survived uninstall"
 [ ! -e "$sandbox/themes/maho-lock" ] \
     || fail "SDDM theme survived uninstall"
+[ ! -e "$MAHO_SDDM_SESSION_ROOT/maho.desktop" ] \
+    || fail "MahoOS session survived uninstall"
+[ ! -e "$MAHO_SDDM_SESSION_LAUNCH_ROOT/maho-session-launch" ] \
+    || fail "MahoOS session launcher survived uninstall"
 pass "recoverable managed SDDM uninstall"
 
 printf 'PASS  Maho Lock SDDM persistence contracts\n'

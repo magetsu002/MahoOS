@@ -153,7 +153,7 @@ package_cycle() {
 
 persistence_cycle() {
     local payload transition changed first previous current previous_attention current_attention
-    payload="$(probe persistence check --state-root "$SEC_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG" --fs-root "$FS_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
+    payload="$(probe persistence check --state-root "$SEC_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG" --fs-root "$FS_ROOT" --db-root "$DB_ROOT" 2>/dev/null || printf '%s\n' '{"result":"unavailable"}')"
     provider_from_payload security.persistence security "$payload" || return 1
     transition="$(record_state persistence "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
@@ -203,14 +203,29 @@ network_cycle() {
     [ "$changed" = 1 ] || return 0
     [ "$first" = 0 ] || return 0
     case "$current" in
-        observed) emit_event network.listener-transition observed low "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface" security.network procfs "$payload" ;;
-        clean) if [ "$previous" = observed ]; then emit_event network.listener-cleared verified info "Previously observed current-user non-loopback TCP listener exposure cleared" security.network procfs "$payload"; fi ;;
+        observed) emit_event network.listener-transition observed low "Security monitor observed a new or changed current-user TCP listener on a non-loopback interface; host coverage remains partial" security.network procfs "$payload" ;;
+        clean) if [ "$previous" = observed ]; then emit_event network.listener-cleared verified info "Previously observed current-user TCP exposure cleared within the declared partial scope" security.network procfs "$payload"; fi ;;
     esac
 }
 
 integrity_due() {
-    local interval="${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}" path="$MONITOR_STATE/integrity-last-run"
+    local interval="${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}" path="$MONITOR_STATE/integrity-last-run" heartbeat
     [[ "$interval" =~ ^[0-9]+$ ]] || interval=1800
+
+    # The scan throttle is not authority.  After upgrades or state repair the
+    # persisted last-run timestamp can outlive Guardian provider evidence.  In
+    # that case run immediately so required integrity freshness is established
+    # instead of remaining UNKNOWN until the old throttle expires.
+    heartbeat="$(python "$PROVIDER_STATE" show --state-root "$SEC_STATE" --provider-id security.integrity 2>/dev/null || true)"
+    python - "$heartbeat" <<'PY_HEARTBEAT' || return 0
+import json,sys
+try:
+    value=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("last_success_at") else 1)
+PY_HEARTBEAT
+
     python - "$path" "$interval" <<'PY'
 import time,sys
 from pathlib import Path
@@ -323,7 +338,7 @@ doctor() {
     echo "INFO  persistence: transition-aware; user baseline required"
     echo "INFO  runtime: transition-aware heuristic evidence only"
     echo "INFO  privilege boundaries: transition-aware, no trust claim"
-    echo "INFO  network exposure: current-user non-loopback TCP listeners"
+    echo "INFO  network exposure: current-user non-loopback TCP listeners (partial host scope; not host-network-clean)"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
     echo "INFO  incident correlation: every monitor cycle after observations settle"
     echo "INFO  automatic system mutation: none"

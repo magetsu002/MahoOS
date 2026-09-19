@@ -151,7 +151,12 @@ require_text "$RUNTIME" 'exec "$HOME/.local/bin/maho-lock"' 'Lock does not route
 reject_text "$RUNTIME" 'hyprlock' 'Power must not bypass secure Maho Lock with hyprlock'
 require_text "$RUNTIME" 'exec systemctl suspend' 'Sleep action missing'
 require_text "$RUNTIME" 'SwitchToGreeter' 'Switch User display-manager action missing'
-require_text "$RUNTIME" 'exec hyprctl dispatch exit' 'Log Out action missing'
+require_text "$RUNTIME" '"$HOME/.local/bin/maho-session" stop || return 1' 'Log Out does not stop the Maho graphical target before compositor exit'
+logout_stop_line="$(grep -nF '"$HOME/.local/bin/maho-session" stop || return 1' "$RUNTIME" | head -1 | cut -d: -f1)"
+logout_exit_line="$(grep -nF "exec hyprctl dispatch 'hl.dsp.exit()'" "$RUNTIME" | head -1 | cut -d: -f1)"
+[ -n "$logout_stop_line" ] && [ -n "$logout_exit_line" ] && [ "$logout_stop_line" -lt "$logout_exit_line" ] \
+    || fail 'Log Out exits Hyprland before the Maho graphical target is stopped'
+require_text "$RUNTIME" "exec hyprctl dispatch 'hl.dsp.exit()'" 'Log Out action does not use current Hyprland Lua dispatcher syntax'
 require_text "$RUNTIME" 'exec systemctl reboot' 'Restart action missing'
 require_text "$RUNTIME" 'exec systemctl poweroff' 'Shut Down action missing'
 require_text "$RUNTIME" 'maho-power action {lock|sleep|switch-user|logout|restart|shutdown}' 'runtime action surface is not explicitly bounded'
@@ -190,17 +195,25 @@ reject_text "$BINDS" 'xdg-open "$HOME"' 'SUPER+E still delegates Home to the MIM
 echo PASS
 
 echo '=== scope guard ==='
-for forbidden in \
-    config/quickshell/maho-link \
-    config/quickshell/maho-notify \
-    config/quickshell/maho-launcher \
-    config/quickshell/maho-shell/dock-shell.qml \
-    apps/maho-files
- do
-    if git -C "$ROOT" diff --name-only 32833a47df0483da70d5b7a9dd7f20dd498616ec...HEAD -- "$forbidden" | grep -q .; then
-        fail "Power branch touched unrelated scope: $forbidden"
-    fi
- done
+branch_context="${GITHUB_HEAD_REF:-$(git -C "$ROOT" branch --show-current 2>/dev/null || true)}"
+case "$branch_context" in
+  feat/maho-power-session|feat/maho-power-session-*|fix/maho-power-*)
+    for forbidden in \
+        config/quickshell/maho-link \
+        config/quickshell/maho-notify \
+        config/quickshell/maho-launcher \
+        config/quickshell/maho-shell/dock-shell.qml \
+        apps/maho-files
+    do
+        if git -C "$ROOT" diff --name-only 32833a47df0483da70d5b7a9dd7f20dd498616ec...HEAD -- "$forbidden" | grep -q .; then
+            fail "Power branch touched unrelated scope: $forbidden"
+        fi
+    done
+    ;;
+  *)
+    echo "INFO scope guard not applicable to aggregate branch: ${branch_context:-detached}"
+    ;;
+esac
 echo PASS
 
 echo 'ALL MAHO POWER CONTRACTS PASS'

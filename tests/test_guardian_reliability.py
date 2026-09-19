@@ -20,7 +20,7 @@ from guardian_reliability import (
     assess_recurrence,
     load_live_reliability,
 )
-from guardian_reliability_provider import memory_facts, refresh_once, service_facts
+from guardian_reliability_provider import clock_facts, memory_facts, refresh_once, service_facts
 
 
 def check(name: str, condition: bool) -> None:
@@ -30,6 +30,9 @@ def check(name: str, condition: bool) -> None:
 
 
 def fake_systemctl(argv, **kwargs):
+    if argv[0] == "timedatectl":
+        output = "CanNTP=yes\nNTP=yes\nNTPSynchronized=yes\n"
+        return subprocess.CompletedProcess(argv, 0, output, "")
     unit = argv[3]
     output = "LoadState=loaded\nActiveState=active\nSubState=running\nNRestarts=0\n"
     if unit == "maho-notify.service":
@@ -58,6 +61,9 @@ def main() -> None:
     transaction = assess_observation(ReliabilityObservation("tx", "transaction", "maho-runtime", "current", "healthy", {"age_seconds": 4000, "max_age_seconds": 1800}))
     check("stuck runtime transaction references existing recovery but still requires authority", transaction.remediation is RemediationDisposition.AUTHORIZATION_REQUIRED and not transaction.authority_granted)
 
+    clock = assess_observation(ReliabilityObservation("clock", "clock", "host-wall-clock", "current", "healthy", {"reliable_wall_clock": False, "degraded_reason": "wall-clock-unsynchronized"}))
+    check("unsynchronized wall clock is explicit degradation", clock.state is ReliabilityState.DEGRADED)
+
     occurrences = [
         FailureOccurrence("same-failure", "2026-09-15T11:30:00Z", "history"),
         FailureOccurrence("same-failure", "2026-09-15T11:40:00Z", "history"),
@@ -78,10 +84,13 @@ def main() -> None:
         services = service_facts(runner=fake_systemctl)
         notify = next(row for row in services["services"] if row["unit"] == "maho-notify.service")
         check("service observer records restart count and active state", notify["restart_count"] == 4 and notify["active_state"] == "failed")
+        clock_state = clock_facts(runner=fake_systemctl)
+        check("clock observer names one synchronized provider", clock_state["provider"] == "systemd-timesyncd" and clock_state["reliable_wall_clock"] is True)
         refresh_once(root, boot_id="boot-test", proc_root=proc, storage_path=root, runner=fake_systemctl)
         check("always-on sampler persisted memory evidence", (root / "guardian/reliability/memory.json").is_file())
         check("always-on sampler persisted storage evidence", (root / "guardian/reliability/storage.json").is_file())
         check("always-on sampler persisted service evidence", (root / "guardian/reliability/services.json").is_file())
+        check("always-on sampler persisted clock evidence", (root / "guardian/reliability/clock.json").is_file())
         reliability, freshness = load_live_reliability(root, now=datetime.now(timezone.utc))
         check("fresh reliability heartbeats are current", all(row["freshness"] == "current" for row in freshness.values()))
         check("live projection sees certified service degradation", reliability["state"] == "degraded")

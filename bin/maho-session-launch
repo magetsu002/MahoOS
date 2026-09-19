@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# managed-by: maho-sddm-session v1
+
+# SDDM owns this wrapper as the graphical login session.  The wrapper in turn
+# owns the compositor process and guarantees that the Maho graphical target is
+# stopped on normal logout, compositor failure, or termination by SDDM.
+set -uo pipefail
+
+COMPOSITOR="${MAHO_COMPOSITOR_COMMAND:-/usr/bin/start-hyprland}"
+SESSION_CONTROLLER="${MAHO_SESSION_CONTROLLER:-$HOME/.local/bin/maho-session}"
+child_pid=""
+session_stopped=0
+
+stop_maho_session() {
+    [ "$session_stopped" -eq 0 ] || return 0
+    session_stopped=1
+    if [ -x "$SESSION_CONTROLLER" ]; then
+        "$SESSION_CONTROLLER" stop >/dev/null 2>&1 || true
+    fi
+}
+
+terminate_compositor() {
+    local signal="$1"
+    if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
+        kill -s "$signal" "$child_pid" 2>/dev/null || true
+    fi
+}
+
+handle_signal() {
+    terminate_compositor TERM
+}
+
+cleanup() {
+    trap - EXIT HUP INT TERM
+    stop_maho_session
+    if [ -n "$child_pid" ]; then
+        wait "$child_pid" 2>/dev/null || true
+    fi
+}
+
+trap cleanup EXIT
+trap handle_signal HUP INT TERM
+
+export XDG_CURRENT_DESKTOP="Maho:Hyprland"
+export XDG_SESSION_DESKTOP="maho"
+export XDG_SESSION_TYPE="wayland"
+
+if [ ! -x "$COMPOSITOR" ]; then
+    echo "maho-session-launch: compositor launcher unavailable: $COMPOSITOR" >&2
+    exit 127
+fi
+
+"$COMPOSITOR" &
+child_pid=$!
+
+wait "$child_pid"
+status=$?
+child_pid=""
+exit "$status"

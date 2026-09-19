@@ -80,6 +80,10 @@ x=r['exposed'][0]
 assert x['pid']==321 and x['port']==8080, x
 assert x['address']=='0.0.0.0' and x['exposure']=='all-interfaces', x
 assert x['relative_exe']=='usr/bin/alpha', x
+assert r['coverage']['host_coverage']=='partial',r
+assert r['coverage']['udp']=='not-observed',r
+assert r['coverage']['families']=={'ipv4':'complete','ipv6':'complete'},r
+assert r['result_semantics']=='current-user-tcp-within-declared-scope-only',r
 PY
 echo "PASS"
 
@@ -94,6 +98,20 @@ import json,sys
 r=json.loads(sys.argv[1])
 assert r['result']=='clean', r
 assert len(r['listeners'])==1 and not r['exposed'], r
+assert 'never equivalent to host-network-clean' in r['trust_note'],r
+PY
+echo "PASS"
+
+echo "=== missing IPv6 visibility is explicit, never clean host evidence ==="
+rm -f "$PROC/net/tcp6"
+OUT="$(python "$ENGINE" network --proc-root "$PROC" --fs-root "$FS" --uid "$(id -u)")"
+python - "$OUT" <<'PY'
+import json,sys
+r=json.loads(sys.argv[1])
+assert r['coverage']['families']['ipv6']=='unavailable',r
+assert r['coverage']['host_coverage']=='partial',r
+assert r['result']=='clean',r
+assert r['result_semantics'].endswith('within-declared-scope-only'),r
 PY
 echo "PASS"
 

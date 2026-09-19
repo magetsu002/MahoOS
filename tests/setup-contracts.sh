@@ -52,7 +52,7 @@ COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
-  maho-files maho-link maho-lock maho-power maho-update maho-clipboard
+  maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-firewall maho-memory-certify
   maho-clipboard-history maho-lock-sddm-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
@@ -231,6 +231,8 @@ export MAHO_SDDM_ALLOW_UNPRIVILEGED=1
 export MAHO_SDDM_THEME_ROOT="$TMP/sddm/themes"
 export MAHO_SDDM_CONFIG_ROOT="$TMP/sddm/config"
 export MAHO_SDDM_STATE_ROOT="$TMP/sddm/state"
+export MAHO_SDDM_SESSION_ROOT="$TMP/sddm/wayland-sessions"
+export MAHO_SDDM_SESSION_LAUNCH_ROOT="$TMP/sddm/lib"
 LEGACY_NATIVE_BUILD="$XDG_CACHE_HOME/maho/files-release-build"
 mkdir -p "$LEGACY_NATIVE_BUILD"
 printf '%s\n' 'CMAKE_HOME_DIRECTORY:INTERNAL=/definitely/foreign/checkout/apps/maho-files' >"$LEGACY_NATIVE_BUILD/CMakeCache.txt"
@@ -238,10 +240,15 @@ bash "$ROOT/bin/maho-setup" install --with-sddm >/dev/null
 [ -x "$HOME/.local/bin/maho-lock-sddm-install" ] || fail 'SDDM installer command was omitted from the managed runtime'
 grep -Fxq 'Current=maho-lock' "$MAHO_SDDM_CONFIG_ROOT/90-maho-lock.conf" || \
   fail 'explicit setup did not persist the Maho Lock SDDM theme'
+grep -Fxq 'Name=MahoOS' "$MAHO_SDDM_SESSION_ROOT/maho.desktop" || \
+  fail 'explicit setup did not install the SDDM-owned MahoOS session'
+[ -x "$MAHO_SDDM_SESSION_LAUNCH_ROOT/maho-session-launch" ] || \
+  fail 'explicit setup did not install the compositor lifecycle wrapper'
 [ -f "$LEGACY_NATIVE_BUILD/CMakeCache.txt" ] || fail 'setup unexpectedly consumed legacy global Maho Files CMake cache'
 bash "$ROOT/bin/maho-lock-sddm-install" status >/dev/null || \
   fail 'explicit setup left SDDM integration unverifiable'
 unset MAHO_SDDM_ALLOW_UNPRIVILEGED MAHO_SDDM_THEME_ROOT MAHO_SDDM_CONFIG_ROOT MAHO_SDDM_STATE_ROOT
+unset MAHO_SDDM_SESSION_ROOT MAHO_SDDM_SESSION_LAUNCH_ROOT
 rm -f "$TMP/fake-bin/sudo"
 echo PASS
 

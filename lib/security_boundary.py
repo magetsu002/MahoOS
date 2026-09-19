@@ -113,12 +113,12 @@ def decode_ipv6(value: str) -> str:
     return socket.inet_ntop(socket.AF_INET6, raw)
 
 
-def parse_tcp(path: Path, ipv6: bool) -> dict[str, dict]:
+def parse_tcp(path: Path, ipv6: bool) -> tuple[dict[str, dict], str]:
     rows = {}
     try:
         lines = path.read_text(errors="replace").splitlines()[1:]
     except OSError:
-        return rows
+        return rows, "unavailable"
     for line in lines:
         parts = line.split()
         if len(parts) < 10 or parts[3] != "0A":
@@ -143,7 +143,7 @@ def parse_tcp(path: Path, ipv6: bool) -> dict[str, dict]:
             "family": "ipv6" if ipv6 else "ipv4",
             "exposure": exposure,
         }
-    return rows
+    return rows, "complete"
 
 
 def network_listeners(args) -> dict:
@@ -151,8 +151,10 @@ def network_listeners(args) -> dict:
     fs_root = Path(args.fs_root)
     uid = args.uid
     sockets = {}
-    sockets.update(parse_tcp(proc_root / "net" / "tcp", False))
-    sockets.update(parse_tcp(proc_root / "net" / "tcp6", True))
+    ipv4, ipv4_coverage = parse_tcp(proc_root / "net" / "tcp", False)
+    ipv6, ipv6_coverage = parse_tcp(proc_root / "net" / "tcp6", True)
+    sockets.update(ipv4)
+    sockets.update(ipv6)
     listeners = []
     if proc_root.is_dir() and sockets:
         for proc in proc_root.iterdir():
@@ -191,12 +193,28 @@ def network_listeners(args) -> dict:
                 )
     listeners.sort(key=lambda x: (x["exposure"], x["port"], x["pid"]))
     exposed = [x for x in listeners if x["exposure"] != "loopback"]
-    core = {"version": VERSION, "kind": "network-listener-observations", "listeners": listeners, "exposed": exposed}
+    coverage = {
+        "scope": "current-user",
+        "transport": ["tcp"],
+        "families": {"ipv4": ipv4_coverage, "ipv6": ipv6_coverage},
+        "udp": "not-observed",
+        "other_users": "not-attributed",
+        "host_coverage": "partial",
+        "privilege": "unprivileged-procfs",
+    }
+    core = {
+        "version": VERSION,
+        "kind": "network-listener-observations",
+        "listeners": listeners,
+        "exposed": exposed,
+        "result_semantics": "current-user-tcp-within-declared-scope-only",
+        "coverage": coverage,
+    }
     return {
         **core,
         "result": "observed" if exposed else "clean",
         "state_sha256": stable_hash(core),
-        "trust_note": "A non-loopback listener is exposure evidence, not proof of malicious behavior.",
+        "trust_note": "Clean means no exposure in current-user TCP scope only; it is never equivalent to host-network-clean. A non-loopback listener is exposure evidence, not proof of malicious behavior.",
     }
 
 
@@ -226,7 +244,7 @@ def main() -> int:
             "kind": "security-boundary-observer",
             "status": "ok",
             "automatic_system_mutation": False,
-            "observes": ["privileged-file-transitions", "current-user-tcp-listeners"],
+            "observes": ["privileged-file-transitions", "current-user-tcp-listeners-partial-host-scope"],
         }
     else:
         raise SystemExit("unknown command")
