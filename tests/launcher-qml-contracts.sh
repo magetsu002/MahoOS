@@ -141,7 +141,7 @@ require_text "$THEME" 'selectedRow: alpha(mix(surfaceHigh, accent, 0.10), 0.54)'
 require_text "$THEME" 'resultsFill: alpha(mix(surfaceHigh, background, 0.64), 0.42)' "results well is not the low Maho glass tier"
 [ -f "$BACKDROP" ] || fail "launcher catcher component is missing"
 require_text "$BACKDROP" 'WlrLayershell.namespace: "maho-launcher-catcher"' "launcher catcher namespace is missing"
-require_text "$BACKDROP" 'root.active ? 0.075 : 0' "launcher catcher dim alpha drifted"
+require_text "$BACKDROP" 'root.active ? 0.14 : 0' "launcher catcher dim alpha drifted"
 require_text "$WINDOW" 'mask: Region { item: root.shown ? motionLayer : null }' "launcher foreground input is not card-bounded"
 require_text "$DECORATIONS" 'name = "maho-launcher-material"' "launcher scoped blur rule is missing"
 require_text "$DECORATIONS" 'match = { namespace = "maho-launcher" }' "launcher blur rule targets the wrong namespace"

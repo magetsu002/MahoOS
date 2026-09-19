@@ -29,7 +29,7 @@ PanelWindow {
     Rectangle {
         id: dimPlane
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, root.active ? 0.075 : 0)
+        color: Qt.rgba(0, 0, 0, root.active ? 0.14 : 0)
     }
 
     MouseArea {
