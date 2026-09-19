@@ -9,12 +9,13 @@ RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-shell.log"
 LOCK="$RUNTIME_DIR/maho-shell.lock"
 
-shell_running() {
-    pgrep -af 'quickshell.*maho-shell/shell.qml' >/dev/null 2>&1
+shell_pids() {
+    ps -eo pid=,comm=,args= 2>/dev/null |
+        awk '$2 == "quickshell" && $0 ~ /\/maho-shell\/shell\.qml([[:space:]]|$)/ { print $1 }'
 }
 
-shell_pids() {
-    pgrep -f 'quickshell.*maho-shell/shell.qml' 2>/dev/null || true
+shell_running() {
+    [ -n "$(shell_pids)" ]
 }
 
 shell_count() {
