@@ -125,7 +125,7 @@ require_text "$NOTIFY/shell.qml" 'readonly property real dockPosition:' "Maho No
 require_text "$NOTIFY/shell.qml" 'dockPosition > 0.5' "Maho Notify cannot detect a top/bottom Edge on the right half"
 require_text "$NOTIFY/shell.qml" 'if (dockOccupiesRightSide)' "Maho Notify does not move opposite the Edge location"
 require_text "$NOTIFY/shell.qml" 'x: root.surfaceX(overlay.width, width, 18)' "notification popup placement is not Edge-aware"
-require_text "$NOTIFY/shell.qml" 'x: root.surfaceX(centerOverlay.width, width, 18)' "notification center placement is not Edge-aware"
+require_text "$NOTIFY/shell.qml" 'x: root.surfaceX(centerOverlay.width, width, root.centerMarginX)' "notification center placement is not Edge-aware"
 require_text "$LINK/shell.qml" 'watchChanges: true' "Maho Link does not react to Edge moves"
 require_text "$NOTIFY/shell.qml" 'watchChanges: true' "Maho Notify does not react to Edge moves"
 echo "PASS"
