@@ -9,8 +9,6 @@ Item {
     property bool surfaceReady: false
     property bool previewMode: false
     property bool pickerOpen: false
-    property string pickerMode: "avatar"
-    property real avatarReveal: 1
 
     readonly property bool presentationReady:
         surfaceReady && width > 0 && height > 0
@@ -19,34 +17,15 @@ Item {
         0.78,
         Math.min(1.18, Math.min(width / 1600, height / 1000))
     )
-    readonly property real mainY: Math.max(158 * uiScale, height * 0.17)
-    readonly property real avatarSize: 152 * uiScale
-    readonly property real avatarX: (width - avatarSize) / 2
-    readonly property real avatarY: mainY + 310 * uiScale
 
-    function openPicker(mode) {
+    function openWallpaperPicker() {
         if (!root.previewMode)
             return
-        root.pickerMode = mode
         root.pickerOpen = true
-    }
-
-    function activatePresentation() {
-        if (!presentationReady)
-            return
-
-        avatarReveal = 1
     }
 
     function requestPasswordFocus() {
         baseView.reclaimPasswordFocus()
-    }
-
-    onPresentationReadyChanged: activatePresentation()
-    Component.onCompleted: activatePresentation()
-
-    Behavior on avatarReveal {
-        NumberAnimation { duration: 430; easing.type: Easing.OutCubic }
     }
 
     MahoLockViewV5 {
@@ -58,21 +37,6 @@ Item {
         surfaceReady: root.presentationReady
         previewMode: root.previewMode
         suppressBuiltinAvatar: true
-    }
-
-    MahoAvatarControl {
-        id: avatarControl
-        x: root.avatarX
-        y: root.avatarY
-        width: root.avatarSize
-        height: root.avatarSize
-        z: 40
-        opacity: root.avatarReveal
-        theme: root.theme
-        lockState: root.lockState
-        uiScale: root.uiScale
-        editable: root.previewMode && !root.pickerOpen
-        onEditRequested: root.openPicker("avatar")
     }
 
     // Wallpaper has its own distinct affordance; the profile photo never opens it.
@@ -138,7 +102,7 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.openPicker("wallpaper")
+            onClicked: root.openWallpaperPicker()
         }
     }
 
@@ -147,14 +111,11 @@ Item {
         z: 70
         lockState: root.lockState
         open: root.pickerOpen
-        mode: root.pickerMode
+        mode: "wallpaper"
         uiScale: root.uiScale
         onCloseRequested: root.pickerOpen = false
         onImageSelected: function(path) {
-            if (root.pickerMode === "avatar")
-                root.lockState.setAvatar(path)
-            else
-                root.lockState.setLockWallpaper(path)
+            root.lockState.setLockWallpaper(path)
             root.pickerOpen = false
         }
     }

@@ -478,7 +478,7 @@ FocusScope {
             Item {
                 id: authRegion
                 anchors.top: parent.top
-                anchors.topMargin: 477 * root.uiScale
+                anchors.topMargin: (root.suppressBuiltinAvatar ? 330 : 477) * root.uiScale
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 504 * root.uiScale
                 height: 192 * root.uiScale

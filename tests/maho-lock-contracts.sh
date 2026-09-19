@@ -110,11 +110,13 @@ jpeg_magic="$(od -An -tx1 -N3 "$FALLBACK_WALLPAPER" | tr -d ' \n')"
 pass "decodable fallback wallpaper asset"
 
 grep -Fq 'MahoLockViewV5 {' "$VIEW" || fail "V7 lost accepted base hierarchy"
-grep -Fq 'MahoAvatarControl {' "$VIEW" || fail "geometric avatar control missing"
 grep -Fq 'MahoImagePicker {' "$VIEW" || fail "in-app image picker missing"
-grep -Fq 'onEditRequested: root.openPicker("avatar")' "$VIEW" || fail "PFP click not dedicated to PFP"
-grep -Fq 'onClicked: root.openPicker("wallpaper")' "$VIEW" || fail "wallpaper lacks separate affordance"
+grep -Fq 'onClicked: root.openWallpaperPicker()' "$VIEW" || fail "wallpaper lacks separate affordance"
 grep -Fq 'suppressBuiltinAvatar: true' "$VIEW" || fail "accepted view can flash the base fallback avatar"
+if grep -Eq 'MahoAvatarControl|openPicker\("avatar"\)|avatarControl|avatarReveal|avatarSize|avatarX|avatarY' "$VIEW"; then
+    fail "accepted lock view reintroduced a profile-photo surface"
+fi
+grep -Fq 'anchors.topMargin: (root.suppressBuiltinAvatar ? 330 : 477) * root.uiScale' "$BASE"     || fail "avatar-free lock composition does not move authentication upward"
 grep -Fq 'visible: !root.suppressBuiltinAvatar' "$BASE" || fail "base avatar cannot be suppressed by the accepted view"
 pass "separated personalization surfaces"
 
