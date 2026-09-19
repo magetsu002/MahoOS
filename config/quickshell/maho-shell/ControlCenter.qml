@@ -359,34 +359,23 @@ Item {
             emphasized: center.notifyStatus && center.notifyStatus.unreadCount > 0
             onActivated: center.notificationsRequested()
 
-            Rectangle {
+            Text {
                 anchors.left: parent.left
-                anchors.leftMargin: 12
+                anchors.leftMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
-                width: 27
-                height: 27
-                radius: 9
+                text: center.notifyStatus && center.notifyStatus.dndEnabled ? "󰂛" : "󰂚"
                 color: center.theme
-                    ? center.theme.alpha(center.theme.primary,
-                        center.notifyStatus && center.notifyStatus.unreadCount > 0 ? 0.17 : 0.08)
-                    : "transparent"
-
-                Text {
-                    anchors.centerIn: parent
-                    text: center.notifyStatus && center.notifyStatus.dndEnabled ? "󰂛" : "󰂚"
-                    color: center.theme
-                        ? (center.notifyStatus && center.notifyStatus.unreadCount > 0
-                            ? center.theme.primary : center.theme.muted)
-                        : "white"
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 14
-                    textFormat: Text.PlainText
-                }
+                    ? (center.notifyStatus && center.notifyStatus.unreadCount > 0
+                        ? center.theme.primary : center.theme.muted)
+                    : "white"
+                font.family: "JetBrainsMono Nerd Font"
+                font.pixelSize: 16
+                textFormat: Text.PlainText
             }
 
             Column {
                 anchors.left: parent.left
-                anchors.leftMargin: 50
+                anchors.leftMargin: 48
                 anchors.right: notifyArrow.left
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
