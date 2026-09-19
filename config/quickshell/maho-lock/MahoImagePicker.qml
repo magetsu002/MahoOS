@@ -16,7 +16,7 @@ Item {
     visible: open || progress > 0.001
 
     Behavior on progress {
-        NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
     }
 
     onOpenChanged: {
@@ -46,7 +46,7 @@ Item {
 
     Timer {
         id: searchDebounce
-        interval: 190
+        interval: 110
         repeat: false
         onTriggered: root.lockState.browseImages(
             root.lockState.browserPath,
@@ -71,14 +71,14 @@ Item {
         radius: 30 * root.uiScale
         antialiasing: true
         opacity: root.progress
-        scale: 0.975 + root.progress * 0.025
+        scale: 0.986 + root.progress * 0.014
         color: Qt.rgba(0.050, 0.064, 0.090, 0.955)
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, 0.16)
         clip: true
 
         transform: Translate {
-            y: (1 - root.progress) * 12 * root.uiScale
+            y: (1 - root.progress) * 7 * root.uiScale
         }
 
         MouseArea {

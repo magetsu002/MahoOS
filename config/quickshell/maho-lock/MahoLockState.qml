@@ -149,7 +149,12 @@ Scope {
     function openImageBrowser(mode) {
         browserMode = mode
         browserQuery = ""
-        browseImages(defaultBrowsePath(mode), "", mode)
+        const path = defaultBrowsePath(mode)
+        browseImages(path, "", mode)
+        if (!imageBrowserWarmProcess.running)
+            imageBrowserWarmProcess.exec([
+                "python", Quickshell.shellPath("image_browser.py"), path, "--warm"
+            ])
     }
 
     function browseImages(path, query, mode) {
@@ -307,6 +312,10 @@ Scope {
         stdout: StdioCollector {
             onStreamFinished: state.refreshAmbientState()
         }
+    }
+
+    Process {
+        id: imageBrowserWarmProcess
     }
 
     Process {
