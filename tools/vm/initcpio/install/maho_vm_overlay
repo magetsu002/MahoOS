@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+build() {
+    local module
+    for module in 9p 9pnet 9pnet_virtio virtio_pci virtio_blk virtio_gpu bochs overlay ext4; do
+        add_module "$module"
+    done
+    add_runscript
+}
+help() {
+    echo "Boot the host MahoOS tree read-only under a disposable tmpfs OverlayFS."
+}

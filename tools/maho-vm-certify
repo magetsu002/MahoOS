@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+PROFILE="${1:-smoke}"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+REV="$(git -C "$ROOT" rev-parse HEAD)"
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
+  echo "maho-vm-certify: refusing dirty checkout; commit the exact candidate before certification" >&2
+  exit 2
+fi
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/certification/vm"
+EVIDENCE="${MAHO_VM_EVIDENCE:-$STATE/$STAMP-$PROFILE-$REV}"
+KVER="${MAHO_VM_KERNEL_VERSION:-$(uname -r)}"
+WORK="${XDG_CACHE_HOME:-$HOME/.cache}/maho/vm-certify/$REV-$KVER"
+KERNEL="${MAHO_VM_KERNEL_IMAGE:-/boot/vmlinuz-linux-cachyos}"
+TIMEOUT="${MAHO_VM_TIMEOUT:-720}"
+
+case "$PROFILE" in
+  smoke|fresh-user|update-freeze|resilience|session) MEMORY=4096 ;;
+  performance-4g) MEMORY=4096 ;;
+  performance-8g) MEMORY=8192 ;;
+  *) echo "maho-vm-certify: unknown profile: $PROFILE" >&2; exit 2 ;;
+esac
+
+for c in qemu-system-x86_64 mkinitcpio python3 git; do
+  command -v "$c" >/dev/null || { echo "maho-vm-certify: missing $c" >&2; exit 2; }
+done
+[ -r "$KERNEL" ] || { echo "maho-vm-certify: kernel unavailable: $KERNEL" >&2; exit 2; }
+[ -e /dev/kvm ] || { echo "maho-vm-certify: /dev/kvm unavailable" >&2; exit 2; }
+mkdir -p "$WORK/hookdir/install" "$WORK/hookdir/hooks" "$EVIDENCE"
+ln -sf /usr/lib/initcpio/install/base "$WORK/hookdir/install/base"
+cp "$ROOT/tools/vm/initcpio/install/maho_vm_overlay" "$WORK/hookdir/install/"
+cp "$ROOT/tools/vm/initcpio/hooks/maho_vm_overlay" "$WORK/hookdir/hooks/"
+chmod +x "$WORK/hookdir/install/maho_vm_overlay" "$WORK/hookdir/hooks/maho_vm_overlay"
+
+rebuild_initramfs=0
+[ -r "$WORK/initramfs.img" ] || rebuild_initramfs=1
+for source in   "$ROOT/tools/vm/mkinitcpio.conf"   "$ROOT/tools/vm/initcpio/install/maho_vm_overlay"   "$ROOT/tools/vm/initcpio/hooks/maho_vm_overlay"; do
+  [ "$source" -nt "$WORK/initramfs.img" ] && rebuild_initramfs=1
+done
+if [ "$rebuild_initramfs" -eq 1 ]; then
+  mkinitcpio -n     -c "$ROOT/tools/vm/mkinitcpio.conf"     -D "$WORK/hookdir"     -k "$KVER"     -g "$WORK/initramfs.img"
+fi
+
+CMDLINE="console=ttyS0,115200 rd.log=console root=hostroot rw systemd.unit=maho-vm-certify.target maho.vm.profile=$PROFILE maho.vm.source_revision=$REV"
+HOME_IMAGE=""
+EXTRA_QEMU=()
+
+case "$PROFILE" in
+  session|performance-4g|performance-8g)
+    command -v mkfs.ext4 >/dev/null || { echo "maho-vm-certify: missing mkfs.ext4" >&2; exit 2; }
+    HOME_IMAGE="$WORK/home-$STAMP-$PROFILE.img"
+    truncate -s 8G "$HOME_IMAGE"
+    mkfs.ext4 -q -F "$HOME_IMAGE"
+    CMDLINE="$CMDLINE maho.vm.diskhome=1"
+    EXTRA_QEMU=(
+      -device bochs-display
+      -drive "file=$HOME_IMAGE,format=raw,if=virtio,cache=none"
+    )
+    ;;
+esac
+trap '[ -z "$HOME_IMAGE" ] || rm -f -- "$HOME_IMAGE"' EXIT
+
+QEMU=(
+  qemu-system-x86_64
+  -enable-kvm
+  -machine q35,accel=kvm
+  -cpu host
+  -smp 4
+  -m "$MEMORY"
+  -kernel "$KERNEL"
+  -initrd "$WORK/initramfs.img"
+  -append "$CMDLINE"
+  -nographic
+  -no-reboot
+  -nic none
+  -device virtio-rng-pci
+  -virtfs "local,path=/,mount_tag=hostroot,security_model=none,readonly=on"
+  -virtfs "local,path=$ROOT,mount_tag=maho_repo,security_model=none,readonly=on"
+  -virtfs "local,path=$EVIDENCE,mount_tag=maho_evidence,security_model=none"
+  "${EXTRA_QEMU[@]}"
+)
+printf 'INFO  Maho VM profile=%s revision=%s memory=%sMiB\n' "$PROFILE" "$REV" "$MEMORY"
+printf 'INFO  evidence=%s\n' "$EVIDENCE"
+
+set +e
+timeout --signal=TERM --kill-after=10 "$TIMEOUT" "${QEMU[@]}" >"$EVIDENCE/qemu.log" 2>&1
+QEMU_RC=$?
+set -e
+
+if [ "$QEMU_RC" -ne 0 ]; then
+  echo "FAIL  QEMU exited rc=$QEMU_RC" >&2
+  tail -120 "$EVIDENCE/qemu.log" >&2 || true
+  exit "$QEMU_RC"
+fi
+
+[ -r "$EVIDENCE/summary.json" ] || {
+  echo "FAIL  guest did not emit summary.json" >&2
+  tail -120 "$EVIDENCE/qemu.log" >&2 || true
+  exit 1
+}
+
+python3 - "$EVIDENCE/summary.json" "$PROFILE" "$REV" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+profile, revision = sys.argv[2:]
+data = json.loads(path.read_text())
+assert data["schema_version"] == 1
+assert data["profile"] == profile, data
+assert data["source_revision"] == revision, data
+assert data["status"] == "passed", data
+assert data["exit_code"] == 0, data
+print(f"PASS  VM profile {profile} ({data['duration_seconds']}s)")
+PY
+
+echo "PASS  evidence $EVIDENCE"

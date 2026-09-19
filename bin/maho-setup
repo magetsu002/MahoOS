@@ -708,8 +708,12 @@ install_platform() {
 }
 
 status() {
-  local failed=0 name
+  local failed=0 name current
   [ -L "$CURRENT" ] && [ -d "$CURRENT" ] || { echo "FAIL  runtime current"; failed=1; }
+  current="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  if [ -n "$current" ] && [ -d "$current" ]; then
+    python "$RUNTIME_RELEASE_VERIFIER" "$current" --releases-root "$RELEASES" >/dev/null 2>&1       || { echo "FAIL  runtime release integrity"; failed=1; }
+  fi
   for name in "${COMMANDS[@]}"; do managed_command "$name" || { echo "FAIL  command $name"; failed=1; }; done
   for name in "${UNITS[@]}"; do managed_unit "$name" || { echo "FAIL  unit $name"; failed=1; }; done
   managed_shell || { echo "FAIL  shell config"; failed=1; }

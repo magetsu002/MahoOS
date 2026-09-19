@@ -1,0 +1,77 @@
+#!/usr/bin/ash
+
+maho_vm_mount() {
+    local newroot="$1"
+
+    modprobe 9pnet_virtio 2>/dev/null || true
+    modprobe overlay 2>/dev/null || true
+    mkdir -p /maho/lower /maho/overlay "$newroot"
+
+    mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=262144 \
+        hostroot /maho/lower || return 1
+    mount -t tmpfs -o mode=0755,size=12288m tmpfs /maho/overlay || return 1
+    mkdir -p /maho/overlay/upper /maho/overlay/work
+    mount -t overlay overlay \
+        -o lowerdir=/maho/lower,upperdir=/maho/overlay/upper,workdir=/maho/overlay/work \
+        "$newroot" || return 1
+
+    mkdir -p "$newroot/home" "$newroot/mnt/maho-src" "$newroot/mnt/maho-evidence"
+    if [ "$(getarg maho.vm.diskhome)" = "1" ]; then
+        modprobe ext4 2>/dev/null || true
+        i=0
+        while [ ! -b /dev/vda ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+        mount -t ext4 -o rw,noatime /dev/vda "$newroot/home" || return 1
+    else
+        mount -t tmpfs -o mode=0755,size=4096m tmpfs "$newroot/home" || return 1
+    fi
+    mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=262144 \
+        maho_repo "$newroot/mnt/maho-src" || return 1
+    mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144 \
+        maho_evidence "$newroot/mnt/maho-evidence" || return 1
+
+    # Preserve public account metadata but never expose or depend on the host's
+    # password databases. 9p correctly enforces host-side permissions, and the
+    # guest must have its own writable account authority.
+    cp "$newroot/etc/passwd" /tmp/maho-passwd
+    cp "$newroot/etc/group" /tmp/maho-group
+    rm -f "$newroot/etc/passwd" "$newroot/etc/group" "$newroot/etc/shadow" "$newroot/etc/gshadow"
+    cp /tmp/maho-passwd "$newroot/etc/passwd"
+    cp /tmp/maho-group "$newroot/etc/group"
+    awk -F: '{ print $1 ":!*:::::::" }' /tmp/maho-passwd > "$newroot/etc/shadow"
+    awk -F: '{ print $1 ":!:::" }' /tmp/maho-group > "$newroot/etc/gshadow"
+    chmod 0644 "$newroot/etc/passwd" "$newroot/etc/group"
+    chmod 0600 "$newroot/etc/shadow" "$newroot/etc/gshadow"
+
+    # Physical host mounts and encrypted volumes do not exist in the VM.
+    : > "$newroot/etc/fstab"
+    : > "$newroot/etc/crypttab"
+    rm -f "$newroot/etc/machine-id"
+    printf 'uninitialized\n' > "$newroot/etc/machine-id"
+
+    mkdir -p "$newroot/etc/systemd/system"
+    cat > "$newroot/etc/systemd/system/maho-vm-certify.service" <<'UNIT'
+[Unit]
+Description=MahoOS disposable VM certification
+After=basic.target systemd-user-sessions.service
+Wants=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /mnt/maho-src/tools/vm/guest-certify.sh
+ExecStartPost=-/usr/bin/systemctl --no-block poweroff
+ExecStopPost=-/usr/bin/systemctl --no-block poweroff
+TimeoutStartSec=12min
+UNIT
+
+    cat > "$newroot/etc/systemd/system/maho-vm-certify.target" <<'UNIT'
+[Unit]
+Description=MahoOS disposable VM certification target
+Requires=basic.target maho-vm-certify.service
+After=basic.target
+AllowIsolate=yes
+UNIT
+}
+
+run_hook() {
+    mount_handler=maho_vm_mount
+}
