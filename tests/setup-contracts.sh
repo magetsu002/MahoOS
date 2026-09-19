@@ -415,6 +415,22 @@ for wants in default.target.wants graphical-session.target.wants; do [ ! -e "$UN
 [ -L "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" ] || fail 'unrelated Waybar watcher was touched'
 if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG"; then fail 'install restarted or directly activated live services'; fi
 "$HOME/.local/bin/maho-setup" status >/dev/null
+
+echo '=== runtime status verifies immutable payload identity ==='
+RUNTIME_PROBE="$NEW_RELEASE/bin/maho-power"
+cp -p -- "$RUNTIME_PROBE" "$TMP/maho-power.verified"
+chmod u+w "$RUNTIME_PROBE"
+printf '
+# setup-status-corruption-probe
+' >>"$RUNTIME_PROBE"
+chmod a-w "$RUNTIME_PROBE"
+if "$HOME/.local/bin/maho-setup" status >/dev/null 2>&1; then
+  fail 'runtime status accepted payload drift'
+fi
+chmod u+w "$RUNTIME_PROBE"
+cat "$TMP/maho-power.verified" >"$RUNTIME_PROBE"
+chmod a-w "$RUNTIME_PROBE"
+"$HOME/.local/bin/maho-setup" status >/dev/null || fail 'runtime status did not recover after exact payload restoration'
 echo PASS
 
 echo '=== G2 failed activation restores exact verified runtime ==='
