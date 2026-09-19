@@ -394,7 +394,16 @@ ShellRoot {
         focusable: false
         exclusionMode: ExclusionMode.Ignore
 
-        mask: Region { item: edgeSurface }
+        // At rest only the visible Edge accepts input. Once a drag begins,
+        // capture the whole screen until release so pointer delivery cannot be
+        // lost when the cursor outruns the small Edge surface on an empty desktop.
+        Item {
+            id: dragCapturePlane
+            anchors.fill: parent
+            visible: root.dragActive
+        }
+
+        mask: Region { item: root.dragActive ? dragCapturePlane : edgeSurface }
 
         Rectangle {
             visible: root.dragActive && root.dragCandidateEdge === "top"

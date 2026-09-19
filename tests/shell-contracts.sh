@@ -94,7 +94,7 @@ require_text shell.qml 'function isOpen(): bool' "Maho Edge IPC state probe miss
 require_text shell.qml 'root.openPanel()' "Maho Edge IPC does not route to native openPanel"
 BINDS="$ROOT/config/hypr/maho/core/binds.lua"
 grep -Fq 'mainMod .. " + SPACE"' "$BINDS" || fail "SUPER+SPACE bind missing"
-grep -Fq 'call edge open' "$BINDS" || fail "SUPER+SPACE does not open Maho Edge"
+grep -Fq 'call edge toggle' "$BINDS" || fail "SUPER+SPACE does not toggle Maho Edge"
 if grep -F 'mainMod .. " + SPACE"' "$BINDS" | grep -Fq 'rofi'; then
     fail "SUPER+SPACE still launches Rofi"
 fi
@@ -192,7 +192,7 @@ require_text shell.qml 'function nearestEdge(centerX, centerY)' "nearest-edge sn
 require_text shell.qml 'function edgePosition(edge, centerX, centerY)' "along-edge snap position missing"
 require_text shell.qml 'dock.setDock(edge, position)' "drag release does not persist snapped dock state"
 require_text shell.qml 'exclusionMode: ExclusionMode.Ignore' "full-screen drag layer should not reserve the desktop"
-require_text shell.qml 'mask: Region { item: edgeSurface }' "full-screen drag layer is not input-masked to Maho Edge"
+require_text shell.qml 'mask: Region { item: root.dragActive ? dragCapturePlane : edgeSurface }' "Edge input mask does not stay bounded at rest and expand only during drag"
 require_text shell.qml 'dock.edge === "left" || dock.edge === "right"' "vertical dock orientation missing"
 require_text shell.qml 'dock.edge === "bottom" ? 180' "bottom silhouette orientation missing"
 require_text shell.qml 'dock.edge === "left" ? -90' "left silhouette orientation missing"
@@ -205,6 +205,8 @@ require_text shell.qml 'id: dockDrag' "runtime-proven drag handler id changed"
 require_text shell.qml 'target: null' "dock drag must not bypass bounded snap geometry"
 require_text shell.qml 'acceptedButtons: Qt.LeftButton' "dock drag left-button contract changed"
 require_text shell.qml 'dragThreshold: 8' "runtime-proven drag threshold changed"
+require_text shell.qml 'id: dragCapturePlane' "Edge drag has no full-screen pointer capture plane"
+require_text shell.qml 'root.dragActive ? dragCapturePlane : edgeSurface' "Edge input mask does not expand for active drag"
 require_text shell.qml 'activeTranslation.x' "dock drag does not follow pointer translation"
 if grep -Fq 'id: dockInput' "$SHELL_DIR/shell.qml"; then
     fail "experimental full-surface MouseArea drag path returned"

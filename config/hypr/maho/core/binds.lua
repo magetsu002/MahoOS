@@ -8,7 +8,7 @@ hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("firefox"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([["$HOME/.local/bin/maho-files" run "$HOME"]]))
 hl.bind(
     mainMod .. " + SPACE",
-    hl.dsp.exec_cmd([[quickshell ipc -p "$HOME/.config/quickshell/maho-shell/shell.qml" call edge open]])
+    hl.dsp.exec_cmd([[quickshell ipc -p "$HOME/.config/quickshell/maho-shell/shell.qml" call edge toggle]])
 )
 
 -- Notification center.
