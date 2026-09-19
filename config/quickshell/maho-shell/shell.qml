@@ -49,6 +49,7 @@ ShellRoot {
     property bool closing: false
     property bool controlVisible: false
     property bool workspaceFlash: false
+    property bool workspaceTravel: false
     property int workspaceVisual: 0
     property int workspaceEventSerial: 0
     property date now: new Date()
@@ -244,6 +245,8 @@ ShellRoot {
         workspaceVisual = nextWorkspace
         workspaceEventSerial += 1
         workspaceFlash = true
+        workspaceTravel = true
+        workspaceTravelTimer.restart()
         workspaceTimer.restart()
     }
 
@@ -281,9 +284,18 @@ ShellRoot {
     }
 
     Timer {
+        id: workspaceTravelTimer
+        interval: 360
+        onTriggered: root.workspaceTravel = false
+    }
+
+    Timer {
         id: workspaceTimer
-        interval: 1150
-        onTriggered: root.workspaceFlash = false
+        interval: 980
+        onTriggered: {
+            root.workspaceTravel = false
+            root.workspaceFlash = false
+        }
     }
 
     Timer {
@@ -590,6 +602,7 @@ ShellRoot {
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
+                    workspaceTravel: root.workspaceTravel
                     workspaceEventSerial: root.workspaceEventSerial
                     now: root.now
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive
@@ -612,6 +625,7 @@ ShellRoot {
                     workspaceIds: root.workspaceIds()
                     activeWorkspace: root.displayedWorkspace
                     workspaceFlash: root.workspaceFlash
+                    workspaceTravel: root.workspaceTravel
                     workspaceEventSerial: root.workspaceEventSerial
                     now: root.now
                     enabled: visible && !root.expanded && !root.closing && !root.dragActive

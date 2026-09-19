@@ -13,6 +13,7 @@ Item {
     property var workspaceIds: []
     property int activeWorkspace: 0
     property bool workspaceFlash: false
+    property bool workspaceTravel: false
     property int workspaceEventSerial: 0
     property date now: new Date()
     property bool hovered: hitArea.containsMouse
@@ -181,7 +182,7 @@ Item {
         anchors.centerIn: parent
         theme: edge.theme
         activeWorkspace: edge.activeWorkspace
-        switching: edge.workspaceFlash
+        switching: edge.workspaceTravel
         vertical: true
         opacity: edge.mode === "workspace" ? 1 : 0
         visible: opacity > 0.01
