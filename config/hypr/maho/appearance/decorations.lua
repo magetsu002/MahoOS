@@ -11,11 +11,21 @@ hl.config({
 
         blur = {
             enabled = true,
-            size = 3,
+            size = 5,
             passes = 4,
             new_optimizations = true,
             ignore_opacity = true,
             xray = true,
+
+            -- A wider Kawase footprint gives Maho glass real diffusion instead
+            -- of merely showing a darkened copy of the application beneath it.
+            -- Vibrancy is deliberately modest so wallpaper/window color survives
+            -- the blur without turning saturated or neon.
+            noise = 0.006,
+            contrast = 0.93,
+            brightness = 1.02,
+            vibrancy = 0.24,
+            vibrancy_darkness = 0.12,
         },
 
         shadow = {

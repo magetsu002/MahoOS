@@ -74,14 +74,16 @@ Scope {
     // Slightly denser than the frozen polished checkpoint: background color
     // still leaks through, but application detail is carried by compositor
     // diffusion rather than remaining directly readable through the shell.
-    readonly property color popupFill: alpha(mix(familyShell, accent, 0.024), 0.82)
-    readonly property color centerFill: alpha(centerShell, 0.82)
-    readonly property color shellRim: alpha(foreground, 0.072)
-    readonly property color shellTopSpecular: alpha(foreground, 0.045)
-    readonly property color shellAccentWash: alpha(accent, 0.024)
-    readonly property color shellBottomShade: alpha(background, 0.060)
-    readonly property color shellInnerLine: alpha(foreground, 0.056)
-    readonly property color outerGlow: alpha(accent, 0.018)
+    // Dense liquid glass: preserve wallpaper color and compositor diffusion,
+    // but suppress readable application detail behind the center.
+    readonly property color popupFill: alpha(mix(familyShell, accent, 0.030), 0.85)
+    readonly property color centerFill: alpha(mix(centerShell, accent, 0.010), 0.86)
+    readonly property color shellRim: alpha(foreground, 0.068)
+    readonly property color shellTopSpecular: alpha(foreground, 0.050)
+    readonly property color shellAccentWash: alpha(accent, 0.030)
+    readonly property color shellBottomShade: alpha(background, 0.070)
+    readonly property color shellInnerLine: alpha(foreground, 0.060)
+    readonly property color outerGlow: alpha(accent, 0.020)
 
     readonly property color toolbarFill: alpha(mix(surfaceHigh, background, 0.43), 0.44)
     readonly property color toolbarRim: alpha(foreground, 0.050)
@@ -109,11 +111,11 @@ Scope {
     // Notification cards are intentionally more translucent than the shell.
     // Combined with the already-blurred backing plane this creates nested depth
     // instead of opaque slabs stacked inside an opaque slab.
-    readonly property color rowFill: alpha(mix(surfaceHigh, background, 0.18), 0.30)
-    readonly property color rowHover: alpha(mix(surfaceHigh, foreground, 0.055), 0.37)
-    readonly property color rowUnread: alpha(mix(surfaceHigh, accent, 0.035), 0.32)
-    readonly property color rowUnreadHover: alpha(mix(surfaceHigh, accent, 0.055), 0.39)
-    readonly property color rowSelected: alpha(mix(surfaceHigh, accent, 0.065), 0.45)
+    readonly property color rowFill: alpha(mix(surfaceHigh, background, 0.18), 0.34)
+    readonly property color rowHover: alpha(mix(surfaceHigh, foreground, 0.055), 0.40)
+    readonly property color rowUnread: alpha(mix(surfaceHigh, accent, 0.040), 0.35)
+    readonly property color rowUnreadHover: alpha(mix(surfaceHigh, accent, 0.060), 0.42)
+    readonly property color rowSelected: alpha(mix(surfaceHigh, accent, 0.070), 0.47)
     readonly property color rowRim: alpha(foreground, 0.040)
     readonly property color rowActiveRim: alpha(accent, 0.10)
     readonly property color rowSeparator: alpha(foreground, 0.026)
