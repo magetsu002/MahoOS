@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
 import "PointerSelectionPolicy.js" as PointerSelectionPolicy
@@ -35,6 +36,22 @@ PanelWindow {
         onModelChanged: Qt.callLater(function() {
             root.resetResultsToTop()
         })
+    }
+
+    FileView {
+        id: positionFile
+        path: Quickshell.statePath("launcher-position.json")
+        blockLoading: true
+        atomicWrites: true
+        onAdapterUpdated: writeAdapter()
+
+        JsonAdapter {
+            id: launcherPlacement
+            property int version: 1
+            property bool valid: false
+            property real normalizedX: 0.5
+            property real normalizedY: 0.5
+        }
     }
 
     property bool shown: false
@@ -72,15 +89,47 @@ PanelWindow {
             Math.min(root.height - motionLayer.height - surfaceMargin, motionLayer.y))
     }
 
+    function applySavedPosition() {
+        if (!launcherPlacement.valid) {
+            root.centerSurface()
+            return
+        }
+
+        const spanX = Math.max(0, root.width - motionLayer.width - surfaceMargin * 2)
+        const spanY = Math.max(0, root.height - motionLayer.height - surfaceMargin * 2)
+        const nx = Math.max(0, Math.min(1, Number(launcherPlacement.normalizedX)))
+        const ny = Math.max(0, Math.min(1, Number(launcherPlacement.normalizedY)))
+
+        root.userPositioned = true
+        motionLayer.x = surfaceMargin + spanX * nx
+        motionLayer.y = surfaceMargin + spanY * ny
+        root.clampSurface()
+    }
+
+    function persistSurfacePosition() {
+        root.clampSurface()
+        const spanX = Math.max(0, root.width - motionLayer.width - surfaceMargin * 2)
+        const spanY = Math.max(0, root.height - motionLayer.height - surfaceMargin * 2)
+
+        launcherPlacement.valid = true
+        launcherPlacement.normalizedX = spanX > 0
+            ? Math.max(0, Math.min(1, (motionLayer.x - surfaceMargin) / spanX))
+            : 0.5
+        launcherPlacement.normalizedY = spanY > 0
+            ? Math.max(0, Math.min(1, (motionLayer.y - surfaceMargin) / spanY))
+            : 0.5
+        root.userPositioned = true
+    }
+
     onWidthChanged: Qt.callLater(function() {
-        if (root.userPositioned)
-            root.clampSurface()
+        if (launcherPlacement.valid)
+            root.applySavedPosition()
         else
             root.centerSurface()
     })
     onHeightChanged: Qt.callLater(function() {
-        if (root.userPositioned)
-            root.clampSurface()
+        if (launcherPlacement.valid)
+            root.applySavedPosition()
         else
             root.centerSurface()
     })
@@ -263,7 +312,7 @@ PanelWindow {
     Component.onCompleted: {
         root.pendingMode = backend.mode
         Qt.callLater(function() {
-            root.centerSurface()
+            root.applySavedPosition()
             root.resetResultsToTop()
             root.shown = true
             searchInput.forceActiveFocus()
@@ -279,14 +328,14 @@ PanelWindow {
         opacity: root.shown ? 1 : 0
 
         onWidthChanged: Qt.callLater(function() {
-            if (root.userPositioned)
-                root.clampSurface()
+            if (launcherPlacement.valid)
+                root.applySavedPosition()
             else
                 root.centerSurface()
         })
         onHeightChanged: Qt.callLater(function() {
-            if (root.userPositioned)
-                root.clampSurface()
+            if (launcherPlacement.valid)
+                root.applySavedPosition()
             else
                 root.centerSurface()
         })
@@ -425,8 +474,8 @@ PanelWindow {
                         drag.maximumY: Math.max(root.surfaceMargin,
                             root.height - motionLayer.height - root.surfaceMargin)
                         onPressed: root.userPositioned = true
-                        onReleased: root.clampSurface()
-                        onCanceled: root.clampSurface()
+                        onReleased: root.persistSurfacePosition()
+                        onCanceled: root.persistSurfacePosition()
                     }
 
                     LauncherIconButton {
