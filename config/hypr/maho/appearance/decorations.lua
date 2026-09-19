@@ -57,3 +57,28 @@ hl.layer_rule({
     ignore_alpha = 0.001,
     xray = false,
 })
+
+
+-- Maho Notify follows the same material model as Maho Clipboard: blur the
+-- interactive layer itself and ignore transparent pixels. This keeps blur,
+-- rounded geometry and drag motion in one compositor surface, eliminating
+-- carrier/foreground drift while preserving a sharp foreground.
+hl.layer_rule({
+    name = "maho-notify-material",
+    match = { namespace = "maho-notify-center" },
+    blur = true,
+    ignore_alpha = 0.16,
+    xray = false,
+    no_anim = true,
+})
+
+-- Transient and replayed notification cards use the same frosted material as
+-- the center, but alpha masking keeps diffusion inside the rounded cards only.
+hl.layer_rule({
+    name = "maho-notify-popup-material",
+    match = { namespace = "maho-notify-popup" },
+    blur = true,
+    ignore_alpha = 0.16,
+    xray = false,
+    no_anim = true,
+})

@@ -17,9 +17,11 @@ from pathlib import Path
 from typing import Any
 
 
-VERSION = 3
+VERSION = 5
 STATUS_VERSION = 1
 MAX_ENTRIES = 500
+MAX_POLICIES = 256
+POLICY_MODES = {"always-show", "hold-gaming", "history-only"}
 MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 ALLOWED_FIELDS = {
     "id",
@@ -37,6 +39,9 @@ ALLOWED_FIELDS = {
     "closeReason",
     "desktopEntry",
     "icon",
+    "held",
+    "holdReason",
+    "deliveryMode",
 }
 STRING_LIMITS = {
     "id": 96,
@@ -48,6 +53,8 @@ STRING_LIMITS = {
     "closeReason": 32,
     "desktopEntry": 192,
     "icon": 512,
+    "holdReason": 96,
+    "deliveryMode": 32,
 }
 
 
@@ -76,7 +83,22 @@ def status_path() -> Path:
 
 
 def default_state() -> dict[str, Any]:
-    return {"version": VERSION, "dnd": False, "entries": []}
+    return {"version": VERSION, "dnd": False, "entries": [], "policies": {}}
+
+
+def normalize_policies(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, str] = {}
+    for key, value in raw.items():
+        clean_key = _bounded_string(key, 192).strip().lower()
+        clean_value = _bounded_string(value, 32)
+        if not clean_key or clean_value not in POLICY_MODES:
+            continue
+        normalized[clean_key] = clean_value
+        if len(normalized) >= MAX_POLICIES:
+            break
+    return normalized
 
 
 def _bounded_string(value: Any, limit: int) -> str:
@@ -110,7 +132,7 @@ def normalize_entry(raw: Any, now_ms: int) -> dict[str, Any] | None:
                 entry[field] = int(value)
             except (TypeError, ValueError):
                 entry[field] = 0
-        elif field == "read":
+        elif field in {"read", "held"}:
             entry[field] = bool(value)
 
     if not entry.get("id"):
@@ -121,6 +143,11 @@ def normalize_entry(raw: Any, now_ms: int) -> dict[str, Any] | None:
     entry["groupCount"] = max(1, int(entry.get("groupCount", 1)))
     entry["replacementCount"] = max(0, int(entry.get("replacementCount", 0)))
     entry["read"] = bool(entry.get("read", False))
+    entry["held"] = bool(entry.get("held", False))
+    entry["holdReason"] = _bounded_string(entry.get("holdReason", ""), 96)
+    entry["deliveryMode"] = _bounded_string(
+        entry.get("deliveryMode", "held" if entry["held"] else "recent"), 32
+    )
     return entry
 
 
@@ -140,7 +167,12 @@ def normalize_state(raw: Any, now_ms: int | None = None) -> dict[str, Any]:
 
     entries.sort(key=lambda item: int(item["timestamp"]), reverse=True)
     entries = entries[:MAX_ENTRIES]
-    return {"version": VERSION, "dnd": bool(raw.get("dnd", False)), "entries": entries}
+    return {
+        "version": VERSION,
+        "dnd": bool(raw.get("dnd", False)),
+        "entries": entries,
+        "policies": normalize_policies(raw.get("policies", {})),
+    }
 
 
 def _ensure_private_directory(directory: Path) -> None:
@@ -231,6 +263,7 @@ def metadata(state: dict[str, Any]) -> dict[str, Any]:
         "dnd": bool(state.get("dnd", False)),
         "history_count": len(entries),
         "unread_count": sum(1 for entry in entries if not entry.get("read", False)),
+        "policy_count": len(state.get("policies", {})),
         "path": str(state_path()),
         "max_entries": MAX_ENTRIES,
         "max_age_days": MAX_AGE_SECONDS // 86400,
@@ -302,6 +335,9 @@ def self_test() -> int:
                 "closeReason": "expired",
                 "desktopEntry": "synthetic.app",
                 "icon": "",
+                "held": index % 2 == 0,
+                "holdReason": "Gaming" if index % 2 == 0 else "",
+                "deliveryMode": "hold-gaming" if index % 2 == 0 else "recent",
                 "image": "data:image/png;base64,must-not-persist",
             }
             for index in range(MAX_ENTRIES + 5)
@@ -314,11 +350,27 @@ def self_test() -> int:
                 "read": False,
             }
         )
-        saved = save_state({"version": VERSION, "dnd": True, "entries": entries})
+        saved = save_state({
+            "version": VERSION,
+            "dnd": True,
+            "entries": entries,
+            "policies": {
+                "synthetic.app": "hold-gaming",
+                "chat.example": "always-show",
+                "mail.example": "history-only",
+                "invalid.example": "not-a-mode",
+            },
+        })
         assert len(saved["entries"]) == MAX_ENTRIES
         assert all(entry["id"] != "synthetic-old" for entry in saved["entries"])
         assert all(entry.get("desktopEntry") == "synthetic.app" for entry in saved["entries"])
+        assert all("held" in entry and "deliveryMode" in entry for entry in saved["entries"])
         assert all("image" not in entry for entry in saved["entries"])
+        assert saved["policies"] == {
+            "synthetic.app": "hold-gaming",
+            "chat.example": "always-show",
+            "mail.example": "history-only",
+        }
         assert (state_dir().stat().st_mode & 0o777) == 0o700
         assert (state_path().stat().st_mode & 0o777) == 0o600
 

@@ -34,6 +34,9 @@ for file in \
     HistoryModel.qml \
     NotificationCenter.qml \
     HistoryRow.qml \
+    NotificationActionMenu.qml \
+    NotificationControlMenu.qml \
+    HistoryReplayCard.qml \
     state.py
 do
     require_file "$file"
@@ -71,43 +74,72 @@ fi
 echo "PASS"
 
 echo "=== notification center contract ==="
-require_text "$NOTIFY_DIR/NotificationCenter.qml" 'width: 432' "notification center width is not premium-bounded"
-require_text "$NOTIFY_DIR/NotificationCenter.qml" 'Math.min(704' "notification center height is not premium-bounded"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'width: 520' "notification center width is not reference-bounded"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'Math.min(900' "notification center height is not reference-bounded"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'ListView {' "history center is not virtualized"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'reuseItems: true' "history rows are not reusable"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'model: historyModel.groupedEntries' "center does not consume grouped history"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.dndEnabled' "center DND control missing"
-require_text "$NOTIFY_DIR/NotificationCenter.qml" 'String(historyModel.unreadCount) + " unread"' "center unread badge missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'String(historyModel.heldCount) + " held"' "center held summary missing"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.markAllRead()' "center read path missing"
-require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.clearHistory()' "center clear-history path missing"
-require_text "$NOTIFY_DIR/NotificationCenter.qml" 'section.property: "section"' "minimal history time sections missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'section.property: "section"' "Held/Recent sections missing"
+require_text "$NOTIFY_DIR/HistoryModel.qml" '"section": entry.held ? "Held" : "Recent"' "history is not classified into Held and Recent"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'interval: 60000' "relative-time refresh is missing or unbounded"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'running: center.shown' "relative-time refresh runs while center is closed"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'text: "All clear"' "premium empty state missing"
-require_text "$NOTIFY_DIR/NotificationCenter.qml" 'duration: center.shown ? 210 : 155' "restrained center presentation motion missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'duration: center.shown ? 175 : 125' "restrained center presentation motion missing"
 require_text "$NOTIFY_DIR/NotificationCenter.qml" 'gradient: Gradient {' "adaptive center material depth missing"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'readonly property bool unread:' "read/unread row distinction missing"
-require_text "$NOTIFY_DIR/HistoryRow.qml" 'visible: row.unread' "unread accent rail missing"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'id: iconLane' "history identity has no stable optical lane"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'anchors.centerIn: parent' "history app icon is not geometrically centered in its lane"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'id: actionLane' "history hover action has no stable geometry lane"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'String(entry.groupCount) + " grouped"' "grouped-entry count badge missing"
-require_text "$NOTIFY_DIR/HistoryRow.qml" 'maximumLineCount: row.expanded ? 8 : 2' "expanded history body is not bounded"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'maximumLineCount: row.expanded ? 6 : 1' "expanded history body is not bounded"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'function presentationAction(id, action, adaptiveQuiet, adaptiveContext)' "history presentation actions are not context-aware"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'function activateEntry(id)' "history rows cannot activate their source"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'String(action.identifier || "") === "default"' "live notification default action is not preferred"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'function launchHistory(entry)' "history source desktop-entry fallback missing"
+require_text "$NOTIFY_DIR/AppIdentityResolver.qml" 'desktop.execute()' "desktop-entry activation is not native"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.activateEntry(String(modelData.id))' "notification center does not route row clicks to activation"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyModel.activateEntry(entryId)' "keyboard activation does not mirror row clicks"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'readonly property int heldCount:' "held notification count missing"
+require_text "$NOTIFY_DIR/NotificationActionMenu.qml" '"show-now"' "show-now action missing"
+require_text "$NOTIFY_DIR/NotificationActionMenu.qml" '"hold-until-free"' "hold-until-free action missing"
+require_text "$NOTIFY_DIR/NotificationActionMenu.qml" '"always-show"' "always-show action missing"
+require_text "$NOTIFY_DIR/NotificationActionMenu.qml" '"hold-gaming"' "hold-gaming action missing"
+require_text "$NOTIFY_DIR/NotificationActionMenu.qml" '"history-only"' "history-only action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Do Not Disturb' "notification control DND action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Stop Adaptive Focus' "notification control adaptive-stop action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Review held' "notification control review action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Release held now' "notification control release action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Mark all as read' "notification control read action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Clear read history' "notification control clear-read action missing"
+require_text "$NOTIFY_DIR/NotificationControlMenu.qml" 'Reset app rules' "notification control rule-reset action missing"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'function releaseAllHeld()' "notification control cannot release current held notifications"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'function clearReadHistory()' "notification control cannot clear read history safely"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'function clearAppPolicies()' "notification control cannot reset app rules"
+require_text "$NOTIFY_DIR/HistoryModel.qml" 'readonly property int policyCount:' "notification control has no app-rule count"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'Notification delivery · Normal' "normal delivery state is missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'Adaptive Focus · ' "adaptive delivery state is missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'onAdaptiveStopRequested' "adaptive control action is not wired"
 if grep -Fq '.invoke()' "$NOTIFY_DIR/HistoryRow.qml"; then
     fail "historical rows expose stale live actions"
 fi
 require_text "$NOTIFY_DIR/shell.qml" 'exclusionMode: ExclusionMode.Ignore' "center may reserve compositor space"
 require_text "$NOTIFY_DIR/shell.qml" 'visible: root.centerPresented' "center close animation does not remain independently presented"
 require_text "$NOTIFY_DIR/shell.qml" 'Loader {' "notification center visual tree is not lazy-loaded"
-require_text "$NOTIFY_DIR/shell.qml" 'active: root.centerPresented' "notification center loader does not unload after close animation"
+require_text "$NOTIFY_DIR/shell.qml" 'active: root.centerPresented' "notification center loader does not unload after close"
 require_text "$NOTIFY_DIR/shell.qml" 'sourceComponent: Component {' "notification center is not isolated behind a loader component"
 require_text "$NOTIFY_DIR/shell.qml" 'mask: Region { item: centerLoader.item }' "notification center mask is not bound to the current lazy instance"
-require_text "$NOTIFY_DIR/shell.qml" 'function centerLoaded(): bool' "notification center lazy lifecycle is not observable for regression checks"
+require_text "$NOTIFY_DIR/shell.qml" 'function centerLoaded(): bool' "notification center lazy lifecycle is not observable"
 require_text "$NOTIFY_DIR/shell.qml" 'return centerLoader.item !== null' "notification center loaded state is not exact"
 python - "$NOTIFY_DIR/shell.qml" <<'PY_LAZY'
 from pathlib import Path
 import sys
-s=Path(sys.argv[1]).read_text()
-assert s.count('NotificationCenter {') == 1, 'duplicate center visual object definition'
-assert s.index('NotificationService {') < s.index('Loader {'), 'background notification authority moved into lazy visual lifecycle'
-assert s.index('sourceComponent: Component {') < s.index('NotificationCenter {'), 'center is not loader-owned'
+source = Path(sys.argv[1]).read_text()
+assert source.count('NotificationCenter {') == 1, 'duplicate center visual object definition'
+assert source.index('NotificationService {') < source.index('Loader {'), 'background notification authority moved into lazy visual lifecycle'
+assert source.index('sourceComponent: Component {') < source.index('NotificationCenter {'), 'center is not loader-owned'
 PY_LAZY
 require_text "$RUNTIME" 'open_center' "center runtime command missing"
 echo "PASS"
@@ -125,6 +157,13 @@ require_text "$NOTIFY_DIR/state.py" 'publish_status(last_status, active=False)' 
 if grep -nE 'normalize_status|publish_status' "$NOTIFY_DIR/state.py" | grep -E 'body|summary|appName|title'; then
     fail "notification content field found in metadata implementation"
 fi
+echo "PASS"
+
+echo "=== live PID IPC routing contract ==="
+require_text "$RUNTIME" 'notify_status_pid()' "runtime does not read the live Notify PID sidecar"
+require_text "$RUNTIME" 'notify_pid_is_live()' "runtime does not validate sidecar PID ownership"
+require_text "$RUNTIME" 'quickshell ipc --pid "$pid" call notify "$@"' "runtime does not prefer PID-scoped IPC"
+require_text "$RUNTIME" 'quickshell ipc -p "$CONFIG" call notify "$@"' "runtime lost config-path IPC fallback"
 echo "PASS"
 
 echo "=== native notification server contract ==="
@@ -158,14 +197,21 @@ echo "PASS"
 echo "=== bounded popup contract ==="
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'readonly property int maxVisible: 3' "visible popup maximum is not three"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'readonly property int maxQueued: 100' "popup queue bound missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'function showHistoryEntry(entry)' "show-now replay path missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'nextQueue.unshift(displaced)' "show-now cannot make immediate room without dropping live notifications"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'function dismissReplay(token)' "show-now replay dismissal path missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'while (nextVisible.length + nextReplay.length < maxVisible && nextQueue.length > 0)' "show-now leaves a dead popup slot after replay dismissal"
+require_text "$NOTIFY_DIR/HistoryReplayCard.qml" 'signal activated()' "replayed notification is not interactive"
+require_text "$NOTIFY_DIR/NotificationStack.qml" 'historyModel.activateEntry(String(modelData.entry.id))' "replayed notification cannot activate its source"
+require_text "$NOTIFY_DIR/shell.qml" 'WlrLayershell.namespace: "maho-notify-popup"' "popup surface has no dedicated compositor namespace"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'queuedNotifications' "overflow queue missing"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'groupingWindowMs: 6000' "same-app popup grouping missing"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'groupCount' "popup group count missing"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'NotificationUrgency.Critical' "critical popup policy missing"
-require_text "$NOTIFY_DIR/NotificationModel.qml" 'dndEnabled && !critical' "DND suppression path missing"
+require_text "$NOTIFY_DIR/NotificationModel.qml" 'function shouldSuppress(notification, quietEnabled)' "shared quiet suppression decision missing"
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'notification.expire()' "suppressed popup does not release live notification"
-require_text "$NOTIFY_DIR/shell.qml" 'historyModel.record(notification)' "history path does not precede popup policy"
-require_text "$NOTIFY_DIR/shell.qml" 'notificationModel.enqueue(notification, historyModel.dndEnabled || root.adaptiveQuiet)' "user/adaptive quiet does not control popup path"
+require_text "$NOTIFY_DIR/shell.qml" 'historyModel.record(' "history does not retain presentation state"
+require_text "$NOTIFY_DIR/shell.qml" 'notificationModel.enqueue(notification, decision.suppress)' "presentation decision does not control popup path"
 require_text "$NOTIFY_DIR/shell.qml" 'function adaptiveQuietStatus(): bool' "adaptive quiet status IPC missing"
 require_text "$NOTIFY_DIR/shell.qml" 'function setAdaptiveQuiet(enabled: bool): bool' "adaptive quiet setter IPC missing"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'maximumLineCount: 3' "long notification bodies are not clamped"
@@ -176,8 +222,12 @@ require_text "$NOTIFY_DIR/shell.qml" 'readonly property real dockPosition:' "Mah
 require_text "$NOTIFY_DIR/shell.qml" 'dockPosition > 0.5' "Maho Notify cannot detect a top/bottom Edge on the right half"
 require_text "$NOTIFY_DIR/shell.qml" 'if (dockOccupiesRightSide)' "Maho Notify does not move opposite the Edge location"
 require_text "$NOTIFY_DIR/shell.qml" 'x: root.surfaceX(overlay.width, width, 18)' "popup placement is not Edge-aware"
-require_text "$NOTIFY_DIR/shell.qml" 'x: root.surfaceX(centerOverlay.width, width, 18)' "notification center placement is not Edge-aware"
-require_text "$NOTIFY_DIR/shell.qml" 'y: 18' "top safe margin missing"
+require_text "$NOTIFY_DIR/shell.qml" 'Quickshell.statePath("center-position.json")' "notification center position is not persisted"
+require_text "$NOTIFY_DIR/shell.qml" 'drag.target: centerLoader.item' "notification center is not draggable"
+require_text "$NOTIFY_DIR/shell.qml" 'if (centerPlacement.valid)' "saved notification center placement is not restored"
+require_text "$NOTIFY_DIR/shell.qml" 'surfaceX(centerOverlay.width, width, root.centerMarginX)' "notification center first-run placement is not Edge-aware"
+require_text "$NOTIFY_DIR/shell.qml" 'function persistCenterPlacement()' "notification center drag position is not persisted"
+require_text "$NOTIFY_DIR/shell.qml" 'y: root.centerMarginY' "top safe margin missing"
 require_text "$NOTIFY_DIR/shell.qml" 'exclusionMode: ExclusionMode.Ignore' "popup may reserve compositor space"
 echo "PASS"
 

@@ -10,11 +10,15 @@ QtObject {
     property var visibleNotifications: []
     property var queuedNotifications: []
     property var supersededNotifications: ({})
+    property var replayEntries: []
+    property int replaySerial: 0
     property int suppressedPopupCount: 0
     property int droppedPopupCount: 0
     readonly property int visibleCount: visibleNotifications.length
     readonly property int queuedCount: queuedNotifications.length
     readonly property int livePopupCount: visibleCount + queuedCount
+    readonly property int replayCount: replayEntries.length
+    readonly property int presentationCount: visibleCount + replayCount
 
     function appKey(notification) {
         return String(notification.desktopEntry || notification.appName || "notification")
@@ -85,12 +89,82 @@ QtObject {
         return true
     }
 
+    function showHistoryEntry(entry) {
+        if (!entry)
+            return false
+
+        // "Show now" is an explicit user request, so it must create an immediate
+        // popup even when the normal presentation stack is already full. Preserve
+        // displaced live notifications by putting the oldest popup back at the
+        // front of the bounded queue instead of expiring or dropping it.
+        let nextReplay = replayEntries.filter(function(item) {
+            return String(item.entry && item.entry.id || "") !== String(entry.id || "")
+        })
+        let nextVisible = visibleNotifications.slice()
+        let nextQueue = queuedNotifications.slice()
+
+        while (nextVisible.length + nextReplay.length >= maxVisible) {
+            if (nextReplay.length > 0) {
+                nextReplay.pop()
+                continue
+            }
+            if (nextVisible.length <= 0 || nextQueue.length >= maxQueued)
+                return false
+
+            let displacementIndex = -1
+            for (let index = nextVisible.length - 1; index >= 0; --index) {
+                if (!nextVisible[index].critical) {
+                    displacementIndex = index
+                    break
+                }
+            }
+            if (displacementIndex < 0)
+                displacementIndex = nextVisible.length - 1
+
+            const displaced = nextVisible.splice(displacementIndex, 1)[0]
+            nextQueue.unshift(displaced)
+        }
+
+        replaySerial += 1
+        const token = "replay-" + String(Date.now()) + "-" + String(replaySerial)
+        nextReplay.unshift({"token": token, "entry": Object.assign({}, entry)})
+        visibleNotifications = nextVisible
+        queuedNotifications = nextQueue
+        replayEntries = nextReplay.slice(0, maxVisible)
+        return true
+    }
+
+    function dismissReplay(token) {
+        const nextReplay = replayEntries.filter(function(item) { return item.token !== token })
+        if (nextReplay.length === replayEntries.length)
+            return false
+
+        // A replay may have temporarily displaced a live popup into the queue.
+        // Restore queued work immediately when the replay leaves so Show now
+        // never creates a dead slot in the presentation stack.
+        const nextVisible = visibleNotifications.slice()
+        const nextQueue = queuedNotifications.slice()
+        while (nextVisible.length + nextReplay.length < maxVisible && nextQueue.length > 0)
+            nextVisible.push(nextQueue.shift())
+
+        replayEntries = nextReplay
+        visibleNotifications = nextVisible
+        queuedNotifications = nextQueue
+        return true
+    }
+
+    function shouldSuppress(notification, quietEnabled) {
+        if (!notification)
+            return false
+        return Boolean(quietEnabled) && notification.urgency !== NotificationUrgency.Critical
+    }
+
     function enqueue(notification, dndEnabled) {
         if (!notification || contains(notification))
             return false
 
         const critical = notification.urgency === NotificationUrgency.Critical
-        if (dndEnabled && !critical) {
+        if (shouldSuppress(notification, dndEnabled)) {
             suppressedPopupCount += 1
             notification.expire()
             return false
@@ -112,6 +186,8 @@ QtObject {
         const group = makeGroup(notification)
         connectLifetime(notification)
         if (visibleNotifications.length < maxVisible) {
+            if (visibleNotifications.length + replayEntries.length >= maxVisible && replayEntries.length > 0)
+                replayEntries = replayEntries.slice(0, replayEntries.length - 1)
             const nextVisible = visibleNotifications.slice()
             nextVisible.unshift(group)
             visibleNotifications = nextVisible
@@ -176,7 +252,7 @@ QtObject {
         if (!found)
             return
 
-        while (nextVisible.length < maxVisible && nextQueue.length > 0)
+        while (nextVisible.length + replayEntries.length < maxVisible && nextQueue.length > 0)
             nextVisible.push(nextQueue.shift())
 
         visibleNotifications = nextVisible
