@@ -132,6 +132,13 @@ ShellRoot {
     UpdateAttention { }
     AppIdentityResolver { id: appIdentityResolver }
     NotificationModel { id: notificationModel }
+
+    // The center lives inside a Loader-owned Component. Bind through root-level
+    // references so property names cannot self-resolve inside the Component.
+    readonly property var centerThemeRef: theme
+    readonly property var centerHistoryModelRef: historyModel
+    readonly property var centerIdentityResolverRef: appIdentityResolver
+
     HistoryModel {
         id: historyModel
         identityResolver: appIdentityResolver
@@ -391,9 +398,9 @@ ShellRoot {
                 NotificationCenter {
                     x: root.surfaceX(centerOverlay.width, width, root.centerMarginX)
                     y: root.centerMarginY
-                    theme: theme
-                    historyModel: historyModel
-                    identityResolver: appIdentityResolver
+                    theme: root.centerThemeRef
+                    historyModel: root.centerHistoryModelRef
+                    identityResolver: root.centerIdentityResolverRef
                     adaptiveQuiet: root.adaptiveQuiet
                     adaptiveContext: root.adaptiveContext
                     availableHeight: centerOverlay.height
