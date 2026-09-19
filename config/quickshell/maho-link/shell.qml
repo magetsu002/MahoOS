@@ -249,6 +249,7 @@ ShellRoot {
     function showMode(mode, reloadPlacement) {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
+        idleRetireTimer.stop()
         bluetoothRevealTimer.stop()
         closeAfterPlacementSave = false
         backdropActive = true
@@ -370,10 +371,20 @@ ShellRoot {
 
     Timer {
         id: closeTimer
-        interval: 130
+        interval: 120
         onTriggered: {
             root.presented = false
-            Qt.quit()
+            idleRetireTimer.restart()
+        }
+    }
+
+    Timer {
+        id: idleRetireTimer
+        interval: 30000
+        repeat: false
+        onTriggered: {
+            if (!root.presented && !root.overlayOpen)
+                Qt.quit()
         }
     }
 
