@@ -434,7 +434,7 @@ Item {
                 width: ListView.view.width
                 height: 70
                 readonly property bool selected: ListView.isCurrentItem
-                readonly property bool revealPin: rowHover.containsMouse || pinHover.containsMouse
+                readonly property bool revealPin: Boolean(row.modelData.pinned) || rowHover.containsMouse || pinHover.containsMouse
 
                 Rectangle {
                     anchors.fill: parent
@@ -549,8 +549,9 @@ Item {
                         anchors.centerIn: parent
                         width: 17
                         height: 17
+                        filled: Boolean(row.modelData.pinned)
                         glyphColor: row.modelData.pinned
-                            ? theme.alpha(root.textPrimary, 0.96)
+                            ? theme.alpha(root.textPrimary, 1.0)
                             : theme.alpha(root.textSecondary, pinHover.containsMouse ? 0.88 : 0.68)
                     }
 

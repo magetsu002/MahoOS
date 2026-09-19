@@ -6,6 +6,7 @@ Item {
     objectName: "clipboardPinGlyph"
 
     required property color glyphColor
+    property bool filled: false
 
     implicitWidth: 18
     implicitHeight: 18
@@ -37,12 +38,14 @@ Item {
         ShapePath {
             strokeColor: root.visibleColor
             strokeWidth: 1.55
-            fillColor: Qt.rgba(
-                root.visibleColor.r,
-                root.visibleColor.g,
-                root.visibleColor.b,
-                0.08
-            )
+            fillColor: root.filled
+                ? root.visibleColor
+                : Qt.rgba(
+                    root.visibleColor.r,
+                    root.visibleColor.g,
+                    root.visibleColor.b,
+                    0.06
+                )
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
 
