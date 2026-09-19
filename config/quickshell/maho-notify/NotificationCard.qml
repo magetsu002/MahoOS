@@ -73,18 +73,6 @@ Rectangle {
         color: theme.shellInnerLine
     }
 
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.leftMargin: 24
-        anchors.rightMargin: 24
-        anchors.bottom: parent.bottom
-        height: 1
-        radius: 1
-        antialiasing: true
-        color: theme.alpha(theme.accent, card.critical ? 0.050 : 0.025)
-    }
-
     HoverHandler { id: hover }
 
     Timer {
