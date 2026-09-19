@@ -46,8 +46,8 @@ require "$BACKDROP" 'Qt.rgba(0, 0, 0, 0.008)' \
     'Link blur carrier alpha is not stable'
 require "$BACKDROP" 'property bool shown: false' \
     'Link backdrop has no explicit fade visibility state'
-require "$BACKDROP" 'duration: root.shown ? 70 : 52' \
-    'Link backdrop close is not a short fade'
+require "$BACKDROP" 'duration: root.shown ? 68 : 0' \
+    'Link backdrop still animates blur during dismissal'
 
 echo PASS
 
@@ -74,6 +74,8 @@ require "$LINK_VIEW" 'property bool closing: false' \
     'Link cannot distinguish intro motion from close-only fade'
 require "$SHELL_QML" 'backdropVisible = false' \
     'Link close does not begin compositor blur fade immediately'
+require "$SHELL_QML" 'backdropActive = false' \
+    'Link close does not unmap compositor blur immediately'
 require "$SHELL_QML" 'root.backdropActive = false' \
     'Link blur carrier does not unmap after the close fade'
 require "$SHELL_QML" 'visible: root.presented' \

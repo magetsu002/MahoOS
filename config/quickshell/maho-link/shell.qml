@@ -302,6 +302,7 @@ ShellRoot {
             return
         modeAfterPlacementSave = ""
         backdropVisible = false
+        backdropActive = false
         overlayOpen = false
         linkSurface.closing = true
         linkSurface.shown = false
@@ -373,7 +374,6 @@ ShellRoot {
         interval: 68
         onTriggered: {
             root.presented = false
-            root.backdropActive = false
             linkSurface.closing = false
             idleRetireTimer.restart()
         }
