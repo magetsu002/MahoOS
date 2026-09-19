@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SHELL_QML="$ROOT/config/quickshell/maho-link/shell.qml"
-BACKDROP="$ROOT/config/quickshell/maho-link/LinkBackdrop.qml"
 LINK_VIEW="$ROOT/config/quickshell/maho-link/MahoLink.qml"
 DECORATIONS="$ROOT/config/hypr/maho/appearance/decorations.lua"
 
@@ -24,66 +23,51 @@ reject() {
     fi
 }
 
-for file in "$SHELL_QML" "$BACKDROP" "$LINK_VIEW" "$DECORATIONS"; do
+for file in "$SHELL_QML" "$LINK_VIEW" "$DECORATIONS"; do
     [ -r "$file" ] || fail "missing file: $file"
 done
 
-echo '=== dedicated Link blur plane ==='
-require "$SHELL_QML" 'LinkBackdrop { id: backdrop; active: root.backdropActive }' \
-    'Link does not own a dedicated compositor blur carrier'
-require "$SHELL_QML" 'property bool backdropActive: true' \
-    'Link blur carrier is not committed before foreground reveal'
-require "$SHELL_QML" 'backdropActive = true' \
-    'Link reopen path does not restore blur carrier'
-require "$SHELL_QML" 'backdropActive = false' \
-    'Link close path does not unmap blur carrier immediately'
-
-require "$BACKDROP" 'WlrLayershell.namespace: "maho-link-backdrop"' \
-    'Link backdrop namespace missing'
-require "$BACKDROP" 'WlrLayershell.layer: WlrLayer.Top' \
-    'Link blur carrier is not below Overlay foreground'
-require "$BACKDROP" 'mask: Region {}' \
-    'Link blur carrier can intercept input'
-require "$BACKDROP" 'Qt.rgba(0, 0, 0, 0.008)' \
-    'Link blur carrier alpha is not stable'
-
+echo '=== split catcher + blurred material architecture ==='
+require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link-catcher"'     'Link full-screen catcher does not have an isolated namespace'
+require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link"'     'Link material namespace changed unexpectedly'
+require "$SHELL_QML" 'mask: Region { item: root.overlayOpen ? linkSurface : null }'     'Link material blur is not alpha/input bounded to the rounded card'
+reject "$SHELL_QML" 'LinkBackdrop {'     'Link regressed to a separate compositor blur carrier'
+reject "$SHELL_QML" 'maho-link-backdrop'     'Link still references the old backdrop blur namespace'
+require "$DECORATIONS" 'name = "maho-link-material"'     'Link foreground blur rule is missing'
+require "$DECORATIONS" 'match = { namespace = "maho-link" }'     'Link blur rule does not target the material namespace'
+require "$DECORATIONS" 'ignore_alpha = 0.16'     'Link blur alpha mask drifted from the proven Notify material model'
+require "$DECORATIONS" 'no_anim = true'     'Link compositor blur is participating in compositor animation'
+reject "$DECORATIONS" 'namespace = "maho-link-catcher"'     'Link full-screen catcher must never be blurred'
+[ ! -e "$ROOT/config/quickshell/maho-link/LinkBackdrop.qml" ]     || fail "obsolete LinkBackdrop.qml still exists"
+[ ! -e "$ROOT/config/quickshell/maho-link/assets/material-noise.png" ]     || fail "obsolete Link dither texture still exists"
 echo PASS
 
-echo '=== Hyprland blur ownership ==='
-require "$DECORATIONS" 'namespace = "maho-link-backdrop"' \
-    'Hyprland Link blur is not scoped to dedicated backdrop'
-require "$DECORATIONS" 'ignore_alpha = 0.001' \
-    'Link blur threshold can toggle during foreground alpha animation'
-reject "$DECORATIONS" 'namespace = "maho-link",' \
-    'interactive Link Overlay still owns compositor blur'
-echo PASS
-
-echo '=== foreground motion preserved ==='
-require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link"' \
-    'interactive Link namespace changed unexpectedly'
-require "$LINK_VIEW" 'scale: shown ? 1 : 0.988' \
-    'accepted Link panel scale motion was removed'
-require "$LINK_VIEW" 'y: root.shown ? 0 : -10' \
-    'accepted Link panel translation motion was removed'
-require "$LINK_VIEW" 'Behavior on opacity' \
-    'accepted Link opacity motion was removed'
+echo '=== fixed-geometry translucent material ==='
+require "$LINK_VIEW" 'Behavior on opacity'     'Link lost its material fade'
+require "$SHELL_QML" 'if (!presented || !placementReady || linkSurface.shown)'     'Link reveal still depends on prematurely active catcher state'
+require "$SHELL_QML" 'overlayOpen = true'     'Link synchronized reveal does not activate catcher with the material'
+require "$SHELL_QML" 'Present Link as one compositor event'     'Link synchronized intro contract is missing'
+reject "$LINK_VIEW" 'Behavior on scale'     'Link still animates glass geometry through subpixel scale'
+reject "$LINK_VIEW" 'transform: Translate'     'Link still translates glass borders/highlights during intro'
+require "$LINK_VIEW" '0.80'     'Link material opacity no longer leaves room for real compositor diffusion'
+require "$SHELL_QML" 'duration: root.overlayOpen ? 64 : 0'     'Link dim plane still fades after dismissal begins'
+require "$SHELL_QML" 'interval: 32'     'Link material remains mapped too long after close'
+require "$SHELL_QML" 'visible: root.presented'     'Link material/catcher surfaces do not unmap after dismissal'
+require "$SHELL_QML" 'namespace: "maho-link-keepalive"'     'Link warm residency no longer uses the tiny unblurred keepalive'
+require "$SHELL_QML" 'implicitWidth: 1'     'Link keepalive is not bounded to a tiny compositor surface'
 echo PASS
 
 echo '=== Bluetooth final-geometry reveal ==='
-require "$SHELL_QML" 'property bool bluetoothGeometryReady: true' \
-    'Bluetooth has no explicit geometry-readiness authority'
-require "$SHELL_QML" 'if (activeMode === "bluetooth" && !bluetoothGeometryReady)' \
-    'Bluetooth can reveal while its taller panel geometry is still settling'
-require "$SHELL_QML" 'linkSurface.shown = false' \
-    'mode switch does not hide old geometry before section replacement'
-require "$SHELL_QML" 'bluetoothGeometryReady = requestedMode !== "bluetooth"' \
-    'Bluetooth geometry gate is not reset on presentation'
-require "$SHELL_QML" 'id: bluetoothRevealTimer' \
-    'Bluetooth geometry settle timer missing'
-require "$SHELL_QML" 'interval: 205' \
-    'Bluetooth reveal does not wait past the accepted 190 ms height behavior'
-require "$SHELL_QML" 'root.bluetoothGeometryReady = true' \
-    'Bluetooth geometry gate never becomes ready'
+require "$LINK_VIEW" 'Behavior on height {' \
+    'Link no longer has bounded height motion'
+require "$LINK_VIEW" 'enabled: root.shown' \
+    'hidden Link geometry still animates and requires an artificial reveal delay'
+require "$SHELL_QML" 'Qt.callLater(root.revealSurfaceWhenReady)' \
+    'Bluetooth does not reveal on the next event turn after hidden geometry snaps'
+reject "$SHELL_QML" 'bluetoothRevealTimer' \
+    'Bluetooth still carries the old artificial geometry wait'
+reject "$SHELL_QML" 'bluetoothGeometryReady' \
+    'Bluetooth still carries the old geometry gate'
 echo PASS
 
 echo '=== authoritative Escape dismissal ==='

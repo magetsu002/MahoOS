@@ -57,15 +57,14 @@ end
 -- Maho Link uses a dedicated, inputless Top-layer blur carrier. Do not blur
 -- the interactive full-screen Overlay surface: its dim veil and translucent
 -- Wi-Fi/Bluetooth card animate, and using that moving surface as Hyprland's
--- blur mask produces a visible second/ghost layer beneath the foreground.
+-- separate namespace and can never participate in blur/damage history.
 hl.layer_rule({
     name = "maho-link-material",
-    match = {
-        namespace = "maho-link-backdrop",
-    },
+    match = { namespace = "maho-link" },
     blur = true,
-    ignore_alpha = 0.001,
+    ignore_alpha = 0.16,
     xray = false,
+    no_anim = true,
 })
 
 

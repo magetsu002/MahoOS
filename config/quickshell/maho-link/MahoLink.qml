@@ -36,30 +36,30 @@ Item {
             : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
-    scale: shown ? 1 : 0.988
-    transform: Translate {
-        y: root.shown ? 0 : -10
-        Behavior on y { NumberAnimation { duration: root.shown ? 210 : 150; easing.type: Easing.OutCubic } }
+    Behavior on height {
+        enabled: root.shown
+        NumberAnimation { duration: 86; easing.type: Easing.OutCubic }
     }
-
-    Behavior on height { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: shown ? 210 : 150; easing.type: Easing.OutCubic } }
-    Behavior on scale { NumberAnimation { duration: shown ? 210 : 150; easing.type: Easing.OutCubic } }
+    Behavior on opacity {
+        NumberAnimation {
+            duration: root.shown ? 92 : 26
+            easing.type: Easing.OutCubic
+        }
+    }
 
     readonly property color textPrimary: theme.foreground
     readonly property color textSecondary: theme.alpha(theme.muted, 0.78)
     readonly property color insetColor: mix(theme.surfaceHigh, theme.background, 0.36)
     readonly property color accent: stableAccent(theme.primary)
 
-    // Maho Link is one material regardless of which connectivity page is open.
-    // Keep the shell translucent enough for compositor blur to become part of
-    // the surface rather than hiding it behind an opaque color wash.
+    // Hyprland supplies diffusion behind this material; QML supplies tint,
+    // depth and contrast. Keep one quiet translucent wash so blurred content
+    // becomes color/liquidity instead of readable background detail.
     readonly property color shellFill: theme.alpha(
         mix(theme.surfaceHigh, theme.background, 0.54),
-        0.72
+        0.80
     )
-    readonly property color shellStroke: theme.alpha(theme.foreground, 0.105)
-    readonly property color shellHighlight: theme.alpha(theme.foreground, 0.115)
+    readonly property color shellStroke: theme.alpha(theme.foreground, 0.090)
 
     function mix(a, b, amount) {
         const t = Math.max(0, Math.min(1, amount))
@@ -217,50 +217,6 @@ Item {
         border.width: 1
         border.color: root.shellStroke
 
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            antialiasing: true
-            gradient: Gradient {
-                GradientStop {
-                    position: 0
-                    color: theme.alpha(theme.foreground, 0.032)
-                }
-                GradientStop {
-                    position: 0.20
-                    color: theme.alpha(root.accent, 0.018)
-                }
-                GradientStop { position: 0.60; color: "transparent" }
-                GradientStop {
-                    position: 1
-                    color: theme.alpha(root.accent, 0.035)
-                }
-            }
-        }
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 20
-            anchors.rightMargin: 20
-            anchors.top: parent.top
-            height: 1
-            radius: 1
-            antialiasing: true
-            color: root.shellHighlight
-        }
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 28
-            anchors.rightMargin: 28
-            anchors.bottom: parent.bottom
-            height: 1
-            radius: 1
-            antialiasing: true
-            color: theme.alpha(root.accent, 0.045)
-        }
     }
 
     // Prevent the full-screen outside-click catcher from receiving blank panel clicks.

@@ -11,16 +11,10 @@ ShellRoot {
     MahoLinkTheme { id: theme }
     MahoLinkState { id: wifi }
     BluetoothState { id: bluetooth }
-    LinkBackdrop { id: backdrop; active: root.backdropActive }
-
-    // Keep compositor blur on its own stable plane. The old architecture put
-    // blur on the same full-screen surface whose dim layer and Link card were
-    // animating, so Hyprland continuously recomputed the blur mask during the
-    // entrance motion. That reads as a second/ghost layer under both Wi-Fi and
-    // Bluetooth. The backdrop now exists before the foreground reveals and is
-    // unmapped immediately when dismissal begins.
-    property bool backdropActive: true
-    property bool presented: true
+    // Link deliberately owns no compositor blur surface. Hyprland blur
+    // left a rounded stale-damage footprint after dismissal on both Wi-Fi and
+    // Bluetooth. The material is fully rendered in QML instead.
+    property bool presented: false
     property bool overlayOpen: false
     property bool dragging: false
     property bool placementReady: false
@@ -28,7 +22,6 @@ ShellRoot {
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
     readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
-    property bool bluetoothGeometryReady: true
     property string modeAfterPlacementSave: ""
     property real requestedPlacementX: -1
     property real requestedPlacementY: -1
@@ -235,13 +228,17 @@ ShellRoot {
     }
 
     function revealSurfaceWhenReady() {
-        if (!overlayOpen || !placementReady || linkSurface.shown)
+        if (!presented || !placementReady || linkSurface.shown)
             return
         if (activeMode === "wifi" && !wifi.statusReady)
             return
-        if (activeMode === "bluetooth" && !bluetoothGeometryReady)
-            return
+
+        // Present Link as one compositor event: placement and data settle while
+        // hidden, then the catcher/dim and blurred card become visible together.
+        // This avoids the old two-stage intro where the desktop dimmed first and
+        // the card appeared a moment later.
         applyPlacement()
+        overlayOpen = true
         linkSurface.shown = true
         linkSurface.forceActiveFocus()
     }
@@ -249,11 +246,9 @@ ShellRoot {
     function showMode(mode, reloadPlacement) {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
-        bluetoothRevealTimer.stop()
+        idleRetireTimer.stop()
         closeAfterPlacementSave = false
-        backdropActive = true
         presented = true
-        overlayOpen = true
         if (placementSave.running || placementSavePending) {
             modeAfterPlacementSave = requestedMode !== activeMode ? requestedMode : ""
             return true
@@ -261,11 +256,10 @@ ShellRoot {
         const modeChanged = requestedMode !== activeMode
 
         // Hide the old geometry before switching section. Bluetooth is taller
-        // than compact Wi-Fi, and changing section while the card is visible
-        // lets the existing 190 ms height behavior paint a growing second edge
-        // underneath the entrance animation.
+        // than compact Wi-Fi, so switching section while visible can paint a
+        // growing second edge. Hide first; hidden geometry now snaps instantly
+        // to its final size before the short entrance animation.
         linkSurface.shown = false
-        bluetoothGeometryReady = requestedMode !== "bluetooth"
         activeMode = requestedMode
         linkSurface.page = "main"
 
@@ -276,11 +270,9 @@ ShellRoot {
 
         if (root.activeMode === "bluetooth") {
             bluetooth.refresh()
-            // MahoLink's accepted height behavior is 190 ms. Keep Bluetooth
-            // fully transparent until that hidden geometry has settled, then
-            // reveal the one final-sized surface. Wi-Fi retains its existing
-            // status-ready gate and compact-height motion.
-            bluetoothRevealTimer.restart()
+            // Hidden Link geometry snaps to its final size, so Bluetooth can
+            // reveal on the next event turn without a synthetic settle delay.
+            Qt.callLater(root.revealSurfaceWhenReady)
         } else {
             // Do not paint default/offline placeholders as truth. Status is a
             // fast NetworkManager query; nearby-network discovery is independent.
@@ -295,11 +287,9 @@ ShellRoot {
     }
 
     function closeOverlay() {
-        if (!overlayOpen)
+        if (!presented)
             return
         modeAfterPlacementSave = ""
-        bluetoothRevealTimer.stop()
-        backdropActive = false
         overlayOpen = false
         linkSurface.shown = false
         if (placementSave.running || placementSavePending) {
@@ -321,12 +311,16 @@ ShellRoot {
             return root.showMode(mode, false)
         }
 
+        function close(): bool {
+            root.closeOverlay()
+            return true
+        }
+
         function runtimeIdentity(): string { return root.runtimeIdentity }
 
         function retire(nextIdentity: string): bool {
             if (nextIdentity === root.runtimeIdentity)
                 return false
-            root.backdropActive = false
             root.overlayOpen = false
             root.presented = false
             retireTimer.restart()
@@ -355,30 +349,105 @@ ShellRoot {
 
     Timer {
         id: openDelay
-        interval: 12
+        interval: 1
         onTriggered: root.showOverlay()
     }
 
     Timer {
-        id: bluetoothRevealTimer
-        interval: 205
+        id: closeTimer
+        interval: 32
         onTriggered: {
-            root.bluetoothGeometryReady = true
-            root.revealSurfaceWhenReady()
+            root.presented = false
+            idleRetireTimer.restart()
         }
     }
 
     Timer {
-        id: closeTimer
-        interval: 175
+        id: idleRetireTimer
+        interval: 30000
+        repeat: false
         onTriggered: {
-            root.presented = false
-            Qt.quit()
+            if (!root.presented && !root.overlayOpen)
+                Qt.quit()
         }
     }
 
     PanelWindow {
+        id: warmKeepalive
+
+        anchors {
+            top: true
+            left: true
+        }
+        implicitWidth: 1
+        implicitHeight: 1
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        focusable: false
+        visible: true
+        mask: Region {}
+
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.namespace: "maho-link-keepalive"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    }
+
+    // Full-screen dismissal/dim plane. This surface is intentionally never
+    // blurred; it exists only to darken the desktop slightly and catch clicks
+    // outside Link.
+    PanelWindow {
         id: overlay
+
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        color: "transparent"
+        aboveWindows: true
+        focusable: false
+        exclusionMode: ExclusionMode.Ignore
+        visible: root.presented
+        mask: Region { item: root.overlayOpen ? dimPlane : null }
+
+        onWidthChanged: {
+            if (root.overlayOpen && !root.dragging)
+                Qt.callLater(root.applyPlacement)
+        }
+        onHeightChanged: {
+            if (root.overlayOpen && !root.dragging)
+                Qt.callLater(root.applyPlacement)
+        }
+
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "maho-link-catcher"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+        Rectangle {
+            id: dimPlane
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.11 : 0)
+            Behavior on color {
+                ColorAnimation {
+                    duration: root.overlayOpen ? 64 : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: root.overlayOpen
+            onClicked: root.closeOverlay()
+        }
+    }
+
+    // Foreground material surface. Hyprland blur is alpha-masked to this
+    // rounded card, mirroring Notify's proven material architecture.
+    PanelWindow {
+        id: materialOverlay
 
         anchors {
             top: true
@@ -392,33 +461,13 @@ ShellRoot {
         focusable: root.overlayOpen
         exclusionMode: ExclusionMode.Ignore
         visible: root.presented
-
-        onWidthChanged: {
-            if (root.overlayOpen && !root.dragging)
-                Qt.callLater(root.applyPlacement)
-        }
-        onHeightChanged: {
-            if (root.overlayOpen && !root.dragging)
-                Qt.callLater(root.applyPlacement)
-        }
+        mask: Region { item: root.overlayOpen ? linkSurface : null }
 
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "maho-link"
         WlrLayershell.keyboardFocus: root.overlayOpen
             ? WlrKeyboardFocus.Exclusive
             : WlrKeyboardFocus.None
-
-        Rectangle {
-            anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.16 : 0)
-            Behavior on color { ColorAnimation { duration: 170 } }
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            enabled: root.overlayOpen
-            onClicked: root.closeOverlay()
-        }
 
         MahoLink {
             id: linkSurface
@@ -427,7 +476,7 @@ ShellRoot {
             theme: theme
             wifi: wifi
             bluetooth: bluetooth
-            availableHeight: overlay.height
+            availableHeight: materialOverlay.height
             section: root.activeMode
             shown: false
             onHeightChanged: {
