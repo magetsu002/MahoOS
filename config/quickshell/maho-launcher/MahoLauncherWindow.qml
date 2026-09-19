@@ -18,14 +18,15 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     aboveWindows: true
-    property bool presented: true
-    visible: presented
+    property bool presented: false
+    visible: true
     focusable: shown
     WlrLayershell.namespace: "maho-launcher"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: shown
         ? WlrKeyboardFocus.Exclusive
         : WlrKeyboardFocus.None
+    mask: Region { item: root.shown ? backdropDim : null }
 
     readonly property int surfaceWidth: 760
     readonly property int surfaceHeight: 790

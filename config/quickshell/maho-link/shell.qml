@@ -20,7 +20,7 @@ ShellRoot {
     // Bluetooth. The backdrop now exists before the foreground reveals and is
     // unmapped immediately when dismissal begins.
     property bool backdropActive: true
-    property bool presented: true
+    property bool presented: false
     property bool overlayOpen: false
     property bool dragging: false
     property bool placementReady: false
@@ -402,7 +402,8 @@ ShellRoot {
         aboveWindows: true
         focusable: root.overlayOpen
         exclusionMode: ExclusionMode.Ignore
-        visible: root.presented
+        visible: true
+        mask: Region { item: root.overlayOpen ? dimPlane : null }
 
         onWidthChanged: {
             if (root.overlayOpen && !root.dragging)
@@ -420,6 +421,7 @@ ShellRoot {
             : WlrKeyboardFocus.None
 
         Rectangle {
+            id: dimPlane
             anchors.fill: parent
             color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.16 : 0)
             Behavior on color { ColorAnimation { duration: 135; easing.type: Easing.OutCubic } }
