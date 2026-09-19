@@ -151,17 +151,67 @@ require_text "$RUNTIME" 'exec "$HOME/.local/bin/maho-lock"' 'Lock does not route
 reject_text "$RUNTIME" 'hyprlock' 'Power must not bypass secure Maho Lock with hyprlock'
 require_text "$RUNTIME" 'exec systemctl suspend' 'Sleep action missing'
 require_text "$RUNTIME" 'SwitchToGreeter' 'Switch User display-manager action missing'
-require_text "$RUNTIME" '"$HOME/.local/bin/maho-session" stop || return 1' 'Log Out does not stop the Maho graphical target before compositor exit'
-logout_stop_line="$(grep -nF '"$HOME/.local/bin/maho-session" stop || return 1' "$RUNTIME" | head -1 | cut -d: -f1)"
-logout_exit_line="$(grep -nF "exec hyprctl dispatch 'hl.dsp.exit()'" "$RUNTIME" | head -1 | cut -d: -f1)"
+require_text "$RUNTIME" 'queue_logout()' 'Log Out does not escape the caller cgroup before graphical teardown'
+require_text "$RUNTIME" '--collect' 'Log Out transient worker is not collected after completion'
+require_text "$RUNTIME" '--property=Type=exec' 'Log Out transient worker lacks execution confirmation'
+require_text "$RUNTIME" '"$HOME/.local/bin/maho-power" logout-worker' 'Log Out does not delegate to the independent worker'
+require_text "$RUNTIME" 'logout_worker()' 'Log Out worker implementation missing'
+require_text "$RUNTIME" '"$session_controller" stop || return 1' 'Log Out worker does not stop the Maho graphical target before compositor exit'
+logout_stop_line="$(grep -nF '"$session_controller" stop || return 1' "$RUNTIME" | head -1 | cut -d: -f1)"
+logout_exit_line="$(grep -nF 'exec "$hyprctl_bin" dispatch' "$RUNTIME" | head -1 | cut -d: -f1)"
 [ -n "$logout_stop_line" ] && [ -n "$logout_exit_line" ] && [ "$logout_stop_line" -lt "$logout_exit_line" ] \
-    || fail 'Log Out exits Hyprland before the Maho graphical target is stopped'
-require_text "$RUNTIME" "exec hyprctl dispatch 'hl.dsp.exit()'" 'Log Out action does not use current Hyprland Lua dispatcher syntax'
+    || fail 'Log Out worker exits Hyprland before the Maho graphical target is stopped'
+require_text "$RUNTIME" 'exec "$hyprctl_bin" dispatch' 'Log Out worker does not dispatch through the captured Hyprland client'
+require_text "$RUNTIME" "hl.dsp.exit()" 'Log Out worker does not use current Hyprland Lua dispatcher syntax'
 require_text "$RUNTIME" 'exec systemctl reboot' 'Restart action missing'
 require_text "$RUNTIME" 'exec systemctl poweroff' 'Shut Down action missing'
 require_text "$RUNTIME" 'maho-power action {lock|sleep|switch-user|logout|restart|shutdown}' 'runtime action surface is not explicitly bounded'
 reject_text "$RUNTIME" 'eval "$action"' 'runtime must not evaluate action input'
 reject_text "$RUNTIME" 'bash -c "$action"' 'runtime must not execute action input as shell source'
+echo '=== logout transient worker execution ==='
+TMP_LOGOUT="$(mktemp -d)"
+trap 'rm -rf "$TMP_LOGOUT"' EXIT
+mkdir -p "$TMP_LOGOUT/home/.local/bin" "$TMP_LOGOUT/bin"
+cat >"$TMP_LOGOUT/bin/systemd-run" <<'EOF_SYSTEMD_RUN'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$MAHO_TEST_SYSTEMD_RUN_LOG"
+EOF_SYSTEMD_RUN
+cat >"$TMP_LOGOUT/bin/session" <<'EOF_SESSION'
+#!/usr/bin/env bash
+printf 'session:%s\n' "$1" >>"$MAHO_TEST_WORKER_LOG"
+EOF_SESSION
+cat >"$TMP_LOGOUT/bin/hyprctl" <<'EOF_HYPRCTL'
+#!/usr/bin/env bash
+printf 'hyprctl:%s\n' "$*" >>"$MAHO_TEST_WORKER_LOG"
+EOF_HYPRCTL
+chmod +x "$TMP_LOGOUT/bin/systemd-run" "$TMP_LOGOUT/bin/session" "$TMP_LOGOUT/bin/hyprctl"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$TMP_LOGOUT/home/.local/bin/maho-power"
+chmod +x "$TMP_LOGOUT/home/.local/bin/maho-power"
+MAHO_TEST_SYSTEMD_RUN_LOG="$TMP_LOGOUT/systemd-run.log" \
+MAHO_POWER_SYSTEMD_RUN="$TMP_LOGOUT/bin/systemd-run" \
+HOME="$TMP_LOGOUT/home" \
+XDG_RUNTIME_DIR=/run/user/1000 \
+WAYLAND_DISPLAY=wayland-test \
+HYPRLAND_INSTANCE_SIGNATURE=instance-test \
+    bash "$RUNTIME" action logout
+require_text "$TMP_LOGOUT/systemd-run.log" '--user' 'logout did not use the user manager'
+require_text "$TMP_LOGOUT/systemd-run.log" '--collect' 'logout transient worker is not collectable'
+require_text "$TMP_LOGOUT/systemd-run.log" '--setenv=WAYLAND_DISPLAY=wayland-test' 'logout worker lost Wayland display authority'
+require_text "$TMP_LOGOUT/systemd-run.log" '--setenv=HYPRLAND_INSTANCE_SIGNATURE=instance-test' 'logout worker lost Hyprland instance authority'
+require_text "$TMP_LOGOUT/systemd-run.log" 'logout-worker' 'logout did not queue the worker entrypoint'
+MAHO_TEST_WORKER_LOG="$TMP_LOGOUT/worker.log" \
+MAHO_POWER_SESSION_CONTROLLER="$TMP_LOGOUT/bin/session" \
+MAHO_POWER_HYPRCTL="$TMP_LOGOUT/bin/hyprctl" \
+HOME="$TMP_LOGOUT/home" \
+    bash "$RUNTIME" logout-worker
+[ "$(sed -n '1p' "$TMP_LOGOUT/worker.log")" = 'session:stop' ] \
+    || fail 'logout worker did not stop the graphical target first'
+[ "$(sed -n '2p' "$TMP_LOGOUT/worker.log")" = "hyprctl:dispatch hl.dsp.exit()" ] \
+    || fail 'logout worker did not exit Hyprland second'
+rm -rf "$TMP_LOGOUT"
+trap - EXIT
+echo PASS
+
 require_text "$RUNTIME" 'match = { namespace = "maho-power-backdrop" }' 'material rule is not scoped to Power blur carrier'
 require_text "$RUNTIME" 'ignore_alpha = 0.001' 'blur threshold contract drifted'
 echo PASS

@@ -137,6 +137,53 @@ close_overlay() {
     done < <(power_pids)
 }
 
+logout_worker() {
+    local session_controller="${MAHO_POWER_SESSION_CONTROLLER:-$HOME/.local/bin/maho-session}"
+    local hyprctl_bin="${MAHO_POWER_HYPRCTL:-hyprctl}"
+
+    if [ -x "$session_controller" ]; then
+        "$session_controller" stop || return 1
+    fi
+
+    exec "$hyprctl_bin" dispatch 'hl.dsp.exit()'
+}
+
+queue_logout() {
+    local systemd_run="${MAHO_POWER_SYSTEMD_RUN:-systemd-run}"
+    local unit="maho-logout-${UID}-$(date +%s%N).service"
+    local variable value
+    local -a command=(
+        "$systemd_run"
+        --user
+        --collect
+        --quiet
+        --unit="$unit"
+        --property=Type=exec
+        --setenv="HOME=$HOME"
+    )
+
+    command -v "$systemd_run" >/dev/null 2>&1 || {
+        echo 'maho-power: systemd-run is required for safe logout isolation' >&2
+        return 1
+    }
+
+    for variable in \
+        XDG_RUNTIME_DIR \
+        DBUS_SESSION_BUS_ADDRESS \
+        WAYLAND_DISPLAY \
+        HYPRLAND_INSTANCE_SIGNATURE \
+        DISPLAY \
+        XDG_CURRENT_DESKTOP \
+        XDG_SESSION_DESKTOP \
+        XDG_SESSION_TYPE; do
+        value="${!variable:-}"
+        [ -n "$value" ] && command+=(--setenv="$variable=$value")
+    done
+
+    command+=(-- "$HOME/.local/bin/maho-power" logout-worker)
+    "${command[@]}"
+}
+
 switch_user() {
     if command -v qdbus6 >/dev/null 2>&1; then
         qdbus6 \
@@ -186,10 +233,7 @@ run_action() {
             switch_user
             ;;
         logout)
-            if [ -x "$HOME/.local/bin/maho-session" ]; then
-                "$HOME/.local/bin/maho-session" stop || return 1
-            fi
-            exec hyprctl dispatch 'hl.dsp.exit()'
+            queue_logout
             ;;
         restart)
             exec systemctl reboot
@@ -272,6 +316,9 @@ case "${1:-open}" in
     action)
         shift
         run_action "${1:-}"
+        ;;
+    logout-worker)
+        logout_worker
         ;;
     doctor)
         doctor
