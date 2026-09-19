@@ -161,6 +161,7 @@ Item {
         anchors.centerIn: parent
         theme: edge.theme
         activeWorkspace: edge.activeWorkspace
+        switching: edge.workspaceFlash
         vertical: false
         opacity: edge.mode === "workspace" ? 1 : 0
         visible: opacity > 0.01
