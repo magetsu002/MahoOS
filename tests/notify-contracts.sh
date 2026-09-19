@@ -133,6 +133,12 @@ require_text "$NOTIFY_DIR/shell.qml" 'sourceComponent: Component {' "notificatio
 require_text "$NOTIFY_DIR/shell.qml" 'mask: Region { item: centerLoader.item }' "notification center mask is not bound to the current lazy instance"
 require_text "$NOTIFY_DIR/shell.qml" 'function centerLoaded(): bool' "notification center lazy lifecycle is not observable"
 require_text "$NOTIFY_DIR/shell.qml" 'return centerLoader.item !== null' "notification center loaded state is not exact"
+require_text "$NOTIFY_DIR/shell.qml" 'readonly property var centerThemeRef: theme' "lazy center theme binding is not rooted"
+require_text "$NOTIFY_DIR/shell.qml" 'readonly property var centerHistoryModelRef: historyModel' "lazy center history binding is not rooted"
+require_text "$NOTIFY_DIR/shell.qml" 'readonly property var centerIdentityResolverRef: appIdentityResolver' "lazy center identity binding is not rooted"
+require_text "$NOTIFY_DIR/shell.qml" 'theme: root.centerThemeRef' "lazy center can self-bind its theme property"
+require_text "$NOTIFY_DIR/shell.qml" 'historyModel: root.centerHistoryModelRef' "lazy center can self-bind its history model"
+require_text "$NOTIFY_DIR/shell.qml" 'identityResolver: root.centerIdentityResolverRef' "lazy center can self-bind its identity resolver"
 python - "$NOTIFY_DIR/shell.qml" <<'PY_LAZY'
 from pathlib import Path
 import sys
