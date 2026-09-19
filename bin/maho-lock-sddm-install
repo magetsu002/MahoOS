@@ -336,6 +336,24 @@ status() {
         && say "PASS  installed theme selects the Qt 6 greeter" \
         || { say "FAIL  installed theme does not select the Qt 6 greeter"; failed=1; }
 
+    # On the real system, persistence includes the display-manager authority,
+    # not only Maho-owned theme/session files. Sandbox contract tests use
+    # redirected roots and deliberately skip this host-level check.
+    if [ "$THEME_ROOT" = /usr/share/sddm/themes ] \
+        && [ "$CONFIG_ROOT" = /etc/sddm.conf.d ] \
+        && [ "$SESSION_ROOT" = /usr/share/wayland-sessions ]; then
+        expected_service="$(systemctl show sddm.service -p FragmentPath --value 2>/dev/null || true)"
+        display_manager="$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null || true)"
+        if systemctl is-enabled --quiet sddm.service 2>/dev/null \
+            && [ -n "$expected_service" ] \
+            && [ "$display_manager" = "$expected_service" ]; then
+            say "PASS  boot display-manager authority -> sddm.service"
+        else
+            say "FAIL  boot display-manager authority is not persistent SDDM"
+            failed=1
+        fi
+    fi
+
     return "$failed"
 }
 

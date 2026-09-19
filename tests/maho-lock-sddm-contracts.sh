@@ -31,6 +31,12 @@ grep -Fq 'import Qt5Compat.GraphicalEffects' "$THEME/Main.qml" \
     || fail "SDDM Qt 6 greeter compatibility import missing"
 grep -Fxq 'QtVersion=6' "$THEME/metadata.desktop" \
     || fail "SDDM theme can fall back to the unavailable Qt 5 greeter"
+grep -Fq 'systemctl is-enabled --quiet sddm.service' "$INSTALLER" \
+    || fail "SDDM status does not verify boot enablement"
+grep -Fq '/etc/systemd/system/display-manager.service' "$INSTALLER" \
+    || fail "SDDM status does not verify display-manager authority"
+grep -Fq 'boot display-manager authority -> sddm.service' "$INSTALLER" \
+    || fail "SDDM boot persistence has no explicit healthy receipt"
 grep -Fq 'sddm.login(loginUser, passwordInput.text, sessionIndex)' "$THEME/Main.qml" \
     || fail "SDDM authentication handoff missing"
 grep -Fq 'function onLoginFailed()' "$THEME/Main.qml" \
