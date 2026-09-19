@@ -98,8 +98,8 @@ Rectangle {
             id: textColumn
             anchors.left: iconLane.right
             anchors.leftMargin: 12
-            anchors.right: parent.right
-            anchors.rightMargin: 64
+            anchors.right: metaLane.left
+            anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
             spacing: 3
 
@@ -160,80 +160,92 @@ Rectangle {
             }
         }
 
-        Text {
-            id: timeLabel
-            anchors.right: parent.right
-            anchors.top: textColumn.top
-            text: row.relativeTimestamp
-            color: theme.textFaint
-            font.pixelSize: 10
-            font.weight: Font.Medium
-            textFormat: Text.PlainText
-        }
-
-        // A stable action lane keeps the hover box geometrically centered and
-        // prevents its animation from visually wandering as row text changes.
+        // Timestamp and overflow affordance own one dedicated metadata lane.
+        // Stacking them vertically prevents the hover plate from crowding short
+        // relative timestamps such as "20m ago" while keeping both right-aligned.
         Item {
-            id: actionLane
+            id: metaLane
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: 36
+            width: 78
 
-            // Fixed geometry: hover only changes opacity/scale, never position.
-            // This prevents the action affordance from appearing to wander
-            // relative to differently sized notification text blocks.
-            Rectangle {
-                id: menuButton
-                anchors.centerIn: parent
-                width: 30
+            Text {
+                id: timeLabel
+                anchors.right: parent.right
+                anchors.top: parent.top
+                text: row.relativeTimestamp
+                color: theme.textFaint
+                font.pixelSize: 10
+                font.weight: Font.Medium
+                horizontalAlignment: Text.AlignRight
+                textFormat: Text.PlainText
+            }
+
+            // A stable action lane keeps the hover box geometrically centered
+            // and leaves a guaranteed gap below the timestamp.
+            Item {
+                id: actionLane
+                anchors.right: parent.right
+                anchors.top: timeLabel.bottom
+                anchors.topMargin: 8
+                width: 36
                 height: 30
-                radius: 10
-                transformOrigin: Item.Center
-                opacity: historyHover.hovered || row.menuOpen ? 1 : 0
-                scale: historyHover.hovered || row.menuOpen ? 1 : 0.96
-                color: menuMouse.pressed
-                    ? theme.controlPressed
-                    : (menuMouse.containsMouse || row.menuOpen ? theme.controlHover : "transparent")
-                border.width: menuMouse.containsMouse || row.menuOpen ? 1 : 0
-                border.color: theme.controlRim
-                antialiasing: true
 
-                Behavior on color { ColorAnimation { duration: 110; easing.type: Easing.OutCubic } }
-                Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
-
-                Item {
-                    id: dotCluster
+                // Fixed geometry: hover only changes opacity/scale, never
+                // position, so the plate remains optically attached to dots.
+                Rectangle {
+                    id: menuButton
                     anchors.centerIn: parent
-                    width: 15
-                    height: 3
+                    width: 30
+                    height: 30
+                    radius: 10
+                    transformOrigin: Item.Center
+                    opacity: historyHover.hovered || row.menuOpen ? 1 : 0
+                    scale: historyHover.hovered || row.menuOpen ? 1 : 0.96
+                    color: menuMouse.pressed
+                        ? theme.controlPressed
+                        : (menuMouse.containsMouse || row.menuOpen ? theme.controlHover : "transparent")
+                    border.width: menuMouse.containsMouse || row.menuOpen ? 1 : 0
+                    border.color: theme.controlRim
+                    antialiasing: true
 
-                    Row {
+                    Behavior on color { ColorAnimation { duration: 110; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
+
+                    Item {
+                        id: dotCluster
                         anchors.centerIn: parent
-                        spacing: 3
+                        width: 15
+                        height: 3
 
-                        Repeater {
-                            model: 3
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 3
 
-                            Rectangle {
-                                width: 3
-                                height: 3
-                                radius: 1.5
-                                antialiasing: true
-                                color: theme.textSecondary
+                            Repeater {
+                                model: 3
+
+                                Rectangle {
+                                    width: 3
+                                    height: 3
+                                    radius: 1.5
+                                    antialiasing: true
+                                    color: theme.textSecondary
+                                }
                             }
                         }
                     }
-                }
 
-                MouseArea {
-                    id: menuMouse
-                    anchors.fill: parent
-                    enabled: menuButton.opacity > 0.01 || row.menuOpen
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: row.menuToggleRequested(String(entry.id))
+                    MouseArea {
+                        id: menuMouse
+                        anchors.fill: parent
+                        enabled: menuButton.opacity > 0.01 || row.menuOpen
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: row.menuToggleRequested(String(entry.id))
+                    }
                 }
             }
         }

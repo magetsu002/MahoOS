@@ -94,6 +94,8 @@ require_text "$NOTIFY_DIR/NotificationCenter.qml" 'gradient: Gradient {' "adapti
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'readonly property bool unread:' "read/unread row distinction missing"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'id: iconLane' "history identity has no stable optical lane"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'anchors.centerIn: parent' "history app icon is not geometrically centered in its lane"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'id: metaLane' "history row has no dedicated timestamp/action metadata lane"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'anchors.right: metaLane.left' "history copy can collide with metadata lane"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'id: actionLane' "history hover action has no stable geometry lane"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'String(entry.groupCount) + " grouped"' "grouped-entry count badge missing"
 require_text "$NOTIFY_DIR/HistoryRow.qml" 'maximumLineCount: row.expanded ? 6 : 1' "expanded history body is not bounded"
