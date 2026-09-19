@@ -36,15 +36,15 @@ Item {
             : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
-    scale: shown ? 1 : 0.988
+    scale: shown ? 1 : 0.994
     transform: Translate {
-        y: root.shown ? 0 : -10
-        Behavior on y { NumberAnimation { duration: root.shown ? 210 : 150; easing.type: Easing.OutCubic } }
+        y: root.shown ? 0 : -6
+        Behavior on y { NumberAnimation { duration: root.shown ? 165 : 115; easing.type: Easing.OutCubic } }
     }
 
-    Behavior on height { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: shown ? 210 : 150; easing.type: Easing.OutCubic } }
-    Behavior on scale { NumberAnimation { duration: shown ? 210 : 150; easing.type: Easing.OutCubic } }
+    Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+    Behavior on opacity { NumberAnimation { duration: shown ? 165 : 115; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: shown ? 165 : 115; easing.type: Easing.OutCubic } }
 
     readonly property color textPrimary: theme.foreground
     readonly property color textSecondary: theme.alpha(theme.muted, 0.78)

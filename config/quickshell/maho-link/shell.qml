@@ -276,7 +276,7 @@ ShellRoot {
 
         if (root.activeMode === "bluetooth") {
             bluetooth.refresh()
-            // MahoLink's accepted height behavior is 190 ms. Keep Bluetooth
+            // MahoLink's height settle is intentionally short. Keep Bluetooth
             // fully transparent until that hidden geometry has settled, then
             // reveal the one final-sized surface. Wi-Fi retains its existing
             // status-ready gate and compact-height motion.
@@ -355,13 +355,13 @@ ShellRoot {
 
     Timer {
         id: openDelay
-        interval: 12
+        interval: 1
         onTriggered: root.showOverlay()
     }
 
     Timer {
         id: bluetoothRevealTimer
-        interval: 205
+        interval: 160
         onTriggered: {
             root.bluetoothGeometryReady = true
             root.revealSurfaceWhenReady()
@@ -370,7 +370,7 @@ ShellRoot {
 
     Timer {
         id: closeTimer
-        interval: 175
+        interval: 130
         onTriggered: {
             root.presented = false
             Qt.quit()
@@ -411,7 +411,7 @@ ShellRoot {
         Rectangle {
             anchors.fill: parent
             color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.16 : 0)
-            Behavior on color { ColorAnimation { duration: 170 } }
+            Behavior on color { ColorAnimation { duration: 135; easing.type: Easing.OutCubic } }
         }
 
         MouseArea {

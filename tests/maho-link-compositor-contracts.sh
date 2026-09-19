@@ -61,9 +61,9 @@ echo PASS
 echo '=== foreground motion preserved ==='
 require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link"' \
     'interactive Link namespace changed unexpectedly'
-require "$LINK_VIEW" 'scale: shown ? 1 : 0.988' \
+require "$LINK_VIEW" 'scale: shown ? 1 : 0.994' \
     'accepted Link panel scale motion was removed'
-require "$LINK_VIEW" 'y: root.shown ? 0 : -10' \
+require "$LINK_VIEW" 'y: root.shown ? 0 : -6' \
     'accepted Link panel translation motion was removed'
 require "$LINK_VIEW" 'Behavior on opacity' \
     'accepted Link opacity motion was removed'
@@ -80,8 +80,8 @@ require "$SHELL_QML" 'bluetoothGeometryReady = requestedMode !== "bluetooth"' \
     'Bluetooth geometry gate is not reset on presentation'
 require "$SHELL_QML" 'id: bluetoothRevealTimer' \
     'Bluetooth geometry settle timer missing'
-require "$SHELL_QML" 'interval: 205' \
-    'Bluetooth reveal does not wait past the accepted 190 ms height behavior'
+require "$SHELL_QML" 'interval: 160' \
+    'Bluetooth reveal does not honor the shortened hidden-geometry settle'
 require "$SHELL_QML" 'root.bluetoothGeometryReady = true' \
     'Bluetooth geometry gate never becomes ready'
 echo PASS
