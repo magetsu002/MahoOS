@@ -32,6 +32,8 @@ ShellRoot {
             return true
         }
 
+        function isOpen(): bool { return launcher.shown && launcher.presented }
+
         function runtimeIdentity(): string { return root.runtimeIdentity }
     }
 }

@@ -241,20 +241,20 @@ open_launcher() {
     nohup "$0" run >/dev/null 2>&1 &
 }
 
+launcher_open() {
+    local pid
+    pid="$(launcher_pid)"
+    [ -n "$pid" ] || return 1
+    quickshell ipc --pid "$pid" call launcher isOpen 2>/dev/null | grep -Fxq true
+}
+
 close_launcher() {
     local pid count=0
     while read -r pid; do
         [ -n "$pid" ] || continue
+        [ "$(maho_process_runtime_identity "$pid" 2>/dev/null || true)" = "$RUNTIME_IDENTITY" ] || continue
         count=$((count + 1))
-        if ipc_close "$pid"; then
-            for _ in 1 2 3 4 5 6; do
-                kill -0 "$pid" 2>/dev/null || break
-                sleep 0.05
-            done
-        fi
-        if kill -0 "$pid" 2>/dev/null; then
-            kill -TERM "$pid" 2>/dev/null || true
-        fi
+        ipc_close "$pid" || true
     done < <(launcher_pids)
     [ "$count" -gt 0 ] || return 0
 }
@@ -339,8 +339,10 @@ doctor() {
 }
 
 status() {
-    if launcher_running; then
-        echo "running"
+    if launcher_open; then
+        echo "open"
+    elif launcher_running; then
+        echo "warm"
     else
         echo "closed"
     fi
@@ -351,7 +353,7 @@ case "${1:-open}" in
     open|start) open_launcher ;;
     close|stop) close_launcher ;;
     toggle)
-        if launcher_running; then close_launcher; else open_launcher; fi
+        if launcher_open; then close_launcher; else open_launcher; fi
         ;;
     status) status ;;
     doctor) doctor ;;

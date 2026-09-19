@@ -203,6 +203,12 @@ require_text "$LAUNCHER" 'set_hyprland_material_rule on' "blur rule is not insta
 require_text "$LAUNCHER" 'constant alpha above ignore_alpha' "startup blur sequencing invariant is undocumented"
 reject_text "$LAUNCHER" 'hl.config({' "launcher performs a global Hyprland mutation"
 require_text "$QML/shell.qml" 'IpcHandler' "graceful launcher IPC is missing"
+require_text "$QML/shell.qml" 'function isOpen(): bool' "launcher warm state is not queryable"
+require_text "$ROOT/bin/maho-launcher" 'launcher_open()' "launcher wrapper cannot distinguish open from warm-hidden state"
+require_text "$ROOT/bin/maho-launcher" 'if launcher_open; then close_launcher; else open_launcher; fi' "launcher toggle is broken by warm residency"
+if sed -n '/^close_launcher() {/,/^}/p' "$ROOT/bin/maho-launcher" | grep -Fq 'kill -TERM'; then
+    fail "launcher close still force-kills the warm resident"
+fi
 require_text "$QML/shell.qml" 'function close(): bool' "graceful close IPC is missing"
 require_text "$LAUNCHER" 'quickshell ipc --pid "$pid" call launcher close' "wrapper does not request animated close"
 require_text "$LAUNCHER" 'flock -n 9' "single-instance lock is missing"

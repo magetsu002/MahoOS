@@ -322,6 +322,11 @@ ShellRoot {
             return root.showMode(mode, false)
         }
 
+        function close(): bool {
+            root.closeOverlay()
+            return true
+        }
+
         function runtimeIdentity(): string { return root.runtimeIdentity }
 
         function retire(nextIdentity: string): bool {
