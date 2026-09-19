@@ -45,6 +45,8 @@ echo PASS
 
 echo '=== fixed-geometry translucent material ==='
 require "$LINK_VIEW" 'Behavior on opacity'     'Link lost its material fade'
+require "$LINK_VIEW" 'enabled: !root.shown'     'Link opening can still animate a staged/wrong first frame'
+require "$LINK_VIEW" 'duration: 26'     'Link close fade drifted from the bounded dismissal timing'
 require "$SHELL_QML" 'if (!presented || !placementReady || linkSurface.shown)'     'Link reveal still depends on prematurely active catcher state'
 require "$SHELL_QML" 'overlayOpen = true'     'Link synchronized reveal does not activate catcher with the material'
 require "$SHELL_QML" 'Present Link as one compositor event'     'Link synchronized intro contract is missing'

@@ -41,8 +41,11 @@ Item {
         NumberAnimation { duration: 86; easing.type: Easing.OutCubic }
     }
     Behavior on opacity {
+        // Opening snaps only after placement/status are authoritative, avoiding
+        // the one-frame staged intro artifact. Dismissal keeps a tiny fade.
+        enabled: !root.shown
         NumberAnimation {
-            duration: root.shown ? 92 : 26
+            duration: 26
             easing.type: Easing.OutCubic
         }
     }

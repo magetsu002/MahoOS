@@ -254,7 +254,9 @@ require_runtime_text 'status --json' "machine-readable shell status missing"
 require_runtime_text 'logs [LINES]' "bounded runtime log command missing"
 require_runtime_text 'if [ "$lines" -lt 1 ] || [ "$lines" -gt 500 ]' "runtime log bound missing"
 require_runtime_text 'shell_count()' "singleton diagnostics missing"
-require_runtime_text "hyprctl dispatch 'hl.dsp.exec_cmd(\"waybar\")'" "Waybar restore still uses legacy Hyprland dispatcher syntax"
+if grep -Fiq -- 'waybar' "$RUNTIME"; then
+    fail "Maho Shell runtime still contains legacy Waybar behavior"
+fi
 require_runtime_text 'python -m json.tool "$PALETTE"' "palette diagnostics missing"
 require_runtime_text 'print_capability brightnessctl' "brightness capability diagnostics missing"
 require_runtime_text 'print_capability nmcli' "network capability diagnostics missing"

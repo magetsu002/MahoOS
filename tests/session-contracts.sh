@@ -50,10 +50,10 @@ require_text "$SESSION_LUA" '"$HOME/.local/bin/maho-session" stop' \
 reject_text "$SESSION_LUA" 'waybar' \
     "normal Hyprland startup still invokes Waybar"
 
-require_text "$SHELL_BIN" 'restore_waybar()' \
-    "emergency Waybar fallback was removed from Maho Shell"
-require_text "$SHELL_BIN" 'trap restore_waybar EXIT INT TERM' \
-    "Maho Shell crash fallback is no longer armed"
+reject_text "$SHELL_BIN" 'restore_waybar' \
+    "Maho Shell still carries the legacy Waybar fallback"
+reject_text "$SHELL_BIN" 'exec_cmd("waybar")' \
+    "Maho Shell can still respawn Waybar"
 echo "PASS"
 
 echo "=== SDDM compositor lifecycle authority ==="

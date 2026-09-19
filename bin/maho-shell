@@ -53,15 +53,6 @@ if rows:
     fi
 }
 
-restore_waybar() {
-    # Never reveal Waybar underneath another live Maho Shell instance.
-    shell_running && return 0
-
-    if command -v hyprctl >/dev/null 2>&1 && ! pgrep -x waybar >/dev/null 2>&1; then
-        hyprctl dispatch 'hl.dsp.exec_cmd("waybar")' >/dev/null 2>&1 || true
-    fi
-}
-
 run_shell() {
     command -v quickshell >/dev/null 2>&1 || {
         echo "maho-shell: quickshell is unavailable" >&2
@@ -95,18 +86,14 @@ run_shell() {
         return 0
     fi
 
-    trap restore_waybar EXIT INT TERM
-
     quickshell -p "$CONFIG" >>"$LOG" 2>&1 &
     local pid=$!
 
     sleep 1
 
-    if kill -0 "$pid" 2>/dev/null; then
-        pkill -x waybar 2>/dev/null || true
-    else
+    if ! kill -0 "$pid" 2>/dev/null; then
         wait "$pid" || true
-        echo "maho-shell: shell exited during startup; Waybar fallback restored" >&2
+        echo "maho-shell: shell exited during startup" >&2
         return 1
     fi
 
@@ -311,7 +298,6 @@ case "${1:-run}" in
             systemctl --user stop maho-shell.service >/dev/null 2>&1 || true
         fi
         pkill -f 'quickshell -p.*/maho-shell/shell.qml' 2>/dev/null || true
-        restore_waybar
         ;;
     restart|reload)
         "$0" stop
@@ -341,10 +327,9 @@ case "${1:-run}" in
         cat <<'HELP'
 Usage: maho-shell [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]]
 
-Maho Shell is the Quickshell desktop surface shipped with Maho OS. While it is
-running, Waybar is hidden. If the shell exits unexpectedly, the wrapper restores
-Waybar as a fallback rather than leaving the session without a bar. Only one
-Maho Shell instance may own the desktop edge at a time.
+Maho Shell is the Quickshell desktop surface shipped with Maho OS. Only one
+Maho Shell instance may own the desktop edge at a time. Legacy bar fallbacks
+are intentionally not started during shell stop, restart, or failure.
 
 Commands:
   doctor         Check required runtime state and optional capabilities.
