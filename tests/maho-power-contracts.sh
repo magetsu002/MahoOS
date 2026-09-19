@@ -151,6 +151,11 @@ require_text "$RUNTIME" 'exec "$HOME/.local/bin/maho-lock"' 'Lock does not route
 reject_text "$RUNTIME" 'hyprlock' 'Power must not bypass secure Maho Lock with hyprlock'
 require_text "$RUNTIME" 'exec systemctl suspend' 'Sleep action missing'
 require_text "$RUNTIME" 'SwitchToGreeter' 'Switch User display-manager action missing'
+require_text "$RUNTIME" '"$HOME/.local/bin/maho-session" stop || return 1' 'Log Out does not stop the Maho graphical target before compositor exit'
+logout_stop_line="$(grep -nF '"$HOME/.local/bin/maho-session" stop || return 1' "$RUNTIME" | head -1 | cut -d: -f1)"
+logout_exit_line="$(grep -nF "exec hyprctl dispatch 'hl.dsp.exit()'" "$RUNTIME" | head -1 | cut -d: -f1)"
+[ -n "$logout_stop_line" ] && [ -n "$logout_exit_line" ] && [ "$logout_stop_line" -lt "$logout_exit_line" ] \
+    || fail 'Log Out exits Hyprland before the Maho graphical target is stopped'
 require_text "$RUNTIME" "exec hyprctl dispatch 'hl.dsp.exit()'" 'Log Out action does not use current Hyprland Lua dispatcher syntax'
 require_text "$RUNTIME" 'exec systemctl reboot' 'Restart action missing'
 require_text "$RUNTIME" 'exec systemctl poweroff' 'Shut Down action missing'
