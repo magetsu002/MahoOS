@@ -5,6 +5,7 @@ Item {
 
     required property var theme
     required property var notificationModel
+    required property var historyModel
     required property var identityResolver
 
     width: 324
@@ -15,6 +16,24 @@ Item {
 
         width: parent.width
         spacing: 9
+
+        Repeater {
+            model: root.notificationModel.replayEntries
+
+            HistoryReplayCard {
+                required property var modelData
+
+                width: stack.width
+                theme: root.theme
+                identityResolver: root.identityResolver
+                entry: modelData.entry
+                onDismissRequested: root.notificationModel.dismissReplay(modelData.token)
+                onActivated: {
+                    if (root.historyModel.activateEntry(String(modelData.entry.id)))
+                        root.notificationModel.dismissReplay(modelData.token)
+                }
+            }
+        }
 
         Repeater {
             model: root.notificationModel.visibleNotifications

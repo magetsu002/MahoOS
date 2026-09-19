@@ -17,10 +17,17 @@ Scope {
     property bool dirtyBeforeLoad: false
     property int serial: 0
     property var protocolEntries: ({})
+    property var liveNotifications: ({})
     property var replacementEpochs: ({})
+    property var appPolicies: ({})
+
+    signal replayRequested(var entry)
     readonly property int retainedCount: entries.length
     readonly property int unreadCount: countUnread(entries)
     readonly property var groupedEntries: buildGroups(entries)
+    readonly property int heldCount: countHeld(entries)
+    readonly property int policyCount: Object.keys(appPolicies).length
+    readonly property string heldContext: dominantHeldReason(entries)
 
     onUnreadCountChanged: scheduleStatusPublish()
     onDndEnabledChanged: scheduleStatusPublish()
@@ -50,7 +57,7 @@ Scope {
         return "dismissed"
     }
 
-    function snapshot(notification) {
+    function snapshot(notification, held, holdReason, deliveryMode) {
         const key = appKey(notification)
         return {
             "id": internalId(),
@@ -68,21 +75,28 @@ Scope {
             "closeReason": "live",
             "desktopEntry": identityResolver.stableDesktopEntry(notification),
             "icon": identityResolver.stableIconName(notification.appIcon),
-            "transient": Boolean(notification.transient)
+            "transient": Boolean(notification.transient),
+            "held": Boolean(held),
+            "holdReason": boundedText(holdReason || "", 96),
+            "deliveryMode": boundedText(deliveryMode || (Boolean(held) ? "held" : "recent"), 32)
         }
     }
 
-    function record(notification) {
+    function record(notification, held, holdReason, deliveryMode) {
         if (!notification)
             return
 
         const protocolKey = String(notification.id)
+        const nextLive = Object.assign({}, liveNotifications)
+        nextLive[protocolKey] = notification
+        liveNotifications = nextLive
+
         if (protocolEntries[protocolKey] !== undefined) {
             applyReplacement(notification)
             return
         }
 
-        const entry = snapshot(notification)
+        const entry = snapshot(notification, Boolean(held), holdReason || "", deliveryMode || "")
         const nextMap = Object.assign({}, protocolEntries)
         nextMap[protocolKey] = entry.id
         protocolEntries = nextMap
@@ -135,7 +149,10 @@ Scope {
             "replacementCount": Number(previous.replacementCount || 0) + (newGeneration ? 1 : 0),
             "desktopEntry": identityResolver.stableDesktopEntry(notification),
             "icon": identityResolver.stableIconName(notification.appIcon),
-            "transient": Boolean(notification.transient)
+            "transient": Boolean(notification.transient),
+            "held": Boolean(previous.held),
+            "holdReason": boundedText(previous.holdReason || "", 96),
+            "deliveryMode": boundedText(previous.deliveryMode || (previous.held ? "held" : "recent"), 32)
         })
         const next = entries.slice()
         next.splice(index, 1)
@@ -151,6 +168,11 @@ Scope {
         const nextMap = Object.assign({}, protocolEntries)
         delete nextMap[protocolKey]
         protocolEntries = nextMap
+        if (liveNotifications[protocolKey] === notification) {
+            const nextLive = Object.assign({}, liveNotifications)
+            delete nextLive[protocolKey]
+            liveNotifications = nextLive
+        }
         const nextEpochs = Object.assign({}, replacementEpochs)
         delete nextEpochs[protocolKey]
         replacementEpochs = nextEpochs
@@ -199,7 +221,12 @@ Scope {
             return
         persistence.write(JSON.stringify({
             "op": "save",
-            "state": {"version": 2, "dnd": dndEnabled, "entries": persistentEntries()}
+            "state": {
+                "version": 5,
+                "dnd": dndEnabled,
+                "entries": persistentEntries(),
+                "policies": appPolicies
+            }
         }) + "\n")
     }
 
@@ -248,6 +275,7 @@ Scope {
         if (response.op === "state") {
             const state = response.state || ({})
             dndEnabled = Boolean(state.dnd)
+            appPolicies = state.policies && typeof state.policies === "object" ? state.policies : ({})
             mergeLoaded(Array.isArray(state.entries) ? state.entries : [])
             loaded = true
             if (dirtyBeforeLoad) {
@@ -268,6 +296,49 @@ Scope {
 
     function toggleDnd() {
         return setDnd(!dndEnabled)
+    }
+
+    function markEntryRead(id) {
+        const index = entryIndexById(id)
+        if (index < 0 || entries[index].read)
+            return index >= 0
+        const next = entries.slice()
+        next[index] = Object.assign({}, next[index], {"read": true})
+        entries = next
+        scheduleSave()
+        return true
+    }
+
+    function invokeDefaultAction(notification) {
+        if (!notification || !notification.actions)
+            return false
+        for (let index = 0; index < notification.actions.length; ++index) {
+            const action = notification.actions[index]
+            if (action && String(action.identifier || "") === "default") {
+                action.invoke()
+                return true
+            }
+        }
+        return false
+    }
+
+    function activateEntry(id) {
+        const index = entryIndexById(id)
+        if (index < 0)
+            return false
+        const entry = entries[index]
+        const live = liveNotifications[String(entry.protocolId)]
+        let activated = false
+        try {
+            activated = invokeDefaultAction(live)
+        } catch (error) {
+            activated = false
+        }
+        if (!activated)
+            activated = identityResolver.launchHistory(entry)
+        if (activated)
+            markEntryRead(id)
+        return activated
     }
 
     function markAllRead() {
@@ -292,9 +363,28 @@ Scope {
         }
     }
 
+    function clearReadHistory() {
+        const next = entries.filter(function(entry) { return entry.held || !entry.read })
+        if (next.length !== entries.length) {
+            entries = next
+            scheduleSave()
+            return true
+        }
+        return false
+    }
+
+    function clearAppPolicies() {
+        if (Object.keys(appPolicies).length === 0)
+            return false
+        appPolicies = ({})
+        scheduleSave()
+        return true
+    }
+
     function clearHistory() {
         entries = []
         protocolEntries = ({})
+        liveNotifications = ({})
         replacementEpochs = ({})
         scheduleSave()
         return true
@@ -309,13 +399,179 @@ Scope {
         return count
     }
 
+    function countHeld(source) {
+        let count = 0
+        for (let index = 0; index < source.length; ++index) {
+            if (source[index].held)
+                count += 1
+        }
+        return count
+    }
+
+    function dominantHeldReason(source) {
+        const counts = ({})
+        let best = ""
+        let bestCount = 0
+        for (let index = 0; index < source.length; ++index) {
+            const entry = source[index]
+            if (!entry.held)
+                continue
+            const reason = boundedText(entry.holdReason || "", 96)
+            if (reason === "" || reason === "Adaptive Focus" || reason === "Do Not Disturb")
+                continue
+            counts[reason] = Number(counts[reason] || 0) + 1
+            if (counts[reason] > bestCount) {
+                best = reason
+                bestCount = counts[reason]
+            }
+        }
+        return best
+    }
+
+    function policyForKey(key) {
+        const clean = boundedText(key || "", 192).toLowerCase()
+        const mode = appPolicies[clean]
+        return mode === "always-show" || mode === "hold-gaming" || mode === "history-only"
+            ? mode : ""
+    }
+
+    function policyForNotification(notification) {
+        return notification ? policyForKey(appKey(notification)) : ""
+    }
+
+    function setAppPolicy(key, mode) {
+        const cleanKey = boundedText(key || "", 192).toLowerCase()
+        if (cleanKey === "")
+            return false
+        if (mode !== "always-show" && mode !== "hold-gaming" && mode !== "history-only" && mode !== "")
+            return false
+        const next = Object.assign({}, appPolicies)
+        if (mode === "")
+            delete next[cleanKey]
+        else
+            next[cleanKey] = mode
+        appPolicies = next
+        scheduleSave()
+        return true
+    }
+
+    function presentationDecision(notification, dnd, adaptiveQuiet, adaptiveContext) {
+        const critical = notification && Number(notification.urgency) === Number(NotificationUrgency.Critical)
+        const mode = policyForNotification(notification)
+        const context = boundedText(adaptiveContext || "", 96)
+        if (critical)
+            return {"suppress": false, "held": false, "holdReason": "", "deliveryMode": mode || "recent"}
+        if (mode === "history-only")
+            return {"suppress": true, "held": false, "holdReason": "", "deliveryMode": mode}
+        // Explicit per-app presentation policy is stronger than ambient quiet.
+        if (mode === "always-show")
+            return {"suppress": false, "held": false, "holdReason": "", "deliveryMode": mode}
+        if (mode === "hold-gaming" && Boolean(adaptiveQuiet) && context === "Gaming")
+            return {"suppress": true, "held": true, "holdReason": "Gaming", "deliveryMode": mode}
+        if (Boolean(dnd))
+            return {"suppress": true, "held": true, "holdReason": "Do Not Disturb", "deliveryMode": "held"}
+        if (Boolean(adaptiveQuiet))
+            return {"suppress": true, "held": true, "holdReason": context || "Adaptive Focus", "deliveryMode": "held"}
+        return {"suppress": false, "held": false, "holdReason": "", "deliveryMode": mode || "recent"}
+    }
+
+    function releaseHeldModes(modes) {
+        let changed = false
+        const now = Date.now()
+        const next = entries.map(function(entry) {
+            if (!entry.held || modes.indexOf(String(entry.deliveryMode || "")) < 0)
+                return entry
+            changed = true
+            return Object.assign({}, entry, {
+                "held": false, "holdReason": "", "deliveryMode": "recent", "timestamp": now
+            })
+        })
+        if (changed) {
+            next.sort(function(a, b) { return Number(b.timestamp) - Number(a.timestamp) })
+            entries = next
+            scheduleSave()
+        }
+        return changed
+    }
+
+    function releaseUntilFree() {
+        return releaseHeldModes(["hold-until-free"])
+    }
+
+    function releaseGamingHolds() {
+        return releaseHeldModes(["hold-gaming"])
+    }
+
+    function releaseAllHeld() {
+        let changed = false
+        const now = Date.now()
+        const next = entries.map(function(entry) {
+            if (!entry.held)
+                return entry
+            changed = true
+            const mode = String(entry.deliveryMode || "")
+            const persistentMode = mode === "hold-gaming" ? mode : "recent"
+            return Object.assign({}, entry, {
+                "held": false,
+                "holdReason": "",
+                "deliveryMode": persistentMode,
+                "timestamp": now
+            })
+        })
+        if (changed) {
+            next.sort(function(a, b) { return Number(b.timestamp) - Number(a.timestamp) })
+            entries = next
+            scheduleSave()
+        }
+        return changed
+    }
+
+    function presentationAction(id, action, adaptiveQuiet, adaptiveContext) {
+        const index = entryIndexById(id)
+        if (index < 0)
+            return false
+
+        const previous = entries[index]
+        let patch = ({})
+        if (action === "show-now") {
+            patch = {"held": false, "holdReason": "", "deliveryMode": "show-now", "read": false, "timestamp": Date.now()}
+        } else if (action === "hold-until-free") {
+            patch = {"held": true, "holdReason": "Until I'm free", "deliveryMode": action}
+        } else if (action === "always-show") {
+            setAppPolicy(previous.appKey, action)
+            patch = {"held": false, "holdReason": "", "deliveryMode": action}
+        } else if (action === "hold-gaming") {
+            setAppPolicy(previous.appKey, action)
+            const gamingNow = Boolean(adaptiveQuiet) && String(adaptiveContext || "") === "Gaming"
+            patch = gamingNow
+                ? {"held": true, "holdReason": "Gaming", "deliveryMode": action}
+                : {"held": false, "holdReason": "", "deliveryMode": action}
+        } else if (action === "history-only") {
+            setAppPolicy(previous.appKey, action)
+            patch = {"held": false, "holdReason": "", "deliveryMode": action, "read": true}
+        } else {
+            return false
+        }
+
+        const next = entries.slice()
+        const updated = Object.assign({}, previous, patch)
+        next[index] = updated
+        next.sort(function(a, b) { return Number(b.timestamp) - Number(a.timestamp) })
+        entries = next
+        scheduleSave()
+        if (action === "show-now")
+            replayRequested(updated)
+        return true
+    }
+
     function buildGroups(source) {
         const groups = []
         const groupIndexes = ({})
         for (let index = 0; index < source.length; ++index) {
             const entry = source[index]
             const normal = Number(entry.urgency) === Number(NotificationUrgency.Normal)
-            const existingIndex = groupIndexes[entry.groupKey]
+            const groupIndexKey = String(entry.groupKey) + "\n" + (entry.held ? "held" : "recent")
+            const existingIndex = groupIndexes[groupIndexKey]
             if (normal && existingIndex !== undefined) {
                 const current = groups[existingIndex]
                 if (Number(current.timestamp) - Number(entry.timestamp) <= groupWindowMs) {
@@ -330,14 +586,15 @@ Scope {
             const group = Object.assign({}, entry, {
                 "groupCount": 1,
                 "groupUnread": entry.read ? 0 : 1,
-                "section": Date.now() - Number(entry.timestamp) < 24 * 60 * 60 * 1000
-                    ? "Today" : "Earlier"
+                "section": entry.held ? "Held" : "Recent"
             })
             groups.push(group)
             if (normal)
-                groupIndexes[entry.groupKey] = groups.length - 1
+                groupIndexes[groupIndexKey] = groups.length - 1
         }
-        return groups
+        const held = groups.filter(function(entry) { return Boolean(entry.held) })
+        const recent = groups.filter(function(entry) { return !entry.held })
+        return held.concat(recent)
     }
 
     Timer {
