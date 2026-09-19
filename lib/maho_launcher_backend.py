@@ -16,6 +16,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from typing import Iterable
 
 # The backend is both executed as a script and imported directly by contract
@@ -38,6 +39,12 @@ EXCLUDED_DIRS = {
     ".cache",
     ".git",
     ".local/share/Trash",
+    ".local/share/Steam",
+    ".local/share/flatpak",
+    ".local/share/containers",
+    ".steam",
+    ".var/app",
+    ".mozilla",
     ".npm",
     ".cargo/registry",
     ".rustup",
@@ -45,6 +52,76 @@ EXCLUDED_DIRS = {
     "target",
     "__pycache__",
 }
+
+APP_CACHE_VERSION = 1
+APP_CACHE_MAX_AGE_SECONDS = 300
+FILE_INDEX_VERSION = 1
+FILE_INDEX_MAX_AGE_SECONDS = 120
+FILE_INDEX_LIMIT = 24000
+
+
+def cache_root() -> Path:
+    configured = os.environ.get("XDG_CACHE_HOME", "").strip()
+    root = Path(configured).expanduser() if configured else Path.home() / ".cache"
+    return root / "maho" / "launcher"
+
+
+def read_json(path: Path) -> object | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def atomic_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + f".tmp.{os.getpid()}")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def app_cache_signature() -> list[list[object]]:
+    result: list[list[object]] = []
+    for root in desktop_roots():
+        try:
+            stat = root.stat()
+            result.append([str(root), stat.st_mtime_ns])
+        except OSError:
+            result.append([str(root), 0])
+    return result
+
+
+def cached_apps() -> list[dict[str, object]] | None:
+    path = cache_root() / "apps-v1.json"
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("version") != APP_CACHE_VERSION:
+        return None
+    if payload.get("signature") != app_cache_signature():
+        return None
+    generated = payload.get("generated_at")
+    if not isinstance(generated, (int, float)) or time.time() - generated > APP_CACHE_MAX_AGE_SECONDS:
+        return None
+    entries = payload.get("entries")
+    return entries if isinstance(entries, list) else None
+
+
+def load_apps_cached() -> list[dict[str, object]]:
+    entries = cached_apps()
+    if entries is not None:
+        return entries
+    entries = discover_apps()
+    atomic_json(cache_root() / "apps-v1.json", {
+        "version": APP_CACHE_VERSION,
+        "generated_at": time.time(),
+        "signature": app_cache_signature(),
+        "entries": entries,
+    })
+    return entries
 
 
 def discover_apps() -> list[dict[str, object]]:
@@ -58,7 +135,7 @@ def resolve_icon_paths(entries: list[dict[str, object]]) -> None:
 
 
 def list_apps() -> int:
-    json.dump(discover_apps(), sys.stdout, ensure_ascii=False, separators=(",", ":"))
+    json.dump(load_apps_cached(), sys.stdout, ensure_ascii=False, separators=(",", ":"))
     return 0
 
 
@@ -162,59 +239,118 @@ def scan_files_fd(home: Path, query: str, candidate_limit: int) -> list[Path] | 
     return [Path(line) for line in completed.stdout.splitlines() if line]
 
 
+def file_index_path() -> Path:
+    return cache_root() / "files-v1.json"
+
+
+def load_file_index(home: Path) -> list[dict[str, object]] | None:
+    payload = read_json(file_index_path())
+    if not isinstance(payload, dict) or payload.get("version") != FILE_INDEX_VERSION:
+        return None
+    generated = payload.get("generated_at")
+    if not isinstance(generated, (int, float)) or time.time() - generated > FILE_INDEX_MAX_AGE_SECONDS:
+        return None
+    if payload.get("home") != str(home):
+        return None
+    entries = payload.get("entries")
+    return entries if isinstance(entries, list) else None
+
+
+def build_file_index(home: Path) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    for path in scan_files_python(home, "", FILE_INDEX_LIMIT):
+        try:
+            relative = str(path.relative_to(home))
+            is_dir = path.is_dir()
+        except (OSError, ValueError):
+            continue
+        entries.append({
+            "name": path.name or relative,
+            "path": str(path),
+            "relative": relative,
+            "is_dir": is_dir,
+        })
+    atomic_json(file_index_path(), {
+        "version": FILE_INDEX_VERSION,
+        "generated_at": time.time(),
+        "home": str(home),
+        "entries": entries,
+    })
+    return entries
+
+
+def file_index(home: Path) -> list[dict[str, object]]:
+    cached = load_file_index(home)
+    return cached if cached is not None else build_file_index(home)
+
+
+def query_score(name: str, relative: str, raw_query: str) -> float:
+    tokens = [token for token in raw_query.casefold().split() if token]
+    if not tokens:
+        return 0.0
+    scores = [fuzzy_score(name, relative, token) for token in tokens]
+    if any(score < 0 for score in scores):
+        return -1.0
+    return sum(scores) + max(0, len(tokens) - 1) * 180
+
+
+def warm_cache() -> int:
+    load_apps_cached()
+    home = Path.home()
+    file_index(home)
+    return 0
+
+
 def file_search(query: str, limit: int) -> int:
     home = Path.home()
     limit = max(1, min(limit, 120))
-    candidate_limit = max(limit * 20, 1200)
+    normalized = query.strip()
 
-    if not query.strip():
+    if not normalized:
         try:
-            candidates = list(home.iterdir())
+            candidates = [
+                {
+                    "name": path.name or str(path),
+                    "path": str(path),
+                    "relative": str(path.relative_to(home)),
+                    "is_dir": path.is_dir(),
+                }
+                for path in home.iterdir()
+                if not path.name.startswith(".")
+            ]
         except OSError:
             candidates = []
     else:
-        fd_candidates = scan_files_fd(home, query, candidate_limit)
-        candidates = fd_candidates if fd_candidates is not None else scan_files_python(home, query)
+        candidates = file_index(home)
 
-    ranked: list[tuple[float, str, Path]] = []
-    for path in candidates:
-        try:
-            relative = str(path.relative_to(home))
-        except ValueError:
-            relative = str(path)
-        score = fuzzy_score(path.name, relative, query)
+    ranked: list[tuple[float, str, dict[str, object]]] = []
+    for item in candidates:
+        name = str(item.get("name") or "")
+        relative = str(item.get("relative") or name)
+        score = query_score(name, relative, normalized)
         if score < 0:
             continue
         depth = len(Path(relative).parts)
         if depth <= 1:
             score += 180
-        try:
-            is_dir = path.is_dir()
-        except OSError:
-            is_dir = False
-        if is_dir:
+        if bool(item.get("is_dir")):
             score += 40
-        ranked.append((score, relative.casefold(), path))
+        ranked.append((score, relative.casefold(), item))
 
     ranked.sort(key=lambda row: (-row[0], row[1]))
     output = []
-    for _, _, path in ranked[:limit]:
-        relative = str(path.relative_to(home)) if path.is_absolute() else str(path)
-        try:
-            is_dir = path.is_dir()
-        except OSError:
-            is_dir = False
-        output.append(
-            {
-                "name": path.name or str(path),
-                "description": "Folder" if is_dir else relative,
-                "path": str(path),
-                "relative": relative,
-                "icon": "folder" if is_dir else "text-x-generic",
-                "iconPath": "",
-                "kind": "directory" if is_dir else "file",
-            }
-        )
+    for _, _, item in ranked[:limit]:
+        relative = str(item.get("relative") or "")
+        is_dir = bool(item.get("is_dir"))
+        output.append({
+            "name": str(item.get("name") or relative),
+            "description": "Folder" if is_dir else relative,
+            "path": str(item.get("path") or ""),
+            "relative": relative,
+            "icon": "folder" if is_dir else "text-x-generic",
+            "iconPath": "",
+            "kind": "directory" if is_dir else "file",
+        })
 
     json.dump(output, sys.stdout, ensure_ascii=False, separators=(",", ":"))
     return 0
@@ -303,6 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("action", choices=("terminal", "files", "lock", "diagnostics"))
 
     sub.add_parser("doctor")
+    sub.add_parser("warm-cache")
     return parser
 
 
@@ -320,6 +457,8 @@ def main() -> int:
         return run_command(args.action)
     if args.command == "doctor":
         return doctor()
+    if args.command == "warm-cache":
+        return warm_cache()
     return 2
 
 

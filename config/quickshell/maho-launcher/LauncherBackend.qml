@@ -306,6 +306,12 @@ Scope {
     }
 
     Process {
+        id: cacheWarm
+        command: ["python3", root.backendPath, "warm-cache"]
+        running: true
+    }
+
+    Process {
         id: appIndex
         command: ["python3", root.backendPath, "apps"]
         running: true

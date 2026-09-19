@@ -207,7 +207,7 @@ PanelWindow {
 
     Timer {
         id: closeTimer
-        interval: 205
+        interval: 140
         onTriggered: Qt.quit()
     }
 
@@ -225,9 +225,9 @@ PanelWindow {
 
     Component.onCompleted: {
         root.pendingMode = backend.mode
+        root.shown = true
         Qt.callLater(function() {
             root.resetResultsToTop()
-            root.shown = true
             searchInput.forceActiveFocus()
         })
     }
@@ -237,7 +237,7 @@ PanelWindow {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, root.shown ? 0.045 : 0)
         Behavior on color {
-            ColorAnimation { duration: root.shown ? 255 : 180; easing.type: Easing.OutCubic }
+            ColorAnimation { duration: root.shown ? 175 : 110; easing.type: Easing.OutCubic }
         }
 
         HoverHandler {
@@ -258,23 +258,23 @@ PanelWindow {
         height: Math.min(root.surfaceHeight, root.height - 40)
         anchors.centerIn: parent
         opacity: root.shown ? 1 : 0
-        scale: root.shown ? 1 : 0.986
+        scale: root.shown ? 1 : 0.993
 
         transform: Translate {
-            y: root.shown ? 0 : -8
+            y: root.shown ? 0 : -5
             Behavior on y {
                 NumberAnimation {
-                    duration: root.shown ? 280 : 180
+                    duration: root.shown ? 185 : 120
                     easing.type: Easing.OutCubic
                 }
             }
         }
 
         Behavior on opacity {
-            NumberAnimation { duration: root.shown ? 250 : 175; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: root.shown ? 175 : 115; easing.type: Easing.OutCubic }
         }
         Behavior on scale {
-            NumberAnimation { duration: root.shown ? 290 : 190; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: root.shown ? 190 : 125; easing.type: Easing.OutCubic }
         }
 
         Rectangle {
@@ -284,7 +284,7 @@ PanelWindow {
             antialiasing: true
             color: theme.outerGlow
             opacity: root.shown ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 250 } }
+            Behavior on opacity { NumberAnimation { duration: root.shown ? 175 : 115 } }
         }
 
         Rectangle {
