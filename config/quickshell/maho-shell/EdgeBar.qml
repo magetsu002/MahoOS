@@ -205,11 +205,12 @@ Item {
             Rectangle {
                 width: parent.width * Math.min(100, osdView.value) / 100
                 height: parent.height
-                radius: parent.radius
+                radius: Math.min(parent.radius, width / 2)
+                antialiasing: true
                 color: edge.theme
                     ? (osdView.isVolume ? edge.theme.primary : edge.theme.tertiary)
                     : "white"
-                Behavior on width { NumberAnimation { duration: 80; easing.type: Easing.OutCubic } }
+                Behavior on width { SmoothedAnimation { duration: 110; velocity: 760; easing.type: Easing.OutCubic } }
                 Behavior on color { ColorAnimation { duration: 320 } }
             }
         }

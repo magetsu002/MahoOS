@@ -233,7 +233,7 @@ Item {
                 color: edge.theme
                     ? (osdView.isVolume ? edge.theme.primary : edge.theme.tertiary)
                     : "white"
-                Behavior on height { NumberAnimation { duration: 80; easing.type: Easing.OutCubic } }
+                Behavior on height { SmoothedAnimation { duration: 110; velocity: 760; easing.type: Easing.OutCubic } }
                 Behavior on color { ColorAnimation { duration: 320 } }
             }
         }
