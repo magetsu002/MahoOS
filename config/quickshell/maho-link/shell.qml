@@ -28,7 +28,6 @@ ShellRoot {
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
     readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
-    property bool bluetoothGeometryReady: true
     property string modeAfterPlacementSave: ""
     property real requestedPlacementX: -1
     property real requestedPlacementY: -1
@@ -239,8 +238,6 @@ ShellRoot {
             return
         if (activeMode === "wifi" && !wifi.statusReady)
             return
-        if (activeMode === "bluetooth" && !bluetoothGeometryReady)
-            return
         applyPlacement()
         linkSurface.shown = true
         linkSurface.forceActiveFocus()
@@ -250,7 +247,6 @@ ShellRoot {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
         idleRetireTimer.stop()
-        bluetoothRevealTimer.stop()
         closeAfterPlacementSave = false
         backdropActive = true
         presented = true
@@ -266,7 +262,6 @@ ShellRoot {
         // lets the existing 190 ms height behavior paint a growing second edge
         // underneath the entrance animation.
         linkSurface.shown = false
-        bluetoothGeometryReady = requestedMode !== "bluetooth"
         activeMode = requestedMode
         linkSurface.page = "main"
 
@@ -277,11 +272,9 @@ ShellRoot {
 
         if (root.activeMode === "bluetooth") {
             bluetooth.refresh()
-            // MahoLink's height settle is intentionally short. Keep Bluetooth
-            // fully transparent until that hidden geometry has settled, then
-            // reveal the one final-sized surface. Wi-Fi retains its existing
-            // status-ready gate and compact-height motion.
-            bluetoothRevealTimer.restart()
+            // Hidden Link geometry snaps to its final size, so Bluetooth can
+            // reveal on the next event turn without a synthetic settle delay.
+            Qt.callLater(root.revealSurfaceWhenReady)
         } else {
             // Do not paint default/offline placeholders as truth. Status is a
             // fast NetworkManager query; nearby-network discovery is independent.
@@ -299,7 +292,6 @@ ShellRoot {
         if (!overlayOpen)
             return
         modeAfterPlacementSave = ""
-        bluetoothRevealTimer.stop()
         backdropActive = false
         overlayOpen = false
         linkSurface.shown = false
@@ -366,17 +358,8 @@ ShellRoot {
     }
 
     Timer {
-        id: bluetoothRevealTimer
-        interval: 160
-        onTriggered: {
-            root.bluetoothGeometryReady = true
-            root.revealSurfaceWhenReady()
-        }
-    }
-
-    Timer {
         id: closeTimer
-        interval: 120
+        interval: 65
         onTriggered: {
             root.presented = false
             idleRetireTimer.restart()
@@ -429,7 +412,12 @@ ShellRoot {
             id: dimPlane
             anchors.fill: parent
             color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.16 : 0)
-            Behavior on color { ColorAnimation { duration: 135; easing.type: Easing.OutCubic } }
+            Behavior on color {
+                ColorAnimation {
+                    duration: root.overlayOpen ? 70 : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
         }
 
         MouseArea {
