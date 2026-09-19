@@ -34,18 +34,20 @@ Rectangle {
     Behavior on border.color { ColorAnimation { duration: 145; easing.type: Easing.OutCubic } }
     Behavior on scale { NumberAnimation { duration: 105; easing.type: Easing.OutCubic } }
 
+    // One quiet inner reflection is enough to read as glass. The previous
+    // full-card inset gradient produced doubled contours and faint horizontal
+    // seams around stacked history rows.
     Rectangle {
-        anchors.fill: parent
-        anchors.margins: 1
-        radius: parent.radius - 1
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: 18
+        anchors.rightMargin: 18
+        anchors.top: parent.top
+        anchors.topMargin: 1
+        height: 1
+        radius: 1
         antialiasing: true
-        color: "transparent"
-        gradient: Gradient {
-            GradientStop { position: 0.00; color: theme.rowTopWash }
-            GradientStop { position: 0.34; color: row.critical ? theme.criticalWash : "transparent" }
-            GradientStop { position: 0.72; color: "transparent" }
-            GradientStop { position: 1.00; color: theme.rowBottomShade }
-        }
+        color: row.critical ? theme.criticalWash : theme.rowTopWash
     }
 
     HoverHandler { id: historyHover }
@@ -176,39 +178,51 @@ Rectangle {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: 32
+            width: 36
 
+            // Fixed geometry: hover only changes opacity/scale, never position.
+            // This prevents the action affordance from appearing to wander
+            // relative to differently sized notification text blocks.
             Rectangle {
                 id: menuButton
                 anchors.centerIn: parent
-                width: 28
-                height: 28
-                radius: 9
+                width: 30
+                height: 30
+                radius: 10
                 transformOrigin: Item.Center
                 opacity: historyHover.hovered || row.menuOpen ? 1 : 0
-                scale: historyHover.hovered || row.menuOpen ? 1 : 0.92
+                scale: historyHover.hovered || row.menuOpen ? 1 : 0.96
                 color: menuMouse.pressed
                     ? theme.controlPressed
                     : (menuMouse.containsMouse || row.menuOpen ? theme.controlHover : "transparent")
                 border.width: menuMouse.containsMouse || row.menuOpen ? 1 : 0
                 border.color: theme.controlRim
+                antialiasing: true
 
                 Behavior on color { ColorAnimation { duration: 110; easing.type: Easing.OutCubic } }
                 Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                 Behavior on scale { NumberAnimation { duration: 135; easing.type: Easing.OutCubic } }
 
-                Row {
+                Item {
+                    id: dotCluster
                     anchors.centerIn: parent
-                    spacing: 2
+                    width: 15
+                    height: 3
 
-                    Repeater {
-                        model: 3
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 3
 
-                        Rectangle {
-                            width: 3
-                            height: 3
-                            radius: 1.5
-                            color: theme.textSecondary
+                        Repeater {
+                            model: 3
+
+                            Rectangle {
+                                width: 3
+                                height: 3
+                                radius: 1.5
+                                antialiasing: true
+                                color: theme.textSecondary
+                            }
                         }
                     }
                 }
