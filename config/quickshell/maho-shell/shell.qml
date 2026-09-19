@@ -209,6 +209,28 @@ ShellRoot {
         closeMorphTimer.restart()
     }
 
+    IpcHandler {
+        target: "edge"
+
+        function open(): bool {
+            root.openPanel()
+            return true
+        }
+
+        function close(): bool {
+            root.closePanel()
+            return true
+        }
+
+        function toggle(): bool {
+            if (root.expanded)
+                root.closePanel()
+            else
+                root.openPanel()
+            return true
+        }
+    }
+
     function runShell(command) {
         Quickshell.execDetached(["bash", "-lc", command])
     }

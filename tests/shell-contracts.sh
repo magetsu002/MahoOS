@@ -86,6 +86,18 @@ if grep -Fq 'Timer {' "$SHELL_DIR/NotifyStatus.qml" || grep -Fq 'Process {' "$SH
 fi
 echo "PASS"
 
+echo "=== Super+Space Maho Edge contract ==="
+require_text shell.qml 'target: "edge"' "Maho Edge IPC target missing"
+require_text shell.qml 'function open(): bool' "Maho Edge IPC open method missing"
+require_text shell.qml 'root.openPanel()' "Maho Edge IPC does not route to native openPanel"
+BINDS="$ROOT/config/hypr/maho/core/binds.lua"
+grep -Fq 'mainMod .. " + SPACE"' "$BINDS" || fail "SUPER+SPACE bind missing"
+grep -Fq 'call edge open' "$BINDS" || fail "SUPER+SPACE does not open Maho Edge"
+if grep -F 'mainMod .. " + SPACE"' "$BINDS" | grep -Fq 'rofi'; then
+    fail "SUPER+SPACE still launches Rofi"
+fi
+echo "PASS"
+
 echo "=== dynamic palette contract ==="
 require_text MahoTheme.qml '/.cache/maho/theme/active.json' "theme does not read Maho active palette"
 require_text MahoTheme.qml 'watchChanges: true' "theme does not watch palette changes"
