@@ -138,6 +138,17 @@ require_text "$QML" 'Qt.LeftEdge | Qt.BottomEdge' "bottom-left resize corner is 
 require_text "$QML" 'Qt.RightEdge | Qt.BottomEdge' "bottom-right resize corner is missing"
 echo PASS
 
+echo "=== adaptive directory scrolling ==="
+require_text "$QML" 'function adaptiveScrollMultiplier(view)' "Files has no directory-depth scroll scaling"
+require_text "$QML" 'Math.min(3.20, scaled)' "Files adaptive scroll has no sane upper bound"
+require_text "$QML" 'Math.sqrt(multiplier)' "touchpad scrolling does not use softened acceleration"
+require_text "$QML" 'id: gridWheelScroll' "grid view lacks adaptive wheel animation"
+require_text "$QML" 'id: listWheelScroll' "list view lacks adaptive wheel animation"
+require_text "$QML" 'blocking: true' "adaptive wheel handling can double-scroll with Flickable defaults"
+require_text "$QML" 'grid.cellHeight * 0.72' "grid wheel step is not tied to visible cell geometry"
+require_text "$QML" '88,' "list wheel step lost its bounded baseline"
+echo PASS
+
 echo "=== keyboard parity ==="
 for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X' 'Ctrl+V'; do
     require_text "$QML" "sequence: \"$shortcut\"" "missing file-manager shortcut: $shortcut"

@@ -79,6 +79,51 @@ ApplicationWindow {
         return active === searchField || active === pathField || active === nameField
     }
 
+    // Scale wheel travel by the amount of content that actually remains to
+    // scroll. Short folders stay precise; very deep folders cover more ground
+    // per notch. Pixel-delta touchpads receive only a softened multiplier.
+    function adaptiveScrollMultiplier(view) {
+        const viewport = Math.max(1, view.height)
+        const scrollRange = Math.max(0, view.contentHeight - viewport)
+        if (scrollRange <= 1)
+            return 0.80
+
+        const pages = scrollRange / viewport
+        const scaled = 0.80 + 0.50 * (Math.log(1 + pages) / Math.LN2)
+        return Math.max(0.80, Math.min(3.20, scaled))
+    }
+
+    function boundedContentY(view, targetY) {
+        const maximum = Math.max(0, view.contentHeight - view.height)
+        return Math.max(0, Math.min(maximum, targetY))
+    }
+
+    function handleAdaptiveWheel(view, wheel, baseStep, animation) {
+        const multiplier = adaptiveScrollMultiplier(view)
+        const pixelY = wheel.pixelDelta ? wheel.pixelDelta.y : 0
+
+        if (Math.abs(pixelY) > 0.5) {
+            animation.stop()
+            const touchFactor = Math.min(1.80, Math.sqrt(multiplier))
+            view.contentY = boundedContentY(view,
+                view.contentY - pixelY * touchFactor)
+            wheel.accepted = true
+            return
+        }
+
+        const notch = wheel.angleDelta ? wheel.angleDelta.y / 120 : 0
+        if (Math.abs(notch) < 0.01)
+            return
+
+        const targetY = boundedContentY(view,
+            view.contentY - notch * baseStep * multiplier)
+        animation.stop()
+        animation.from = view.contentY
+        animation.to = targetY
+        animation.start()
+        wheel.accepted = true
+    }
+
     function handleBrowseKey(event) {
         if (event.accepted || root.textEntryHasFocus() || namePopup.opened
                 || morePopup.opened || contextPopup.opened)
@@ -1194,6 +1239,27 @@ ApplicationWindow {
 
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
+                        NumberAnimation {
+                            id: gridWheelScroll
+                            target: grid
+                            property: "contentY"
+                            duration: 105
+                            easing.type: Easing.OutCubic
+                        }
+
+                        WheelHandler {
+                            target: null
+                            blocking: true
+                            onWheel: function(wheel) {
+                                root.handleAdaptiveWheel(
+                                    grid,
+                                    wheel,
+                                    grid.cellHeight * 0.72,
+                                    gridWheelScroll
+                                )
+                            }
+                        }
+
                         delegate: Item {
                             id: fileDelegate
                             required property int index
@@ -1338,6 +1404,27 @@ ApplicationWindow {
                             focus: visible
 
                             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                            NumberAnimation {
+                                id: listWheelScroll
+                                target: listView
+                                property: "contentY"
+                                duration: 105
+                                easing.type: Easing.OutCubic
+                            }
+
+                            WheelHandler {
+                                target: null
+                                blocking: true
+                                onWheel: function(wheel) {
+                                    root.handleAdaptiveWheel(
+                                        listView,
+                                        wheel,
+                                        88,
+                                        listWheelScroll
+                                    )
+                                }
+                            }
 
                             delegate: Item {
                                 id: listDelegate
