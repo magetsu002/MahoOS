@@ -6,14 +6,16 @@ VIEW="$LOCK/MahoLockViewV7.qml"
 PICKER="$LOCK/MahoImagePicker.qml"
 STATE_QML="$LOCK/MahoLockState.qml"
 STATE_PY="$LOCK/state.py"
+if grep -Eq 'MahoAvatarControl|openPicker\("avatar"\)|avatarControl' "$VIEW"; then
+    fail "accepted lock personalization UI still exposes profile-photo editing"
+fi
 BROWSER_PY="$LOCK/image_browser.py"
 fail(){ printf 'FAIL  %s\n' "$*" >&2; exit 1; }
 pass(){ printf 'PASS  %s\n' "$*"; }
 for f in "$VIEW" "$PICKER" "$STATE_QML" "$STATE_PY" "$BROWSER_PY"; do [ -r "$f" ] || fail "missing $f"; done
 
 if grep -Eq 'QtQuick\.Dialogs|FileDialog' "$VIEW" "$PICKER"; then fail "modal native file dialog returned"; fi
-grep -Fq 'onEditRequested: root.openPicker("avatar")' "$VIEW" || fail "avatar click not direct"
-grep -Fq 'onClicked: root.openPicker("wallpaper")' "$VIEW" || fail "wallpaper not separate"
+grep -Fq 'onClicked: root.openWallpaperPicker()' "$VIEW" || fail "wallpaper not separate"
 grep -Fq 'id: searchInput' "$PICKER" || fail "search input missing"
 grep -Fq 'Search images' "$PICKER" || fail "search affordance missing"
 grep -Fq 'root.lockState.openImageBrowser(root.mode)' "$PICKER" || fail "semantic default folder not used"
