@@ -140,6 +140,20 @@ Scope {
         return Quickshell.hasThemeIcon(icon) ? icon : ""
     }
 
+    function stableIconReference(value) {
+        const icon = bounded(value, maxIconLength).trim()
+        if (icon === "" || isNetworkSource(icon)
+                || icon.startsWith("data:") || icon.startsWith("image://"))
+            return ""
+        if (icon.startsWith("file://"))
+            return icon.startsWith("file:///") ? icon : ""
+        if (icon.startsWith("file:/") || icon.startsWith("/"))
+            return icon
+        if (icon.indexOf("://") >= 0 || icon.indexOf("/") >= 0)
+            return ""
+        return Quickshell.hasThemeIcon(icon) ? icon : ""
+    }
+
     function addCandidate(candidates, source, route, entry) {
         if (source === "")
             return
@@ -155,6 +169,31 @@ Scope {
         })
     }
 
+    function firstThemeIcon(names) {
+        for (let index = 0; index < names.length; ++index) {
+            if (Quickshell.hasThemeIcon(names[index]))
+                return Quickshell.iconPath(names[index])
+        }
+        return ""
+    }
+
+    function semanticFallbackIcon(appName) {
+        const key = normalizeName(appName)
+        if (key.indexOf("discord") >= 0)
+            return firstThemeIcon(["discord", "vesktop", "mail-message-new"])
+        if (key.indexOf("youtube") >= 0)
+            return firstThemeIcon(["youtube", "youtube-music", "multimedia-player"])
+        if (key.indexOf("outlook") >= 0 || key.indexOf("mail") >= 0)
+            return firstThemeIcon(["microsoft-outlook", "mail-unread", "mail-message-new"])
+        if (key.indexOf("message") >= 0 || key.indexOf("chat") >= 0)
+            return firstThemeIcon(["mail-message-new", "internet-chat"])
+        if (key.indexOf("terminal") >= 0 || key.indexOf("kitty") >= 0)
+            return firstThemeIcon(["kitty", "utilities-terminal"])
+        if (key.indexOf("music") >= 0 || key.indexOf("muse") >= 0)
+            return firstThemeIcon(["multimedia-player", "youtube-music"])
+        return ""
+    }
+
     function resolve(explicitIcon, desktopEntry, appName) {
         const candidates = []
         addCandidate(candidates, iconSource(explicitIcon), "explicit-icon", null)
@@ -166,6 +205,8 @@ Scope {
         const named = entryForAppName(appName)
         if (named)
             addCandidate(candidates, iconSource(named.icon), "app-name", named)
+
+        addCandidate(candidates, semanticFallbackIcon(appName), "semantic-fallback", null)
 
         return {
             "candidates": candidates,
@@ -192,6 +233,20 @@ Scope {
             return ""
         const entry = matchedEntry(notification.desktopEntry, notification.appName)
         return entry ? bounded(entry.id, maxIdentityLength) : ""
+    }
+
+    function launchHistory(entry) {
+        if (!entry)
+            return false
+        const desktop = matchedEntry(entry.desktopEntry || "", entry.appName || "")
+        if (!desktop || !desktop.execute)
+            return false
+        try {
+            desktop.execute()
+            return true
+        } catch (error) {
+            return false
+        }
     }
 
     Connections {
