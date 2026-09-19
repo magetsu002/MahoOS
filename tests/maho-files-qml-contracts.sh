@@ -73,7 +73,8 @@ echo "=== recent views without optional timeline worker ==="
 require_text "$MODEL_CPP" 'url.scheme() == QStringLiteral("timeline")' "timeline places are still handed to an optional KIO worker"
 require_text "$MODEL_CPP" 'KIO::listRecursive(' "Recent views are not built asynchronously through KIOCore"
 require_text "$MODEL_CPP" 'QUrl::fromLocalFile(QDir::homePath())' "Recent view does not use Home as its bounded source"
-require_text "$MODEL_CPP" 'ModificationTime).date() != m_recentTargetDate' "Recent view is not filtered by the requested modification date"
+require_text "$MODEL_CPP" 'modified != m_recentTargetDate' "exact-date Recent view is not filtered by the requested modification date"
+require_text "$MODEL_CPP" 'QDate::currentDate().addDays(-6)' "rolling Recent is not bounded to the last seven days"
 require_text "$MODEL_CPP" 'job->setUiDelegate(nullptr)' "Recent scan may spawn an unrelated widgets progress UI"
 echo PASS
 
@@ -197,6 +198,24 @@ if grep -Eq '^[[:space:]]*(sudo[[:space:]]+)?pacman[[:space:]]+-S' "$WRAPPER"; t
 fi
 reject_text "$WRAPPER" 'thunar --quit' "native Maho Files must not manage Thunar lifecycle"
 reject_text "$WRAPPER" 'gtk-3.0' "native Maho Files must not mutate GTK configuration"
+echo PASS
+
+echo "=== recent/open/action polish ==="
+require_text "$MODEL_CPP" 'timeline:/recent' "rolling Recent destination is missing"
+require_text "$MODEL_CPP" 'QDate::currentDate().addDays(-6)' "Recent is not bounded to a seven-day window"
+require_text "$MODEL_CPP" 'KIO::OpenUrlJob' "regular file opening does not use native KIO launcher"
+require_text "$MODEL_CPP" 'KIO::ApplicationLauncherJob' "Open With does not use native KDE application chooser"
+require_text "$MODEL_CPP" 'copyPathIndex' "Copy Path action is missing"
+require_text "$MODEL_CPP" 'duplicateIndex' "Duplicate action is missing"
+require_text "$MODEL_CPP" 'propertiesText' "Properties action is missing"
+require_text "$MODEL_CPP" 'dropUrls' "native inbound drop path is missing"
+require_text "$QML" 'text: "Recent"' "Recent is not surfaced in the sidebar"
+require_text "$QML" 'label: "Open With…"' "Open With action is not surfaced"
+require_text "$QML" 'label: "Copy Path"' "Copy Path action is not surfaced"
+require_text "$QML" 'label: "Duplicate"' "Duplicate action is not surfaced"
+require_text "$QML" 'id: propertiesPopup' "Properties UI is missing"
+require_text "$QML" 'id: contentDropArea' "content drop target is missing"
+require_text "$CMAKE" 'KF6::KIOGui' "native file launching is not linked against KIOGui"
 echo PASS
 
 echo "ALL MAHO FILES QML CONTRACTS PASS"

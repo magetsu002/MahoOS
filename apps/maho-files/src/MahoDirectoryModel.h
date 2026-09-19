@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantList>
 #include <QVector>
 
 #include <KCoreDirLister>
@@ -76,6 +77,7 @@ public:
     Q_INVOKABLE void goForward();
     Q_INVOKABLE void goUp();
     Q_INVOKABLE void goHome();
+    Q_INVOKABLE void goRecent();
     Q_INVOKABLE void reload();
     Q_INVOKABLE void setShowHidden(bool show);
     Q_INVOKABLE void setSearchQuery(const QString &query);
@@ -86,6 +88,11 @@ public:
     Q_INVOKABLE void renameIndex(int row, const QString &name);
     Q_INVOKABLE void trashIndex(int row);
     Q_INVOKABLE void copyIndex(int row, bool cut = false);
+    Q_INVOKABLE void copyPathIndex(int row);
+    Q_INVOKABLE void duplicateIndex(int row);
+    Q_INVOKABLE void openWithIndex(int row);
+    Q_INVOKABLE QString propertiesText(int row) const;
+    Q_INVOKABLE void dropUrls(const QVariantList &values, bool move = false);
     Q_INVOKABLE void paste();
 
 signals:
@@ -133,6 +140,7 @@ private:
     QPointer<KIO::ListJob> m_searchJob;
     QTimer m_searchDebounce;
     QDate m_recentTargetDate;
+    bool m_recentRolling = false;
     QVector<KFileItem> m_sourceItems;
     QVector<KFileItem> m_searchItems;
     QVector<KFileItem> m_items;

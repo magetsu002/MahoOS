@@ -395,6 +395,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+L"; onActivated: { pathField.forceActiveFocus(); pathField.selectAll() } }
     Shortcut { sequence: "Ctrl+F"; onActivated: root.showSearch() }
     Shortcut { sequence: "Ctrl+H"; onActivated: directoryModel.showHidden = !directoryModel.showHidden }
+    Shortcut { sequence: "Ctrl+Shift+R"; onActivated: directoryModel.goRecent() }
     Shortcut { sequence: "Ctrl+Shift+N"; onActivated: namePopup.beginNewFolder() }
     Shortcut { sequence: "F5"; onActivated: directoryModel.reload() }
     Shortcut { sequence: "F2"; enabled: root.selectedIndex >= 0; onActivated: namePopup.beginRename(root.selectedIndex) }
@@ -530,6 +531,20 @@ ApplicationWindow {
                 iconName: "edit-rename"
                 onTriggered: { const row = contextPopup.targetIndex; contextPopup.close(); namePopup.beginRename(row) }
             }
+            MenuAction {
+                label: "Open With…"
+                iconName: "system-run"
+                onTriggered: { contextPopup.close(); directoryModel.openWithIndex(contextPopup.targetIndex) }
+            }
+            MenuAction {
+                label: "Properties"
+                iconName: "document-properties"
+                onTriggered: {
+                    propertiesPopup.details = directoryModel.propertiesText(contextPopup.targetIndex)
+                    contextPopup.close()
+                    propertiesPopup.open()
+                }
+            }
             Rectangle { width: Math.min(226, contextPopup.width - 16); height: 1; color: root.divider }
             MenuAction {
                 label: "Copy"
@@ -540,6 +555,16 @@ ApplicationWindow {
                 label: "Cut"
                 iconName: "edit-cut"
                 onTriggered: { contextPopup.close(); directoryModel.copyIndex(contextPopup.targetIndex, true) }
+            }
+            MenuAction {
+                label: "Duplicate"
+                iconName: "edit-copy"
+                onTriggered: { contextPopup.close(); directoryModel.duplicateIndex(contextPopup.targetIndex) }
+            }
+            MenuAction {
+                label: "Copy Path"
+                iconName: "edit-copy-path"
+                onTriggered: { contextPopup.close(); directoryModel.copyPathIndex(contextPopup.targetIndex) }
             }
             MenuAction {
                 label: "Paste Here"
@@ -553,6 +578,46 @@ ApplicationWindow {
                 iconName: "user-trash"
                 destructive: true
                 onTriggered: { contextPopup.close(); directoryModel.trashIndex(contextPopup.targetIndex) }
+            }
+        }
+    }
+
+    Popup {
+        id: propertiesPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        padding: 18
+        width: Math.min(440, Math.max(300, root.width - 24))
+        anchors.centerIn: Overlay.overlay
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        property string details: ""
+
+        background: Rectangle {
+            radius: 22
+            color: root.menuFill
+            border.width: 1
+            border.color: root.quietRim
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Text {
+                Layout.fillWidth: true
+                text: "Properties"
+                color: root.foreground
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: propertiesPopup.details
+                color: root.alpha(root.foreground, 0.86)
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+                lineHeight: 1.25
             }
         }
     }
@@ -877,10 +942,63 @@ ApplicationWindow {
                     visible: !root.narrowWindow
                     color: root.sidebarFill
 
+                    Item {
+                        id: recentPlace
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        anchors.topMargin: 12
+                        height: 40
+
+                        property bool exactCurrent: String(directoryModel.currentUrl) === "timeline:/recent"
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 12
+                            color: recentPlace.exactCurrent
+                                ? root.selectedFill
+                                : recentHover.hovered ? root.hoverFill : "transparent"
+                            border.width: recentPlace.exactCurrent ? 1 : 0
+                            border.color: root.selectedRim
+                        }
+
+                        Row {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 10
+                            spacing: 9
+
+                            Image {
+                                width: 18
+                                height: 18
+                                sourceSize: Qt.size(36, 36)
+                                source: root.icon("document-open-recent")
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Recent"
+                                color: root.foreground
+                                font.pixelSize: 13
+                            }
+                        }
+
+                        HoverHandler { id: recentHover }
+                        TapHandler { onTapped: directoryModel.goRecent() }
+                    }
+
                     ListView {
                         id: placesView
-                        anchors.fill: parent
-                        anchors.margins: 12
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: recentPlace.bottom
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        anchors.topMargin: 4
+                        anchors.bottomMargin: 12
                         clip: true
                         model: placesModel
                         spacing: 2
@@ -1301,6 +1419,41 @@ ApplicationWindow {
                                 if (root.selectedIndex >= 0)
                                     directoryModel.openIndex(root.selectedIndex)
                             }
+                        }
+                    }
+
+                    DropArea {
+                        id: contentDropArea
+                        anchors.fill: parent
+                        z: 50
+
+                        onEntered: function(drag) {
+                            drag.accepted = drag.hasUrls && directoryModel.currentUrl.toString().startsWith("file:")
+                        }
+
+                        onDropped: function(drop) {
+                            if (!drop.hasUrls)
+                                return
+                            directoryModel.dropUrls(drop.urls, drop.proposedAction === Qt.MoveAction)
+                            drop.acceptProposedAction()
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        z: 49
+                        visible: contentDropArea.containsDrag
+                        color: root.alpha(root.accent, 0.055)
+                        border.width: 2
+                        border.color: root.alpha(root.accent, 0.30)
+                        radius: 18
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Drop files here"
+                            color: root.foreground
+                            font.pixelSize: 15
+                            font.weight: Font.DemiBold
                         }
                     }
 

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL_H="$ROOT/apps/maho-files/src/MahoDirectoryModel.h"
 MODEL_CPP="$ROOT/apps/maho-files/src/MahoDirectoryModel.cpp"
+QML="$ROOT/apps/maho-files/qml/Main.qml"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -70,6 +71,19 @@ reject_text "$MODEL_CPP" 'QDirIterator' \
     'search must stay on the KIO authority boundary rather than reimplement traversal'
 reject_text "$MODEL_CPP" 'std::filesystem' \
     'search must not reimplement traversal with std::filesystem'
+echo PASS
+
+echo '=== native drag-in contract ==='
+require_text "$MODEL_H" 'dropUrls(const QVariantList &values' \
+    'native inbound file drop API is missing'
+require_text "$MODEL_CPP" 'KIO::copy(urls, m_currentUrl' \
+    'inbound drop copy is not delegated to KIO'
+require_text "$MODEL_CPP" 'KIO::move(urls, m_currentUrl' \
+    'inbound drop move is not delegated to KIO'
+require_text "$QML" 'DropArea {' \
+    'file content does not accept native drops'
+require_text "$QML" 'drop.acceptProposedAction()' \
+    'drop action is not acknowledged back to the source'
 echo PASS
 
 echo 'ALL MAHO FILES DND + SEARCH CONTRACTS PASS'

@@ -60,6 +60,7 @@ target_link_libraries(maho-files PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     KF6::KIOCore
+    KF6::KIOGui
     KF6::KIOFileWidgets
 )
 
