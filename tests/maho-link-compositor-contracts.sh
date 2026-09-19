@@ -29,6 +29,7 @@ done
 
 echo '=== split catcher + blurred material architecture ==='
 require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link-catcher"'     'Link full-screen catcher does not have an isolated namespace'
+require "$SHELL_QML" 'The catcher must stay below the foreground material'     'Link catcher/material pointer-order contract is missing'
 require "$SHELL_QML" 'WlrLayershell.namespace: "maho-link"'     'Link material namespace changed unexpectedly'
 require "$SHELL_QML" 'mask: Region { item: root.overlayOpen ? linkSurface : null }'     'Link material blur is not alpha/input bounded to the rounded card'
 reject "$SHELL_QML" 'LinkBackdrop {'     'Link regressed to a separate compositor blur carrier'

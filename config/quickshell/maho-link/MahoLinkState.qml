@@ -16,6 +16,7 @@ Scope {
     property bool networksReady: false
     property bool snapshotReady: false
     property bool scanning: false
+    property bool startupScanAttempted: false
     property string activeAction: ""
     readonly property bool busy: actionProcess.running || scanning
 
@@ -56,6 +57,19 @@ Scope {
         refreshNetworks()
     }
 
+    function maybeStartupScan() {
+        if (!statusReady
+                || !networksReady
+                || !available
+                || !wifiEnabled
+                || networks.length !== 0
+                || startupScanAttempted
+                || scanning)
+            return
+        startupScanAttempted = true
+        Qt.callLater(state.rescan)
+    }
+
     function runAction(args, password, isScan) {
         if (actionProcess.running)
             return false
@@ -72,6 +86,8 @@ Scope {
     }
 
     function setWifiEnabled(enabled) {
+        if (enabled)
+            startupScanAttempted = false
         return runAction(["toggle", enabled ? "on" : "off"], "", false)
     }
 
@@ -116,6 +132,7 @@ Scope {
                 // Nearby-network discovery is deliberately not part of it.
                 state.statusReady = true
                 state.snapshotReady = true
+                state.maybeStartupScan()
             }
         }
     }
@@ -133,6 +150,10 @@ Scope {
                     state.snapshotReady = state.statusReady
                     if (state.errorText === "")
                         state.errorText = String(payload.error || "")
+                    // NetworkManager can return an empty cached list immediately
+                    // after boot/resume. Whichever fast query finishes second
+                    // gets to trigger one bounded real scan.
+                    state.maybeStartupScan()
                 } catch (error) {
                     console.log("maho-link network parse:", error)
                 }

@@ -58,7 +58,9 @@ Item {
             height: 58
             radius: 19
             antialiasing: true
-            color: root.glassInteractive
+            // Match Wi-Fi's lead-card material so Bluetooth opens with the
+            // same bright, liquid hierarchy instead of a darker control slab.
+            color: root.glassRaised
             border.width: 1
             border.color: root.glassStroke
 
@@ -67,11 +69,18 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.022) }
-                    GradientStop { position: 0.52; color: "transparent" }
+                    GradientStop { position: 0; color: chrome.theme.alpha(chrome.theme.foreground, 0.040) }
+                    GradientStop {
+                        position: 0.30
+                        color: chrome.theme.alpha(
+                            root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background,
+                            root.bluetooth.bluetoothEnabled ? 0.034 : 0.018
+                        )
+                    }
+                    GradientStop { position: 0.72; color: "transparent" }
                     GradientStop {
                         position: 1
-                        color: chrome.theme.alpha(root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background, 0.014)
+                        color: chrome.theme.alpha(root.bluetooth.bluetoothEnabled ? chrome.accent : chrome.theme.background, 0.016)
                     }
                 }
             }

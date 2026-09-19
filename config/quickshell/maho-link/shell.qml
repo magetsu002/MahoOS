@@ -421,7 +421,9 @@ ShellRoot {
                 Qt.callLater(root.applyPlacement)
         }
 
-        WlrLayershell.layer: WlrLayer.Overlay
+        // The catcher must stay below the foreground material. Keeping both
+        // on Overlay lets the full-screen catcher win pointer ownership.
+        WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.namespace: "maho-link-catcher"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
