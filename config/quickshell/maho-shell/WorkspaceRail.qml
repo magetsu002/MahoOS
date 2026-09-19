@@ -6,6 +6,7 @@ Item {
     property var theme
     property int activeWorkspace: 1
     property bool vertical: false
+    property bool switching: false
 
     readonly property int slotCount: 5
     readonly property int dotSize: 5
@@ -47,8 +48,8 @@ Item {
     Rectangle {
         id: activeMarker
 
-        width: rail.vertical ? rail.dotSize : rail.markerLength
-        height: rail.vertical ? rail.markerLength : rail.dotSize
+        width: rail.vertical ? rail.dotSize : (rail.switching ? rail.markerLength : rail.dotSize)
+        height: rail.vertical ? (rail.switching ? rail.markerLength : rail.dotSize) : rail.dotSize
         radius: rail.dotSize / 2
 
         // The active marker is one physical object moving over five fixed
@@ -56,12 +57,20 @@ Item {
         // animation, so 1 -> 2 -> 3 -> 4 visibly travels across the rail.
         x: rail.vertical
             ? (rail.width - width) / 2
-            : rail.activeSlot * rail.step
+            : rail.activeSlot * rail.step + (rail.switching ? 0 : rail.markerMargin)
         y: rail.vertical
-            ? rail.activeSlot * rail.step
+            ? rail.activeSlot * rail.step + (rail.switching ? 0 : rail.markerMargin)
             : (rail.height - height) / 2
 
         color: rail.theme ? rail.theme.primary : "white"
+
+        Behavior on width {
+            NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
+        }
+
+        Behavior on height {
+            NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
+        }
 
         Behavior on x {
             enabled: !rail.vertical
