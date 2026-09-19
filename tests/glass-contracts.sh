@@ -73,7 +73,11 @@ require_text "$CENTER" 'anchors.right: controlChevronLane.left' "delivery count 
 require_text "$CENTER" 'x: controlBody.containsMouse || center.controlMenuOpen ? 0 : -4' "delivery chevron hover motion missing"
 require_text "$THEME" 'menuFill:' "context-menu glass tier missing"
 require_text "$CENTER" 'font.pixelSize: 26' "center title hierarchy regressed"
-require_text "$CENTER" 'duration: center.shown ? 175 : 125' "accepted restrained center motion changed"
+require_text "$CENTER" 'duration: center.shown ? 220 : 125' "accepted restrained center motion changed"
+require_text "$CENTER" 'id: contentReveal' "center intro content transform missing"
+require_text "$CENTER" 'y: center.shown ? 0 : -8' "center intro settle offset drifted"
+require_text "$CENTER" 'duration: center.shown ? 245 : 110' "center intro settle timing drifted"
+require_text "$CENTER" 'opacity: center.shown ? 1 : 0.42' "center intro content fade missing"
 echo "PASS"
 
 echo "=== persistent Edge-aware draggable notification center ==="

@@ -57,11 +57,11 @@ Item {
         ? String(historyModel.heldCount) + " held"
         : (historyModel.unreadCount > 0 ? String(historyModel.unreadCount) + " unread" : "")
 
-    // The compositor blur carrier is stationary at final geometry. Keep the
-    // foreground stationary too: opacity-only reveal avoids a second moving
-    // edge/ghost during the first blurred frames.
+    // Keep the glass shell itself at final geometry so compositor diffusion
+    // never leaves a moving blur footprint. The shell fades in while the
+    // foreground content settles a few pixels into place below.
     Behavior on opacity {
-        NumberAnimation { duration: center.shown ? 175 : 125; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: center.shown ? 220 : 125; easing.type: Easing.OutCubic }
     }
 
     function focusHeldSection() {
@@ -176,6 +176,24 @@ Item {
             anchors.topMargin: 20
             anchors.bottomMargin: 20
             spacing: 12
+
+            // Premium entrance: the stationary glass material resolves first,
+            // then the content gently settles from above. Moving only content
+            // avoids compositor-blur ghosting while making the center feel
+            // intentional instead of appearing in a single frame.
+            opacity: center.shown ? 1 : 0.42
+            transform: Translate {
+                id: contentReveal
+                y: center.shown ? 0 : -8
+
+                Behavior on y {
+                    NumberAnimation { duration: center.shown ? 245 : 110; easing.type: Easing.OutCubic }
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation { duration: center.shown ? 205 : 100; easing.type: Easing.OutCubic }
+            }
 
             Item {
                 id: header
