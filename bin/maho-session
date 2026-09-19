@@ -37,6 +37,27 @@ wayland_ready() {
     [ -n "$display" ] && [ -S "$runtime/$display" ]
 }
 
+reconcile_portals() {
+    local -a backends=(
+        xdg-desktop-portal-hyprland.service
+        xdg-desktop-portal-gtk.service
+    )
+    local -a units=(
+        xdg-desktop-portal.service
+        "${backends[@]}"
+    )
+
+    systemctl --user reset-failed "${units[@]}" >/dev/null 2>&1 || true
+    systemctl --user restart "${backends[@]}" >/dev/null 2>&1 || {
+        echo "maho-session: portal backend reconciliation failed" >&2
+        return 1
+    }
+    systemctl --user restart xdg-desktop-portal.service >/dev/null 2>&1 || {
+        echo "maho-session: portal broker reconciliation failed" >&2
+        return 1
+    }
+}
+
 archive_hyprland_log() {
     local signature runtime state boot source target temporary
 
@@ -87,7 +108,10 @@ start_session() {
         maho-clipboard-history.service \
         >/dev/null 2>&1 || true
 
+    local portal_rc=0
+    reconcile_portals || portal_rc=$?
     systemctl --user start "$TARGET"
+    return "$portal_rc"
 }
 
 stop_session() {

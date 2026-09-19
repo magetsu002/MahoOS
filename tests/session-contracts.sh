@@ -119,6 +119,23 @@ require_text "$SESSION_BIN" 'maho-clipboard-history.service' \
     "session controller no longer includes Clipboard history capture"
 require_text "$SESSION_BIN" 'systemctl --user reset-failed' \
     "session controller no longer clears recoverable graphical failures"
+require_text "$SESSION_BIN" 'reconcile_portals()' \
+    "session controller no longer reconciles portals after graphical environment import"
+require_text "$SESSION_BIN" 'xdg-desktop-portal-hyprland.service' \
+    "Hyprland portal is not part of login reconciliation"
+require_text "$SESSION_BIN" 'xdg-desktop-portal-gtk.service' \
+    "GTK portal is not part of login reconciliation"
+require_text "$SESSION_BIN" 'systemctl --user restart "${backends[@]}"' \
+    "portal backends are not restarted after the new Wayland environment is imported"
+require_text "$SESSION_BIN" 'systemctl --user restart xdg-desktop-portal.service' \
+    "portal broker is not restarted after backend reconciliation"
+portal_import_line="$(grep -nF 'import_graphical_environment' "$SESSION_BIN" | tail -1 | cut -d: -f1)"
+portal_reconcile_line="$(grep -nF 'reconcile_portals || portal_rc=$?' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+portal_target_line="$(grep -nF 'systemctl --user start "$TARGET"' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+[ -n "$portal_import_line" ] && [ -n "$portal_reconcile_line" ] && [ -n "$portal_target_line" ] \
+    && [ "$portal_import_line" -lt "$portal_reconcile_line" ] \
+    && [ "$portal_reconcile_line" -lt "$portal_target_line" ] \
+    || fail "portal reconciliation is not ordered between environment import and Maho target start"
 require_text "$SESSION_BIN" 'systemctl --user start "$TARGET"' \
     "Maho session start no longer starts its target"
 require_text "$SESSION_BIN" 'systemctl --user stop "$TARGET"' \
