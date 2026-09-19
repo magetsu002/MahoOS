@@ -12,6 +12,7 @@ ShellRoot {
     // reaches the physical screen edge without blurring the Edge surface.
     LauncherBackdrop {
         id: backdrop
+        active: launcher.presented
     }
 
     MahoLauncherWindow {
@@ -27,7 +28,7 @@ ShellRoot {
         }
 
         function focus(): bool {
-            launcher.focusSearch()
+            launcher.openLauncher()
             return true
         }
 

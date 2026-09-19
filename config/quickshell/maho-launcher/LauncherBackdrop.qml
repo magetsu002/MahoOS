@@ -5,6 +5,9 @@ import Quickshell.Wayland
 PanelWindow {
     id: root
 
+    property bool active: true
+    visible: active
+
     anchors {
         top: true
         bottom: true

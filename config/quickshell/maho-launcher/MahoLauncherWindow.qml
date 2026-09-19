@@ -18,10 +18,14 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     aboveWindows: true
-    focusable: true
+    property bool presented: true
+    visible: presented
+    focusable: shown
     WlrLayershell.namespace: "maho-launcher"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: shown
+        ? WlrKeyboardFocus.Exclusive
+        : WlrKeyboardFocus.None
 
     readonly property int surfaceWidth: 760
     readonly property int surfaceHeight: 790
@@ -92,7 +96,7 @@ PanelWindow {
     }
 
     function closeLauncher() {
-        if (closing)
+        if (!shown || closing)
             return
         closing = true
         quickActionsOpen = false
@@ -100,7 +104,29 @@ PanelWindow {
         closeTimer.restart()
     }
 
+    function openLauncher() {
+        closeTimer.stop()
+        idleRetireTimer.stop()
+        closing = false
+        presented = true
+        quickActionsOpen = false
+        modeChanging = false
+        pendingMode = 0
+        previousMode = 0
+        backend.mode = 0
+        searchInput.text = ""
+        shown = true
+        Qt.callLater(function() {
+            root.resetResultsToTop()
+            searchInput.forceActiveFocus()
+        })
+    }
+
     function focusSearch() {
+        if (!shown || !presented) {
+            openLauncher()
+            return
+        }
         quickActionsOpen = false
         searchInput.forceActiveFocus()
     }
@@ -207,8 +233,22 @@ PanelWindow {
 
     Timer {
         id: closeTimer
-        interval: 140
-        onTriggered: Qt.quit()
+        interval: 125
+        onTriggered: {
+            root.presented = false
+            root.closing = false
+            idleRetireTimer.restart()
+        }
+    }
+
+    Timer {
+        id: idleRetireTimer
+        interval: 30000
+        repeat: false
+        onTriggered: {
+            if (!root.presented && !root.shown && !root.closing)
+                Qt.quit()
+        }
     }
 
     Timer {
@@ -225,11 +265,7 @@ PanelWindow {
 
     Component.onCompleted: {
         root.pendingMode = backend.mode
-        root.shown = true
-        Qt.callLater(function() {
-            root.resetResultsToTop()
-            searchInput.forceActiveFocus()
-        })
+        root.openLauncher()
     }
 
     Rectangle {
