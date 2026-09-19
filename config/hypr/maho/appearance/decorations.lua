@@ -68,6 +68,18 @@ hl.layer_rule({
 })
 
 
+-- Maho Launcher splits the full-screen click catcher from the actual glass
+-- card. Only the alpha-masked foreground material participates in blur.
+hl.layer_rule({
+    name = "maho-launcher-material",
+    match = { namespace = "maho-launcher" },
+    blur = true,
+    ignore_alpha = 0.16,
+    xray = false,
+    no_anim = true,
+})
+
+
 -- Maho Notify follows the same material model as Maho Clipboard: blur the
 -- interactive layer itself and ignore transparent pixels. This keeps blur,
 -- rounded geometry and drag motion in one compositor surface, eliminating

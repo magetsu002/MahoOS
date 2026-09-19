@@ -7,6 +7,11 @@ ShellRoot {
     id: root
     readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
 
+    LauncherBackdrop {
+        active: launcher.shown && !launcher.closing
+        onDismissRequested: launcher.closeLauncher()
+    }
+
     MahoLauncherWindow {
         id: launcher
     }

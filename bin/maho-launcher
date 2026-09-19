@@ -285,7 +285,7 @@ doctor() {
         echo "INFO  singleton      launcher is closed"
     fi
 
-    echo "PASS  compositor     bounded dark overlay; no compositor blur required"
+    echo "PASS  compositor     scoped launcher-card blur; catcher remains unblurred"
 
     [ "$failed" -eq 0 ] && echo "PASS  doctor         no blocking launcher problems detected"
     return "$failed"

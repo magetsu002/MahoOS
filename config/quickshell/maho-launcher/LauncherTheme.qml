@@ -58,10 +58,10 @@ Scope {
     readonly property color insetColor: mix(surfaceHigh, background, 0.36)
     readonly property color familyShell: mix(surfaceHigh, background, 0.54)
 
-    readonly property color shellFill: alpha(familyShell, 0.72)
+    readonly property color shellFill: alpha(familyShell, 0.78)
     readonly property color shellRim: alpha(foreground, 0.095)
-    readonly property color shellTopSpecular: alpha(foreground, 0.032)
-    readonly property color shellAccentWash: alpha(accent, 0.018)
+    readonly property color shellTopSpecular: alpha(foreground, 0.040)
+    readonly property color shellAccentWash: alpha(accent, 0.030)
     readonly property color shellBottomShade: alpha(accent, 0.030)
     readonly property color shellInnerLine: alpha(foreground, 0.055)
     readonly property color shellSideLine: "transparent"

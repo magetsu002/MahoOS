@@ -22,6 +22,7 @@ PanelWindow {
     WlrLayershell.namespace: "maho-launcher"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    mask: Region { item: root.shown ? motionLayer : null }
 
     readonly property int surfaceWidth: 760
     readonly property int surfaceHeight: 790
@@ -46,7 +47,43 @@ PanelWindow {
     property bool pointerAnchorValid: false
     property real pointerAnchorX: 0
     property real pointerAnchorY: 0
+    property bool userPositioned: false
+    readonly property real surfaceMargin: 20
     readonly property real pointerMovementThreshold: 4
+
+    function centeredSurfaceX() {
+        return Math.round((root.width - motionLayer.width) / 2)
+    }
+
+    function centeredSurfaceY() {
+        return Math.round((root.height - motionLayer.height) / 2)
+    }
+
+    function centerSurface() {
+        userPositioned = false
+        motionLayer.x = centeredSurfaceX()
+        motionLayer.y = centeredSurfaceY()
+    }
+
+    function clampSurface() {
+        motionLayer.x = Math.max(surfaceMargin,
+            Math.min(root.width - motionLayer.width - surfaceMargin, motionLayer.x))
+        motionLayer.y = Math.max(surfaceMargin,
+            Math.min(root.height - motionLayer.height - surfaceMargin, motionLayer.y))
+    }
+
+    onWidthChanged: Qt.callLater(function() {
+        if (root.userPositioned)
+            root.clampSurface()
+        else
+            root.centerSurface()
+    })
+    onHeightChanged: Qt.callLater(function() {
+        if (root.userPositioned)
+            root.clampSurface()
+        else
+            root.centerSurface()
+    })
 
     readonly property real resultMaxY: Math.max(0, resultList.contentHeight - resultList.height)
     readonly property bool resultsScrollable: resultMaxY > 6
@@ -226,42 +263,38 @@ PanelWindow {
     Component.onCompleted: {
         root.pendingMode = backend.mode
         Qt.callLater(function() {
+            root.centerSurface()
             root.resetResultsToTop()
             root.shown = true
             searchInput.forceActiveFocus()
         })
     }
 
-    Rectangle {
-        id: backdropDim
-        anchors.fill: parent
-        // Cheap focus veil: no compositor blur, just a restrained dark overlay.
-        color: Qt.rgba(0, 0, 0, root.shown ? 0.16 : 0)
-        Behavior on color {
-            ColorAnimation {
-                duration: root.shown ? 115 : 60
-                easing.type: Easing.OutCubic
-            }
-        }
+    Item {
+        id: motionLayer
+        width: Math.min(root.surfaceWidth, root.width - 40)
+        height: Math.min(root.surfaceHeight, root.height - 40)
+        x: 0
+        y: 0
+        opacity: root.shown ? 1 : 0
+
+        onWidthChanged: Qt.callLater(function() {
+            if (root.userPositioned)
+                root.clampSurface()
+            else
+                root.centerSurface()
+        })
+        onHeightChanged: Qt.callLater(function() {
+            if (root.userPositioned)
+                root.clampSurface()
+            else
+                root.centerSurface()
+        })
 
         HoverHandler {
             id: pointerTracker
             onPointChanged: root.observePointer(point.position.x, point.position.y)
         }
-    }
-
-    MouseArea {
-        anchors.fill: parent
-        enabled: root.shown && !root.closing
-        onClicked: root.closeLauncher()
-    }
-
-    Item {
-        id: motionLayer
-        width: Math.min(root.surfaceWidth, root.width - 40)
-        height: Math.min(root.surfaceHeight, root.height - 40)
-        anchors.centerIn: parent
-        opacity: root.shown ? 1 : 0
         // Opening gets a tiny lift/scale. Closing never reverses the geometry;
         // it simply fades away, which reads much faster and avoids ghost motion.
         scale: root.shown ? 1 : (root.closing ? 1 : 0.992)
@@ -371,6 +404,30 @@ PanelWindow {
                     z: 4
                     Layout.fillWidth: true
                     Layout.preferredHeight: 40
+
+                    MouseArea {
+                        id: launcherDragArea
+                        z: 4
+                        anchors.fill: parent
+                        anchors.leftMargin: 54
+                        anchors.rightMargin: 54
+                        enabled: root.shown && !root.closing
+                        hoverEnabled: true
+                        preventStealing: true
+                        cursorShape: Qt.SizeAllCursor
+                        drag.target: motionLayer
+                        drag.axis: Drag.XAndYAxis
+                        drag.threshold: 2
+                        drag.minimumX: root.surfaceMargin
+                        drag.maximumX: Math.max(root.surfaceMargin,
+                            root.width - motionLayer.width - root.surfaceMargin)
+                        drag.minimumY: root.surfaceMargin
+                        drag.maximumY: Math.max(root.surfaceMargin,
+                            root.height - motionLayer.height - root.surfaceMargin)
+                        onPressed: root.userPositioned = true
+                        onReleased: root.clampSurface()
+                        onCanceled: root.clampSurface()
+                    }
 
                     LauncherIconButton {
                         z: 5
