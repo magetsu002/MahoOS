@@ -55,11 +55,9 @@ Item {
     // Hyprland supplies diffusion behind this material; QML supplies tint,
     // depth and contrast. Keep one quiet translucent wash so blurred content
     // becomes color/liquidity instead of readable background detail.
-    readonly property color shellFill: theme.alpha(
-        mix(theme.surfaceHigh, theme.background, 0.54),
-        0.80
-    )
-    readonly property color shellStroke: theme.alpha(theme.foreground, 0.090)
+    readonly property color neutralGlass: mix(theme.surfaceHigh, theme.background, 0.54)
+    readonly property color shellFill: theme.alpha(neutralGlass, 0.72)
+    readonly property color shellStroke: theme.alpha(theme.foreground, 0.105)
 
     function mix(a, b, amount) {
         const t = Math.max(0, Math.min(1, amount))

@@ -428,7 +428,7 @@ ShellRoot {
         Rectangle {
             id: dimPlane
             anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.11 : 0)
+            color: Qt.rgba(0, 0, 0, root.overlayOpen ? 0.075 : 0)
             Behavior on color {
                 ColorAnimation {
                     duration: root.overlayOpen ? 64 : 0
@@ -491,16 +491,18 @@ ShellRoot {
         // control keeps its original pointer contract.
         MouseArea {
             id: linkDragArea
-            z: 20
-            x: linkSurface.x + 64
-            y: linkSurface.y + 18
-            width: Math.max(80, linkSurface.width - 184)
-            height: 40
+            z: 600
+            x: linkSurface.x + 60
+            y: linkSurface.y + 16
+            width: Math.max(100, linkSurface.width - 220)
+            height: 48
             enabled: root.overlayOpen && linkSurface.shown
             hoverEnabled: true
+            preventStealing: true
             cursorShape: Qt.SizeAllCursor
             drag.target: linkSurface
             drag.axis: Drag.XAndYAxis
+            drag.threshold: 2
             drag.minimumX: root.surfaceMarginX
             drag.maximumX: root.maximumSurfaceX()
             drag.minimumY: root.surfaceMarginY
