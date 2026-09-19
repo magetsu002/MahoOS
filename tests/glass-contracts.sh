@@ -66,6 +66,8 @@ reject_text "$CARD" 'orientation: Gradient.Horizontal' "popup reintroduced cross
 reject_text "$NOTIFY/HistoryReplayCard.qml" 'orientation: Gradient.Horizontal' "replay popup reintroduced cross-panel stripe banding"
 require_text "$CENTER" 'theme.shellAccentWash' "center restrained accent wash missing"
 require_text "$CENTER" 'controlBody.containsMouse || center.controlMenuOpen' "focus summary glass interaction missing"
+require_text "$CENTER" 'id: menuDismissLayer' "notification menus lack outside-click dismissal"
+require_text "$CENTER" 'z: 480' "menu-dismiss backdrop no longer sits below popover surfaces"
 require_text "$CENTER" 'id: controlChevronLane' "delivery card has no stable chevron lane"
 require_text "$CENTER" 'width: 88' "delivery metadata lane width drifted"
 require_text "$CENTER" 'opacity: controlBody.containsMouse || center.controlMenuOpen ? 1 : 0' "delivery chevron is not hover-only"

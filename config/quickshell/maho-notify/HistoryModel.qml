@@ -357,20 +357,15 @@ Scope {
 
     function clearRead() {
         const next = entries.filter(function(entry) { return !entry.read })
-        if (next.length !== entries.length) {
-            entries = next
-            scheduleSave()
-        }
+        if (next.length === entries.length)
+            return false
+        entries = next
+        scheduleSave()
+        return true
     }
 
     function clearReadHistory() {
-        const next = entries.filter(function(entry) { return entry.held || !entry.read })
-        if (next.length !== entries.length) {
-            entries = next
-            scheduleSave()
-            return true
-        }
-        return false
+        return clearRead()
     }
 
     function clearAppPolicies() {

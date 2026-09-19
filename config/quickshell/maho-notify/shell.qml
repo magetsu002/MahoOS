@@ -200,6 +200,15 @@ ShellRoot {
             return historyModel.clearHistory()
         }
 
+        function markAllRead(): bool {
+            historyModel.markAllRead()
+            return true
+        }
+
+        function clearReadHistory(): bool {
+            return historyModel.clearReadHistory()
+        }
+
         function dndStatus(): bool {
             return historyModel.dndEnabled
         }

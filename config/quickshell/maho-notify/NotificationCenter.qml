@@ -64,6 +64,11 @@ Item {
         NumberAnimation { duration: center.shown ? 220 : 125; easing.type: Easing.OutCubic }
     }
 
+    function dismissMenus() {
+        openMenuId = ""
+        controlMenuOpen = false
+    }
+
     function focusHeldSection() {
         if (historyModel.heldCount <= 0 || historyList.count <= 0)
             return
@@ -93,10 +98,8 @@ Item {
     }
 
     Keys.onEscapePressed: {
-        if (openMenuId !== "")
-            openMenuId = ""
-        else if (controlMenuOpen)
-            controlMenuOpen = false
+        if (openMenuId !== "" || controlMenuOpen)
+            dismissMenus()
         else
             center.closeRequested()
     }
@@ -562,6 +565,18 @@ Item {
                             * (historyList.height - height)
                 }
             }
+        }
+
+        // Popovers should never become sticky. While either menu is open this
+        // transparent backdrop sits above normal center content but below both
+        // menu surfaces, so any outside click dismisses the active dropdown.
+        MouseArea {
+            id: menuDismissLayer
+            anchors.fill: parent
+            z: 480
+            visible: center.openMenuId !== "" || center.controlMenuOpen
+            enabled: visible
+            onClicked: center.dismissMenus()
         }
 
         NotificationControlMenu {
