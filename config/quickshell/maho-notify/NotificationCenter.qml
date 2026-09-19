@@ -158,21 +158,6 @@ Item {
         }
 
         Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            antialiasing: true
-            color: "transparent"
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.00; color: "transparent" }
-                GradientStop { position: 0.18; color: theme.shellLiquidSheen }
-                GradientStop { position: 0.42; color: "transparent" }
-                GradientStop { position: 0.78; color: theme.shellLiquidTint }
-                GradientStop { position: 1.00; color: "transparent" }
-            }
-        }
-
-        Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.leftMargin: 28

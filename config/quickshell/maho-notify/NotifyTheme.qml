@@ -63,38 +63,39 @@ Scope {
     // Material hierarchy: Hyprland supplies the behind-window diffusion while
     // these translucent layers supply tint, depth and foreground contrast.
     // Keep grayscale text strong; let the blurred wallpaper carry the color.
-    readonly property color insetColor: mix(surfaceHigh, background, 0.30)
-    readonly property color familyShell: mix(surfaceHigh, background, 0.45)
-    readonly property color glassBase: mix(surfaceHigh, background, 0.12)
-    readonly property color centerShell: mix(glassBase, accent, 0.105)
+    readonly property color insetColor: mix(surfaceHigh, background, 0.36)
+    readonly property color familyShell: mix(surfaceHigh, background, 0.54)
+    readonly property color glassBase: familyShell
+    readonly property color centerShell: mix(glassBase, accent, 0.030)
 
-    readonly property color popupFill: alpha(familyShell, 0.90)
-    readonly property color centerFill: alpha(centerShell, 0.885)
-    readonly property color shellRim: alpha(foreground, 0.120)
-    readonly property color shellTopSpecular: alpha(foreground, 0.165)
-    readonly property color shellAccentWash: alpha(accent, 0.052)
-    readonly property color shellBottomShade: alpha(background, 0.125)
-    readonly property color shellInnerLine: alpha(foreground, 0.120)
-    readonly property color shellLiquidSheen: alpha(mix(foreground, accent, 0.26), 0.075)
-    readonly property color shellLiquidTint: alpha(accent, 0.032)
-    readonly property color outerGlow: alpha(background, 0.30)
+    // Keep the surface translucent enough for the compositor blur to remain
+    // visibly part of the material. Optical depth comes from one quiet
+    // top-to-bottom wash rather than cross-panel stripes.
+    readonly property color popupFill: alpha(mix(familyShell, accent, 0.020), 0.78)
+    readonly property color centerFill: alpha(centerShell, 0.76)
+    readonly property color shellRim: alpha(foreground, 0.082)
+    readonly property color shellTopSpecular: alpha(foreground, 0.040)
+    readonly property color shellAccentWash: alpha(accent, 0.020)
+    readonly property color shellBottomShade: alpha(background, 0.050)
+    readonly property color shellInnerLine: alpha(foreground, 0.052)
+    readonly property color outerGlow: alpha(accent, 0.014)
 
     readonly property color toolbarFill: alpha(mix(surfaceHigh, background, 0.43), 0.44)
     readonly property color toolbarRim: alpha(foreground, 0.050)
     readonly property color sectionFill: alpha(mix(surfaceHigh, background, 0.50), 0.28)
 
     // Raised delivery control: one quiet interactive plane, not a row of chips.
-    readonly property color focusFill: alpha(mix(surfaceHigh, foreground, 0.075), 0.40)
-    readonly property color focusHover: alpha(mix(surfaceHigh, foreground, 0.090), 0.48)
-    readonly property color focusRim: alpha(foreground, 0.066)
-    readonly property color controlTopWash: alpha(foreground, 0.055)
-    readonly property color controlBottomShade: alpha(background, 0.10)
+    readonly property color focusFill: alpha(mix(surfaceHigh, foreground, 0.060), 0.36)
+    readonly property color focusHover: alpha(mix(surfaceHigh, foreground, 0.075), 0.43)
+    readonly property color focusRim: alpha(foreground, 0.050)
+    readonly property color controlTopWash: alpha(foreground, 0.030)
+    readonly property color controlBottomShade: alpha(background, 0.050)
 
-    readonly property color controlFill: alpha(mix(surfaceHigh, background, 0.48), 0.34)
-    readonly property color controlHover: alpha(mix(surfaceHigh, foreground, 0.085), 0.46)
-    readonly property color controlPressed: alpha(mix(surfaceHigh, foreground, 0.12), 0.56)
-    readonly property color controlRim: alpha(foreground, 0.080)
-    readonly property color controlRimActive: alpha(accent, 0.20)
+    readonly property color controlFill: alpha(mix(surfaceHigh, background, 0.48), 0.32)
+    readonly property color controlHover: alpha(mix(surfaceHigh, foreground, 0.075), 0.42)
+    readonly property color controlPressed: alpha(mix(surfaceHigh, foreground, 0.10), 0.50)
+    readonly property color controlRim: alpha(foreground, 0.055)
+    readonly property color controlRimActive: alpha(accent, 0.13)
     readonly property color controlActiveFill: alpha(mix(surfaceHigh, accent, 0.14), 0.50)
 
     readonly property color badgeFill: alpha(mix(surfaceHigh, accent, 0.06), 0.36)
@@ -105,16 +106,16 @@ Scope {
     // Notification cards are intentionally more translucent than the shell.
     // Combined with the already-blurred backing plane this creates nested depth
     // instead of opaque slabs stacked inside an opaque slab.
-    readonly property color rowFill: alpha(mix(surfaceHigh, foreground, 0.050), 0.32)
-    readonly property color rowHover: alpha(mix(surfaceHigh, foreground, 0.070), 0.41)
-    readonly property color rowUnread: alpha(mix(surfaceHigh, accent, 0.050), 0.35)
-    readonly property color rowUnreadHover: alpha(mix(surfaceHigh, accent, 0.075), 0.45)
-    readonly property color rowSelected: alpha(mix(surfaceHigh, accent, 0.085), 0.52)
-    readonly property color rowRim: alpha(foreground, 0.072)
-    readonly property color rowActiveRim: alpha(accent, 0.16)
-    readonly property color rowSeparator: alpha(foreground, 0.046)
-    readonly property color rowTopWash: alpha(foreground, 0.038)
-    readonly property color rowBottomShade: alpha(background, 0.065)
+    readonly property color rowFill: alpha(mix(surfaceHigh, foreground, 0.045), 0.30)
+    readonly property color rowHover: alpha(mix(surfaceHigh, foreground, 0.065), 0.38)
+    readonly property color rowUnread: alpha(mix(surfaceHigh, accent, 0.045), 0.33)
+    readonly property color rowUnreadHover: alpha(mix(surfaceHigh, accent, 0.065), 0.41)
+    readonly property color rowSelected: alpha(mix(surfaceHigh, accent, 0.075), 0.47)
+    readonly property color rowRim: alpha(foreground, 0.052)
+    readonly property color rowActiveRim: alpha(accent, 0.12)
+    readonly property color rowSeparator: alpha(foreground, 0.036)
+    readonly property color rowTopWash: alpha(foreground, 0.026)
+    readonly property color rowBottomShade: alpha(background, 0.040)
     readonly property color heldTagFill: alpha(mix(surfaceHigh, accent, 0.06), 0.30)
     readonly property color heldTagText: alpha(muted, 0.78)
     readonly property color divider: alpha(foreground, 0.050)
