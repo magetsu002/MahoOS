@@ -119,6 +119,12 @@ require_text "$SESSION_BIN" 'maho-clipboard-history.service' \
     "session controller no longer includes Clipboard history capture"
 require_text "$SESSION_BIN" 'systemctl --user reset-failed' \
     "session controller no longer clears recoverable graphical failures"
+require_text "$SESSION_BIN" 'quiesce_portals()' \
+    "session controller no longer quiesces portals during the logged-out gap"
+require_text "$SESSION_BIN" 'systemctl --user mask --runtime "${units[@]}"' \
+    "portal services are not runtime-masked while no graphical session exists"
+require_text "$SESSION_BIN" 'systemctl --user unmask --runtime "${units[@]}"' \
+    "portal services are not unmasked when the next graphical session starts"
 require_text "$SESSION_BIN" 'reconcile_portals()' \
     "session controller no longer reconciles portals after graphical environment import"
 require_text "$SESSION_BIN" 'xdg-desktop-portal-hyprland.service' \
@@ -140,6 +146,13 @@ require_text "$SESSION_BIN" 'systemctl --user start "$TARGET"' \
     "Maho session start no longer starts its target"
 require_text "$SESSION_BIN" 'systemctl --user stop "$TARGET"' \
     "Maho session stop no longer stops its target"
+portal_target_stop_line="$(grep -nF 'systemctl --user stop "$TARGET"' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+portal_quiesce_line="$(grep -nF 'quiesce_portals || {' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+portal_unset_line="$(grep -nF 'systemctl --user unset-environment' "$SESSION_BIN" | head -1 | cut -d: -f1)"
+[ -n "$portal_target_stop_line" ] && [ -n "$portal_quiesce_line" ] && [ -n "$portal_unset_line" ] \
+    && [ "$portal_target_stop_line" -lt "$portal_quiesce_line" ] \
+    && [ "$portal_quiesce_line" -lt "$portal_unset_line" ] \
+    || fail "portal quiesce is not ordered between Maho target stop and graphical environment removal"
 require_text "$SESSION_BIN" 'systemctl --user unset-environment' \
     "session shutdown no longer clears graphical environment"
 require_text "$SESSION_BIN" 'archive_hyprland_log' \

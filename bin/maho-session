@@ -37,16 +37,29 @@ wayland_ready() {
     [ -n "$display" ] && [ -S "$runtime/$display" ]
 }
 
+portal_units() {
+    printf '%s\n' \
+        xdg-desktop-portal.service \
+        xdg-desktop-portal-hyprland.service \
+        xdg-desktop-portal-gtk.service
+}
+
+quiesce_portals() {
+    local -a units=()
+    mapfile -t units < <(portal_units)
+    systemctl --user mask --runtime "${units[@]}" >/dev/null 2>&1 || return 1
+    systemctl --user stop "${units[@]}" >/dev/null 2>&1 || true
+}
+
 reconcile_portals() {
     local -a backends=(
         xdg-desktop-portal-hyprland.service
         xdg-desktop-portal-gtk.service
     )
-    local -a units=(
-        xdg-desktop-portal.service
-        "${backends[@]}"
-    )
+    local -a units=()
+    mapfile -t units < <(portal_units)
 
+    systemctl --user unmask --runtime "${units[@]}" >/dev/null 2>&1 || true
     systemctl --user reset-failed "${units[@]}" >/dev/null 2>&1 || true
     systemctl --user restart "${backends[@]}" >/dev/null 2>&1 || {
         echo "maho-session: portal backend reconciliation failed" >&2
@@ -118,6 +131,10 @@ stop_session() {
     systemd_available || return 0
     archive_hyprland_log
     systemctl --user stop "$TARGET"
+    quiesce_portals || {
+        echo "maho-session: portal quiesce failed" >&2
+        return 1
+    }
 
     systemctl --user unset-environment \
         DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE \
