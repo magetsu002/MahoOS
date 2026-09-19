@@ -30,8 +30,6 @@ FocusScope {
             ? source.charAt(0).toUpperCase() + source.slice(1)
             : "User"
     }
-    readonly property bool avatarAvailable:
-        String(config.avatarAvailable || "false").toLowerCase() === "true"
     property int sessionIndex: Math.max(0, sessionModel.lastIndex)
     property bool passwordVisible: false
     property bool authenticating: false
@@ -328,69 +326,9 @@ FocusScope {
         }
 
         Item {
-            id: avatar
-            anchors.top: parent.top
-            anchors.topMargin: 310 * root.uiScale
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: 152 * root.uiScale
-            height: width
-
-            Rectangle {
-                anchors.fill: parent
-                radius: width / 2
-                color: Qt.rgba(0.490, 0.804, 1.000, 0.18)
-                border.width: Math.max(1, root.uiScale)
-                border.color: Qt.rgba(0.882, 0.961, 1.000, 0.76)
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: 5 * root.uiScale
-                radius: width / 2
-                color: Qt.rgba(0.28, 0.54, 0.90, 0.88)
-                border.width: Math.max(1, root.uiScale)
-                border.color: Qt.rgba(1, 1, 1, 0.23)
-            }
-
-            Text {
-                anchors.fill: parent
-                text: root.displayName.length > 0 ? root.displayName.charAt(0) : "M"
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                color: root.textPrimary
-                font.pixelSize: 44 * root.uiScale
-                font.family: root.uiFont
-                font.weight: Font.Light
-            }
-
-            Image {
-                id: avatarImage
-                anchors.fill: parent
-                anchors.margins: 5 * root.uiScale
-                source: root.avatarAvailable ? config.avatar : ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: false
-                cache: true
-                smooth: true
-                mipmap: true
-                visible: root.avatarAvailable && status === Image.Ready
-                sourceSize.width: Math.max(1024, Math.ceil(width * 6))
-                sourceSize.height: Math.max(1024, Math.ceil(height * 6))
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                radius: width / 2
-                color: "transparent"
-                border.width: Math.max(1, root.uiScale)
-                border.color: Qt.rgba(0.882, 0.961, 1.000, 0.70)
-            }
-        }
-
-        Item {
             id: authRegion
             anchors.top: parent.top
-            anchors.topMargin: 477 * root.uiScale
+            anchors.topMargin: 330 * root.uiScale
             anchors.horizontalCenter: parent.horizontalCenter
             width: 504 * root.uiScale
             height: 205 * root.uiScale

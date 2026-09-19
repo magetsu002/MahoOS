@@ -241,6 +241,8 @@ require_text "$BINDS" '"$HOME/.local/bin/maho-power" open' 'Power keybind does n
 [ "$(grep -Fc 'mainMod .. " + SHIFT + P"' "$BINDS")" -eq 1 ] || fail 'Power keybind is duplicated'
 require_text "$BINDS" 'mainMod .. " + CTRL + L"' 'secure Maho Lock binding regressed'
 require_text "$BINDS" '"$HOME/.local/bin/maho-lock"' 'secure Maho Lock command regressed'
+reject_text "$BINDS" 'hyprlock' 'Power/Lock binds still reference legacy hyprlock'
+reject_text "$BINDS" 'hyprctl dispatch exit' 'Power/Lock binds still use legacy Hyprland dispatcher syntax'
 require_text "$BINDS" 'mainMod .. " + E"' 'SUPER+E binding missing'
 require_text "$BINDS" '"$HOME/.local/bin/maho-files" run "$HOME"' 'SUPER+E does not route directly to native Maho Files'
 reject_text "$BINDS" 'xdg-open "$HOME"' 'SUPER+E still delegates Home to the MIME handler and can open a browser'

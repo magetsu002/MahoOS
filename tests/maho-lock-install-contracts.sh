@@ -26,6 +26,9 @@ grep -Fq 'mainMod .. " + CTRL + SHIFT + L"' "$BINDS" || fail "canonical customiz
 grep -Fq '"$HOME/.local/bin/maho-lock" --customize' "$BINDS" || fail "customization bind does not use installed launcher"
 if grep -Fq 'mainMod .. " + L"' "$BINDS"; then fail "old managed SUPER+L bind remains"; fi
 grep -Fq '"$HOME/.local/bin/maho-lock"' "$BINDS" || fail "canonical bind does not use installed launcher"
+if grep -Eq 'hyprlock|swaylock|gtklock|[[:space:]]sddm([[:space:]]|$)|loginctl' "$BINDS"; then
+    fail "canonical lock binds contain a stale direct lock/display-manager command"
+fi
 pass "canonical managed SUPER+CTRL+L binding"
 
 grep -Fq 'refusing to replace unmanaged command' "$INSTALLER" || fail "unmanaged command protection missing"
