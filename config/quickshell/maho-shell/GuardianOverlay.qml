@@ -40,7 +40,7 @@ PanelWindow {
     }
 
     function presentGuardian() {
-        if (!guardianState.active) {
+        if (!guardianState.presentable) {
             presentationTimer.stop()
             presentationActive = false
             guardianWheel.resetHidden()
@@ -109,7 +109,7 @@ PanelWindow {
         }
 
         function onHighestSeverityChanged() {
-            if (!guardianState.active) {
+            if (!guardianState.presentable) {
                 presentationTimer.stop()
                 root.presentationActive = false
                 guardianWheel.resetHidden()

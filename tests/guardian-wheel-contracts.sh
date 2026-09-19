@@ -21,6 +21,10 @@ grep -Fq '"/.local/bin/maho-guard"' "$STATE" || fail "Guardian state does not us
 grep -Fq '"guardian-status"' "$STATE" || fail "Guardian state does not read Guardian assessments"
 grep -Fq '"--json"' "$STATE" || fail "Guardian state reader is not structured"
 grep -Fq 'Math.max(0, Math.min(4' "$STATE" || fail "Guardian state severity is not bounded L0-L4"
+grep -Fq 'readonly property bool presentable: highestSeverity >= 2' "$STATE" || fail "L1 diagnostic churn can still present the threat wheel"
+grep -Fq 'state.candidateSamples < 2' "$STATE" || fail "non-catastrophic Guardian state is not startup-stabilized"
+grep -Fq 'if (highest === 4)' "$STATE" || fail "L4 no longer bypasses startup stabilization"
+grep -Fq 'highest >= 2 && highest > oldSeverity' "$STATE" || fail "Wheel generation is not bounded to meaningful severity escalation"
 grep -Fq 'Preserve the last known severity' "$STATE" || fail "reader failure must not imply incident resolution"
 
 for surface in "$EDGE" "$SIDE"; do
@@ -42,6 +46,7 @@ grep -Fq 'height: 54' "$OVERLAY" || fail "recovered Guardian wheel size drifted"
 grep -Fq 'WlrLayershell.layer: WlrLayer.Overlay' "$OVERLAY" || fail "Guardian ritual is not an independent overlay"
 grep -Fq 'mask: Region { item: root.presentationActive ? stage : null }' "$OVERLAY" || fail "hidden Guardian overlay still owns input"
 grep -Fq 'id: presentationTimer' "$OVERLAY" || fail "Guardian overlay lacks bounded presentation lifetime"
+grep -Fq 'if (!guardianState.presentable)' "$OVERLAY" || fail "Guardian overlay still presents non-threat L1 state"
 grep -Fq 'targetSeverity: guardianState.highestSeverity' "$OVERLAY" || fail "centered wheel is not driven by real severity"
 
 grep -Fq 'root.playLockSound(root._displayedSeverity)' "$WHEEL" || fail "accepted mechanical lock audio lost"
