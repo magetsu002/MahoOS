@@ -5,7 +5,6 @@ set -u
 ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 CONFIG_DIR="${MAHO_LAUNCHER_CONFIG_DIR:-$ROOT/config/quickshell/maho-launcher}"
 CONFIG="$CONFIG_DIR/shell.qml"
-BACKDROP="$CONFIG_DIR/LauncherBackdrop.qml"
 BACKEND="$ROOT/lib/maho_launcher_backend.py"
 INSTANCE_HELPER="$ROOT/lib/runtime-instance.sh"
 PALETTE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json"
@@ -109,35 +108,6 @@ detect_icon_theme() {
     return 1
 }
 
-set_hyprland_material_rule() {
-    local state="$1"
-    command -v hyprctl >/dev/null 2>&1 || return 0
-    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || return 0
-
-    if [ "$state" = "on" ]; then
-        hyprctl eval '
-            if maho_launcher_qml_material_rule == nil then
-                maho_launcher_qml_material_rule = hl.layer_rule({
-                    name = "maho-launcher-qml-material",
-                    match = { namespace = "maho-launcher-backdrop" },
-                    blur = true,
-                    ignore_alpha = 0.001,
-                    xray = false,
-                    order = 8,
-                })
-            else
-                maho_launcher_qml_material_rule:set_enabled(true)
-            end
-        ' >/dev/null 2>&1 || true
-    else
-        hyprctl eval '
-            if maho_launcher_qml_material_rule ~= nil then
-                maho_launcher_qml_material_rule:set_enabled(false)
-            end
-        ' >/dev/null 2>&1 || true
-    fi
-}
-
 ipc_close() {
     local pid="$1"
     command -v quickshell >/dev/null 2>&1 || return 1
@@ -167,10 +137,6 @@ retire_stale_launchers() {
     done < <(launcher_pids)
 }
 
-cleanup() {
-    set_hyprland_material_rule off
-}
-
 run_launcher() {
     local icon_theme pid
 
@@ -188,10 +154,6 @@ run_launcher() {
     }
     [ -r "$CONFIG" ] || {
         echo "maho-launcher: QML configuration missing: $CONFIG" >&2
-        return 1
-    }
-    [ -r "$BACKDROP" ] || {
-        echo "maho-launcher: backdrop configuration missing: $BACKDROP" >&2
         return 1
     }
     [ -r "$BACKEND" ] || {
@@ -218,11 +180,6 @@ run_launcher() {
     export MAHO_ROOT="$ROOT"
     [ -n "$icon_theme" ] && export QS_ICON_THEME="$icon_theme"
 
-    trap cleanup EXIT INT TERM
-    # Install blur before the first QML commit. LauncherBackdrop.qml carries a
-    # constant alpha above ignore_alpha from its first frame, so the compositor
-    # never watches an animated full-screen rectangle cross the blur threshold.
-    set_hyprland_material_rule on
     log_event "opened engine=quickshell icon_theme=${icon_theme:-default}"
     quickshell -p "$CONFIG" >> "$LOG_FILE" 2>&1
     local rc=$?
@@ -276,8 +233,8 @@ doctor() {
         failed=1
     fi
 
-    if [ -r "$CONFIG" ] && [ -r "$BACKDROP" ] && [ -r "$BACKEND" ]; then
-        echo "PASS  sources        QML, backdrop, and bounded backend present"
+    if [ -r "$CONFIG" ] && [ -r "$BACKEND" ]; then
+        echo "PASS  sources        QML and bounded backend present"
     else
         echo "FAIL  sources        launcher source incomplete"
         failed=1
@@ -328,11 +285,7 @@ doctor() {
         echo "INFO  singleton      launcher is closed"
     fi
 
-    if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-        echo "PASS  compositor     scoped Maho Launcher backdrop blur available"
-    else
-        echo "INFO  compositor     Hyprland unavailable; translucent QML fallback remains usable"
-    fi
+    echo "PASS  compositor     bounded dark overlay; no compositor blur required"
 
     [ "$failed" -eq 0 ] && echo "PASS  doctor         no blocking launcher problems detected"
     return "$failed"
