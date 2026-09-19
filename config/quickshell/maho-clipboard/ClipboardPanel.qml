@@ -433,7 +433,6 @@ Item {
                 required property int index
                 width: ListView.view.width
                 height: 70
-                readonly property bool selected: ListView.isCurrentItem
                 readonly property bool revealPin: Boolean(row.modelData.pinned) || rowHover.containsMouse || pinHover.containsMouse
 
                 Rectangle {
@@ -443,26 +442,15 @@ Item {
                     anchors.topMargin: 2
                     anchors.bottomMargin: 2
                     radius: 15
-                    color: row.selected
-                        ? theme.alpha(root.mix(root.accent, theme.surfaceHigh, 0.32), 0.095)
-                        : rowHover.containsMouse
-                            ? theme.alpha(root.textSecondary, 0.012)
-                            : "transparent"
-                    border.width: row.selected ? 1 : 0
-                    border.color: row.selected ? theme.alpha(root.accent, 0.30) : "transparent"
-                    Behavior on color { ColorAnimation { duration: 100 } }
-                    Behavior on border.color { ColorAnimation { duration: 100 } }
-
-                    Rectangle {
-                        visible: row.selected
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.leftMargin: 18
-                        anchors.rightMargin: 18
-                        height: 1
-                        color: theme.alpha(theme.foreground, 0.052)
-                    }
+                    color: rowHover.containsMouse
+                        ? theme.alpha(root.textSecondary, 0.018)
+                        : "transparent"
+                    border.width: rowHover.containsMouse ? 1 : 0
+                    border.color: rowHover.containsMouse
+                        ? theme.alpha(theme.foreground, 0.055)
+                        : "transparent"
+                    Behavior on color { ColorAnimation { duration: 90 } }
+                    Behavior on border.color { ColorAnimation { duration: 90 } }
                 }
 
                 Rectangle {
@@ -472,17 +460,17 @@ Item {
                     width: 39
                     height: 39
                     radius: 10
-                    color: row.selected
-                        ? theme.alpha(root.mix(root.accent, root.textSecondary, 0.30), 0.055)
+                    color: rowHover.containsMouse
+                        ? theme.alpha(root.textSecondary, 0.045)
                         : theme.alpha(root.textSecondary, 0.032)
-                    border.width: row.selected ? 1 : 0
-                    border.color: row.selected ? theme.alpha(theme.foreground, 0.025) : "transparent"
+                    border.width: 0
+                    border.color: "transparent"
 
                     Text {
                         anchors.centerIn: parent
                         text: String(row.index + 1).padStart(2, "0")
-                        color: row.selected
-                            ? theme.alpha(root.textPrimary, 0.92)
+                        color: rowHover.containsMouse
+                            ? theme.alpha(root.textPrimary, 0.90)
                             : theme.alpha(root.textSecondary, 0.84)
                         font.family: "Inter"
                         font.pixelSize: 13
@@ -570,7 +558,7 @@ Item {
                 }
 
                 Rectangle {
-                    visible: row.index < root.filteredItems.length - 1 && !row.selected
+                    visible: row.index < root.filteredItems.length - 1 && !rowHover.containsMouse
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.leftMargin: 66
