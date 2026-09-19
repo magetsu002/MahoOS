@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Shapes
 import Quickshell
+import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 
@@ -228,6 +229,10 @@ ShellRoot {
             else
                 root.openPanel()
             return true
+        }
+
+        function isOpen(): bool {
+            return root.expanded && !root.closing
         }
     }
 

@@ -87,8 +87,10 @@ fi
 echo "PASS"
 
 echo "=== Super+Space Maho Edge contract ==="
+require_text shell.qml 'import Quickshell.Io' "Maho Edge IPC module import missing"
 require_text shell.qml 'target: "edge"' "Maho Edge IPC target missing"
 require_text shell.qml 'function open(): bool' "Maho Edge IPC open method missing"
+require_text shell.qml 'function isOpen(): bool' "Maho Edge IPC state probe missing"
 require_text shell.qml 'root.openPanel()' "Maho Edge IPC does not route to native openPanel"
 BINDS="$ROOT/config/hypr/maho/core/binds.lua"
 grep -Fq 'mainMod .. " + SPACE"' "$BINDS" || fail "SUPER+SPACE bind missing"
