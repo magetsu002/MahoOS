@@ -189,11 +189,18 @@ def package_ownership(root: Path) -> tuple[dict[str, str], tuple[str, ...]]:
         if name in package_names:
             errors.append(f"package_identity_ambiguous:{name}")
         package_names.add(name)
+        manifest = package_dir / "files"
         try:
-            lines = (package_dir / "files").read_text(encoding="utf-8", errors="strict").splitlines()
+            raw_manifest = manifest.read_text(encoding="utf-8", errors="strict")
         except (OSError, UnicodeError) as exc:
             errors.append(f"package_file_manifest_unreadable:{package_dir.name}:{type(exc).__name__}")
             continue
+        # Pacman represents legitimate zero-file/meta packages with an existing
+        # zero-byte local database `files` entry. That is complete ownership
+        # evidence for an empty path set, not a missing manifest.
+        if raw_manifest == "":
+            continue
+        lines = raw_manifest.splitlines()
         in_files = False
         for line in lines:
             if line == "%FILES%":
@@ -302,8 +309,22 @@ def filesystem_observations(
                     target = os.readlink(path)
                     digest = hashlib.sha256(target.encode("utf-8", errors="surrogateescape")).hexdigest()
                 else:
-                    errors.append(f"unsupported_filesystem_object:{rel}")
-                    continue
+                    file_type = "other"
+                    target = None
+                    if stat.S_ISSOCK(st.st_mode):
+                        special_kind = "socket"
+                    elif stat.S_ISFIFO(st.st_mode):
+                        special_kind = "fifo"
+                    elif stat.S_ISCHR(st.st_mode):
+                        special_kind = "char"
+                    elif stat.S_ISBLK(st.st_mode):
+                        special_kind = "block"
+                    else:
+                        special_kind = "other"
+                    digest = hashlib.sha256(canonical_bytes({
+                        "kind": special_kind,
+                        "rdev": int(st.st_rdev),
+                    })).hexdigest()
                 xattrs, capability = _xattr_identity(path)
                 observations[rel] = FileObservation(
                     digest, mode, owner, file_type=file_type, link_target=target,

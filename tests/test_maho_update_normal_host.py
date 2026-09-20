@@ -68,6 +68,40 @@ class ScriptletReject(NormalProductionOps):
         text='Name : demo\nVersion : 2\nInstall Script : Yes\n'
         return subprocess.CompletedProcess(command,0,text,'')
 
+class PathSetProbe(NormalProductionOps):
+    def __init__(self, *, drift=False):
+        self.expected={'demo':'2'}
+        self.drift=drift
+    def _run(self, command):
+        command=tuple(command)
+        rooted='--root' in command
+        if '--list' in command:
+            rows=['demo /usr/bin/demo\n','demo /usr/share/demo.txt\n']
+            if rooted and self.drift:
+                rows.append('demo /usr/share/new.txt\n')
+            return subprocess.CompletedProcess(command,0,''.join(rows),'')
+        raise AssertionError(command)
+
+class InPlaceProbe(NormalProductionOps):
+    def __init__(self, *, artifact_drift=False, missing_live=False):
+        self.expected={'demo':'2'}
+        self.artifact_drift=artifact_drift
+        self.missing_live=missing_live
+    def _run(self, command):
+        command=tuple(command)
+        if command[:3]==(self.PACMAN,'--query','--list'):
+            if self.missing_live:
+                return subprocess.CompletedProcess(command,1,'','error: package demo was not found\n')
+            return subprocess.CompletedProcess(command,0,'demo /usr/bin/demo\ndemo /usr/share/demo.txt\n','')
+        if '--file' in command and '--list' not in command:
+            return subprocess.CompletedProcess(command,0,'demo 2\n','')
+        if '--file' in command and '--list' in command:
+            rows='demo /usr/bin/demo\ndemo /usr/share/demo.txt\n'
+            if self.artifact_drift:
+                rows+='demo /usr/share/new.txt\n'
+            return subprocess.CompletedProcess(command,0,rows,'')
+        raise AssertionError(command)
+
 def main():
     with tempfile.TemporaryDirectory(prefix='maho-normal-runtime-') as temporary:
         fake=FakeBtrfs(Path(temporary))
@@ -92,11 +126,51 @@ def main():
         NormalProductionOps._remove_hook_overrides(created,hookdir)
         check('transient hook override directory is fully removed',not hookdir.exists())
 
+        system=Path(temporary)/'system'; custom=Path(temporary)/'custom'; system.mkdir(); custom.mkdir()
+        (system/'desktop.hook').write_text('[Trigger]\nOperation = Upgrade\nType = Path\nTarget = usr/share/applications/*.desktop\n\n[Action]\nWhen = PostTransaction\nExec = /bin/true\n')
+        (system/'global.hook').write_text('[Trigger]\nOperation = Upgrade\nType = Package\nTarget = *\n\n[Action]\nWhen = PostTransaction\nExec = /bin/true\n')
+        (custom/'global.hook').symlink_to('/dev/null')
+        triggered=NormalProductionOps._triggered_hook_names(package_names=('demo',),archive_paths=('usr/share/applications/demo.desktop',),system_dir=system,custom_dir=custom)
+        check('hook matcher honors path trigger and higher-priority null override',triggered==('desktop.hook',))
+        check('hook target inversion is ordered',NormalProductionOps._target_matches(('usr/*','!usr/share/private/*'),'usr/bin/demo') and not NormalProductionOps._target_matches(('usr/*','!usr/share/private/*'),'usr/share/private/demo'))
+
     probe=QueryProbe()
     observed=probe._query_versions(root=Path('/candidate'))
     check('candidate package query returns bounded expected version',observed=={'demo':'2'})
     command=probe.commands[-1]
     check('candidate package query uses root-scoped database semantics','--root' in command and '--dbpath' not in command)
+
+    stable=PathSetProbe()._path_set_evidence(Path('/candidate'))
+    check('static package path set satisfies certified normal profile',stable['ok'] is True and stable['profile']=='ordinary-files-static-path-set-v1')
+    drifted=PathSetProbe(drift=True)._path_set_evidence(Path('/candidate'))
+    check('added or removed package path is rejected from certified profile',drifted['ok'] is False)
+
+    in_place=InPlaceProbe()._in_place_upgrade_profile(('/tmp/demo.pkg.tar.zst',))
+    check('exact artifact with identical installed path set is an in-place upgrade',in_place['ok'] is True and in_place['profile']=='in-place-static-package-path-set-v1')
+    changed=InPlaceProbe(artifact_drift=True)._in_place_upgrade_profile(('/tmp/demo.pkg.tar.zst',))
+    check('artifact path addition is rejected before candidate mutation',changed['ok'] is False)
+    try:
+        InPlaceProbe(missing_live=True)._in_place_upgrade_profile(('/tmp/demo.pkg.tar.zst',))
+    except RuntimeError as exc:
+        check('new dependency without installed path authority fails before candidate mutation','live target package paths' in str(exc))
+    else:
+        raise AssertionError('new dependency unexpectedly passed in-place profile')
+
+    with tempfile.TemporaryDirectory(prefix='maho-normal-parity-') as temporary:
+        root=Path(temporary); candidate=root/'candidate'; live=root/'live'
+        for base in (candidate,live):
+            path=base/'usr/bin/demo'; path.parent.mkdir(parents=True); path.write_bytes(b'exact'); path.chmod(0o755)
+            os.setxattr(path,'user.maho-proof',b'v1')
+            link=base/'usr/bin/demo-link'; link.symlink_to('demo')
+        parity=object.__new__(NormalProductionOps)
+        check('final parity accepts exact content mode ownership xattrs and symlink target',
+              parity._compare_path(candidate,'/usr/bin/demo',live) and parity._compare_path(candidate,'/usr/bin/demo-link',live))
+        os.setxattr(live/'usr/bin/demo','user.maho-proof',b'drift')
+        check('final parity rejects extended-attribute drift',not parity._compare_path(candidate,'/usr/bin/demo',live))
+        os.setxattr(live/'usr/bin/demo','user.maho-proof',b'v1'); (live/'usr/bin/demo').write_bytes(b'different')
+        check('final parity rejects regular-file content drift',not parity._compare_path(candidate,'/usr/bin/demo',live))
+        (live/'usr/bin/demo').write_bytes(b'exact'); (live/'usr/bin/demo-link').unlink(); (live/'usr/bin/demo-link').symlink_to('other')
+        check('final parity rejects symlink-target drift',not parity._compare_path(candidate,'/usr/bin/demo-link',live))
 
     ok,_=ScriptletProbe._payload_scriptlet_free(object.__new__(ScriptletProbe),'/tmp/demo.pkg.tar.zst')
     check('scriptlet-free package is allowed into certified profile',ok)

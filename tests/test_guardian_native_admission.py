@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from guardian_admission import AdmissionOutcome, CandidateDeclaration, EffectKind  # noqa: E402
 from guardian_native_admission import (  # noqa: E402
     CandidateRoots, NativeAdmissionError, admit_candidate, candidate_first_admission,
-    parse_runtime_evidence,
+    filesystem_observations, package_ownership, parse_runtime_evidence,
     parse_declaration, revalidate_promotion_authority, root_identity,
     verify_promotion_authority,
 )
@@ -46,8 +47,11 @@ def package_db(root: Path, packages: dict[str, list[str]]) -> None:
         package = database / f"{name}-1.0-1"
         package.mkdir()
         (package / "desc").write_text(f"%NAME%\n{name}\n\n%VERSION%\n1.0-1\n")
-        rows = "\n".join(path.lstrip("/") for path in files)
-        (package / "files").write_text(f"%FILES%\n{rows}\n")
+        if files:
+            rows = "\n".join(path.lstrip("/") for path in files)
+            (package / "files").write_text(f"%FILES%\n{rows}\n")
+        else:
+            (package / "files").write_bytes(b"")
 
 
 def roots(tmp: Path, *, before: dict[str, tuple[bytes, int]], after: dict[str, tuple[bytes, int]],
@@ -100,6 +104,33 @@ def declaration(paths, effects=(EffectKind.FILE,)):
 
 
 def main() -> None:
+    with tempfile.TemporaryDirectory(prefix="guardian-zero-file-package-") as td:
+        root = Path(td)
+        package_db(root, {"meta": [], "demo": ["/usr/bin/demo"]})
+        write_file(root, "/usr/bin/demo", b"demo", 0o755)
+        ownership, errors = package_ownership(root)
+        check("zero-file Pacman package is complete empty ownership evidence", not errors and ownership.get("/usr/bin/demo") == "demo" and "meta" not in ownership.values())
+        malformed = root / "var/lib/pacman/local/broken-1.0-1"
+        malformed.mkdir()
+        (malformed / "desc").write_text("%NAME%\nbroken\n\n%VERSION%\n1.0-1\n")
+        (malformed / "files").write_text("not-a-pacman-file-manifest\n")
+        _, malformed_errors = package_ownership(root)
+        check("nonempty malformed Pacman file manifest still fails closed", any(item.startswith("package_file_manifest_missing:broken-") for item in malformed_errors))
+
+    with tempfile.TemporaryDirectory(prefix="guardian-special-object-") as td:
+        root = Path(td)
+        package_db(root, {})
+        socket_path = root / "etc/pacman.d/gnupg/S.gpg-agent"
+        socket_path.parent.mkdir(parents=True)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.bind(str(socket_path))
+            observations, errors = filesystem_observations(root, {})
+            special = observations.get("/etc/pacman.d/gnupg/S.gpg-agent")
+            check("persistent Unix socket is observed instead of poisoning inspection", not errors and special is not None and special.file_type == "other")
+        finally:
+            sock.close()
+
     try:
         parse_declaration({
             "schema_version": 1,

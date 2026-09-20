@@ -81,6 +81,7 @@ def _attach_normal_authority(status: dict[str, Any]) -> dict[str, Any]:
     revision = _runtime_source_revision()
     status["normal_execution_certified"] = False
     status["normal_authority_id"] = None
+    status["normal_certified_profile"] = None
     status["normal_certified_effects"] = []
     status["normal_certified_activation_requirements"] = []
     if revision is None or not DEFAULT_AUTHORITY_PATH.exists():
@@ -93,6 +94,7 @@ def _attach_normal_authority(status: dict[str, Any]) -> dict[str, Any]:
     status["normal_execution_certified"] = True
     status["normal_authority_state"] = "current"
     status["normal_authority_id"] = authority["authority_id"]
+    status["normal_certified_profile"] = authority.get("certified_profile")
     status["normal_certified_effects"] = authority.get("certified_effects", [])
     status["normal_certified_activation_requirements"] = authority.get("certified_activation_requirements", [])
     return status
@@ -139,7 +141,8 @@ def main() -> None:
                 print("Blockers: " + ", ".join(payload["blockers"]))
             if payload.get("normal_execution_certified"):
                 scope = ", ".join(payload.get("normal_certified_effects", [])) or "none"
-                print(f"Normal update execution: certified ({scope})")
+                profile = payload.get("normal_certified_profile") or "unknown-profile"
+                print(f"Normal update execution: certified ({profile}; {scope})")
             else:
                 print("Normal update execution: uncertified")
         return

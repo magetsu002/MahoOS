@@ -17,6 +17,7 @@ from guardian_native_admission import CandidateRoots  # noqa: E402
 from maho_update_admission import (  # noqa: E402
     ProductionAdmissionError,
     admission_review_confirmation,
+    evaluate_normal_production_candidate,
     evaluate_production_candidate,
     guardian_transaction_id,
     issue_activation_authority,
@@ -50,8 +51,11 @@ def package_db(root: Path, packages: dict[str, list[str]]) -> None:
         package = database / f"{name}-2.0-1"
         package.mkdir()
         (package / "desc").write_text(f"%NAME%\n{name}\n\n%VERSION%\n2.0-1\n")
-        rows = "\n".join(path.lstrip("/") for path in files)
-        (package / "files").write_text(f"%FILES%\n{rows}\n")
+        if files:
+            rows = "\n".join(path.lstrip("/") for path in files)
+            (package / "files").write_text(f"%FILES%\n{rows}\n")
+        else:
+            (package / "files").write_bytes(b"")
 
 
 def transaction(txid: str = TX, *, foo_version: str = "2") -> dict:
@@ -85,7 +89,7 @@ def candidate_roots(
         if boundary_effect:
             write_file(root, "/boot/vmlinuz-demo", boot, 0o644)
             foo_paths.append("/boot/vmlinuz-demo")
-        package_db(root, {"foo": foo_paths, "bar": ["/usr/bin/bar"]})
+        package_db(root, {"foo": foo_paths, "bar": ["/usr/bin/bar"], "meta": []})
         (root / "home").mkdir()
     return CandidateRoots.create(
         transaction_id=guardian_transaction_id(TX),
@@ -112,6 +116,9 @@ def main() -> None:
         result = evaluate_production_candidate(roots, tx, plan)
         check("multi-package update does not invent cross-package overwrite", all(effect.kind.value != "PACKAGE_FILE_OVERRIDE" for effect in result.inspection.graph.effects))
         check("bounded multi-package update reaches ALLOW", result.decision.outcome is AdmissionOutcome.ALLOW)
+        normal_result = evaluate_normal_production_candidate(roots, tx)
+        check("normal admission tolerates legitimate zero-file meta packages", normal_result.inspection.graph.inspection_complete)
+        check("ordinary same-package normal update reaches ALLOW", normal_result.decision.outcome is AdmissionOutcome.ALLOW and normal_result.promotion_authority is not None)
         authority = issue_activation_authority(
             result, update_transaction_id=TX, transaction=tx, source_revision=SOURCE,
         )

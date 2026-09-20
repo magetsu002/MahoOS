@@ -17,6 +17,7 @@ _TX = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
 _PKG = re.compile(r"pkg-[0-9a-f]{64}")
 _ART = re.compile(r"art-[0-9a-f]{64}")
 DEFAULT_AUTHORITY_PATH = Path("/var/lib/maho/update/normal-execution-authority.json")
+NORMAL_EXECUTION_PROFILE = "ordinary-files-in-place-static-path-set-bounded-hooks-v1"
 
 
 def _canonical(value: Mapping[str, Any]) -> bytes:
@@ -75,6 +76,7 @@ def issue_normal_execution_authority(
         "schema_version": 1,
         "kind": "maho-normal-update-host-authority",
         "authority_scope": "execute-normal-impact-update-generations",
+        "certified_profile": NORMAL_EXECUTION_PROFILE,
         "source_revision": source_revision,
         "machine_identity_sha256": machine_identity(),
         "certified_at": stamp,
@@ -98,6 +100,8 @@ def verify_normal_execution_authority(value: Mapping[str, Any], *, source_revisi
         raise ValueError("normal execution authority schema is invalid")
     if data.get("authority_scope") != "execute-normal-impact-update-generations":
         raise ValueError("normal execution authority scope is invalid")
+    if data.get("certified_profile") != NORMAL_EXECUTION_PROFILE:
+        raise ValueError("normal execution authority profile is invalid")
     if data.get("source_revision") != source_revision or _SHA40.fullmatch(source_revision) is None:
         raise ValueError("normal execution authority source revision drifted")
     if data.get("machine_identity_sha256") != machine_identity():

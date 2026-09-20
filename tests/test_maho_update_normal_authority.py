@@ -45,6 +45,8 @@ def main():
     rejected('activation requirement cannot be invented',lambda:authorize_normal_plan(authority,source_revision=REV,effects=['ordinary-files'],activation_requirements=['affected-process-restart']))
     tampered=copy.deepcopy(authority); tampered['certified_effects']=['ordinary-files','system-service']
     rejected('tampered certification scope breaks authority identity',lambda:verify_normal_execution_authority(tampered,source_revision=REV))
+    wrong_profile=copy.deepcopy(authority); wrong_profile['certified_profile']='ordinary-files-vague'
+    rejected('authority cannot broaden certified execution profile',lambda:verify_normal_execution_authority(wrong_profile,source_revision=REV))
     with tempfile.TemporaryDirectory(prefix='maho-normal-authority-') as temporary:
         path=Path(temporary)/'state'/'normal-execution-authority.json'
         publish_normal_execution_authority(authority,path)
