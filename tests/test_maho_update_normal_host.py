@@ -54,6 +54,14 @@ class ScriptletProbe(NormalProductionOps):
         text='Name : demo\nVersion : 2\nInstall Script : No\n'
         return subprocess.CompletedProcess(command,0,text,'')
 
+class QueryProbe(NormalProductionOps):
+    def __init__(self):
+        self.expected={'demo':'2'}
+        self.commands=[]
+    def _run(self, command):
+        self.commands.append(tuple(command))
+        return subprocess.CompletedProcess(command,0,'demo 2\n','')
+
 class ScriptletReject(NormalProductionOps):
     @staticmethod
     def _run(command):
@@ -83,6 +91,12 @@ def main():
         check('hook overrides use documented null override',all(p.is_symlink() and os.readlink(p)=='/dev/null' for p in created))
         NormalProductionOps._remove_hook_overrides(created,hookdir)
         check('transient hook override directory is fully removed',not hookdir.exists())
+
+    probe=QueryProbe()
+    observed=probe._query_versions(root=Path('/candidate'))
+    check('candidate package query returns bounded expected version',observed=={'demo':'2'})
+    command=probe.commands[-1]
+    check('candidate package query uses root-scoped database semantics','--root' in command and '--dbpath' not in command)
 
     ok,_=ScriptletProbe._payload_scriptlet_free(object.__new__(ScriptletProbe),'/tmp/demo.pkg.tar.zst')
     check('scriptlet-free package is allowed into certified profile',ok)

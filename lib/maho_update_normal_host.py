@@ -69,7 +69,7 @@ class NormalProductionOps:
             command = (self.PACMAN, "--query", "--", *names)
         else:
             command = (
-                self.PACMAN, "--root", str(root), "--dbpath", "/var/lib/pacman",
+                self.PACMAN, "--root", str(root),
                 "--query", "--", *names,
             )
         result = self._run(command)
@@ -265,7 +265,7 @@ class NormalProductionOps:
 
     def _package_paths(self, root: Path, name: str) -> tuple[str, ...]:
         result = self._run((
-            self.PACMAN, "--root", str(root), "--dbpath", "/var/lib/pacman",
+            self.PACMAN, "--root", str(root),
             "--query", "--list", "--", name,
         ))
         if result.returncode != 0:
