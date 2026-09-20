@@ -19,6 +19,7 @@ from maho_runtime_release import verify_release
 
 VERSION = 1
 NAME_RE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MTREE_ESCAPE_RE = re.compile(r"\\([0-7]{3})")
 CRITICAL_PREFIXES = (
     "bin/",
@@ -682,10 +683,50 @@ def validate_persistence_snapshot(data: dict) -> None:
         raise SystemExit("invalid persistence inventory")
     if not isinstance(inventory.get("items"), list):
         raise SystemExit("invalid persistence item list")
+    state = data.get("state_sha256")
+    if not isinstance(state, str) or not SHA256_RE.fullmatch(state) or state != stable_hash(inventory):
+        raise SystemExit("persistence snapshot state hash does not match inventory")
 
 
 def load_json(path: Path) -> dict:
     return json.loads(path.read_text())
+
+
+def validate_persistence_authority(baseline_data: dict, authority: dict) -> None:
+    if authority.get("version") != VERSION or authority.get("kind") != "persistence-baseline-authority":
+        raise ValueError("unsupported persistence baseline authority")
+    if authority.get("authority_scope") != "exact-persistence-state":
+        raise ValueError("persistence baseline authority scope is invalid")
+    authority_id = authority.get("authority_id")
+    if not isinstance(authority_id, str) or not authority_id.startswith("pba-"):
+        raise ValueError("persistence baseline authority identity is invalid")
+    accepted_state = authority.get("accepted_state_sha256")
+    if not isinstance(accepted_state, str) or not SHA256_RE.fullmatch(accepted_state):
+        raise ValueError("persistence baseline authority state is invalid")
+    if accepted_state != baseline_data.get("state_sha256"):
+        raise ValueError("persistence baseline authority does not bind this state")
+    if baseline_data.get("baseline_authority_id") != authority_id:
+        raise ValueError("persistence baseline authority identity does not match baseline")
+    expected_authority_hash = baseline_data.get("baseline_authority_sha256")
+    actual_authority_hash = stable_hash(authority)
+    if not isinstance(expected_authority_hash, str) or expected_authority_hash != actual_authority_hash:
+        raise ValueError("persistence baseline authority receipt hash mismatch")
+    source_digest = authority.get("source_snapshot_sha256")
+    if not isinstance(source_digest, str) or not SHA256_RE.fullmatch(source_digest):
+        raise ValueError("persistence baseline authority source digest is invalid")
+    reason = authority.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("persistence baseline authority reason is missing")
+
+
+def load_persistence_authority(baseline_data: dict, authorities: Path) -> tuple[dict, Path]:
+    authority_id = baseline_data.get("baseline_authority_id")
+    if not isinstance(authority_id, str) or not re.fullmatch(r"pba-[0-9a-f]{16}-[0-9a-f]{12}", authority_id):
+        raise ValueError("persistence baseline does not reference a valid authority identity")
+    path = authorities / f"{authority_id}.json"
+    authority = load_json(path)
+    validate_persistence_authority(baseline_data, authority)
+    return authority, path
 
 
 def persistence_command(args) -> dict:
@@ -693,6 +734,7 @@ def persistence_command(args) -> dict:
     snapshots = state_root / "snapshots"
     latest = state_root / "latest.json"
     baseline = state_root / "baseline.json"
+    authorities = state_root / "authorities"
     home = Path(args.home)
     xdg_config = Path(args.xdg_config)
     fs_root = Path(args.fs_root)
@@ -727,25 +769,113 @@ def persistence_command(args) -> dict:
             raise SystemExit(f"persistence snapshot does not exist: {source}")
         data = load_json(source)
         validate_persistence_snapshot(data)
-        atomic_private(baseline, canonical_bytes(data))
-        return {"result": "baseline-set", "path": str(baseline), "source": str(source), "items": len(data["inventory"]["items"]), "state_sha256": data["state_sha256"]}
+        accepted_state = str(args.accept_state or "")
+        if not SHA256_RE.fullmatch(accepted_state):
+            raise SystemExit("baseline-set requires --accept-state with the exact 64-hex snapshot state")
+        if accepted_state != data.get("state_sha256"):
+            raise SystemExit("accepted persistence state does not match the selected snapshot")
+        reason = str(args.reason or "").strip()
+        if not reason or len(reason) > 500:
+            raise SystemExit("baseline-set requires a non-empty --reason of at most 500 characters")
+
+        current_inventory = persistence_inventory(home, xdg_config, fs_root)
+        current_state = stable_hash(current_inventory)
+        if current_state != accepted_state:
+            raise SystemExit("selected persistence snapshot is stale; capture and inspect a new snapshot before acceptance")
+
+        previous_state = None
+        if baseline.is_file():
+            try:
+                previous = load_json(baseline)
+                validate_persistence_snapshot(previous)
+                previous_state = previous.get("state_sha256")
+            except (OSError, ValueError, json.JSONDecodeError, SystemExit):
+                previous_state = None
+
+        accepted_at = now_utc()
+        authority_id = f"pba-{accepted_state[:16]}-{uuid.uuid4().hex[:12]}"
+        authority = {
+            "version": VERSION,
+            "kind": "persistence-baseline-authority",
+            "authority_id": authority_id,
+            "authority_scope": "exact-persistence-state",
+            "accepted_at": accepted_at,
+            "accepted_by_uid": os.getuid(),
+            "accepted_state_sha256": accepted_state,
+            "source_snapshot": str(source),
+            "source_snapshot_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "previous_baseline_state_sha256": previous_state,
+            "items": len(data["inventory"]["items"]),
+            "reason": reason,
+        }
+        authority_sha256 = stable_hash(authority)
+        baseline_data = dict(data)
+        baseline_data["baseline_authority_id"] = authority_id
+        baseline_data["baseline_authority_sha256"] = authority_sha256
+
+        authority_history = authorities / f"{authority_id}.json"
+        atomic_private(authority_history, canonical_bytes(authority))
+        atomic_private(baseline, canonical_bytes(baseline_data))
+        return {
+            "result": "baseline-set",
+            "path": str(baseline),
+            "source": str(source),
+            "items": len(data["inventory"]["items"]),
+            "state_sha256": accepted_state,
+            "authority_id": authority_id,
+            "authority_sha256": authority_sha256,
+            "authority_path": str(authority_history),
+            "accepted_at": accepted_at,
+            "reason": reason,
+            "previous_baseline_state_sha256": previous_state,
+        }
 
     if args.persistence_command == "baseline-show":
         if not baseline.is_file():
             return {"result": "no-baseline", "path": str(baseline)}
         data = load_json(baseline)
         validate_persistence_snapshot(data)
-        return {"result": "baseline", "path": str(baseline), "captured_at": data.get("captured_at"), "items": len(data["inventory"]["items"]), "state_sha256": data["state_sha256"]}
+        try:
+            authority, authority_path = load_persistence_authority(data, authorities)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return {
+                "result": "baseline-untrusted",
+                "path": str(baseline),
+                "state_sha256": data.get("state_sha256"),
+                "reason": str(exc),
+            }
+        return {
+            "result": "baseline",
+            "path": str(baseline),
+            "captured_at": data.get("captured_at"),
+            "items": len(data["inventory"]["items"]),
+            "state_sha256": data["state_sha256"],
+            "authority_id": authority["authority_id"],
+            "accepted_at": authority["accepted_at"],
+            "authority_reason": authority["reason"],
+            "authority_path": str(authority_path),
+        }
 
     if args.persistence_command == "baseline-clear":
         baseline.unlink(missing_ok=True)
-        return {"result": "baseline-cleared", "path": str(baseline)}
+        retained = len(list(authorities.glob("*.json"))) if authorities.is_dir() else 0
+        return {"result": "baseline-cleared", "path": str(baseline), "retained_authorities": retained}
 
     if args.persistence_command == "check":
         if not baseline.is_file():
             return {"result": "no-baseline", "path": str(baseline)}
         base = load_json(baseline)
         validate_persistence_snapshot(base)
+        try:
+            authority, authority_path = load_persistence_authority(base, authorities)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return {
+                "result": "unavailable",
+                "reason": "baseline-authority-invalid",
+                "detail": str(exc),
+                "baseline": str(baseline),
+                "baseline_state_sha256": base.get("state_sha256"),
+            }
         current_inventory = persistence_inventory(home, xdg_config, fs_root)
         before = {x["path"]: x for x in base["inventory"]["items"]}
         after = {x["path"]: x for x in current_inventory["items"]}
@@ -780,6 +910,8 @@ def persistence_command(args) -> dict:
             "attention_result": attention_result,
             "baseline": str(baseline),
             "baseline_state_sha256": base["state_sha256"],
+            "baseline_authority_id": authority["authority_id"],
+            "baseline_authority_path": str(authority_path),
             "current_state_sha256": stable_hash(current_inventory),
             "added": added,
             "removed": removed,
@@ -821,6 +953,8 @@ def build_parser() -> argparse.ArgumentParser:
     persist = sub.add_parser("persistence")
     persist.add_argument("persistence_command", choices=("snapshot", "baseline-set", "baseline-show", "baseline-clear", "check"))
     persist.add_argument("source", nargs="?")
+    persist.add_argument("--accept-state")
+    persist.add_argument("--reason")
     persist.add_argument("--state-root", required=True)
     persist.add_argument("--home", required=True)
     persist.add_argument("--xdg-config", required=True)
@@ -841,8 +975,13 @@ def main() -> int:
     elif args.command == "runtime":
         result = runtime_scan(args)
     elif args.command == "persistence":
-        if args.persistence_command == "baseline-set" and not args.source:
-            raise SystemExit("baseline-set requires SNAPSHOT or latest")
+        if args.persistence_command == "baseline-set":
+            if not args.source:
+                raise SystemExit("baseline-set requires SNAPSHOT or latest")
+            if not args.accept_state:
+                raise SystemExit("baseline-set requires --accept-state STATE_SHA256")
+            if not args.reason:
+                raise SystemExit("baseline-set requires --reason TEXT")
         result = persistence_command(args)
     else:
         raise SystemExit("unknown command")

@@ -105,8 +105,9 @@ echo "PASS"
 echo "=== persistence drift and recovery are transition-aware ==="
 mkdir -p "$XDG_CONFIG_HOME/autostart"
 printf '[Desktop Entry]\nType=Application\nName=Known\nExec=true\n' > "$XDG_CONFIG_HOME/autostart/known.desktop"
-python "$PROBE" persistence snapshot --state-root "$STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$FS" >/dev/null
-python "$PROBE" persistence baseline-set latest --state-root "$STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$FS" >/dev/null
+PERSIST_SNAPSHOT="$(python "$PROBE" persistence snapshot --state-root "$STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$FS")"
+PERSIST_STATE_SHA="$(printf '%s\n' "$PERSIST_SNAPSHOT" | python -c 'import json,sys; print(json.load(sys.stdin)["state_sha256"])')"
+python "$PROBE" persistence baseline-set latest --accept-state "$PERSIST_STATE_SHA" --reason 'security-monitor fixture accepted state' --state-root "$STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$FS" >/dev/null
 # Let the monitor learn the clean baseline state first.
 bash "$MONITOR" cycle
 printf '[Desktop Entry]\nType=Application\nName=New\nExec=true\n' > "$XDG_CONFIG_HOME/autostart/new.desktop"

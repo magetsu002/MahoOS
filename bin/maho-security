@@ -198,10 +198,14 @@ r=json.loads(sys.argv[1]); kind=r.get("result")
 if kind == "snapshot":
     print("Maho persistence snapshot"); print("Items:",r["items"]); print("Saved:",r["path"]); print("State:",r["state_sha256"])
 elif kind == "baseline-set":
-    print("Trusted persistence baseline selected by user"); print("Items:",r["items"]); print("Baseline:",r["path"])
-elif kind == "baseline-cleared": print("Trusted persistence baseline cleared.")
+    print("Trusted persistence baseline accepted with exact authority"); print("Items:",r["items"]); print("Baseline:",r["path"]); print("State:",r["state_sha256"]); print("Authority:",r["authority_id"]); print("Reason:",r["reason"])
+elif kind == "baseline-cleared": print("Trusted persistence baseline cleared; historical authority receipts retained:",r.get("retained_authorities",0))
 elif kind == "baseline":
-    print("Maho persistence baseline"); print("Captured:",r.get("captured_at")); print("Items:",r["items"]); print("Path:",r["path"])
+    print("Maho persistence baseline"); print("Captured:",r.get("captured_at")); print("Items:",r["items"]); print("Path:",r["path"]); print("Authority:",r.get("authority_id")); print("Accepted:",r.get("accepted_at")); print("Reason:",r.get("authority_reason"))
+elif kind == "baseline-untrusted":
+    print("Persistence baseline authority is invalid or missing."); print("State:",r.get("state_sha256")); print("Reason:",r.get("reason"))
+elif kind == "unavailable":
+    print("Persistence trust evidence is unavailable."); print("Reason:",r.get("reason")); print("Detail:",r.get("detail"))
 elif kind == "no-baseline":
     print("No trusted persistence baseline is configured."); print("Expected:",r["path"])
 elif kind in {"clean","changed"}:
@@ -314,10 +318,10 @@ persistence_command() {
         snapshot) result="$(persistence_probe snapshot)" ;;
         baseline)
             case "${2:-}" in
-                set) result="$(persistence_probe baseline-set "${3:-}")" ;;
+                set) result="$(persistence_probe baseline-set "${@:3}")" ;;
                 show) result="$(persistence_probe baseline-show)" ;;
                 clear) result="$(persistence_probe baseline-clear)" ;;
-                *) echo "usage: maho-security persistence baseline set SNAPSHOT|latest | show | clear" >&2; return 1 ;;
+                *) echo "usage: maho-security persistence baseline set SNAPSHOT|latest --accept-state SHA256 --reason TEXT | show | clear" >&2; return 1 ;;
             esac
             ;;
         check) result="$(persistence_probe check)" ;;
@@ -328,7 +332,7 @@ persistence_command() {
     attention="$(printf '%s\n' "$result" | python -c 'import json,sys; r=json.load(sys.stdin); print(r.get("attention_result", r.get("result")))')"
     case "$status" in
         snapshot) emit_security_event persistence.snapshot observed info "Captured current persistence inventory without trusting it" security.persistence maho "$result" ;;
-        baseline-set) emit_security_event persistence.baseline verified info "User selected a trusted persistence baseline" security.persistence user "$result" ;;
+        baseline-set) emit_security_event persistence.baseline verified info "User accepted an exact persistence state with bounded baseline authority" security.persistence user "$result" ;;
         baseline-cleared) emit_security_event persistence.baseline-cleared observed info "User cleared the trusted persistence baseline" security.persistence user "$result" ;;
         clean) emit_security_event persistence.check verified info "Persistence inventory matches the user-selected baseline" security.persistence maho "$result" ;;
         changed)
@@ -561,7 +565,7 @@ Usage:
   maho-security impact PACKAGE [VERSION]
   maho-security runtime
   maho-security persistence snapshot
-  maho-security persistence baseline set SNAPSHOT|latest
+  maho-security persistence baseline set SNAPSHOT|latest --accept-state SHA256 --reason TEXT
   maho-security persistence baseline show
   maho-security persistence baseline clear
   maho-security persistence check

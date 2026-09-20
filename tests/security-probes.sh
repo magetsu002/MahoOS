@@ -182,26 +182,78 @@ SNAPSHOT="$(find "$PERSIST_STATE/persistence/snapshots" -type f -name '*.json' |
 [ "$(stat -c '%a' "$SNAPSHOT")" = 600 ]
 echo "PASS"
 
-echo "=== persistence baseline must originate from Maho snapshot store ==="
+echo "=== persistence baseline requires exact deliberate authority ==="
+SNAP_STATE="$(python - "$SNAPSHOT" <<'PY_SNAPSHOT_STATE'
+import json,sys
+print(json.load(open(sys.argv[1]))['state_sha256'])
+PY_SNAPSHOT_STATE
+)"
 cp "$SNAPSHOT" "$TMP/external.json"
-if python "$PROBE" persistence baseline-set "$TMP/external.json" \
-    --state-root "$PERSIST_STATE" \
-    --home "$HOME" \
-    --xdg-config "$XDG_CONFIG_HOME" \
-    --fs-root "$MAHO_FS_ROOT" >/dev/null 2>&1; then
+if python "$PROBE" persistence baseline-set "$TMP/external.json" --accept-state "$SNAP_STATE" --reason 'external copy' \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" >/dev/null 2>&1; then
     fail "external persistence baseline was trusted"
 fi
-python "$PROBE" persistence baseline-set latest \
-    --state-root "$PERSIST_STATE" \
-    --home "$HOME" \
-    --xdg-config "$XDG_CONFIG_HOME" \
-    --fs-root "$MAHO_FS_ROOT" >/dev/null
+if python "$PROBE" persistence baseline-set latest \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" >/dev/null 2>&1; then
+    fail "baseline was accepted without exact state authority"
+fi
+if python "$PROBE" persistence baseline-set latest --accept-state "$(printf '0%.0s' {1..64})" --reason 'wrong state' \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" >/dev/null 2>&1; then
+    fail "baseline was accepted with the wrong state hash"
+fi
+if python "$PROBE" persistence baseline-set latest --accept-state "$SNAP_STATE" \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" >/dev/null 2>&1; then
+    fail "baseline was accepted without a reason"
+fi
+printf '[Desktop Entry]\nType=Application\nName=Stale\nExec=true\n' > "$XDG_CONFIG_HOME/autostart/stale.desktop"
+if python "$PROBE" persistence baseline-set latest --accept-state "$SNAP_STATE" --reason 'stale fixture' \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" >/dev/null 2>&1; then
+    fail "stale persistence snapshot was accepted after live state changed"
+fi
+rm -f "$XDG_CONFIG_HOME/autostart/stale.desktop"
+BASELINE_SET="$(python "$PROBE" persistence baseline-set latest --accept-state "$SNAP_STATE" --reason 'fixture exact accepted persistence state' \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT")"
+python - "$BASELINE_SET" "$PERSIST_STATE" "$SNAP_STATE" <<'PY_BASELINE_AUTHORITY'
+import json, pathlib, sys
+r=json.loads(sys.argv[1]); root=pathlib.Path(sys.argv[2])/'persistence'; state=sys.argv[3]
+assert r['result']=='baseline-set',r
+assert r['state_sha256']==state,r
+assert r['authority_id'].startswith('pba-'),r
+baseline=json.loads((root/'baseline.json').read_text())
+authority_id=baseline['baseline_authority_id']
+history=root/'authorities'/f"{authority_id}.json"
+assert history.is_file(),history
+authority=json.loads(history.read_text())
+assert baseline['state_sha256']==state,baseline
+assert authority_id==authority['authority_id'],(baseline,authority)
+assert authority['accepted_state_sha256']==state,authority
+assert authority['reason']=='fixture exact accepted persistence state',authority
+assert oct(history.stat().st_mode & 0o777)=='0o600'
+assert not (root/'baseline-authority.json').exists(), 'duplicate baseline authority state must not exist'
+PY_BASELINE_AUTHORITY
+python "$PROBE" persistence baseline-show \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" |
+python -c 'import json,sys; r=json.load(sys.stdin); assert r["result"]=="baseline" and r["authority_id"].startswith("pba-"),r'
 python "$PROBE" persistence check \
-    --state-root "$PERSIST_STATE" \
-    --home "$HOME" \
-    --xdg-config "$XDG_CONFIG_HOME" \
-    --fs-root "$MAHO_FS_ROOT" |
-python -c 'import json,sys; assert json.load(sys.stdin)["result"] == "clean"'
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" |
+python -c 'import json,sys; r=json.load(sys.stdin); assert r["result"]=="clean" and r["baseline_authority_id"].startswith("pba-"),r'
+AUTHORITY_PATH="$(python - "$PERSIST_STATE/persistence/baseline.json" "$PERSIST_STATE/persistence/authorities" <<'PY_AUTH_PATH'
+import json,sys
+from pathlib import Path
+b=json.load(open(sys.argv[1])); print(Path(sys.argv[2])/f"{b['baseline_authority_id']}.json")
+PY_AUTH_PATH
+)"
+cp "$AUTHORITY_PATH" "$TMP/baseline-authority.good.json"
+python - "$AUTHORITY_PATH" <<'PY_TAMPER_AUTHORITY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); r=json.loads(p.read_text()); r['reason']='tampered'; p.write_text(json.dumps(r,sort_keys=True)+'\n')
+PY_TAMPER_AUTHORITY
+python "$PROBE" persistence check \
+    --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT" |
+python -c 'import json,sys; r=json.load(sys.stdin); assert r["result"]=="unavailable" and r["reason"]=="baseline-authority-invalid",r'
+cp "$TMP/baseline-authority.good.json" "$AUTHORITY_PATH"
+chmod 600 "$AUTHORITY_PATH"
 echo "PASS"
 
 echo "=== package-declared system enablement is attributed narrowly ==="
