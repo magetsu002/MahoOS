@@ -444,7 +444,7 @@ write_command() {
   cat >"$tmp" <<EOF_COMMAND
 #!/usr/bin/env bash
 $MARKER
-MAHO_ROOT="\${XDG_DATA_HOME:-\$HOME/.local/share}/maho/runtime/current"
+MAHO_ROOT="\${MAHO_ROOT:-\${XDG_DATA_HOME:-\$HOME/.local/share}/maho/runtime/current}"
 export MAHO_ROOT
 EOF_COMMAND
   if [ "$name" = maho-notify ]; then cat >>"$tmp" <<'EOF_NOTIFY'

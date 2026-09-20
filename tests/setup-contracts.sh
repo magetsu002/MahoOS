@@ -449,6 +449,8 @@ fi
 unset MAHO_TEST_NOTIFY_EXECSTART
 echo PASS
 
+grep -Fq 'MAHO_ROOT="${MAHO_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime/current}"' "$HOME/.local/bin/maho-setup" || fail 'command wrapper does not honor explicit immutable runtime authority'
+
 echo '=== runtime status verifies immutable payload identity ==='
 RUNTIME_PROBE="$NEW_RELEASE/bin/maho-power"
 cp -p -- "$RUNTIME_PROBE" "$TMP/maho-power.verified"
