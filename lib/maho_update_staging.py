@@ -97,7 +97,7 @@ class IsolatedPacmanStaging:
     def availability_command(self, targets: Sequence[str]) -> tuple[str, ...]:
         self._validate_targets(targets)
         return (
-            PACMAN, "--config", str(self.config), "--sync", "--print", "--print-format", "%n\t%v", "--dbpath", str(self.db),
+            PACMAN, "--config", str(self.config), "--sync", "--print", "--print-format", "%r\t%n\t%v", "--dbpath", str(self.db),
             "--", *targets,
         )
 
@@ -125,13 +125,21 @@ class IsolatedPacmanStaging:
         if not targets:
             raise ValueError("exact staging targets are required")
         for target in targets:
-            name, separator, version = target.partition("=")
-            if separator != "=" or _PACKAGE.fullmatch(name) is None or not version or any(char.isspace() for char in version):
-                raise ValueError("staging target must be an exact name=version identity")
+            repository, slash, identity = target.partition("/")
+            name, separator, version = identity.partition("=")
+            if (
+                slash != "/"
+                or separator != "="
+                or _PACKAGE.fullmatch(repository) is None
+                or _PACKAGE.fullmatch(name) is None
+                or not version
+                or any(char.isspace() for char in version)
+            ):
+                raise ValueError("staging target must be an exact repository/name=version identity")
 
     def _allowed(self, command: Sequence[str]) -> bool:
         argv = tuple(command)
-        if argv[:9] == (PACMAN, "--config", str(self.config), "--sync", "--print", "--print-format", "%n\t%v", "--dbpath", str(self.db)):
+        if argv[:9] == (PACMAN, "--config", str(self.config), "--sync", "--print", "--print-format", "%r\t%n\t%v", "--dbpath", str(self.db)):
             try:
                 marker = argv.index("--", 9)
                 self._validate_targets(argv[marker + 1:])
@@ -179,18 +187,25 @@ class IsolatedPacmanStaging:
 
 def _exact_targets(transaction: Mapping[str, Any]) -> list[str]:
     packages = validate_transaction(transaction)["package_generation"]["packages"]
-    return [f"{item['name']}={item['candidate_version']}" for item in packages]
+    return [f"{item['repository']}/{item['name']}={item['candidate_version']}" for item in packages]
 
 
-def _parse_availability(output: str) -> dict[str, str]:
-    available: dict[str, str] = {}
+def _parse_availability(output: str) -> dict[str, tuple[str, str]]:
+    available: dict[str, tuple[str, str]] = {}
     for line in output.splitlines():
         if not line.strip():
             continue
         fields = line.split("\t")
-        if len(fields) != 2 or _PACKAGE.fullmatch(fields[0]) is None or not fields[1] or fields[0] in available:
+        if (
+            len(fields) != 3
+            or _PACKAGE.fullmatch(fields[0]) is None
+            or _PACKAGE.fullmatch(fields[1]) is None
+            or not fields[2]
+            or fields[1] in available
+        ):
             raise ValueError("ambiguous package availability output")
-        available[fields[0]] = fields[1]
+        repository, name, version = fields
+        available[name] = (repository, version)
     return available
 
 
@@ -351,7 +366,10 @@ def stage_transaction(
     targets = _exact_targets(current)
     availability = backend.run(backend.availability_command(targets))
     available = _parse_availability(availability.stdout) if availability.returncode == 0 else {}
-    missing = [item["name"] for item in packages if available.get(item["name"]) != item["candidate_version"]]
+    missing = [
+        item["name"] for item in packages
+        if available.get(item["name"]) != (item["repository"], item["candidate_version"])
+    ]
     extras = sorted(set(available) - {item["name"] for item in packages})
     if extras:
         blocked = transition_transaction(

@@ -53,10 +53,10 @@ class FakePacman:
 
     def __call__(self, command) -> CommandResult:
         if "--print" in command:
-            rows = [("linux-cachyos", "7.2"), ("maho-os", "4.1")]
+            rows = [("core", "linux-cachyos", "7.2"), ("maho", "maho-os", "4.1")]
             if self.extra_dependency:
-                rows.append(("new-dependency", "1"))
-            return CommandResult(0, "".join(f"{name}\t{version}\n" for name, version in rows if name != self.missing))
+                rows.append(("extra", "new-dependency", "1"))
+            return CommandResult(0, "".join(f"{repo}\t{name}\t{version}\n" for repo, name, version in rows if name != self.missing))
         if "--downloadonly" in command:
             if self.download_error:
                 return CommandResult(1, "", "network unavailable")
@@ -108,7 +108,7 @@ def main() -> None:
         check("STAGED manifest binds the package generation", result.manifest["package_generation_id"] == transaction()["package_generation"]["id"])
         check("bounded cleanup removes stale isolated cache payload", str(stale) in result.cleanup_removed and not stale.exists())
         check("staging never targets live package state", all("/var/lib/pacman" not in command and "/var/cache/pacman/pkg" not in command for command in staging.commands))
-        check("staging uses exact name=version targets", any("linux-cachyos=7.2" in command and "maho-os=4.1" in command for command in staging.commands))
+        check("staging uses exact repository/name=version targets", any("core/linux-cachyos=7.2" in command and "maho/maho-os=4.1" in command for command in staging.commands))
         resumed_backend = IsolatedPacmanStaging(root / "db", root / "cache", runner=lambda command: (_ for _ in ()).throw(AssertionError("valid resume must not call Pacman")))
         resumed = stage_transaction(transaction(), resumed_backend, available_bytes=1024**3, now=NOW)
         check("verified staging manifest resumes without redownload", resumed.transaction["state"] == "STAGED" and resumed.resumed and not resumed_backend.commands)

@@ -26,7 +26,7 @@ class FakeStage:
         self.cache=cache; self.boot=boot
     def __call__(self, command):
         if '--print' in command:
-            return CommandResult(0,'demo-service\t2\n')
+            return CommandResult(0,'extra\tdemo-service\t2\n')
         if '--downloadonly' in command:
             self.cache.mkdir(parents=True,exist_ok=True)
             (self.cache/'demo-service-2-any.pkg.tar.zst').write_bytes(b'demo-v2')
