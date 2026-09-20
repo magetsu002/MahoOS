@@ -41,7 +41,8 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser().parse_args(raw_argv)
     model = collect_system_model()
     page = "Overview" if args.section == "tui" else ALIASES[args.section]
     if args.json:
@@ -50,7 +51,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         json.dump(payload, sys.stdout, sort_keys=True, separators=(",", ":"))
         sys.stdout.write("\n")
         return 0
-    if args.section == "tui" or args.tui:
+    if (not raw_argv and sys.stdin.isatty() and sys.stdout.isatty()) or args.section == "tui" or args.tui:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             print("maho: interactive TUI requires a terminal; use plain output or --json", file=sys.stderr)
             return 2
