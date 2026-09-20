@@ -355,7 +355,10 @@ ShellRoot {
 
     Timer {
         id: closeTimer
-        interval: 32
+        // Keep the mapped surface alive just long enough for the restrained
+        // material fade to finish. Pointer masks are removed immediately by
+        // overlayOpen=false, so this does not leave an invisible hit target.
+        interval: 120
         onTriggered: {
             root.presented = false
             idleRetireTimer.restart()

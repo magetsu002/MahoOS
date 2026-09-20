@@ -42,6 +42,11 @@ require_text "$SHELL" 'drag.maximumY: root.maximumSurfaceY()' "dragging is not c
 require_text "$SHELL" 'onHeightChanged:' "dynamic surface-height placement is not re-clamped"
 require_text "$SHELL" 'if (placementValid)' "persisted placement does not override first-run Edge placement"
 require_text "$SHELL" 'surfaceX(overlay.width, linkSurface.width, surfaceMarginX)' "first-run placement no longer respects Maho Edge"
+require_text "$LINK/MahoLink.qml" 'duration: root.shown ? 205 : 110' "Link material entrance/exit timing drifted"
+require_text "$LINK/MahoLink.qml" 'scale: shown ? 1 : 0.985' "Link initial scale is not in the intended hidden presentation state"
+require_text "$LINK/MahoLink.qml" 'y: root.shown ? 0 : -7' "Link foreground does not settle from its intended initial offset"
+require_text "$LINK/MahoLink.qml" 'duration: root.shown ? 235 : 105' "Link foreground settle timing drifted"
+require_text "$SHELL" 'interval: 120' "Link is unmapped before its short exit motion can finish"
 echo "PASS"
 
 echo "=== two-phase Wi-Fi UI contract ==="

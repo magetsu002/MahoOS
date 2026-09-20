@@ -18,7 +18,8 @@ Rectangle {
     signal activated()
     signal menuToggleRequested(string entryId)
 
-    implicitHeight: Math.max(textColumn.implicitHeight, 46) + 32
+    readonly property real metadataHeight: timeLabel.implicitHeight + 8 + actionLane.height
+    implicitHeight: Math.max(textColumn.implicitHeight, metadataHeight, 46) + 32
     radius: 15
     antialiasing: true
     color: row.unread
@@ -119,7 +120,8 @@ Rectangle {
                 color: theme.textPrimary
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
-                maximumLineCount: 1
+                maximumLineCount: 2
+                wrapMode: Text.Wrap
                 elide: Text.ElideRight
                 textFormat: Text.PlainText
             }
@@ -132,7 +134,7 @@ Rectangle {
                 font.pixelSize: 11
                 lineHeight: 1.16
                 wrapMode: Text.Wrap
-                maximumLineCount: row.expanded ? 6 : 1
+                maximumLineCount: row.expanded ? 6 : 2
                 elide: Text.ElideRight
                 textFormat: Text.PlainText
             }
@@ -173,7 +175,7 @@ Rectangle {
             Text {
                 id: timeLabel
                 anchors.right: parent.right
-                anchors.top: parent.top
+                anchors.top: textColumn.top
                 text: row.relativeTimestamp
                 color: theme.textFaint
                 font.pixelSize: 10

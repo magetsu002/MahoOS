@@ -36,18 +36,23 @@ Item {
             : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
+    scale: shown ? 1 : 0.985
+    transform: Translate {
+        y: root.shown ? 0 : -7
+
+        Behavior on y {
+            NumberAnimation { duration: root.shown ? 235 : 105; easing.type: Easing.OutCubic }
+        }
+    }
     Behavior on height {
         enabled: root.shown
         NumberAnimation { duration: 86; easing.type: Easing.OutCubic }
     }
     Behavior on opacity {
-        // Opening snaps only after placement/status are authoritative, avoiding
-        // the one-frame staged intro artifact. Dismissal keeps a tiny fade.
-        enabled: !root.shown
-        NumberAnimation {
-            duration: 26
-            easing.type: Easing.OutCubic
-        }
+        NumberAnimation { duration: root.shown ? 205 : 110; easing.type: Easing.OutCubic }
+    }
+    Behavior on scale {
+        NumberAnimation { duration: root.shown ? 220 : 105; easing.type: Easing.OutCubic }
     }
 
     readonly property color textPrimary: theme.foreground

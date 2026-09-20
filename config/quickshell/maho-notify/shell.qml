@@ -286,6 +286,7 @@ ShellRoot {
 
     function openCenter() {
         centerRevealDelay.stop()
+        centerHideDelay.stop()
 
         // Load the center tree only while it is presented. Keep the first frame
         // transparent, initialize the accepted UI state, then reveal it once the
@@ -315,10 +316,17 @@ ShellRoot {
     function closeCenter() {
         centerRevealDelay.stop()
         centerDragging = false
-        // Blur belongs to this foreground layer, so unmapping the center removes
-        // material and diffusion in the same compositor frame.
         centerOpen = false
-        centerPresented = false
+        centerHideDelay.restart()
+    }
+
+    Timer {
+        id: centerHideDelay
+        interval: 130
+        onTriggered: {
+            if (!root.centerOpen)
+                root.centerPresented = false
+        }
     }
 
     Timer {
@@ -386,7 +394,7 @@ ShellRoot {
         focusable: root.centerOpen
         exclusionMode: ExclusionMode.Ignore
         visible: root.centerPresented
-        mask: Region { item: centerLoader.item }
+        mask: Region { item: root.centerOpen ? centerLoader.item : null }
 
         onWidthChanged: {
             if (root.centerOpen && !root.centerDragging)

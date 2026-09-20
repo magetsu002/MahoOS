@@ -44,6 +44,17 @@ require_text "$MODEL_CPP" 'looksLikeListFile' \
     'list delegates are not recognized as drag sources'
 reject_text "$MODEL_CPP" 'xdotool' \
     'drag-and-drop must not be faked through input automation'
+python3 - "$MODEL_CPP" <<'PY_DRAG'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+start = source.index('void MahoDirectoryModel::startDragForRow(int row)')
+end = source.index('int MahoDirectoryModel::fileRowAt', start)
+body = source[start:end]
+assert 'item.isDir()' not in body and 'item.isFile()' not in body, \
+    'drag source is type-gated; both files and folders must use the same native URL drag path'
+assert 'mime->setUrls({item.url()});' in body, 'drag source lost its URL payload'
+PY_DRAG
 echo PASS
 
 echo '=== recursive search contract ==='
