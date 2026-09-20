@@ -175,7 +175,7 @@ Rectangle {
             Text {
                 id: timeLabel
                 anchors.right: parent.right
-                anchors.top: textColumn.top
+                y: textColumn.y
                 text: row.relativeTimestamp
                 color: theme.textFaint
                 font.pixelSize: 10
