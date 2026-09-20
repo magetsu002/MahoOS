@@ -21,6 +21,7 @@ ShellRoot {
     property bool placementValid: false
     property bool placementLoadPending: false
     property bool placementApplied: false
+    property bool materialMapped: false
     property bool launchPlacementLocked: false
     property real launchPlacementX: 0
     property real launchPlacementY: 0
@@ -255,16 +256,26 @@ ShellRoot {
     }
 
     function revealSurfaceWhenReady() {
-        if (!presented || !placementReady || linkSurface.shown)
+        if (!presented || !placementReady || linkSurface.shown || materialMapped)
             return
         if (activeMode === "wifi" && !wifi.statusReady)
             return
 
-        // Resolve placement against authoritative screen geometry while the
-        // foreground material window is still completely unmapped. Only after
-        // coordinates are applied may Link enter the compositor, preventing a
-        // one-frame default-position flash.
+        // Commit coordinates while the card is fully absent. Then map only the
+        // transparent foreground carrier for one compositor-safe settle window.
+        // The visible material is revealed later, after x/y have already existed
+        // on the mapped carrier, so no default/fallback position can flash.
         commitLaunchPlacement()
+        linkSurface.x = launchPlacementX
+        linkSurface.y = launchPlacementY
+        linkSurface.shown = false
+        materialMapped = true
+        launchRevealDelay.restart()
+    }
+
+    function finishLaunchReveal() {
+        if (!presented || !materialMapped || !placementApplied || linkSurface.shown)
+            return
         linkSurface.x = launchPlacementX
         linkSurface.y = launchPlacementY
         linkSurface.shown = true
@@ -277,7 +288,9 @@ ShellRoot {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
         idleRetireTimer.stop()
+        launchRevealDelay.stop()
         launchPlacementUnlock.stop()
+        materialMapped = false
         launchPlacementLocked = false
         closeAfterPlacementSave = false
         presented = true
@@ -322,6 +335,7 @@ ShellRoot {
         if (!presented)
             return
         modeAfterPlacementSave = ""
+        launchRevealDelay.stop()
         launchPlacementUnlock.stop()
         launchPlacementLocked = false
         overlayOpen = false
@@ -355,7 +369,10 @@ ShellRoot {
         function retire(nextIdentity: string): bool {
             if (nextIdentity === root.runtimeIdentity)
                 return false
+            launchRevealDelay.stop()
+            launchPlacementUnlock.stop()
             root.overlayOpen = false
+            root.materialMapped = false
             root.presented = false
             retireTimer.restart()
             return true
@@ -388,6 +405,13 @@ ShellRoot {
     }
 
     Timer {
+        id: launchRevealDelay
+        interval: 16
+        repeat: false
+        onTriggered: root.finishLaunchReveal()
+    }
+
+    Timer {
         id: launchPlacementUnlock
         interval: 320
         repeat: false
@@ -401,6 +425,7 @@ ShellRoot {
         // overlayOpen=false, so this does not leave an invisible hit target.
         interval: 120
         onTriggered: {
+            root.materialMapped = false
             root.presented = false
             idleRetireTimer.restart()
         }
@@ -510,10 +535,10 @@ ShellRoot {
         aboveWindows: true
         focusable: root.overlayOpen
         exclusionMode: ExclusionMode.Ignore
-        // Unlike the transparent catcher/bootstrap window, the foreground
-        // material must not map until applyPlacement() has committed final
-        // coordinates for this launch.
-        visible: root.presented && root.placementApplied
+        // Map this carrier only after final coordinates are committed. The
+        // child card remains fully transparent for launchRevealDelay before the
+        // visible reveal begins, giving the compositor a settled geometry frame.
+        visible: root.presented && root.materialMapped
         mask: Region { item: root.overlayOpen ? linkSurface : null }
 
         WlrLayershell.layer: WlrLayer.Overlay
