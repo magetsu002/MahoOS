@@ -85,6 +85,44 @@ def build_production_declaration(
     )
 
 
+def build_normal_production_declaration(
+    roots: CandidateRoots,
+    transaction: Mapping[str, Any],
+) -> CandidateDeclaration:
+    """Declare exact normal-package ownership plus bounded package-manager metadata."""
+    generation_id, names = _package_generation(transaction)
+    ownership, errors = package_ownership(roots.candidate_root)
+    if errors:
+        raise ProductionAdmissionError("candidate_package_ownership_incomplete")
+    package_set = set(names)
+    declared = {path for path, owner in ownership.items() if owner in package_set}
+    declared.update({"/var/lib/pacman/local", "/var/log/pacman.log", "/etc/ld.so.cache"})
+    if not declared:
+        raise ProductionAdmissionError("normal_candidate_declaration_empty")
+    return CandidateDeclaration(
+        package_identity=generation_id,
+        path_prefixes=tuple(sorted(declared)),
+        effect_kinds=_ALL_EFFECTS,
+        package_identities=names,
+    )
+
+
+def evaluate_normal_production_candidate(
+    roots: CandidateRoots,
+    transaction: Mapping[str, Any],
+    *,
+    known_safe_graph_ids: Iterable[ArtifactID] = (),
+) -> NativeAdmissionResult:
+    declaration = build_normal_production_declaration(roots, transaction)
+    runtime = offline_runtime_evidence(roots)
+    return admit_candidate(
+        roots,
+        declaration,
+        runtime,
+        known_safe_graph_ids=known_safe_graph_ids,
+    )
+
+
 def offline_runtime_evidence(roots: CandidateRoots) -> RuntimeListenerEvidence:
     """Bind the fact that the candidate remained offline during admission.
 

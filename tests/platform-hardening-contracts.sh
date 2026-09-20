@@ -84,6 +84,8 @@ grep -Fxq '[cachyos]' "$TMP/maho/pacman.conf" \
     || fail "canonical Maho Pacman authority omits CachyOS"
 grep -Fxq 'Include = /etc/pacman.d/cachyos-mirrorlist' "$TMP/maho/pacman.conf" \
     || fail "canonical Maho Pacman authority omits CachyOS mirror authority"
+grep -Fxq 'Usage = Sync Search Install Upgrade' "$TMP/maho/pacman.conf" \
+    || fail "canonical Maho Pacman authority disables CachyOS upgrades"
 [ ! -e "$TMP/sysctl" ] || fail "uncertified sysctl candidate was installed"
 if grep -Eq '(restart|try-restart).*(xdg-desktop-portal|gnome-keyring)' "$MAHO_TEST_SYSTEMCTL_LOG"; then
     fail "platform install disrupted the current graphical session"

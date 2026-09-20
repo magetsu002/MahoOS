@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from maho_update_receipts import build_receipt, format_receipt, load_history, product_status
+from maho_update_normal_authority import DEFAULT_AUTHORITY_PATH, load_normal_execution_authority
 from maho_update_state import read_transaction, transaction_path
 
 _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
@@ -66,17 +67,48 @@ def failed_closed_status(reason: str) -> dict[str, Any]:
     }
 
 
+def _runtime_source_revision() -> str | None:
+    root = Path(os.environ.get("MAHO_ROOT", ""))
+    path = root / "share/maho/runtime-source-revision"
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value if re.fullmatch(r"[0-9a-f]{40}", value) else None
+
+
+def _attach_normal_authority(status: dict[str, Any]) -> dict[str, Any]:
+    revision = _runtime_source_revision()
+    status["normal_execution_certified"] = False
+    status["normal_authority_id"] = None
+    status["normal_certified_effects"] = []
+    status["normal_certified_activation_requirements"] = []
+    if revision is None or not DEFAULT_AUTHORITY_PATH.exists():
+        return status
+    try:
+        authority = load_normal_execution_authority(source_revision=revision)
+    except ValueError:
+        status["normal_authority_state"] = "stale-or-invalid"
+        return status
+    status["normal_execution_certified"] = True
+    status["normal_authority_state"] = "current"
+    status["normal_authority_id"] = authority["authority_id"]
+    status["normal_certified_effects"] = authority.get("certified_effects", [])
+    status["normal_certified_activation_requirements"] = authority.get("certified_activation_requirements", [])
+    return status
+
+
 def status_payload(root: Path) -> dict[str, Any]:
     try:
         transaction = current_transaction(root)
         history = load_history(root)
         if transaction is None:
-            return unavailable_status(root)
+            return _attach_normal_authority(unavailable_status(root))
         status = product_status(transaction, history=history)
         status["history_count"] = len(history)
-        return status
+        return _attach_normal_authority(status)
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-        return failed_closed_status("authoritative_update_state_unreadable")
+        return _attach_normal_authority(failed_closed_status("authoritative_update_state_unreadable"))
 
 
 def main() -> None:
@@ -105,6 +137,11 @@ def main() -> None:
                 print("Activation: next explicit restart")
             if payload["blockers"]:
                 print("Blockers: " + ", ".join(payload["blockers"]))
+            if payload.get("normal_execution_certified"):
+                scope = ", ".join(payload.get("normal_certified_effects", [])) or "none"
+                print(f"Normal update execution: certified ({scope})")
+            else:
+                print("Normal update execution: uncertified")
         return
     if args.command == "history":
         payload = load_history(root, limit=args.limit)

@@ -28,7 +28,10 @@ grep -Fq 'seed_campaign(' "$CAMPAIGN" || fail "M3B target seed missing"
 grep -Fq 'prepare_l3_campaign(' "$CAMPAIGN" || fail "M3B emergency preparation missing"
 grep -Fq 'publish_transaction(candidate_state_root' "$CAMPAIGN" || fail "candidate authority is not durably copied"
 grep -Fq 'M4B certification requires a real Primary kernel update generation' "$CAMPAIGN" || fail "real kernel-update proof gate missing"
-pass "campaign binds native update to M3B and a real kernel generation"
+grep -Fq 'certify_normal_update' "$CAMPAIGN" || fail "normal production certification entrypoint missing from root campaign"
+grep -Fq 'config/platform/maho-pacman.conf' "$INSTALLER" || fail "canonical Pacman authority missing from root campaign payload"
+grep -Fq 'lib/maho_update_normal_campaign.py' "$INSTALLER" || fail "normal campaign module missing from root campaign payload"
+pass "campaign binds native update to M3B and normal certification to root-owned authority"
 python - "$PLATFORM" "$CAMPAIGN" <<'PY'
 import json,sys
 from pathlib import Path

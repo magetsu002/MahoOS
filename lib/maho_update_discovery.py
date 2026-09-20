@@ -476,3 +476,103 @@ def discover_independent_normal_updates(
         selection_kind=kind,
         deferred_boot_packages=tuple(deferred),
     )
+
+
+def discover_coherent_subset_updates(
+    backend: IsolatedPacmanDiscovery,
+    *,
+    target_packages: Sequence[str],
+    source_revision: str,
+    security_evidence: Mapping[str, Mapping[str, Any]] | None = None,
+    recovery_generation_id: str | None = None,
+    now: datetime | None = None,
+    entropy: str | None = None,
+) -> DiscoveryResult:
+    """Prove an exact requested subset is a coherent independent Pacman transaction.
+
+    The full current solver result is established first. Every other update candidate
+    is then deferred only inside the isolated solver. The subset is accepted only if
+    Pacman still solves it, selects exactly the requested targets, and preserves the
+    exact versions chosen by the full-system solver.
+    """
+    targets = tuple(sorted(set(str(item) for item in target_packages)))
+    if not targets or any(_PACKAGE.fullmatch(item) is None for item in targets):
+        raise ValueError("coherent subset target package set is invalid")
+    backend.prepare()
+    refreshed = backend.run(backend.refresh_command)
+    if refreshed.returncode != 0:
+        raise RuntimeError(f"isolated_synchronization_failed: {refreshed.stderr.strip()}")
+    backend.sync_database_hashes()
+    installed_result = backend.run(backend.installed_command)
+    if installed_result.returncode != 0:
+        raise RuntimeError(f"installed package comparison failed: {installed_result.stderr.strip()}")
+    installed = parse_name_versions(installed_result.stdout, separator=" ")
+    full_result = backend.run(backend.transaction_command)
+    if full_result.returncode != 0:
+        detail = " | ".join(part for part in (full_result.stderr.strip(), full_result.stdout.strip()) if part)
+        raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
+    full_planned = parse_name_versions(full_result.stdout, separator="\t")
+    full_candidates = _candidate_rows(installed, full_planned)
+    if not full_candidates:
+        raise LookupError("no coherent update candidates were discovered")
+    full_names = {name for name, _, _ in full_candidates}
+    missing = sorted(set(targets) - full_names)
+    if missing:
+        raise LookupError("requested coherent subset is not currently updateable:" + ",".join(missing))
+    metadata_result = backend.run(backend.info_command([item[0] for item in full_candidates]))
+    if metadata_result.returncode != 0:
+        raise RuntimeError(f"candidate metadata lookup failed: {metadata_result.stderr.strip()}")
+    metadata = parse_sync_info(metadata_result.stdout)
+    evidence = security_evidence or {}
+    full_packages, _ = _packages_from_candidates(full_candidates, metadata, evidence)
+    target_rows = {item["name"]: item for item in full_packages if item["name"] in targets}
+    pre_boot = sorted(name for name, item in target_rows.items() if preliminary_boot_critical(item["roles"]))
+    if pre_boot:
+        raise ValueError("coherent subset target is preliminarily boot-critical:" + ",".join(pre_boot))
+    deferred = sorted(full_names - set(targets))
+    if deferred:
+        subset_result = backend.run(backend.independent_transaction_command(deferred))
+        if subset_result.returncode != 0:
+            detail = " | ".join(part for part in (subset_result.stderr.strip(), subset_result.stdout.strip()) if part)
+            raise RuntimeError(f"coherent_subset_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
+        selected_planned = parse_name_versions(subset_result.stdout, separator="\t")
+    else:
+        selected_planned = full_planned
+    selected_candidates = _candidate_rows(installed, selected_planned)
+    selected_names = {name for name, _, _ in selected_candidates}
+    if selected_names != set(targets):
+        raise RuntimeError(
+            "coherent_subset_solver_selected_unexpected_packages: expected " + ",".join(targets) +
+            " observed " + ",".join(sorted(selected_names))
+        )
+    for name, _, version in selected_candidates:
+        if full_planned.get(name) != version:
+            raise RuntimeError(f"coherent_subset_solver_version_drift:{name}")
+    packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence)
+    proof = {
+        "kind": "isolated-pacman-coherent-subset",
+        "target_packages": list(targets),
+        "deferred_packages": deferred,
+        "full_versions_sha256": _version_set_digest(full_planned),
+        "selected_versions_sha256": _version_set_digest(selected_planned),
+        "selected_versions_match_full": True,
+        "production_ignore_execution": False,
+    }
+    transaction = create_transaction(
+        transaction_id=new_transaction_id(now=now, entropy=entropy),
+        source_revision=source_revision,
+        packages=packages,
+        activation_requirements=activation_requirements(packages),
+        recovery_generation_id=recovery_generation_id,
+        provenance_by_package=_provenance(packages),
+        selection={"kind": "coherent-subset", "deferred_boot_packages": [], "solver_proof": proof},
+        now=now,
+    )
+    return DiscoveryResult(
+        transaction=transaction,
+        isolated_db=str(backend.db),
+        candidate_count=len(packages),
+        security_metadata_source=",".join(sorted(trusted_sources)) or None,
+        selection_kind="coherent-subset",
+        deferred_boot_packages=(),
+    )

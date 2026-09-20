@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
 from maho_update_effects import aggregate_effects, validate_provenance
+from maho_update_normal_authority import authorize_normal_plan, certification_confirmation
 from maho_update_staging import validate_manifest
 from maho_update_state import UpdateState, transition_transaction, validate_transaction
 
@@ -62,6 +63,7 @@ class NormalExecutionResult:
 
 class NormalUpdateOps(Protocol):
     fixture_safe: bool
+    production_safe: bool
 
     def install_candidate(self, plan: NormalExecutionPlan) -> Mapping[str, Any]: ...
     def guardian_admit(self, plan: NormalExecutionPlan) -> Mapping[str, Any]: ...
@@ -90,14 +92,24 @@ def _selection_is_coherent(selection: Mapping[str, Any]) -> bool:
     proof = selection.get("solver_proof")
     if kind == "full":
         return isinstance(proof, Mapping) and proof.get("kind") == "full-system-solver"
-    if kind != "independent-normal" or not isinstance(proof, Mapping):
+    if not isinstance(proof, Mapping):
         return False
-    return (
-        proof.get("kind") == "isolated-pacman-independent-generation"
-        and proof.get("selected_versions_match_full") is True
-        and proof.get("production_ignore_execution") is False
-        and sorted(proof.get("deferred_boot_packages", [])) == sorted(selection.get("deferred_boot_packages", []))
-    )
+    if kind == "independent-normal":
+        return (
+            proof.get("kind") == "isolated-pacman-independent-generation"
+            and proof.get("selected_versions_match_full") is True
+            and proof.get("production_ignore_execution") is False
+            and sorted(proof.get("deferred_boot_packages", [])) == sorted(selection.get("deferred_boot_packages", []))
+        )
+    if kind == "coherent-subset":
+        return (
+            proof.get("kind") == "isolated-pacman-coherent-subset"
+            and proof.get("selected_versions_match_full") is True
+            and proof.get("production_ignore_execution") is False
+            and isinstance(proof.get("target_packages"), list)
+            and bool(proof.get("target_packages"))
+        )
+    return False
 
 
 def prepare_normal_transaction(
@@ -176,21 +188,13 @@ def prepare_normal_transaction(
     return NormalPreparationResult(prepared, plan, ())
 
 
-def execute_normal_update(
-    transaction: Mapping[str, Any],
+def _execute_normal_lifecycle(
+    current: Mapping[str, Any],
     plan: NormalExecutionPlan,
     ops: NormalUpdateOps,
     *,
     now=None,
 ) -> NormalExecutionResult:
-    current = validate_transaction(transaction)
-    if current["state"] != UpdateState.PREPARED.value:
-        raise ValueError("normal execution requires PREPARED transaction")
-    if current["transaction_id"] != plan.transaction_id or current["package_generation"]["id"] != plan.package_generation_id:
-        raise ValueError("normal execution plan does not bind exact transaction")
-    if current["source_provenance"]["id"] != plan.source_provenance_id:
-        raise ValueError("normal execution provenance generation drifted")
-
     ready = transition_transaction(
         current,
         UpdateState.MAINTENANCE_READY,
@@ -198,25 +202,6 @@ def execute_normal_update(
         evidence={"normal_plan": plan.as_dict()},
         now=now,
     )
-    if plan.execution_environment == "production":
-        blocked = transition_transaction(
-            ready,
-            UpdateState.BLOCKED,
-            reason="normal production mutation remains uncertified pending hardware proof",
-            blockers=["normal_update_execution_uncertified"],
-            now=now,
-        )
-        return NormalExecutionResult(blocked, plan, False)
-    if getattr(ops, "fixture_safe", False) is not True:
-        blocked = transition_transaction(
-            ready,
-            UpdateState.BLOCKED,
-            reason="normal fixture execution requires fixture-safe provider",
-            blockers=["normal_fixture_executor_not_isolated"],
-            now=now,
-        )
-        return NormalExecutionResult(blocked, plan, False)
-
     installing = transition_transaction(
         ready,
         UpdateState.INSTALLING,
@@ -283,3 +268,87 @@ def execute_normal_update(
         now=now,
     )
     return NormalExecutionResult(healthy, plan, True)
+
+
+def _validate_execution_binding(transaction: Mapping[str, Any], plan: NormalExecutionPlan) -> dict[str, Any]:
+    current = validate_transaction(transaction)
+    if current["state"] != UpdateState.PREPARED.value:
+        raise ValueError("normal execution requires PREPARED transaction")
+    if current["transaction_id"] != plan.transaction_id or current["package_generation"]["id"] != plan.package_generation_id:
+        raise ValueError("normal execution plan does not bind exact transaction")
+    if current["source_provenance"]["id"] != plan.source_provenance_id:
+        raise ValueError("normal execution provenance generation drifted")
+    return current
+
+
+def execute_normal_update(
+    transaction: Mapping[str, Any],
+    plan: NormalExecutionPlan,
+    ops: NormalUpdateOps,
+    *,
+    authority: Mapping[str, Any] | None = None,
+    now=None,
+) -> NormalExecutionResult:
+    current = _validate_execution_binding(transaction, plan)
+    if plan.execution_environment == "production":
+        try:
+            if authority is None:
+                raise ValueError("normal execution authority missing")
+            authorize_normal_plan(
+                authority, source_revision=current["source_revision"],
+                effects=plan.effects, activation_requirements=plan.activation_requirements,
+            )
+        except ValueError:
+            ready = transition_transaction(
+                current,
+                UpdateState.MAINTENANCE_READY,
+                reason="normal update exact generation is ready for bounded execution",
+                evidence={"normal_plan": plan.as_dict()},
+                now=now,
+            )
+            blocked = transition_transaction(
+                ready,
+                UpdateState.BLOCKED,
+                reason="normal production mutation remains uncertified pending hardware proof",
+                blockers=["normal_update_execution_uncertified"],
+                now=now,
+            )
+            return NormalExecutionResult(blocked, plan, False)
+        if getattr(ops, "production_safe", False) is not True:
+            raise ValueError("normal production executor is not certified production-safe")
+    elif getattr(ops, "fixture_safe", False) is not True:
+        ready = transition_transaction(
+            current,
+            UpdateState.MAINTENANCE_READY,
+            reason="normal update exact generation is ready for bounded execution",
+            evidence={"normal_plan": plan.as_dict()},
+            now=now,
+        )
+        blocked = transition_transaction(
+            ready,
+            UpdateState.BLOCKED,
+            reason="normal fixture execution requires fixture-safe provider",
+            blockers=["normal_fixture_executor_not_isolated"],
+            now=now,
+        )
+        return NormalExecutionResult(blocked, plan, False)
+    return _execute_normal_lifecycle(current, plan, ops, now=now)
+
+
+def execute_normal_certification(
+    transaction: Mapping[str, Any],
+    plan: NormalExecutionPlan,
+    ops: NormalUpdateOps,
+    *,
+    confirmation: str,
+    now=None,
+) -> NormalExecutionResult:
+    """One-time host certification path. It never creates future authority itself."""
+    current = _validate_execution_binding(transaction, plan)
+    if plan.execution_environment != "production":
+        raise ValueError("normal certification requires production execution environment")
+    if confirmation != certification_confirmation(current["source_revision"]):
+        raise ValueError("exact normal certification confirmation token is required")
+    if getattr(ops, "production_safe", False) is not True:
+        raise ValueError("normal certification requires production-safe executor")
+    return _execute_normal_lifecycle(current, plan, ops, now=now)

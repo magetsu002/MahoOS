@@ -187,7 +187,7 @@ def _validate_selection(value: Any, packages: Sequence[Mapping[str, Any]]) -> di
         return {"kind": "full", "deferred_boot_packages": [], "solver_proof": {"kind": "full-system-solver"}}
     data = dict(_mapping(value, "selection"))
     kind = data.get("kind")
-    if kind not in {"full", "independent-normal", "artifact-set"}:
+    if kind not in {"full", "independent-normal", "coherent-subset", "artifact-set"}:
         raise ValueError("update selection kind is invalid")
     deferred = _string_list(data.get("deferred_boot_packages", []), "deferred boot packages")
     proof = data.get("solver_proof")

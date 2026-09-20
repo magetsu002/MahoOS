@@ -258,6 +258,20 @@ class NativeBtrfsOps:
             raise RuntimeError("admission base identity drifted")
         return {"base_root": str(base), "candidate_root": str(candidate)}
 
+    def freeze_normal_candidate(self, expected_uuid: str) -> dict[str, Any]:
+        """Freeze a non-boot candidate for stable Guardian admission."""
+        self.require_root()
+        self._unmount(self.offline_root)
+        identity = self.root_identity()
+        self._mount_top(identity)
+        path = self.top / self.candidate
+        if self._show_uuid(path) != expected_uuid:
+            raise RuntimeError("normal candidate UUID drifted before freeze")
+        self._set_read_only(path, True)
+        if not self._read_only(path):
+            raise RuntimeError("normal candidate did not become read-only")
+        return {"read_only": True, "uuid": expected_uuid}
+
     def freeze_candidate(self, expected_uuid: str) -> dict[str, Any]:
         self.require_root()
         self._unmount(self.offline_root)

@@ -36,6 +36,7 @@ from maho_update_native import (
     activation_confirmation,
     update_confirmation,
 )
+from maho_update_normal_campaign import certify_normal_update
 from maho_update_preparation import PreparationEvidence, prepare_transaction
 from maho_update_receipts import record_receipt
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction
@@ -831,6 +832,9 @@ def main() -> None:
     verify.add_argument("transaction_id")
     status = sub.add_parser("status")
     status.add_argument("transaction_id")
+    normal = sub.add_parser("certify-normal")
+    normal.add_argument("--package", action="append", required=True)
+    normal.add_argument("--confirm", required=True)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -843,6 +847,8 @@ def main() -> None:
             payload = arm_native_activation(args.transaction_id, args.confirm)
         elif args.command == "verify":
             payload = verify_native_activation(args.transaction_id)
+        elif args.command == "certify-normal":
+            payload = certify_normal_update(args.package, args.confirm)
         else:
             payload = status_native_campaign(args.transaction_id)
     except (RuntimeError, ValueError, LookupError, PermissionError) as exc:

@@ -8,6 +8,7 @@ SOURCE_REPO=""
 EXPECTED_REV=""
 FILES=(
   config/platform.json
+  config/platform/maho-pacman.conf
   lib/maho_trust_identity.py
   lib/guardian_admission.py
   lib/guardian_native_admission.py
@@ -25,7 +26,12 @@ FILES=(
   lib/maho_system_restore_campaign.py
   lib/maho_update_state.py
   lib/maho_update_discovery.py
+  lib/maho_update_effects.py
   lib/maho_update_staging.py
+  lib/maho_update_normal_authority.py
+  lib/maho_update_normal.py
+  lib/maho_update_normal_host.py
+  lib/maho_update_normal_campaign.py
   lib/maho_update_preparation.py
   lib/maho_update_transaction.py
   lib/maho_update_receipts.py
