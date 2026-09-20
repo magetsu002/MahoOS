@@ -93,9 +93,9 @@ Item {
     // one crisp, palette-neutral vector instead of toolkit error artwork.
     MahoFallbackAppGlyph {
         anchors.centerIn: parent
-        width: Math.round(Math.min(root.width, root.height) * 0.66)
+        width: Math.round(Math.min(root.width, root.height) * 0.72)
         height: width
         visible: !root.ready && root.candidatesExhausted
-        glyphColor: Qt.rgba(1, 1, 1, 0.76)
+        glyphColor: Qt.rgba(1, 1, 1, 0.74)
     }
 }
