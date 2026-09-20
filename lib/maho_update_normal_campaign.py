@@ -101,7 +101,18 @@ def _private_json(path: Path, payload: Mapping[str, Any]) -> None:
         except FileNotFoundError: pass
 
 
-def certify_normal_update(target_packages: Sequence[str], confirmation: str) -> dict[str, Any]:
+def _require_positive(value: Mapping[str, Any], stage: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or value.get("ok") is not True:
+        detail = json.dumps(dict(value), sort_keys=True, separators=(",", ":")) if isinstance(value, Mapping) else repr(value)
+        if len(detail) > 4000:
+            detail = detail[:4000] + "..."
+        raise RuntimeError(f"normal certification {stage} failed: {detail}")
+    return dict(value)
+
+
+def certify_normal_update(
+    target_packages: Sequence[str], confirmation: str, *, preflight_only: bool = False,
+) -> dict[str, Any]:
     _require_root()
     root = _campaign_root()
     revision = _source_revision(root)
@@ -168,6 +179,46 @@ def certify_normal_update(target_packages: Sequence[str], confirmation: str) -> 
         ops = NormalProductionOps(
             transaction=prep.transaction, cache_root=cache, btrfs=btrfs, candidate=candidate,
         )
+        if preflight_only:
+            install = _require_positive(ops.install_candidate(prep.plan), "candidate installation")
+            admission = _require_positive(ops.guardian_admit(prep.plan), "Guardian Admission")
+            activation_preflight = _require_positive(
+                ops.preflight_activation(prep.plan), "live activation preflight"
+            )
+            if ops.live_mutation_started:
+                raise RuntimeError("normal preflight unexpectedly started live mutation")
+            cleanup = ops.cleanup_success()
+            if cleanup.get("ok") is not True:
+                raise RuntimeError("normal preflight could not retire candidate/base snapshots")
+            candidate = None
+            receipt = {
+                "schema_version": 1,
+                "kind": "maho-normal-update-certification-preflight",
+                "source_revision": revision,
+                "transaction_id": txid,
+                "package_generation_id": prep.transaction["package_generation"]["id"],
+                "targets": list(targets),
+                "power": power,
+                "effects": effects,
+                "candidate_install": install,
+                "guardian": ops.admission.as_dict() if ops.admission is not None else None,
+                "activation_preflight": activation_preflight,
+                "candidate_cleanup": cleanup,
+                "live_mutation_started": False,
+                "result": "READY_FOR_LIVE",
+            }
+            receipt_path = STATE_ROOT / "normal-certification" / f"{txid}-preflight.json"
+            _private_json(receipt_path, receipt)
+            return {
+                "phase": "preflight-ready",
+                "transaction_id": txid,
+                "targets": list(targets),
+                "receipt_path": str(receipt_path),
+                "live_mutation_started": False,
+                "candidate_cleanup": cleanup,
+                "activation_preflight": activation_preflight,
+                "reboot_performed": False,
+            }
         execution = execute_normal_certification(
             prep.transaction, prep.plan, ops, confirmation=confirmation,
         )

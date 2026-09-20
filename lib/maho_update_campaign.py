@@ -835,6 +835,7 @@ def main() -> None:
     normal = sub.add_parser("certify-normal")
     normal.add_argument("--package", action="append", required=True)
     normal.add_argument("--confirm", required=True)
+    normal.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -848,7 +849,9 @@ def main() -> None:
         elif args.command == "verify":
             payload = verify_native_activation(args.transaction_id)
         elif args.command == "certify-normal":
-            payload = certify_normal_update(args.package, args.confirm)
+            payload = certify_normal_update(
+                args.package, args.confirm, preflight_only=args.preflight_only,
+            )
         else:
             payload = status_native_campaign(args.transaction_id)
     except (RuntimeError, ValueError, LookupError, PermissionError) as exc:

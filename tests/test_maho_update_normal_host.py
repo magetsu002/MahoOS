@@ -6,10 +6,12 @@ import os
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'lib'))
 
+from guardian_admission import AdmissionOutcome
 from maho_update_discovery import CommandResult
 from maho_update_native import NativeBtrfsOps
 from maho_update_normal_host import NormalProductionOps
@@ -64,9 +66,11 @@ class QueryProbe(NormalProductionOps):
 
 class CandidateListProbe(NormalProductionOps):
     def _run(self, command):
+        command=tuple(command)
+        root=command[command.index('--root')+1]
         return subprocess.CompletedProcess(
             command,0,
-            'demo /usr/\ndemo /usr/bin/\ndemo /usr/bin/demo\n',''
+            f'demo {root}/usr/\ndemo {root}/usr/bin/\ndemo {root}/usr/bin/demo\n',''
         )
 
 class ScriptletReject(NormalProductionOps):
@@ -83,9 +87,15 @@ class PathSetProbe(NormalProductionOps):
         command=tuple(command)
         rooted='--root' in command
         if '--list' in command:
-            rows=['demo /usr/bin/demo\n','demo /usr/share/demo.txt\n']
+            prefix=''
+            if rooted:
+                prefix=command[command.index('--root')+1]
+            rows=[
+                f'demo {prefix}/usr/bin/demo\n',
+                f'demo {prefix}/usr/share/demo.txt\n',
+            ]
             if rooted and self.drift:
-                rows.append('demo /usr/share/new.txt\n')
+                rows.append(f'demo {prefix}/usr/share/new.txt\n')
             return subprocess.CompletedProcess(command,0,''.join(rows),'')
         raise AssertionError(command)
 
@@ -108,6 +118,58 @@ class InPlaceProbe(NormalProductionOps):
                 rows+='demo /usr/share/new.txt\n'
             return subprocess.CompletedProcess(command,0,rows,'')
         raise AssertionError(command)
+
+
+class ActivationGateProbe(NormalProductionOps):
+    def __init__(self, root: Path):
+        self.expected={'demo':'2'}
+        self.previous={'demo':'1'}
+        self.admission=SimpleNamespace(
+            decision=SimpleNamespace(outcome=AdmissionOutcome.ALLOW)
+        )
+        self.roots=SimpleNamespace(candidate_root=root/'candidate')
+        self.candidate={'parent_root_uuid':'root-uuid'}
+        self.btrfs=SimpleNamespace(
+            run_root=root/'run',
+            root_identity=lambda: SimpleNamespace(
+                filesystem_uuid='fs-uuid',
+                fsroot='/@',
+                source='/dev/test',
+                device='/dev/test',
+                subvolume_uuid='root-uuid',
+            ),
+        )
+        self.live_mutation_started=False
+        self.PACMAN_LOCK=root/'no-pacman-lock'
+        self.preflight_calls=0
+
+    def _path_set_evidence(self, candidate_root):
+        return {'ok':True,'profile':'ordinary-files-static-path-set-v1'}
+
+    def _active_target_processes(self):
+        return []
+
+    def _query_versions(self, *, root=None):
+        return dict(self.previous if root is None else self.expected)
+
+    def _payloads(self, plan):
+        return ('/tmp/demo.pkg.tar.zst',)
+
+    def _payload_scriptlet_free(self, payload):
+        return True,None
+
+    def _in_place_upgrade_profile(self, payloads):
+        return {'ok':True,'profile':'in-place-static-package-path-set-v1'}
+
+    def _hook_profile(self, payloads):
+        return {'ok':True,'profile':'bounded-hooks-static-path-set-v1'}
+
+    def preflight_activation(self, plan):
+        self.preflight_calls += 1
+        return super().preflight_activation(plan)
+
+    def _run(self, command):
+        return subprocess.CompletedProcess(command,0,'','')
 
 def main():
     with tempfile.TemporaryDirectory(prefix='maho-normal-runtime-') as temporary:
@@ -165,6 +227,15 @@ def main():
         check('new dependency without installed path authority fails before candidate mutation','live target package paths' in str(exc))
     else:
         raise AssertionError('new dependency unexpectedly passed in-place profile')
+
+    with tempfile.TemporaryDirectory(prefix='maho-normal-activation-gate-') as temporary:
+        gate=ActivationGateProbe(Path(temporary))
+        preflight=gate.preflight_activation(object())
+        check('activation preflight proves all deterministic gates without live mutation',
+              preflight['ok'] is True and gate.live_mutation_started is False and gate.preflight_calls==1)
+        activation=gate.activate(object())
+        check('live activation consumes the same preflight gate before mutation',
+              activation['ok'] is True and gate.live_mutation_started is True and gate.preflight_calls==2)
 
     with tempfile.TemporaryDirectory(prefix='maho-normal-parity-') as temporary:
         root=Path(temporary); candidate=root/'candidate'; live=root/'live'

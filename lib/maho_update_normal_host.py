@@ -24,6 +24,7 @@ class NormalProductionOps:
     production_safe = True
     PACMAN = "/usr/bin/pacman"
     PACMAN_CONF = "/usr/bin/pacman-conf"
+    PACMAN_LOCK = Path("/var/lib/pacman/db.lck")
     SYSTEM_HOOK_DIR = Path("/usr/share/libalpm/hooks")
     CUSTOM_HOOK_DIR = Path("/etc/pacman.d/hooks")
     MASKED_HOST_HOOKS = (
@@ -442,10 +443,10 @@ class NormalProductionOps:
                 active.append(pid)
         return sorted(active)
 
-    def activate(self, plan: NormalExecutionPlan) -> Mapping[str, Any]:
+    def preflight_activation(self, plan: NormalExecutionPlan) -> Mapping[str, Any]:
         if self.admission is None or self.admission.decision.outcome is not AdmissionOutcome.ALLOW:
             return {"ok": False, "reason": "Guardian did not authorize normal activation"}
-        if Path("/var/lib/pacman/db.lck").exists():
+        if self.PACMAN_LOCK.exists():
             return {"ok": False, "reason": "live Pacman lock exists"}
         path_set = self._path_set_evidence(self.roots.candidate_root) if self.roots is not None else {"ok": False}
         if path_set.get("ok") is not True:
@@ -470,6 +471,30 @@ class NormalProductionOps:
         hook_profile = self._hook_profile(payloads)
         if hook_profile.get("ok") is not True:
             return {"ok": False, "reason": "ALPM hook policy drifted before live activation", "hook_profile": hook_profile}
+        return {
+            "ok": True,
+            "path_set": path_set,
+            "active_pids": [],
+            "root_identity": {
+                "filesystem_uuid": identity.filesystem_uuid,
+                "fsroot": identity.fsroot,
+                "source": identity.source,
+                "device": identity.device,
+                "subvolume_uuid": identity.subvolume_uuid,
+            },
+            "observed_previous_versions": before,
+            "expected_previous_versions": self.previous,
+            "in_place_profile": in_place,
+            "hook_profile": hook_profile,
+        }
+
+    def activate(self, plan: NormalExecutionPlan) -> Mapping[str, Any]:
+        preflight = self.preflight_activation(plan)
+        if preflight.get("ok") is not True:
+            return preflight
+        payloads = self._payloads(plan)
+        in_place = preflight["in_place_profile"]
+        hook_profile = preflight["hook_profile"]
         hookdir = self.btrfs.run_root / "normal-live-hooks"
         created: tuple[Path, ...] = ()
         try:
@@ -499,6 +524,25 @@ class NormalProductionOps:
                 digest.update(chunk)
         return digest.hexdigest()
 
+    @staticmethod
+    def _canonical_rooted_package_path(root: Path, value: str) -> str:
+        root_text = os.path.normpath(os.path.abspath(str(root)))
+        path_text = os.path.normpath(value)
+        if not os.path.isabs(path_text):
+            raise RuntimeError("rooted Pacman package path is not absolute")
+        try:
+            common = os.path.commonpath((root_text, path_text))
+        except ValueError as exc:
+            raise RuntimeError("rooted Pacman package path cannot be bounded to candidate root") from exc
+        if common != root_text:
+            raise RuntimeError("rooted Pacman package path escaped candidate root")
+        relative = os.path.relpath(path_text, root_text)
+        if relative == ".":
+            return "/"
+        if relative == ".." or relative.startswith("../"):
+            raise RuntimeError("rooted Pacman package path escaped candidate root")
+        return "/" + relative.replace(os.sep, "/").rstrip("/")
+
     def _package_paths(self, root: Path, name: str) -> tuple[str, ...]:
         result = self._run((
             self.PACMAN, "--root", str(root),
@@ -510,7 +554,7 @@ class NormalProductionOps:
         for line in result.stdout.splitlines():
             observed, sep, value = line.partition(" ")
             if sep and observed == name and value.startswith("/"):
-                paths.append(value.rstrip("/"))
+                paths.append(self._canonical_rooted_package_path(root, value))
         if not paths:
             raise RuntimeError(f"certified package path set empty:{name}")
         return tuple(sorted(set(paths)))
