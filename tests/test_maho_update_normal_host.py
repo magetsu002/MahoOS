@@ -62,6 +62,13 @@ class QueryProbe(NormalProductionOps):
         self.commands.append(tuple(command))
         return subprocess.CompletedProcess(command,0,'demo 2\n','')
 
+class CandidateListProbe(NormalProductionOps):
+    def _run(self, command):
+        return subprocess.CompletedProcess(
+            command,0,
+            'demo /usr/\ndemo /usr/bin/\ndemo /usr/bin/demo\n',''
+        )
+
 class ScriptletReject(NormalProductionOps):
     @staticmethod
     def _run(command):
@@ -139,6 +146,9 @@ def main():
     check('candidate package query returns bounded expected version',observed=={'demo':'2'})
     command=probe.commands[-1]
     check('candidate package query uses root-scoped database semantics','--root' in command and '--dbpath' not in command)
+    candidate_paths=CandidateListProbe._package_paths(object.__new__(CandidateListProbe),Path('/candidate'),'demo')
+    check('candidate Pacman directory paths normalize to live path representation',
+          candidate_paths==('/usr','/usr/bin','/usr/bin/demo'))
 
     stable=PathSetProbe()._path_set_evidence(Path('/candidate'))
     check('static package path set satisfies certified normal profile',stable['ok'] is True and stable['profile']=='ordinary-files-static-path-set-v1')

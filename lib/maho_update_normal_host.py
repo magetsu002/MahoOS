@@ -510,7 +510,7 @@ class NormalProductionOps:
         for line in result.stdout.splitlines():
             observed, sep, value = line.partition(" ")
             if sep and observed == name and value.startswith("/"):
-                paths.append(value)
+                paths.append(value.rstrip("/"))
         if not paths:
             raise RuntimeError(f"certified package path set empty:{name}")
         return tuple(sorted(set(paths)))
