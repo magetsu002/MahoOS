@@ -18,6 +18,17 @@ V2_MARKER="# managed-by: maho-setup v2"
 V1_MARKER="# managed-by: maho-setup v1"
 HYPR_REL="config/hypr/maho/core/session.lua"
 HYPR_TARGET="$CONFIG_HOME/hypr/maho/core/session.lua"
+HYPR_MANAGED_RELS=(
+  config/hypr/hyprland.lua
+  config/hypr/maho/core/windowing.lua
+  config/hypr/maho/core/input.lua
+  config/hypr/maho/core/binds.lua
+  config/hypr/maho/core/session.lua
+  config/hypr/maho/appearance/decorations.lua
+  config/hypr/maho/appearance/animations.lua
+  config/hypr/maho/theme/fallback.lua
+  config/hypr/maho/theme/palette.lua
+)
 SHELL_SOURCE_REL="config/quickshell/maho-shell"
 SHELL_TARGET="$CONFIG_HOME/quickshell/maho-shell"
 NOTIFY_LEGACY_TARGET="$CONFIG_HOME/quickshell/maho-notify"
@@ -197,7 +208,29 @@ safe_unit() {
 }
 
 managed_shell() { link_is "$SHELL_TARGET" "$(runtime_path "$SHELL_SOURCE_REL")"; }
-managed_hypr() { link_is "$HYPR_TARGET" "$(runtime_path "$HYPR_REL")"; }
+hypr_target_for() { printf '%s/hypr/%s\n' "$CONFIG_HOME" "${1#config/hypr/}"; }
+managed_hypr_file() { local rel="$1"; link_is "$(hypr_target_for "$rel")" "$(runtime_path "$rel")"; }
+managed_hypr() { local rel; for rel in "${HYPR_MANAGED_RELS[@]}"; do managed_hypr_file "$rel" || return 1; done; }
+legacy_hypr_managed_file() {
+  local rel="$1" path="$2"
+  case "$rel" in
+    config/hypr/hyprland.lua) sha_is "$path" "57c4619bb553255847e2e8631afd9a19607f16b8b570e4ea4ffb22370a06ef74" ;;
+    config/hypr/maho/core/binds.lua) sha_is "$path" "dad453a111eeae0cd45f3d392fb37ac8e1d9f25b286685b84ccd94f15d487a68" ;;
+    config/hypr/maho/appearance/decorations.lua) sha_is "$path" "0ae4e081431a8c5fb08051e3ad602aa6776a7284c48d9de4273c8f3aaefc409b" ;;
+    *) return 1 ;;
+  esac
+}
+safe_hypr_file() {
+  local rel="$1" path
+  path="$(hypr_target_for "$rel")"
+  [ ! -e "$path" ] && [ ! -L "$path" ] && return 0
+  managed_hypr_file "$rel" && return 0
+  [ -f "$path" ] && [ ! -L "$path" ] && cmp -s "$path" "$ROOT/$rel" && return 0
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$(runtime_path "$rel")" ] && cmp -s "$path" "$(runtime_path "$rel")" && return 0
+  [ -f "$path" ] && [ ! -L "$path" ] && legacy_hypr_managed_file "$rel" "$path" && return 0
+  [ "$rel" = "$HYPR_REL" ] && legacy_hypr && return 0
+  return 1
+}
 legacy_hypr() {
   [ -f "$HYPR_TARGET" ] && [ ! -L "$HYPR_TARGET" ] || return 1
   sha_is "$HYPR_TARGET" "e792a37a0f8189302ef21a60afc52744eb86c5bae312525ac414540b911e2d15" && return 0
@@ -239,7 +272,7 @@ report_capability() {
 preflight() {
   local failed=0 name file
   local -a required=(
-    config/ownership.json config/intent.json config/adapters.json "$HYPR_REL"
+    config/ownership.json config/intent.json config/adapters.json "${HYPR_MANAGED_RELS[@]}"
     config/quickshell/maho-shell/shell.qml config/quickshell/maho-notify/shell.qml
     config/quickshell/maho-launcher/shell.qml config/quickshell/maho-link/shell.qml
     config/quickshell/maho-lock/shell.qml config/quickshell/maho-power/shell.qml
@@ -293,7 +326,7 @@ validate_targets() {
   for name in "${COMMANDS[@]}"; do safe_command "$name" || die "refusing unmanaged command: $(command_path "$name")" || return 1; done
   for name in "${UNITS[@]}"; do safe_unit "$name" || die "refusing unmanaged unit: $(unit_path "$name")" || return 1; done
   if [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then managed_shell || { die "refusing unmanaged shell config: $SHELL_TARGET"; return 1; }; fi
-  if [ -e "$HYPR_TARGET" ] || [ -L "$HYPR_TARGET" ]; then managed_hypr || legacy_hypr || { die "refusing unrelated Hyprland session hook: $HYPR_TARGET"; return 1; }; fi
+  for path in "${HYPR_MANAGED_RELS[@]}"; do safe_hypr_file "$path" || { die "refusing unmanaged Maho Hyprland config: $(hypr_target_for "$path")"; return 1; }; done
   if [ -e "$FILES_DESKTOP_TARGET" ] || [ -L "$FILES_DESKTOP_TARGET" ]; then managed_files_desktop || legacy_files_desktop || { die "refusing unmanaged Maho Files desktop entry: $FILES_DESKTOP_TARGET"; return 1; }; fi
   path="$NOTIFY_LEGACY_TARGET"
   if [ -L "$path" ]; then echo "INFO  legacy Notify config link left untouched: $path"; elif [ -d "$path" ]; then echo "INFO  preserving live-owned Notify config directory: $path"; fi
@@ -434,7 +467,7 @@ snapshot_all() {
   mkdir -m 0700 "$tx"; : >"$manifest"
   for name in "${COMMANDS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(command_path "$name")" "$index"; done
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$SHELL_TARGET" "$index"
-  index=$((index+1)); snapshot_one "$tx" "$manifest" "$HYPR_TARGET" "$index"
+  for path in "${HYPR_MANAGED_RELS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(hypr_target_for "$path")" "$index"; done
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$FILES_DESKTOP_TARGET" "$index"
   for name in "${UNITS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(unit_path "$name")" "$index"; done
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do path="$UNIT_DIR/$wants/$name"; index=$((index+1)); snapshot_one "$tx" "$manifest" "$path" "$index"; done; done
@@ -480,7 +513,7 @@ wire_runtime() {
   local name desktop_tmp
   for name in "${COMMANDS[@]}"; do write_command "$name"; done
   atomic_link "$(runtime_path "$SHELL_SOURCE_REL")" "$SHELL_TARGET"
-  atomic_link "$(runtime_path "$HYPR_REL")" "$HYPR_TARGET"
+  for name in "${HYPR_MANAGED_RELS[@]}"; do atomic_link "$(runtime_path "$name")" "$(hypr_target_for "$name")"; done
   mkdir -p "$(dirname -- "$FILES_DESKTOP_TARGET")"
   desktop_tmp="$(dirname -- "$FILES_DESKTOP_TARGET")/.maho-files-desktop-$$"
   render_files_desktop >"$desktop_tmp"
@@ -728,7 +761,7 @@ status() {
   for name in "${COMMANDS[@]}"; do managed_command "$name" || { echo "FAIL  command $name"; failed=1; }; done
   for name in "${UNITS[@]}"; do managed_unit "$name" || { echo "FAIL  unit $name"; failed=1; }; done
   managed_shell || { echo "FAIL  shell config"; failed=1; }
-  managed_hypr || { echo "FAIL  Hyprland session hook"; failed=1; }
+  managed_hypr || { echo "FAIL  Maho Hyprland managed configuration"; failed=1; }
   managed_files_desktop || { echo "FAIL  Maho Files desktop entry"; failed=1; }
   if systemd_available; then
     effective_notify_runtime_authority || { echo "FAIL  Notify execution authority bypasses runtime/current"; failed=1; }
@@ -755,7 +788,7 @@ uninstall() {
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do remove_managed_wants_link "$name" "$wants"; done; done
   for name in "${UNITS[@]}"; do path="$(unit_path "$name")"; if managed_unit "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged user unit $path"; fi; done
   managed_shell && rm -f -- "$SHELL_TARGET" || true
-  managed_hypr && rm -f -- "$HYPR_TARGET" || true
+  for name in "${HYPR_MANAGED_RELS[@]}"; do path="$(hypr_target_for "$name")"; if managed_hypr_file "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged Hyprland config $path"; fi; done
   managed_files_desktop && rm -f -- "$FILES_DESKTOP_TARGET" || true
   for name in "${COMMANDS[@]}"; do path="$(command_path "$name")"; if managed_command "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged command $path"; fi; done
   systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true

@@ -54,9 +54,8 @@ else
     maho_dock_material_rule:set_enabled(true)
 end
 
--- Maho Link uses a dedicated, inputless Top-layer blur carrier. Do not blur
--- the interactive full-screen Overlay surface: its dim veil and translucent
--- Wi-Fi/Bluetooth card animate, and using that moving surface as Hyprland's
+-- Maho Link mirrors Notify's single-surface material model: only the
+-- alpha-masked foreground card is blurred. The full-screen catcher uses a
 -- separate namespace and can never participate in blur/damage history.
 hl.layer_rule({
     name = "maho-link-material",
@@ -68,8 +67,10 @@ hl.layer_rule({
 })
 
 
--- Maho Launcher splits the full-screen click catcher from the actual glass
--- card. Only the alpha-masked foreground material participates in blur.
+
+
+-- Maho Launcher: only the alpha-masked foreground card is blurred. The
+-- full-screen catcher/dim plane uses maho-launcher-catcher and stays unblurred.
 hl.layer_rule({
     name = "maho-launcher-material",
     match = { namespace = "maho-launcher" },
@@ -78,7 +79,6 @@ hl.layer_rule({
     xray = false,
     no_anim = true,
 })
-
 
 -- Maho Notify follows the same material model as Maho Clipboard: blur the
 -- interactive layer itself and ignore transparent pixels. This keeps blur,

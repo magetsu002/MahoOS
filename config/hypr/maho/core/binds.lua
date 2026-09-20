@@ -2,7 +2,35 @@
 
 local mainMod = "SUPER"
 
+local function readFirstLine(path)
+    local file = io.open(path, "r")
+    if not file then
+        return ""
+    end
+    local value = file:read("*l") or ""
+    file:close()
+    return value
+end
+
+local home = os.getenv("HOME") or ""
+local keyboardLightHelper = home .. "/.local/bin/maho-kbdlight"
+local helperProbe = io.open(keyboardLightHelper, "r")
+local hasKeyboardLightHelper = helperProbe ~= nil
+if helperProbe then
+    helperProbe:close()
+end
+local acerKeyboardLightQuirk =
+    readFirstLine("/sys/class/dmi/id/sys_vendor") == "Acer"
+    and readFirstLine("/sys/class/dmi/id/product_name") == "Predator PHN16-72"
+    and hasKeyboardLightHelper
+
 -- Applications.
+hl.bind(
+    mainMod .. " + CTRL + RETURN",
+    hl.dsp.exec_cmd([[$HOME/.local/bin/maho-launcher open]])
+)
+hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd([["$HOME/.local/bin/screenshot-select-copy"]]))
+hl.bind("Print", hl.dsp.exec_cmd([["$HOME/.local/bin/screenshot-copy"]]))
 hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd("kitty"))
 hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("firefox"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([["$HOME/.local/bin/maho-files" run "$HOME"]]))
@@ -26,6 +54,18 @@ hl.bind(
     hl.dsp.exec_cmd([["$HOME/.local/bin/maho-clipboard"]])
 )
 -- maho-clipboard-bind:end
+
+-- Direct Maho Link connectivity shortcuts.
+-- maho-link-shortcuts:begin
+hl.bind(
+    mainMod .. " + SHIFT + W",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-link" wifi]])
+)
+hl.bind(
+    mainMod .. " + SHIFT + B",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-link" bluetooth]])
+)
+-- maho-link-shortcuts:end
 
 hl.bind(
     mainMod .. " + W",
@@ -92,15 +132,44 @@ hl.bind(
     { repeating = true }
 )
 
+-- Acer Predator PHN16-72 firmware reports the keyboard-light keys as
+-- touchpad ON/OFF. Register the quirk only on that exact model and only when
+-- the machine-local reconciler exists, so other systems retain normal keys.
+if acerKeyboardLightQuirk then
+    hl.bind(
+        "XF86TouchpadOff",
+        hl.dsp.exec_cmd([["$HOME/.local/bin/maho-kbdlight" down]])
+    )
+    hl.bind(
+        "XF86TouchpadOn",
+        hl.dsp.exec_cmd([["$HOME/.local/bin/maho-kbdlight" up]])
+    )
+end
+
 -- Window basics.
 hl.bind(mainMod .. " + Q", hl.dsp.window.close())
 
 hl.bind(
     mainMod .. " + F",
-    hl.dsp.window.fullscreen({
-        mode = "fullscreen",
-        action = "toggle",
-    })
+    function()
+        local active = hl.get_active_window()
+
+        -- Chromium hides its tab strip when the client is told it is fullscreen.
+        -- Keep Brave client-normal while Hyprland gives it the full monitor.
+        if active and active.class == "brave-browser" then
+            hl.dispatch(hl.dsp.window.fullscreen_state({
+                internal = 2,
+                client = 0,
+                action = "toggle",
+            }))
+            return
+        end
+
+        hl.dispatch(hl.dsp.window.fullscreen({
+            mode = "fullscreen",
+            action = "toggle",
+        }))
+    end
 )
 
 hl.bind(

@@ -49,7 +49,7 @@ if validate_targets >"$TMP/reject.out" 2>"$TMP/reject.err"; then
 fi
 mutated_after="$(sha256sum "$HYPR_TARGET" | awk '{print $1}')"
 [ "$mutated_before" = "$mutated_after" ] || fail 'failed validation mutated the unrelated hook'
-grep -Fq 'refusing unrelated Hyprland session hook' "$TMP/reject.err" || fail 'rejection did not identify Hyprland ownership conflict'
+grep -Fq 'refusing unmanaged Maho Hyprland config' "$TMP/reject.err" || fail 'rejection did not identify Hyprland ownership conflict'
 echo 'PASS near-match Hyprland hook remains fail-closed and non-mutating'
 
 cat >"$HYPR_TARGET" <<'EOF_OLDER_HYPR'

@@ -73,6 +73,19 @@ OLD_RELEASE="$RELEASES/maho-link-693943265af1e8bbfd6bf33db8fd8c1ab2459062"
 OLDER_RELEASE="$RELEASES/6d73d9c8d25d0d491c1629572d6b36c1b670cd72a50bc9dd981635a5dc1bd3c1"
 UNIT_DIR="$XDG_CONFIG_HOME/systemd/user"
 HYPR_SESSION="$XDG_CONFIG_HOME/hypr/maho/core/session.lua"
+HYPR_MANAGED_RELS=(
+  config/hypr/hyprland.lua
+  config/hypr/maho/core/windowing.lua
+  config/hypr/maho/core/input.lua
+  config/hypr/maho/core/binds.lua
+  config/hypr/maho/core/session.lua
+  config/hypr/maho/appearance/decorations.lua
+  config/hypr/maho/appearance/animations.lua
+  config/hypr/maho/theme/fallback.lua
+  config/hypr/maho/theme/palette.lua
+)
+hypr_target_for_test() { printf '%s/hypr/%s\n' "$XDG_CONFIG_HOME" "${1#config/hypr/}"; }
+HYPRLOCK_USER="$XDG_CONFIG_HOME/hypr/hyprlock.conf"
 SHELL_TARGET="$XDG_CONFIG_HOME/quickshell/maho-shell"
 NOTIFY_TARGET="$XDG_CONFIG_HOME/quickshell/maho-notify"
 FILES_DESKTOP_TARGET="$XDG_DATA_HOME/applications/io.maho.Files.desktop"
@@ -82,6 +95,7 @@ mkdir -p "$OLD_RELEASE/config/quickshell/maho-shell" "$OLD_RELEASE/config/hypr/m
   "$(dirname "$SHELL_TARGET")" "$(dirname "$HYPR_SESSION")" "$(dirname "$FILES_DESKTOP_TARGET")"
 printf '%s\n' '// old shell' >"$OLD_RELEASE/config/quickshell/maho-shell/shell.qml"
 printf '%s\n' '-- old session hook' >"$OLD_RELEASE/config/hypr/maho/core/session.lua"
+printf '%s\n' '# unrelated user-owned hyprlock config' >"$HYPRLOCK_USER"
 for unit in "${UNITS[@]}"; do cp "$ROOT/systemd/user/$unit" "$OLD_RELEASE/systemd/user/$unit"; done
 cat >"$OLD_RELEASE/manifest.json" <<'EOF_OLD_MANIFEST'
 {"content_sha256":"569b034d66cf37e75c94f4442630e2de21c10db6c006d2fa85d02571d1b37df1","source_revision":"eafcc986adaafbb1f36df09ea9f831af6a0c1a5b","version":1}
@@ -397,7 +411,12 @@ grep -Fq 'MAHO_NOTIFY_CONFIG_DIR="$MAHO_ROOT/config/quickshell/maho-notify"' "$H
 [ -d "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail 'live-owned Notify directory was replaced'
 grep -Fq live-notify-owner "$NOTIFY_TARGET/owner.txt" || fail 'live-owned Notify directory was modified'
 [ -L "$SHELL_TARGET" ] && [ "$(readlink "$SHELL_TARGET")" = "$CURRENT/config/quickshell/maho-shell" ] || fail 'Shell does not route through runtime/current'
-[ -L "$HYPR_SESSION" ] && [ "$(readlink "$HYPR_SESSION")" = "$CURRENT/config/hypr/maho/core/session.lua" ] || fail 'Hyprland session hook does not route through runtime/current'
+for rel in "${HYPR_MANAGED_RELS[@]}"; do
+  target="$(hypr_target_for_test "$rel")"
+  [ -L "$target" ] || fail "Maho Hyprland file is not runtime-managed: $rel"
+  [ "$(readlink "$target")" = "$CURRENT/$rel" ] || fail "Maho Hyprland file bypasses runtime/current: $rel"
+done
+grep -Fqx '# unrelated user-owned hyprlock config' "$HYPRLOCK_USER" || fail 'setup touched unrelated hyprlock config'
 [ -f "$FILES_DESKTOP_TARGET" ] && [ ! -L "$FILES_DESKTOP_TARGET" ] || fail 'Files desktop entry is not a portal-resolvable generated file'
 grep -Fqx "Exec=$HOME/.local/bin/maho-files run %U" "$FILES_DESKTOP_TARGET" || fail 'Files desktop command is not absolute'
 grep -Fq 'StartupWMClass=io.maho.Files' "$FILES_DESKTOP_TARGET" || fail 'Files desktop identity regressed'
@@ -628,7 +647,11 @@ for unit in "${PASSIVE_UNITS[@]}"; do grep -q -- "--user stop $unit" "$SYSTEMCTL
 for name in "${COMMANDS[@]}"; do [ ! -e "$HOME/.local/bin/$name" ] && [ ! -L "$HOME/.local/bin/$name" ] || fail "managed command survived uninstall: $name"; done
 for unit in "${UNITS[@]}"; do [ ! -e "$UNIT_DIR/$unit" ] && [ ! -L "$UNIT_DIR/$unit" ] || fail "managed unit survived uninstall: $unit"; done
 [ ! -e "$SHELL_TARGET" ] && [ ! -L "$SHELL_TARGET" ] || fail 'managed Shell mapping survived uninstall'
-[ ! -e "$HYPR_SESSION" ] && [ ! -L "$HYPR_SESSION" ] || fail 'managed Hyprland hook survived uninstall'
+for rel in "${HYPR_MANAGED_RELS[@]}"; do
+  target="$(hypr_target_for_test "$rel")"
+  [ ! -e "$target" ] && [ ! -L "$target" ] || fail "managed Maho Hyprland file survived uninstall: $rel"
+done
+grep -Fqx '# unrelated user-owned hyprlock config' "$HYPRLOCK_USER" || fail 'uninstall touched unrelated hyprlock config'
 [ ! -e "$FILES_DESKTOP_TARGET" ] && [ ! -L "$FILES_DESKTOP_TARGET" ] || fail 'managed Files desktop entry survived uninstall'
 [ -d "$NOTIFY_TARGET" ] && [ ! -L "$NOTIFY_TARGET" ] || fail 'live-owned Notify directory was removed'
 grep -Fq live-notify-owner "$NOTIFY_TARGET/owner.txt" || fail 'live-owned Notify directory changed during uninstall'
