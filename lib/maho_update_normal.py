@@ -9,6 +9,7 @@ M4B while production execution remains fail-closed until hardware certification.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -73,7 +74,10 @@ class NormalUpdateOps(Protocol):
 
 def _require_ok(value: Mapping[str, Any], stage: str) -> dict[str, Any]:
     if not isinstance(value, Mapping) or value.get("ok") is not True:
-        raise RuntimeError(f"normal update {stage} did not produce positive bounded evidence")
+        detail = json.dumps(dict(value), sort_keys=True, separators=(",", ":")) if isinstance(value, Mapping) else repr(value)
+        if len(detail) > 3000:
+            detail = detail[:3000] + "..."
+        raise RuntimeError(f"normal update {stage} did not produce positive bounded evidence: {detail}")
     return dict(value)
 
 

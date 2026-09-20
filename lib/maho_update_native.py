@@ -175,8 +175,62 @@ class NativeBtrfsOps:
             self._run(("umount", str(path)), check=True)
 
     def close(self) -> None:
+        self.unmount_normal_candidate_runtime()
         self._unmount(self.offline_root)
         self._unmount(self.top)
+
+    def mount_normal_candidate_runtime(self) -> dict[str, Any]:
+        """Mount a minimal isolated runtime needed by Pacman inside a normal candidate."""
+        self.require_root()
+        root = self.offline_root
+        if self._run(("mountpoint", "-q", str(root))).returncode != 0:
+            raise RuntimeError("normal candidate root is not mounted")
+        for name in ("dev", "proc", "sys", "run"):
+            path = root / name
+            if path.is_symlink() or not path.is_dir():
+                raise RuntimeError(f"normal candidate runtime path is unsafe:{name}")
+            if self._run(("mountpoint", "-q", str(path))).returncode == 0:
+                raise RuntimeError(f"normal candidate runtime path already mounted:{name}")
+        dev = root / "dev"
+        proc = root / "proc"
+        sys = root / "sys"
+        run = root / "run"
+        mounted: list[Path] = []
+        nodes: list[Path] = []
+        try:
+            self._run(("mount", "-t", "tmpfs", "-o", "mode=0755,nosuid", "tmpfs", str(dev)), check=True)
+            mounted.append(dev)
+            for name in ("null", "zero", "random", "urandom"):
+                target = dev / name
+                target.touch(mode=0o600, exist_ok=False)
+                self._run(("mount", "--bind", f"/dev/{name}", str(target)), check=True)
+                nodes.append(target)
+            (dev / "shm").mkdir(mode=0o1777)
+            self._run(("mount", "-t", "proc", "-o", "nosuid,nodev,noexec", "proc", str(proc)), check=True)
+            mounted.append(proc)
+            self._run(("mount", "-t", "sysfs", "-o", "ro,nosuid,nodev,noexec", "sysfs", str(sys)), check=True)
+            mounted.append(sys)
+            self._run(("mount", "-t", "tmpfs", "-o", "mode=0755,nosuid,nodev", "tmpfs", str(run)), check=True)
+            mounted.append(run)
+        except Exception:
+            for target in reversed(nodes):
+                try: self._unmount(target)
+                except Exception: pass
+            for path in reversed(mounted):
+                try: self._unmount(path)
+                except Exception: pass
+            raise
+        return {"ok": True, "runtime": ["dev-minimal", "proc", "sys-ro", "run-private"]}
+
+    def unmount_normal_candidate_runtime(self) -> None:
+        root = self.offline_root
+        dev = root / "dev"
+        for name in ("urandom", "random", "zero", "null"):
+            try: self._unmount(dev / name)
+            except Exception: pass
+        for name in ("run", "sys", "proc", "dev"):
+            try: self._unmount(root / name)
+            except Exception: pass
 
     def _show_uuid(self, path: Path) -> str:
         result = self._run(("btrfs", "subvolume", "show", str(path)), check=True)

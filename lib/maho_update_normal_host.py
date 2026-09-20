@@ -20,6 +20,11 @@ class NormalProductionOps:
     fixture_safe = False
     production_safe = True
     PACMAN = "/usr/bin/pacman"
+    MASKED_HOST_HOOKS = (
+        "05-snap-pac-pre.hook",
+        "10-limine-snapper-lock.hook",
+        "zz-snap-pac-post.hook",
+    )
 
     def __init__(
         self, *,
@@ -64,7 +69,7 @@ class NormalProductionOps:
             command = (self.PACMAN, "--query", "--", *names)
         else:
             command = (
-                self.PACMAN, "--root", str(root), "--dbpath", str(root / "var/lib/pacman"),
+                self.PACMAN, "--root", str(root), "--dbpath", "/var/lib/pacman",
                 "--query", "--", *names,
             )
         result = self._run(command)
@@ -77,20 +82,78 @@ class NormalProductionOps:
                 observed[name] = version.strip()
         return observed
 
+    def _payload_scriptlet_free(self, path: str) -> tuple[bool, str | None]:
+        result = self._run((self.PACMAN, "--query", "--file", "--info", "--", path))
+        if result.returncode != 0:
+            return False, "package metadata inspection failed"
+        value = None
+        for line in result.stdout.splitlines():
+            key, sep, raw = line.partition(":")
+            if sep and key.strip() == "Install Script":
+                value = raw.strip()
+                break
+        if value is None:
+            return False, "package install-script metadata is missing"
+        if value != "No":
+            return False, "package install script is outside certified normal profile"
+        return True, None
+
+    @classmethod
+    def _create_hook_overrides(cls, directory: Path) -> tuple[Path, ...]:
+        directory.mkdir(mode=0o755, parents=True, exist_ok=True)
+        created: list[Path] = []
+        for name in cls.MASKED_HOST_HOOKS:
+            path = directory / name
+            if path.exists() or path.is_symlink():
+                if path.is_symlink() and os.readlink(path) == "/dev/null":
+                    continue
+                raise RuntimeError(f"normal hook override conflicts with existing policy:{name}")
+            path.symlink_to("/dev/null")
+            created.append(path)
+        return tuple(created)
+
+    @staticmethod
+    def _remove_hook_overrides(created: Sequence[Path], directory: Path) -> None:
+        for path in reversed(tuple(created)):
+            try: path.unlink()
+            except FileNotFoundError: pass
+        try: directory.rmdir()
+        except OSError: pass
+
     def install_candidate(self, plan: NormalExecutionPlan) -> Mapping[str, Any]:
         root = self.btrfs.offline_root
         config = root / "etc/maho/pacman.conf"
         if config.is_symlink() or not config.is_file():
             return {"ok": False, "reason": "candidate canonical Pacman authority missing"}
-        command = (
-            self.PACMAN, "--sysroot", str(root), "--config", "/etc/maho/pacman.conf",
-            "--upgrade", "--noconfirm", "--needed", "--", *self._payloads(plan),
-        )
-        result = self._run(command)
-        if result.returncode != 0:
-            return {"ok": False, "exit_code": result.returncode, "stderr": result.stderr[-4000:]}
+        payloads = self._payloads(plan)
+        for payload in payloads:
+            ok, reason = self._payload_scriptlet_free(payload)
+            if not ok:
+                return {"ok": False, "reason": reason, "payload": payload}
+        hooks = root / "etc/pacman.d/hooks"
+        created: tuple[Path, ...] = ()
+        runtime = None
+        try:
+            runtime = self.btrfs.mount_normal_candidate_runtime()
+            created = self._create_hook_overrides(hooks)
+            command = (
+                self.PACMAN, "--sysroot", str(root), "--config", "/etc/maho/pacman.conf",
+                "--upgrade", "--noconfirm", "--needed", "--noscriptlet", "--", *payloads,
+            )
+            result = self._run(command)
+            if result.returncode != 0:
+                return {
+                    "ok": False,
+                    "exit_code": result.returncode,
+                    "stdout_tail": result.stdout[-4000:],
+                    "stderr_tail": result.stderr[-4000:],
+                    "runtime": runtime,
+                }
+        finally:
+            self._remove_hook_overrides(created, hooks)
+            self.btrfs.unmount_normal_candidate_runtime()
         observed = self._query_versions(root=root)
-        return {"ok": observed == self.expected, "observed": observed, "expected": self.expected}
+        return {"ok": observed == self.expected, "observed": observed, "expected": self.expected, "runtime": runtime}
 
     def guardian_admit(self, plan: NormalExecutionPlan) -> Mapping[str, Any]:
         self.btrfs.freeze_normal_candidate(str(self.candidate["uuid"]))
@@ -168,16 +231,28 @@ class NormalProductionOps:
         before = self._query_versions()
         if before != self.previous:
             return {"ok": False, "reason": "live package versions drifted", "observed": before, "expected": self.previous}
-        self.live_mutation_started = True
-        result = self._run((
-            self.PACMAN, "--config", "/etc/maho/pacman.conf",
-            "--upgrade", "--noconfirm", "--needed", "--", *self._payloads(plan),
-        ))
+        payloads = self._payloads(plan)
+        for payload in payloads:
+            ok, reason = self._payload_scriptlet_free(payload)
+            if not ok:
+                return {"ok": False, "reason": reason, "payload": payload}
+        hookdir = self.btrfs.run_root / "normal-live-hooks"
+        created: tuple[Path, ...] = ()
+        try:
+            created = self._create_hook_overrides(hookdir)
+            self.live_mutation_started = True
+            result = self._run((
+                self.PACMAN, "--config", "/etc/maho/pacman.conf", "--hookdir", str(hookdir),
+                "--upgrade", "--noconfirm", "--needed", "--noscriptlet", "--", *payloads,
+            ))
+        finally:
+            self._remove_hook_overrides(created, hookdir)
         return {
             "ok": result.returncode == 0,
             "exit_code": result.returncode,
             "stdout_tail": result.stdout[-4000:],
             "stderr_tail": result.stderr[-4000:],
+            "masked_host_hooks": list(self.MASKED_HOST_HOOKS),
         }
 
     @staticmethod
@@ -190,7 +265,7 @@ class NormalProductionOps:
 
     def _package_paths(self, root: Path, name: str) -> tuple[str, ...]:
         result = self._run((
-            self.PACMAN, "--root", str(root), "--dbpath", str(root / "var/lib/pacman"),
+            self.PACMAN, "--root", str(root), "--dbpath", "/var/lib/pacman",
             "--query", "--list", "--", name,
         ))
         if result.returncode != 0:
