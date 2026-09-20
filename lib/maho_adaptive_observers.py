@@ -20,10 +20,12 @@ from typing import Any, Iterable, Mapping
 UNKNOWN = "unknown"
 GAME_LAUNCHERS = {"steam", "steamwebhelper", "lutris", "heroic"}
 GAME_HINTS = {"gamescope", "wine-preloader", "wine64-preloader", "pressure-vessel"}
+GAME_PATH_HINTS = ("/steamapps/common/", "/games/", "/game/", "/wineprefixes/", "/heroic/", "/lutris/")
 COMPILERS = {"gcc", "g++", "cc", "c++", "clang", "clang++", "rustc", "go"}
 BUILD_TOOLS = {"make", "ninja", "cmake", "meson", "cargo", "npm", "pnpm", "yarn"}
 RENDER_TOOLS = {"blender", "ffmpeg", "handbrakecli", "kdenlive_render"}
 MEDIA_TOOLS = {"mpv", "vlc", "celluloid", "smplayer"}
+MAX_GPU_FDS_PER_PROCESS = 256
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,23 @@ def _basename(value: str) -> str:
     return Path(value).name.lower()
 
 
+def process_uses_gpu(process_root: Path) -> bool:
+    """Observe a process's DRM handles without opening any device."""
+    descriptors = process_root / "fd"
+    try:
+        entries = sorted(descriptors.iterdir(), key=lambda item: item.name)[:MAX_GPU_FDS_PER_PROCESS]
+    except OSError:
+        return False
+    for entry in entries:
+        try:
+            target = os.readlink(entry)
+        except OSError:
+            continue
+        if target.startswith("/dev/dri/") and Path(target).name.startswith(("renderD", "card")):
+            return True
+    return False
+
+
 def _tree_related(processes: Iterable[ProcessEvidence], roots: set[int]) -> set[int]:
     rows = list(processes)
     related = set(roots)
@@ -108,7 +127,10 @@ def classify_workload(
     launcher_only = bool(names & GAME_LAUNCHERS)
     game_runtime = [
         row for row in rows
-        if (_basename(row.executable or row.command) in GAME_HINTS or row.gpu)
+        if (
+            _basename(row.executable or row.command) in GAME_HINTS
+            or (row.gpu and any(token in row.executable.lower() for token in GAME_PATH_HINTS))
+        )
         and _basename(row.executable or row.command) not in GAME_LAUNCHERS
         and row.age_seconds >= 10
     ]
@@ -116,7 +138,7 @@ def classify_workload(
     fullscreen = window.fullscreen
     recent_input = isinstance(session.recent_input_seconds, (int, float)) and session.recent_input_seconds <= 15
     gaming_signals = sum((bool(game_runtime), fullscreen is True, active_game, recent_input, any(row.gpu for row in game_runtime)))
-    probable_gaming: bool | str = gaming_signals >= 3
+    probable_gaming: bool | str = gaming_signals >= 3 and (fullscreen is True or recent_input)
     if probable_gaming:
         evidence.append("gaming:multi-signal")
     elif launcher_only:
@@ -249,7 +271,10 @@ def collect_processes(proc_root: Path = Path("/proc")) -> tuple[ProcessEvidence,
             executable = comm
         age = max(0.0, uptime - start_ticks / ticks) if uptime else 0.0
         cpu = max(0.0, (utime + stime) / ticks)
-        rows.append(ProcessEvidence(int(entry.name), ppid, command or comm, executable, age, cpu))
+        rows.append(ProcessEvidence(
+            int(entry.name), ppid, command or comm, executable, age, cpu,
+            gpu=process_uses_gpu(entry),
+        ))
     return tuple(rows)
 
 
