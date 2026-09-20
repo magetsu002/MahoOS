@@ -24,7 +24,8 @@ for state in "$SHELL_DIR/MahoUpdateState.qml" "$POWER_DIR/MahoUpdateState.qml"; 
     reject "$state" 'property bool updated' "UI invented a vague local updated boolean"
 done
 require "$SHELL_DIR/shell.qml" 'MahoUpdateState { id: updateState }' "Maho Edge does not instantiate shared update projection"
-require "$SHELL_DIR/ControlCenter.qml" 'System maintenance · ' "Settings/update surface lacks maintenance status"
+require "$SHELL_DIR/ControlCenter.qml" 'center.updateState ? center.updateState.status : "Healthy"' "Settings/update surface lacks maintenance status"
+reject "$SHELL_DIR/ControlCenter.qml" 'System maintenance · ' "Settings/update surface still prefixes the maintenance status"
 require "$SHELL_DIR/ControlCenter.qml" 'lastMaintenance' "Settings/update surface lacks last maintenance"
 require "$SHELL_DIR/ControlCenter.qml" 'historyCount' "Settings/update surface lacks receipt history"
 require "$SHELL_DIR/ControlCenter.qml" 'blockers.join' "Settings/update surface lacks actionable blockers"
