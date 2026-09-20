@@ -50,6 +50,8 @@ require_text "$BT_MAIN" 'id: pairHoverPlane' "Pair New Device card has stacked h
 reject_text "$BT_MAIN" 'Behavior on border.color' "Bluetooth main still animates a second hover rim"
 require_text "$BT_DETAILS" 'id: connectHoverPlane' "Bluetooth Connect action has stacked hover styling"
 require_text "$BT_DETAILS" 'id: forgetHoverPlane' "Bluetooth Forget action has stacked hover styling"
+[ "$(grep -Fc 'visible: Boolean(device && device.connected)' "$BT_DETAILS")" -eq 2 ] || fail "Bluetooth detail visibility is not strict-boolean safe"
+reject_text "$BT_DETAILS" 'visible: device && device.connected' "Bluetooth detail visibility can still assign undefined to bool"
 echo PASS
 
 echo "ALL SINGLE-HOVER CONTRACTS PASS"

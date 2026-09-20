@@ -413,7 +413,7 @@ Item {
                 Item {
                     width: parent.width
                     height: device && device.connected ? 52 : 0
-                    visible: device && device.connected
+                    visible: Boolean(device && device.connected)
 
                     Rectangle {
                         anchors.fill: parent
@@ -488,7 +488,7 @@ Item {
                     width: parent.width - 42
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: device && device.connected ? 1 : 0
-                    visible: device && device.connected
+                    visible: Boolean(device && device.connected)
                     color: root.separator
                 }
 
