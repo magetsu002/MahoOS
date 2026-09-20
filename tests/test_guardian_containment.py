@@ -198,8 +198,17 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as raw:
         inode_driver, exact, _proc_root, fs, _state, signals = _real_driver_fixture(Path(raw))
         binary = fs / "usr/bin/maho-runtime"
-        binary.unlink()
-        binary.write_text("replacement-at-same-path", encoding="utf-8")
+        replacement = binary.with_name("maho-runtime.replacement")
+        replacement.write_text("replacement-at-same-path", encoding="utf-8")
+        # Keep both executable objects alive simultaneously before replacing the
+        # pathname. unlink()+create may legally reuse the same inode on some CI
+        # filesystems, which makes executable-object drift nondeterministic.
+        old_identity = process_executable_identity(_proc_root, 201)
+        replacement_stat = replacement.stat()
+        old_stat = binary.stat()
+        assert (replacement_stat.st_dev, replacement_stat.st_ino) != (old_stat.st_dev, old_stat.st_ino)
+        os.replace(replacement, binary)
+        assert process_executable_identity(_proc_root, 201) != old_identity
         refused = inode_driver.freeze_exact(exact)
         check("same-path executable object replacement fails closed before signaling",
               refused["result"] == "refused" and not signals)
