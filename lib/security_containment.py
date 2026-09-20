@@ -66,12 +66,15 @@ def process_state(proc_root: Path, pid: int) -> str | None:
 
 
 def process_executable_identity(proc_root: Path, pid: int) -> str | None:
-    """Return the live executable object identity without trusting its pathname."""
+    """Return a stable executable-object fingerprint without trusting its pathname."""
     try:
         stat = os.stat(proc_root / str(pid) / "exe")
     except OSError:
         return None
-    return f"{stat.st_dev:x}:{stat.st_ino:x}"
+    return (
+        f"v1:{stat.st_dev:x}:{stat.st_ino:x}:{stat.st_size:x}:"
+        f"{stat.st_mtime_ns:x}:{stat.st_ctime_ns:x}"
+    )
 
 
 def visible_package_processes(db_root: Path, proc_root: Path, fs_root: Path, package: str, uid: int) -> tuple[dict | None, list[dict]]:
