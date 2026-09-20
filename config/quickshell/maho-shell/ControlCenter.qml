@@ -330,7 +330,7 @@ Item {
                 spacing: 0
 
                 Text {
-                    text: "System maintenance · " + (center.updateState ? center.updateState.status : "Healthy")
+                    text: center.updateState ? center.updateState.status : "Healthy"
                     color: center.theme ? center.theme.foreground : "white"
                     font.pixelSize: 10
                     font.weight: Font.DemiBold
