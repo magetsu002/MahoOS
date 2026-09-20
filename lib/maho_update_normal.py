@@ -115,6 +115,17 @@ def _selection_is_coherent(selection: Mapping[str, Any]) -> bool:
             and isinstance(proof.get("target_packages"), list)
             and bool(proof.get("target_packages"))
         )
+    if kind == "artifact-set":
+        return (
+            proof.get("kind") == "aur-artifact-dependency-closure"
+            and proof.get("dependencies_proven") is True
+            and proof.get("normal_profile_compatible") is True
+            and isinstance(proof.get("artifact_ids"), list)
+            and bool(proof.get("artifact_ids"))
+            and proof.get("repository_dependency_changes") == []
+            and isinstance(proof.get("proof_sha256"), str)
+            and len(proof.get("proof_sha256")) == 64
+        )
     return False
 
 

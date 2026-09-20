@@ -26,10 +26,18 @@ def pacman(root:Path)->Path:
     script=root/'pacman'
     script.write_text(f'''#!/usr/bin/env bash
 mode="$(cat '{mode}')"
-if [[ " $* " == *" --query --file --info "* ]]; then printf 'Name : demo-aur\\nVersion : 2-1\\n'; exit 0; fi
+if [[ " $* " == *" --upgrade --print "* ]]; then
+  artifact="${{@: -1}}"
+  if [ "$mode" = dep ]; then
+    printf 'extra\tdemo-dep\t3-1\thttps://repo.invalid/demo-dep-3-1.pkg.tar.zst\n'
+  fi
+  printf 'local\tdemo-aur\t2-1\t%s\n' "$artifact"
+  exit 0
+fi
+if [[ " $* " == *" --query --file --info "* ]]; then printf 'Name : demo-aur\nVersion : 2-1\n'; exit 0; fi
 if [[ " $* " == *" --query --file --list "* ]]; then
-  if [ "$mode" = boot ]; then printf 'demo-aur /usr/lib/modules/7.2/extra/demo.ko.zst\\n';
-  else printf 'demo-aur /usr/bin/demo-aur\\ndemo-aur /usr/lib/systemd/user/demo.service\\n'; fi
+  if [ "$mode" = boot ]; then printf 'demo-aur /usr/lib/modules/7.2/extra/demo.ko.zst\n';
+  else printf 'demo-aur /usr/bin/demo-aur\ndemo-aur /usr/lib/systemd/user/demo.service\n'; fi
   exit 0
 fi
 exit 2
@@ -37,6 +45,8 @@ exit 2
     script.chmod(0o755); return script
 
 def receipt(root:Path, *, boot=False):
+    config=root/'maho-pacman.conf'
+    config.write_text('[options]\nArchitecture = auto\n')
     artifact=root/'demo-aur-2-1-x86_64.pkg.tar.zst'; artifact.write_bytes(b'artifact-v2')
     source_sha='a'*64
     provenance=aur_build_provenance(package_base='demo-aur',source_sha256=source_sha,build_receipt=str(root/'receipt.json'))
@@ -53,7 +63,10 @@ def receipt(root:Path, *, boot=False):
     return {
         'version':2,'kind':'aur-isolated-build','status':'verified','phase':'complete',
         'automatic_install':False,'installation_authority':'maho-update-only',
-        'repository_authority':{'config':'/etc/maho/pacman.conf','sha256':'b'*64},
+        'repository_authority':{
+            'config':str(config.resolve()),
+            'sha256':hashlib.sha256(config.read_bytes()).hexdigest(),
+        },
         'packages':[package],
     }
 
@@ -68,15 +81,27 @@ def main():
     with tempfile.TemporaryDirectory(prefix='maho-external-normal-') as temporary:
         root=Path(temporary); rec=receipt(root); p=pacman(root)
         tx=transaction_from_aur_receipt(rec,source_revision='e'*40,now=NOW,entropy='123456abcdef')
-        check('AUR artifact production creates explicit artifact-set transaction',tx['selection']['kind']=='artifact-set' and tx['selection']['solver_proof']['dependencies_proven'] is False)
+        check('AUR artifact production begins fail-closed before dependency proof',tx['selection']['kind']=='artifact-set' and tx['selection']['solver_proof']['dependencies_proven'] is False)
         check('AUR transaction preserves artifact provenance',tx['source_provenance']['packages'][0]['kind']=='aur-built')
         staged=stage_aur_artifacts(tx,rec,root/'staging',pacman=str(p),now=NOW)
+        proof=staged.transaction['selection']['solver_proof']
+        check('AUR exact local artifact dependency closure is proven',proof['dependencies_proven'] is True and proof['normal_profile_compatible'] is True)
+        check('AUR dependency proof binds exact artifact and repository authority',proof['local_artifacts'][0]['name']=='demo-aur' and proof['repository_dependency_changes']==[] and len(proof['proof_sha256'])==64)
         check('AUR artifact set is copied and reverified into Maho STAGED state',staged.transaction['state']=='STAGED')
         check('normal exact AUR effects route to normal lane',staged.routing_target=='normal' and staged.manifest['effects']['classification']=='normal')
         prepared=prepare_normal_transaction(staged.transaction,staged.manifest,root/'staging',prep_evidence(),now=NOW)
-        check('AUR normal lane remains blocked until dependency solver proof exists',prepared.transaction['state']=='BLOCKED' and 'independent_generation_not_proven' in prepared.transaction['blockers'])
-        rec['packages'][0]['path'] and Path(rec['packages'][0]['path']).write_bytes(b'tampered')
-        rejected('artifact mutation after build is rejected before staging',lambda:stage_aur_artifacts(tx,rec,root/'staging2',pacman=str(p),now=NOW))
+        check('dependency-closed AUR update can enter normal preparation',prepared.transaction['state']=='PREPARED' and not prepared.blockers)
+
+        (root/'mode').write_text('dep')
+        staged_dep=stage_aur_artifacts(tx,rec,root/'staging-dep',pacman=str(p),now=NOW)
+        dep_proof=staged_dep.transaction['selection']['solver_proof']
+        check('AUR solver records exact repository dependency mutation',dep_proof['dependencies_proven'] is True and dep_proof['normal_profile_compatible'] is False and dep_proof['repository_dependency_changes'][0]['name']=='demo-dep')
+        blocked=prepare_normal_transaction(staged_dep.transaction,staged_dep.manifest,root/'staging-dep',prep_evidence(),now=NOW)
+        check('repository dependency mutation stays outside certified normal profile',blocked.transaction['state']=='BLOCKED' and 'independent_generation_not_proven' in blocked.transaction['blockers'])
+
+        (root/'mode').write_text('normal')
+        Path(rec['packages'][0]['path']).write_bytes(b'tampered')
+        rejected('artifact mutation after build is rejected before dependency solving or staging',lambda:stage_aur_artifacts(tx,rec,root/'staging2',pacman=str(p),now=NOW))
 
     with tempfile.TemporaryDirectory(prefix='maho-external-boot-') as temporary:
         root=Path(temporary); rec=receipt(root,boot=True); p=pacman(root); (root/'mode').write_text('boot')

@@ -43,6 +43,19 @@ def _validate_receipt(receipt: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("AUR artifact receipt is not verified complete")
     if data.get("automatic_install") is not False or data.get("installation_authority") != "maho-update-only":
         raise ValueError("AUR artifact receipt claims invalid installation authority")
+    authority = data.get("repository_authority")
+    if not isinstance(authority, Mapping):
+        raise ValueError("AUR artifact receipt has no repository authority")
+    authority_config = authority.get("config")
+    authority_sha = authority.get("sha256")
+    if (
+        not isinstance(authority_config, str)
+        or not authority_config.startswith("/")
+        or not isinstance(authority_sha, str)
+        or len(authority_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in authority_sha)
+    ):
+        raise ValueError("AUR artifact repository authority is invalid")
     packages = data.get("packages")
     if not isinstance(packages, list) or not packages:
         raise ValueError("AUR artifact receipt has no accepted artifacts")
@@ -121,6 +134,116 @@ def _run(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(list(command), text=True, capture_output=True, check=False, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
 
 
+def _json_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _dependency_solver_proof(
+    receipt: Mapping[str, Any],
+    *,
+    pacman: str,
+    pacman_config: str | Path,
+) -> dict[str, Any]:
+    data = _validate_receipt(receipt)
+    config = Path(pacman_config)
+    if config.is_symlink() or not config.is_file():
+        raise ValueError("AUR dependency solver Pacman authority is unavailable")
+    config = config.resolve(strict=True)
+    authority = data.get("repository_authority")
+    if not isinstance(authority, Mapping):
+        raise ValueError("AUR receipt repository authority is missing")
+    if str(authority.get("config") or "") != str(config):
+        raise ValueError("AUR dependency solver repository authority path drifted")
+    expected_config_sha = str(authority.get("sha256") or "")
+    if len(expected_config_sha) != 64 or _sha256(config) != expected_config_sha:
+        raise ValueError("AUR dependency solver repository authority digest drifted")
+
+    artifacts = sorted(data["packages"], key=lambda item: str(item["name"]))
+    exact_paths: list[str] = []
+    expected_local: dict[str, tuple[str, str]] = {}
+    for artifact in artifacts:
+        source = Path(str(artifact.get("path", "")))
+        if source.is_symlink() or not source.is_file():
+            raise ValueError(f"AUR dependency solver artifact path is unsafe:{artifact['name']}")
+        resolved = source.resolve(strict=True)
+        if _sha256(resolved) != artifact["sha256"]:
+            raise ValueError(f"AUR dependency solver artifact changed after build:{artifact['name']}")
+        name = str(artifact["name"])
+        version = str(artifact["version"])
+        expected_local[name] = (version, str(resolved))
+        exact_paths.append(str(resolved))
+
+    result = _run((
+        pacman, "--config", str(config), "--upgrade", "--print",
+        "--print-format", "%r\t%n\t%v\t%l", "--", *exact_paths,
+    ))
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise ValueError(f"AUR dependency solver failed:{detail or result.returncode}")
+
+    local_rows: dict[str, dict[str, str]] = {}
+    repository_rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in result.stdout.splitlines():
+        if not raw.strip():
+            continue
+        fields = raw.split("\t")
+        if len(fields) != 4:
+            raise ValueError("AUR dependency solver output is ambiguous")
+        repository, name, version, location = (field.strip() for field in fields)
+        if not name or not version or name in seen:
+            raise ValueError("AUR dependency solver package identity is ambiguous")
+        seen.add(name)
+        if repository == "local":
+            expected = expected_local.get(name)
+            try:
+                observed_path = str(Path(location).resolve(strict=True))
+            except OSError as exc:
+                raise ValueError(f"AUR dependency solver local artifact is unavailable:{name}") from exc
+            if expected is None or expected != (version, observed_path):
+                raise ValueError(f"AUR dependency solver local artifact drifted:{name}")
+            local_rows[name] = {
+                "repository": "local",
+                "name": name,
+                "version": version,
+                "path": observed_path,
+            }
+            continue
+        if not repository or repository == "local" or not location:
+            raise ValueError("AUR dependency solver repository row is invalid")
+        repository_rows.append({
+            "repository": repository,
+            "name": name,
+            "version": version,
+            "location": location,
+        })
+
+    if set(local_rows) != set(expected_local):
+        raise ValueError("AUR dependency solver did not preserve the exact local artifact set")
+
+    material = {
+        "local_artifacts": [local_rows[name] for name in sorted(local_rows)],
+        "repository_dependency_changes": sorted(
+            repository_rows,
+            key=lambda item: (item["repository"], item["name"], item["version"]),
+        ),
+        "repository_authority": {
+            "config": str(config),
+            "sha256": expected_config_sha,
+        },
+    }
+    return {
+        "kind": "aur-artifact-dependency-closure",
+        "dependencies_proven": True,
+        "artifact_ids": sorted(str(item["artifact_id"]) for item in artifacts),
+        "local_artifacts": material["local_artifacts"],
+        "repository_dependency_changes": material["repository_dependency_changes"],
+        "repository_authority": material["repository_authority"],
+        "normal_profile_compatible": not repository_rows,
+        "proof_sha256": _json_digest(material),
+    }
+
+
 def _parse_info(output: str) -> tuple[str, str]:
     fields: dict[str, str] = {}
     for line in output.splitlines():
@@ -171,6 +294,7 @@ def stage_aur_artifacts(
     cache_root: str | Path,
     *,
     pacman: str = "/usr/bin/pacman",
+    pacman_config: str | Path | None = None,
     now=None,
 ) -> ExternalStagingResult:
     current = validate_transaction(transaction)
@@ -179,6 +303,20 @@ def stage_aur_artifacts(
     if current["selection"]["kind"] != "artifact-set":
         raise ValueError("AUR artifact staging requires artifact-set selection")
     data = _validate_receipt(receipt)
+    authority = data["repository_authority"]
+    config = Path(pacman_config if pacman_config is not None else str(authority["config"]))
+    dependency_proof = _dependency_solver_proof(
+        data,
+        pacman=pacman,
+        pacman_config=config,
+    )
+    updated = dict(current)
+    updated["selection"] = {
+        "kind": "artifact-set",
+        "deferred_boot_packages": [],
+        "solver_proof": dependency_proof,
+    }
+    current = validate_transaction(updated)
     cache = Path(cache_root)
     if not cache.is_absolute():
         raise ValueError("external artifact staging cache must be absolute")
@@ -271,7 +409,10 @@ def stage_aur_artifacts(
         evidence={
             "artifact_ids": sorted(item["artifact_id"] for item in payloads),
             "effects": effects,
-            "dependency_coherence": "pending",
+            "dependency_coherence": "proven",
+            "dependency_proof_sha256": dependency_proof["proof_sha256"],
+            "repository_dependency_changes": dependency_proof["repository_dependency_changes"],
+            "normal_profile_compatible": dependency_proof["normal_profile_compatible"],
         },
         now=now,
     )
