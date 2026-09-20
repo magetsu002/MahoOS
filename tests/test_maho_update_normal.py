@@ -55,6 +55,7 @@ def tx(*, independent=True):
                 'kind':'isolated-pacman-independent-generation',
                 'deferred_boot_packages':['linux-cachyos'],
                 'selected_versions_match_full':True,
+                'selected_repositories_match_full':True,
                 'production_ignore_execution':False,
             } if independent else {'kind':'full-system-solver'}
         ),

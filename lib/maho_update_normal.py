@@ -98,6 +98,7 @@ def _selection_is_coherent(selection: Mapping[str, Any]) -> bool:
         return (
             proof.get("kind") == "isolated-pacman-independent-generation"
             and proof.get("selected_versions_match_full") is True
+            and proof.get("selected_repositories_match_full") is True
             and proof.get("production_ignore_execution") is False
             and sorted(proof.get("deferred_boot_packages", [])) == sorted(selection.get("deferred_boot_packages", []))
         )
@@ -105,6 +106,7 @@ def _selection_is_coherent(selection: Mapping[str, Any]) -> bool:
         return (
             proof.get("kind") == "isolated-pacman-coherent-subset"
             and proof.get("selected_versions_match_full") is True
+            and proof.get("selected_repositories_match_full") is True
             and proof.get("production_ignore_execution") is False
             and isinstance(proof.get("target_packages"), list)
             and bool(proof.get("target_packages"))

@@ -43,11 +43,11 @@ class Runner:
             return CommandResult(0,'linux-cachyos 7.1.8-1\nteams-for-linux 2.18.1-1\nlibfoo 1-1\n')
         if '--info' in command: return CommandResult(0,INFO)
         if '--sysupgrade' in command and '--ignore' in command:
-            out='teams-for-linux\t2.21.0-1\n'
-            if self.extra_subset: out+='libfoo\t2-1\n'
+            out='cachyos\tteams-for-linux\t2.21.0-1\n'
+            if self.extra_subset: out+='extra\tlibfoo\t2-1\n'
             return CommandResult(0,out)
         if '--sysupgrade' in command:
-            return CommandResult(0,'linux-cachyos\t7.2.5-1\nteams-for-linux\t2.21.0-1\nlibfoo\t2-1\n')
+            return CommandResult(0,'cachyos\tlinux-cachyos\t7.2.5-1\ncachyos\tteams-for-linux\t2.21.0-1\nextra\tlibfoo\t2-1\n')
         raise AssertionError(command)
 
 def main():
@@ -58,7 +58,7 @@ def main():
         packages=result.transaction['package_generation']['packages']
         check('coherent subset contains only explicitly requested package',[x['name'] for x in packages]==['teams-for-linux'])
         proof=result.transaction['selection']['solver_proof']
-        check('subset proof binds full solver version',proof['selected_versions_match_full'] is True and proof['production_ignore_execution'] is False)
+        check('subset proof binds full solver version and repository',proof['selected_versions_match_full'] is True and proof['selected_repositories_match_full'] is True and proof['production_ignore_execution'] is False)
         check('all other updates are deferred inside isolated solver',proof['deferred_packages']==['libfoo','linux-cachyos'])
         ignores=[c for c in backend.commands if '--ignore' in c]
         check('subset exclusion occurs only in isolated solver',len(ignores)==1 and str(backend.db) in ignores[0])

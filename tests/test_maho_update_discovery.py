@@ -16,7 +16,9 @@ from maho_update_discovery import (  # noqa: E402
     discover_updates,
     package_roles,
     parse_name_versions,
+    parse_solver_plan,
     parse_sync_info,
+    parse_sync_info_records,
     parse_upgrades,
 )
 
@@ -46,8 +48,8 @@ class FakeRunner:
             return CommandResult(0, "linux-cachyos 7.1-1\nlinux-cachyos-headers 7.1-1\nmaho-os 4.0-1\n")
         if "--sysupgrade" in command:
             if "--ignore" in command:
-                return CommandResult(0, "maho-os\t4.1-1\nnew-runtime-lib\t1.0-1\n")
-            return CommandResult(0, "linux-cachyos\t7.2-1\nlinux-cachyos-headers\t7.2-1\nmaho-os\t4.1-1\nnew-runtime-lib\t1.0-1\n")
+                return CommandResult(0, "maho\tmaho-os\t4.1-1\ncore\tnew-runtime-lib\t1.0-1\n")
+            return CommandResult(0, "cachyos\tlinux-cachyos\t7.2-1\ncachyos\tlinux-cachyos-headers\t7.2-1\nmaho\tmaho-os\t4.1-1\ncore\tnew-runtime-lib\t1.0-1\n")
         if "--info" in command:
             return CommandResult(0, """Repository      : cachyos
 Name            : linux-cachyos
@@ -72,6 +74,12 @@ Name            : new-runtime-lib
 Version         : 1.0-1
 Download Size   : 1.00 MiB
 Installed Size  : 2.00 MiB
+
+Repository      : cachyos
+Name            : new-runtime-lib
+Version         : 0.9-9
+Download Size   : 1.50 MiB
+Installed Size  : 2.50 MiB
 """)
         raise AssertionError(f"unexpected command: {command!r}")
 
@@ -92,9 +100,13 @@ def main() -> None:
     check("exact candidates parse without partial-upgrade inference", upgrades == [("linux", "1", "2"), ("maho-os", "3", "4")])
     rejected("malformed candidate output fails closed", lambda: parse_upgrades("linux maybe 2"))
     rejected("duplicate candidates fail closed", lambda: parse_upgrades("linux 1 -> 2\nlinux 1 -> 3\n"))
-    check("full solver rows parse exact package versions", parse_name_versions("linux\t2\nnew-lib\t1\n", separator="\t") == {"linux": "2", "new-lib": "1"})
+    versions, repositories = parse_solver_plan("core\tlinux\t2\nextra\tnew-lib\t1\n")
+    check("solver rows bind repository plus exact package version", versions == {"linux": "2", "new-lib": "1"} and repositories == {"linux": "core", "new-lib": "extra"})
     info = parse_sync_info("Repository : core\nName : linux\nVersion : 2\nDownload Size : 1.00 MiB\nInstalled Size : 2.00 MiB\n")
     check("sync metadata binds repository, version, and sizes", info["linux"]["download_size"] == 1024 * 1024)
+    duplicate_info = parse_sync_info_records("Repository : extra\nName : mesa\nVersion : 1\nDownload Size : 1 B\nInstalled Size : 2 B\n\nRepository : cachyos\nName : mesa\nVersion : 3\nDownload Size : 3 B\nInstalled Size : 4 B\n")
+    check("repository-qualified metadata permits duplicate package names across repos", set(duplicate_info) == {("extra", "mesa", "1"), ("cachyos", "mesa", "3")})
+    rejected("legacy unqualified metadata lookup still rejects duplicate names", lambda: parse_sync_info("Repository : extra\nName : mesa\nVersion : 1\nDownload Size : 1 B\nInstalled Size : 2 B\n\nRepository : cachyos\nName : mesa\nVersion : 3\nDownload Size : 3 B\nInstalled Size : 4 B\n"))
     check("kernel roles include boot and initramfs implications", set(package_roles("linux-cachyos")) >= {"kernel", "primary-kernel", "initramfs", "boot-artifacts"})
     check("NVIDIA DKMS roles include kernel-module implications", set(package_roles("nvidia-dkms")) >= {"nvidia-kernel", "dkms", "initramfs"})
     check("NVIDIA userspace is not preclassified as boot-critical", package_roles("nvidia-utils") == ["nvidia-userspace"])
@@ -116,6 +128,7 @@ def main() -> None:
         check("isolated discovery creates authoritative DISCOVERED transaction", transaction["state"] == "DISCOVERED")
         check("exact candidate version is retained", package_map["linux-cachyos"]["candidate_version"] == "7.2-1")
         check("full solver transaction includes newly introduced dependencies", package_map["new-runtime-lib"]["installed_version"] == "<not-installed>")
+        check("solver-selected repository wins over duplicate package names in other repos", package_map["new-runtime-lib"]["repository"] == "core" and package_map["new-runtime-lib"]["candidate_version"] == "1.0-1")
         check("trusted security evidence is retained", package_map["linux-cachyos"]["security_relevant"] is True and result.security_metadata_source == "signed-advisory-feed")
         provenance = {item["name"]: item for item in transaction["source_provenance"]["packages"]}
         check("source provenance is first-class and repository-bound", provenance["linux-cachyos"]["kind"] == "repository" and provenance["linux-cachyos"]["repository"] == "cachyos")

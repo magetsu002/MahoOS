@@ -139,7 +139,7 @@ class IsolatedPacmanDiscovery:
     @property
     def transaction_command(self) -> tuple[str, ...]:
         return (
-            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v",
+            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%r\t%n\t%v",
             "--dbpath", str(self.db),
         )
 
@@ -148,7 +148,7 @@ class IsolatedPacmanDiscovery:
         if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
             raise ValueError("independent solver exclusion set is invalid")
         return (
-            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v",
+            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%r\t%n\t%v",
             "--ignore", ",".join(names), "--dbpath", str(self.db),
         )
 
@@ -162,7 +162,7 @@ class IsolatedPacmanDiscovery:
         if argv in {self.refresh_command, self.installed_command, self.transaction_command}:
             return True
         independent_prefix = (
-            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v", "--ignore",
+            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%r\t%n\t%v", "--ignore",
         )
         if argv[: len(independent_prefix)] == independent_prefix and len(argv) == len(independent_prefix) + 3:
             excluded, flag, db = argv[-3:]
@@ -230,8 +230,8 @@ def parse_name_versions(output: str, *, separator: str) -> dict[str, str]:
     return result
 
 
-def parse_sync_info(output: str) -> dict[str, dict[str, Any]]:
-    records: dict[str, dict[str, Any]] = {}
+def parse_sync_info_records(output: str) -> dict[tuple[str, str, str], dict[str, Any]]:
+    records: dict[tuple[str, str, str], dict[str, Any]] = {}
     current: dict[str, str] = {}
     for line in [*output.splitlines(), ""]:
         if not line.strip():
@@ -240,11 +240,14 @@ def parse_sync_info(output: str) -> dict[str, dict[str, Any]]:
                 if not required.issubset(current):
                     raise ValueError("Pacman package metadata is incomplete")
                 name = current["Name"]
-                if _PACKAGE.fullmatch(name) is None or name in records:
+                repository = current["Repository"]
+                version = current["Version"]
+                identity = (repository, name, version)
+                if _PACKAGE.fullmatch(name) is None or _PACKAGE.fullmatch(repository) is None or identity in records:
                     raise ValueError("Pacman package metadata identity is ambiguous")
-                records[name] = {
-                    "version": current["Version"],
-                    "repository": current["Repository"],
+                records[identity] = {
+                    "version": version,
+                    "repository": repository,
                     "download_size": _parse_size(current["Download Size"]),
                     "installed_size": _parse_size(current["Installed Size"]),
                 }
@@ -256,6 +259,38 @@ def parse_sync_info(output: str) -> dict[str, dict[str, Any]]:
         if separator:
             current[key.strip()] = value.strip()
     return records
+
+
+def parse_sync_info(output: str) -> dict[str, dict[str, Any]]:
+    by_identity = parse_sync_info_records(output)
+    records: dict[str, dict[str, Any]] = {}
+    for (_, name, _), info in by_identity.items():
+        if name in records:
+            raise ValueError("Pacman package metadata identity is ambiguous")
+        records[name] = info
+    return records
+
+
+def parse_solver_plan(output: str) -> tuple[dict[str, str], dict[str, str]]:
+    versions: dict[str, str] = {}
+    repositories: dict[str, str] = {}
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        fields = line.strip().split("\t")
+        if len(fields) != 3:
+            raise ValueError(f"ambiguous Pacman solver output: {line!r}")
+        repository, name, version = fields
+        if (
+            _PACKAGE.fullmatch(repository) is None
+            or _PACKAGE.fullmatch(name) is None
+            or not version
+            or name in versions
+        ):
+            raise ValueError(f"ambiguous Pacman solver identity: {line!r}")
+        versions[name] = version
+        repositories[name] = repository
+    return versions, repositories
 
 
 def package_roles(name: str) -> list[str]:
@@ -306,15 +341,19 @@ def _candidate_rows(installed: Mapping[str, str], planned: Mapping[str, str]) ->
 
 def _packages_from_candidates(
     candidates: Sequence[tuple[str, str, str]],
-    metadata: Mapping[str, Mapping[str, Any]],
+    metadata: Mapping[tuple[str, str, str], Mapping[str, Any]],
     evidence: Mapping[str, Mapping[str, Any]],
+    repositories: Mapping[str, str],
 ) -> tuple[list[dict[str, Any]], set[str]]:
     packages: list[dict[str, Any]] = []
     trusted_sources: set[str] = set()
     for name, installed, candidate in candidates:
-        info = metadata.get(name)
-        if info is None or info["version"] != candidate:
-            raise ValueError(f"candidate metadata does not bind exact version: {name}")
+        repository = repositories.get(name)
+        if repository is None:
+            raise ValueError(f"solver repository identity is unavailable: {name}")
+        info = metadata.get((repository, name, candidate))
+        if info is None:
+            raise ValueError(f"candidate metadata does not bind exact solver identity: {repository}/{name}={candidate}")
         security = evidence.get(name, {})
         trusted = security.get("trusted") is True and isinstance(security.get("source"), str)
         if trusted:
@@ -341,6 +380,15 @@ def _version_set_digest(planned: Mapping[str, str]) -> str:
     return hashlib.sha256(json.dumps(dict(sorted(planned.items())), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _solver_plan_digest(versions: Mapping[str, str], repositories: Mapping[str, str]) -> str:
+    import hashlib, json
+    payload = [
+        {"name": name, "repository": repositories[name], "version": version}
+        for name, version in sorted(versions.items())
+    ]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def discover_updates(
     backend: IsolatedPacmanDiscovery,
     *,
@@ -363,16 +411,16 @@ def discover_updates(
     if planned_result.returncode != 0:
         detail = " | ".join(part for part in (planned_result.stderr.strip(), planned_result.stdout.strip()) if part)
         raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
-    planned = parse_name_versions(planned_result.stdout, separator="\t")
+    planned, planned_repositories = parse_solver_plan(planned_result.stdout)
     candidates = _candidate_rows(installed, planned)
     if not candidates:
         raise LookupError("no coherent update candidates were discovered")
     metadata_result = backend.run(backend.info_command([item[0] for item in candidates]))
     if metadata_result.returncode != 0:
         raise RuntimeError(f"candidate metadata lookup failed: {metadata_result.stderr.strip()}")
-    metadata = parse_sync_info(metadata_result.stdout)
+    metadata = parse_sync_info_records(metadata_result.stdout)
     evidence = security_evidence or {}
-    packages, trusted_sources = _packages_from_candidates(candidates, metadata, evidence)
+    packages, trusted_sources = _packages_from_candidates(candidates, metadata, evidence, planned_repositories)
     transaction = create_transaction(
         transaction_id=new_transaction_id(now=now, entropy=entropy),
         source_revision=source_revision,
@@ -380,7 +428,7 @@ def discover_updates(
         activation_requirements=activation_requirements(packages),
         recovery_generation_id=recovery_generation_id,
         provenance_by_package=_provenance(packages),
-        selection={"kind": "full", "deferred_boot_packages": [], "solver_proof": {"kind": "full-system-solver", "versions_sha256": _version_set_digest(planned)}},
+        selection={"kind": "full", "deferred_boot_packages": [], "solver_proof": {"kind": "full-system-solver", "versions_sha256": _version_set_digest(planned), "plan_sha256": _solver_plan_digest(planned, planned_repositories)}},
         now=now,
     )
     return DiscoveryResult(
@@ -420,32 +468,35 @@ def discover_independent_normal_updates(
     if full_result.returncode != 0:
         detail = " | ".join(part for part in (full_result.stderr.strip(), full_result.stdout.strip()) if part)
         raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
-    full_planned = parse_name_versions(full_result.stdout, separator="\t")
+    full_planned, full_repositories = parse_solver_plan(full_result.stdout)
     full_candidates = _candidate_rows(installed, full_planned)
     if not full_candidates:
         raise LookupError("no coherent update candidates were discovered")
     metadata_result = backend.run(backend.info_command([item[0] for item in full_candidates]))
     if metadata_result.returncode != 0:
         raise RuntimeError(f"candidate metadata lookup failed: {metadata_result.stderr.strip()}")
-    metadata = parse_sync_info(metadata_result.stdout)
+    metadata = parse_sync_info_records(metadata_result.stdout)
     evidence = security_evidence or {}
-    full_packages, _ = _packages_from_candidates(full_candidates, metadata, evidence)
+    full_packages, _ = _packages_from_candidates(full_candidates, metadata, evidence, full_repositories)
     deferred = sorted(item["name"] for item in full_packages if preliminary_boot_critical(item["roles"]))
     if deferred:
         normal_result = backend.run(backend.independent_transaction_command(deferred))
         if normal_result.returncode != 0:
             detail = " | ".join(part for part in (normal_result.stderr.strip(), normal_result.stdout.strip()) if part)
             raise RuntimeError(f"independent_non_boot_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
-        selected_planned = parse_name_versions(normal_result.stdout, separator="\t")
+        selected_planned, selected_repositories = parse_solver_plan(normal_result.stdout)
     else:
         selected_planned = full_planned
+        selected_repositories = full_repositories
     selected_candidates = _candidate_rows(installed, selected_planned)
     if not selected_candidates:
         raise LookupError("no coherent non-boot update candidates were discovered")
     for name, _, version in selected_candidates:
         if full_planned.get(name) != version:
             raise RuntimeError(f"independent_non_boot_solver_version_drift:{name}")
-    packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence)
+        if full_repositories.get(name) != selected_repositories.get(name):
+            raise RuntimeError(f"independent_non_boot_solver_repository_drift:{name}")
+    packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence, selected_repositories)
     escaped = sorted(item["name"] for item in packages if preliminary_boot_critical(item["roles"]))
     if escaped:
         raise RuntimeError("independent_non_boot_solver_consumed_boot_effect:" + ",".join(escaped))
@@ -455,7 +506,10 @@ def discover_independent_normal_updates(
         "deferred_boot_packages": deferred,
         "full_versions_sha256": _version_set_digest(full_planned),
         "selected_versions_sha256": _version_set_digest(selected_planned),
+        "full_plan_sha256": _solver_plan_digest(full_planned, full_repositories),
+        "selected_plan_sha256": _solver_plan_digest(selected_planned, selected_repositories),
         "selected_versions_match_full": True,
+        "selected_repositories_match_full": True,
         "production_ignore_execution": False,
     }
     transaction = create_transaction(
@@ -511,7 +565,7 @@ def discover_coherent_subset_updates(
     if full_result.returncode != 0:
         detail = " | ".join(part for part in (full_result.stderr.strip(), full_result.stdout.strip()) if part)
         raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
-    full_planned = parse_name_versions(full_result.stdout, separator="\t")
+    full_planned, full_repositories = parse_solver_plan(full_result.stdout)
     full_candidates = _candidate_rows(installed, full_planned)
     if not full_candidates:
         raise LookupError("no coherent update candidates were discovered")
@@ -522,9 +576,9 @@ def discover_coherent_subset_updates(
     metadata_result = backend.run(backend.info_command([item[0] for item in full_candidates]))
     if metadata_result.returncode != 0:
         raise RuntimeError(f"candidate metadata lookup failed: {metadata_result.stderr.strip()}")
-    metadata = parse_sync_info(metadata_result.stdout)
+    metadata = parse_sync_info_records(metadata_result.stdout)
     evidence = security_evidence or {}
-    full_packages, _ = _packages_from_candidates(full_candidates, metadata, evidence)
+    full_packages, _ = _packages_from_candidates(full_candidates, metadata, evidence, full_repositories)
     target_rows = {item["name"]: item for item in full_packages if item["name"] in targets}
     pre_boot = sorted(name for name, item in target_rows.items() if preliminary_boot_critical(item["roles"]))
     if pre_boot:
@@ -535,9 +589,10 @@ def discover_coherent_subset_updates(
         if subset_result.returncode != 0:
             detail = " | ".join(part for part in (subset_result.stderr.strip(), subset_result.stdout.strip()) if part)
             raise RuntimeError(f"coherent_subset_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
-        selected_planned = parse_name_versions(subset_result.stdout, separator="\t")
+        selected_planned, selected_repositories = parse_solver_plan(subset_result.stdout)
     else:
         selected_planned = full_planned
+        selected_repositories = full_repositories
     selected_candidates = _candidate_rows(installed, selected_planned)
     selected_names = {name for name, _, _ in selected_candidates}
     if selected_names != set(targets):
@@ -548,14 +603,19 @@ def discover_coherent_subset_updates(
     for name, _, version in selected_candidates:
         if full_planned.get(name) != version:
             raise RuntimeError(f"coherent_subset_solver_version_drift:{name}")
-    packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence)
+        if full_repositories.get(name) != selected_repositories.get(name):
+            raise RuntimeError(f"coherent_subset_solver_repository_drift:{name}")
+    packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence, selected_repositories)
     proof = {
         "kind": "isolated-pacman-coherent-subset",
         "target_packages": list(targets),
         "deferred_packages": deferred,
         "full_versions_sha256": _version_set_digest(full_planned),
         "selected_versions_sha256": _version_set_digest(selected_planned),
+        "full_plan_sha256": _solver_plan_digest(full_planned, full_repositories),
+        "selected_plan_sha256": _solver_plan_digest(selected_planned, selected_repositories),
         "selected_versions_match_full": True,
+        "selected_repositories_match_full": True,
         "production_ignore_execution": False,
     }
     transaction = create_transaction(
