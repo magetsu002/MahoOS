@@ -195,7 +195,8 @@ require_text "$MODEL" 'Hyprland.toplevels.values' "Dock does not consume Quicksh
 require_text "$MODEL" 'function onRawEvent(event)' "Dock is not driven by Hyprland events"
 require_text "$MODEL" 'Hyprland.refreshToplevels()' "Dock cannot refresh authoritative window metadata"
 require_text "$MODEL" 'targetWorkspace.activate()' "Dock does not switch to target workspace"
-require_text "$MODEL" 'Hyprland.dispatch("focuswindow address:" + address)' "Dock does not focus the exact window"
+require_text "$MODEL" 'hl.dsp.focus({ window = \"address:' "Dock does not use Hyprland 0.56 window-selector dispatch"
+reject_text "$MODEL" 'focuswindow address:' "Dock still uses pre-0.55 string dispatcher syntax"
 reject_text "$MODEL" 'repeat: true' "Dock introduced continuous window polling"
 echo PASS
 

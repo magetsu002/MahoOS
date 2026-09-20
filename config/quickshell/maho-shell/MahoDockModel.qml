@@ -435,7 +435,9 @@ Scope {
             root.pendingFocusAddress = ""
             focusDelay.interval = 42
             if (address.length > 0)
-                Hyprland.dispatch("focuswindow address:" + address)
+                Hyprland.dispatch(
+                    "hl.dsp.focus({ window = \"address:" + address + "\" })"
+                )
         }
     }
 
