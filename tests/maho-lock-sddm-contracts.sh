@@ -71,6 +71,10 @@ grep -Fq 'id: eyePointer' "$THEME/Main.qml" \
     || fail "password visibility control references a missing pointer authority"
 grep -Fq 'PASS  SDDM live interaction guards' "$INSTALLER" \
     || fail "installed status does not verify the interaction repair"
+grep -Fq 'GreeterEnvironment=QT_QUICK_BACKEND=software' "$INSTALLER" \
+    || fail "SDDM greeter is not isolated from early GPU renderer startup"
+grep -Fq 'PASS  SDDM greeter software-render isolation' "$INSTALLER" \
+    || fail "SDDM status does not verify the greeter renderer isolation"
 pass "SDDM authentication and accepted visual contracts"
 
 QMLTESTRUNNER="$(command -v qmltestrunner || true)"
@@ -121,6 +125,8 @@ grep -Fxq '# managed-by: maho-lock-sddm v1' "$sandbox/config/90-maho-lock.conf" 
     || fail "managed SDDM config marker missing"
 grep -Fxq 'Current=maho-lock' "$sandbox/config/90-maho-lock.conf" \
     || fail "persistent SDDM theme selection missing"
+grep -Fxq 'GreeterEnvironment=QT_QUICK_BACKEND=software' "$sandbox/config/90-maho-lock.conf" \
+    || fail "persistent SDDM greeter renderer isolation missing"
 [ -s "$sandbox/themes/maho-lock/assets/wallpaper" ] \
     || fail "staged wallpaper missing"
 [ ! -e "$sandbox/themes/maho-lock/assets/avatar.png" ] \

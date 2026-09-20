@@ -258,6 +258,12 @@ install_theme() {
     mv "$stage_path" "$THEME_TARGET"
     {
         printf '%s\n' "$CONFIG_MARKER"
+        printf '%s\n' '[General]'
+        # Keep the greeter independent from early hybrid-GPU Qt Quick renderer
+        # initialization. Only SDDM's login UI is software-rendered; the user
+        # session keeps its normal accelerated graphics stack.
+        printf '%s\n' 'GreeterEnvironment=QT_QUICK_BACKEND=software'
+        printf '%s\n' ''
         printf '%s\n' '[Theme]'
         printf '%s\n' 'Current=maho-lock'
     } > "$config_tmp"
@@ -292,6 +298,12 @@ status() {
         say "PASS  persistent SDDM selection $CONFIG_TARGET"
     else
         say "FAIL  persistent SDDM selection missing"
+        failed=1
+    fi
+    if managed_config && grep -Fxq 'GreeterEnvironment=QT_QUICK_BACKEND=software' "$CONFIG_TARGET"; then
+        say "PASS  SDDM greeter software-render isolation"
+    else
+        say "FAIL  SDDM greeter software-render isolation missing"
         failed=1
     fi
     if managed_session; then
