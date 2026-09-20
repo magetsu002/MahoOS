@@ -619,11 +619,12 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
     actuation_blocker = None if not execute_certified or execution_authorized else str(execution_policy["reason"])
 
     if book_error is None:
+        conditions = lease_conditions(book, proposals, snapshot)
         updated_book = reconcile_leases(
             book,
             resolved,
             proposals,
-            condition_state=lease_conditions(book, proposals, snapshot),
+            condition_state=conditions,
             previous_posture=active_posture(book),
             now=current,
             executable_effects=CERTIFIED_EFFECTS if execution_authorized else frozenset(),
@@ -639,6 +640,11 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
                 actuation = execute_certified_actuators(
                     root, updated_book, runner=actuator_runner, now=current,
                     eligible_policy_effects=eligible_policy_pairs,
+                    lease_condition_state={
+                        lease.lease_id: conditions.get(lease.source_proposal_id)
+                        for lease in updated_book.leases
+                        if lease.state in {"ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}
+                    },
                 )
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
                 actuation_blocker = f"certified-actuator-error:{exc}"

@@ -122,6 +122,22 @@ def test_verified_veto_reuse_and_bounded_refresh() -> None:
     assert refreshed["desired"]["state"]["updated_at"] != existing["updated_at"]
     assert refreshed["desired"]["state"]["lease_id"] == existing["lease_id"]
 
+    invoked = []
+    def runner(command, _environment):
+        decision = json.loads(command[-1]); invoked.append(decision["resource"])
+        return 0, json.dumps({
+            "version": 1, "status": "verified", "resource": decision["resource"],
+            "cycle_id": "cyc-stale-fixture",
+        }), ""
+    stale = execute_certified_actuators(
+        ROOT, book, runner=runner, now=T0 + timedelta(seconds=30),
+        eligible_policy_effects=executable_policy_effects([p]),
+        lease_condition_state={book.leases[0].lease_id: None},
+    )
+    assert stale.ok is False
+    assert "updates.maintenance.adaptive-veto" not in invoked
+    assert any(result.detail == "current fresh policy evidence is unavailable" for result in stale.results)
+
 
 def game(now):
     data = fixture(now, battery=80, ac=True, thermal=70000, locked=False)
@@ -336,6 +352,25 @@ def test_failure_and_anti_flap_behavior() -> None:
             cleared = T0 + timedelta(seconds=5)
             result = shadow.evaluate_shadow(runtime, now=cleared, observations=fixture(cleared, battery=80, ac=True), execute_certified=True, actuator_runner=stateful_runner(state))
             assert result["active_executable_posture"] == {}
+            assert state == {"quiet": False, "veto": None}
+
+        with tempfile.TemporaryDirectory(prefix="maho-a16-residency-") as temporary:
+            runtime = Path(temporary)
+            state = {"quiet": False, "veto": None}
+            shadow.evaluate_shadow(runtime, now=T0, observations=game(T0), execute_certified=True, actuator_runner=stateful_runner(state))
+            active_time = T0 + timedelta(seconds=15)
+            shadow.evaluate_shadow(runtime, now=active_time, observations=game(active_time), execute_certified=True, actuator_runner=stateful_runner(state))
+            cleared = T0 + timedelta(seconds=30)
+            retained = shadow.evaluate_shadow(runtime, now=cleared, observations=fixture(cleared, battery=80, ac=True), execute_certified=True, actuator_runner=stateful_runner(state))
+            assert retained["active_executable_posture"] == {
+                "maintenance": "suspended", "notifications": "quiet",
+            }
+            assert retained["blocked"] is None
+            assert retained["actions"]["verified"] is True
+            expired = T0 + timedelta(seconds=95)
+            restored = shadow.evaluate_shadow(runtime, now=expired, observations=fixture(expired, battery=80, ac=True), execute_certified=True, actuator_runner=stateful_runner(state))
+            assert restored["active_executable_posture"] == {}
+            assert restored["blocked"] is None
             assert state == {"quiet": False, "veto": None}
     finally:
         shadow.adaptive_execution_policy = old_policy

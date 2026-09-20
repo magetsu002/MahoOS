@@ -240,6 +240,7 @@ def execute_certified_actuators(
     runner: Runner | None = None,
     now: datetime | None = None,
     eligible_policy_effects: frozenset[tuple[str, str]] | None = None,
+    lease_condition_state: Mapping[str, bool | None] | None = None,
 ) -> ActuationBatch:
     root = root.resolve()
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -265,10 +266,17 @@ def execute_certified_actuators(
     for effect, decision in decisions:
         lease_ids = tuple(decision["evidence"]["lease_ids"])
         lease = active.get(effect)
+        condition = lease_condition_state.get(lease.lease_id) if lease is not None and lease_condition_state is not None else True
         if (
             lease is not None
-            and eligible_policy_effects is not None
-            and (lease.source_policy, effect) not in eligible_policy_effects
+            and (
+                condition is None
+                or (
+                    condition is True
+                    and eligible_policy_effects is not None
+                    and (lease.source_policy, effect) not in eligible_policy_effects
+                )
+            )
         ):
             results.append(ActuationResult(
                 False, False, str(decision["resource"]), decision["desired"], lease_ids,
