@@ -127,7 +127,7 @@ def main() -> None:
         base = Path(temporary)
         candidate = base / "candidate"
         cache = base / "cache"
-        config = candidate / "etc/maho/pacman-kernel.conf"
+        config = candidate / "etc/maho/pacman.conf"
         payload = cache / "linux-cachyos-7.2-1-x86_64.pkg.tar.zst"
         config.parent.mkdir(parents=True)
         config.write_text("[options]\n")
@@ -149,7 +149,7 @@ def main() -> None:
         )
         install = native.install_command(plan)
         query = native.query_command(plan)
-        expected_prefix = ("/usr/bin/pacman", "--sysroot", str(candidate.resolve()), "--config", "/etc/maho/pacman-kernel.conf")
+        expected_prefix = ("/usr/bin/pacman", "--sysroot", str(candidate.resolve()), "--config", "/etc/maho/pacman.conf")
         check("native install uses exact candidate sysroot", install[:5] == expected_prefix)
         check("native query uses exact candidate sysroot", query[:5] == expected_prefix)
         check("native install never uses legacy root or host dbpath", "--root" not in install and "--dbpath" not in install)

@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from typing import Any, Callable, Mapping, Sequence
 
+from maho_update_effects import preliminary_boot_critical, repository_provenance
 from maho_update_state import create_transaction, new_transaction_id
 
 PACMAN = "/usr/bin/pacman"
@@ -34,6 +35,8 @@ class DiscoveryResult:
     candidate_count: int
     security_metadata_source: str | None
     notifications_emitted: int = 0
+    selection_kind: str = "full"
+    deferred_boot_packages: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -140,6 +143,15 @@ class IsolatedPacmanDiscovery:
             "--dbpath", str(self.db),
         )
 
+    def independent_transaction_command(self, excluded: Sequence[str]) -> tuple[str, ...]:
+        names = tuple(sorted(set(excluded)))
+        if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
+            raise ValueError("independent solver exclusion set is invalid")
+        return (
+            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v",
+            "--ignore", ",".join(names), "--dbpath", str(self.db),
+        )
+
     def info_command(self, names: Sequence[str]) -> tuple[str, ...]:
         if not names or any(_PACKAGE.fullmatch(name) is None for name in names):
             raise ValueError("candidate package name is invalid")
@@ -149,6 +161,16 @@ class IsolatedPacmanDiscovery:
         argv = tuple(command)
         if argv in {self.refresh_command, self.installed_command, self.transaction_command}:
             return True
+        independent_prefix = (
+            PACMAN, "--config", str(self.config), "--sync", "--sysupgrade", "--print", "--print-format", "%n\t%v", "--ignore",
+        )
+        if argv[: len(independent_prefix)] == independent_prefix and len(argv) == len(independent_prefix) + 3:
+            excluded, flag, db = argv[-3:]
+            try:
+                names = tuple(item for item in excluded.split(",") if item)
+                return bool(names) and self.independent_transaction_command(names) == argv and flag == "--dbpath" and db == str(self.db)
+            except ValueError:
+                return False
         prefix = (PACMAN, "--config", str(self.config), "--sync", "--info", "--dbpath", str(self.db), "--")
         return argv[: len(prefix)] == prefix and len(argv) > len(prefix) and all(
             _PACKAGE.fullmatch(name) is not None for name in argv[len(prefix):]
@@ -245,8 +267,18 @@ def package_roles(name: str) -> list[str]:
         roles.update({"kernel-headers", "dkms"})
         roles.add("primary-headers" if name == "linux-cachyos-headers" else "fallback-headers")
     lowered = name.lower()
-    if "nvidia" in lowered:
-        roles.update({"nvidia", "dkms", "initramfs"})
+    if name in {"intel-ucode", "amd-ucode"}:
+        roles.update({"microcode", "initramfs", "boot-artifacts"})
+    if name == "mkinitcpio":
+        roles.add("initramfs")
+    if name in {"limine", "systemd-boot"}:
+        roles.add("bootloader")
+    if "nvidia" in lowered and "dkms" in lowered:
+        roles.update({"nvidia-kernel", "dkms", "initramfs"})
+    elif "nvidia" in lowered and lowered.startswith("linux-"):
+        roles.update({"nvidia-kernel", "initramfs"})
+    elif "nvidia" in lowered:
+        roles.add("nvidia-userspace")
     elif "dkms" in lowered:
         roles.add("dkms")
     if name == "maho-os" or name.startswith("maho-"):
@@ -262,6 +294,51 @@ def activation_requirements(packages: Sequence[Mapping[str, Any]]) -> list[str]:
     if roles & {"kernel", "dkms", "initramfs"}:
         requirements.update({"initramfs", "boot-artifacts", "restart"})
     return sorted(requirements)
+
+
+def _candidate_rows(installed: Mapping[str, str], planned: Mapping[str, str]) -> list[tuple[str, str, str]]:
+    return [
+        (name, installed.get(name, "<not-installed>"), version)
+        for name, version in sorted(planned.items())
+        if installed.get(name) != version
+    ]
+
+
+def _packages_from_candidates(
+    candidates: Sequence[tuple[str, str, str]],
+    metadata: Mapping[str, Mapping[str, Any]],
+    evidence: Mapping[str, Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    packages: list[dict[str, Any]] = []
+    trusted_sources: set[str] = set()
+    for name, installed, candidate in candidates:
+        info = metadata.get(name)
+        if info is None or info["version"] != candidate:
+            raise ValueError(f"candidate metadata does not bind exact version: {name}")
+        security = evidence.get(name, {})
+        trusted = security.get("trusted") is True and isinstance(security.get("source"), str)
+        if trusted:
+            trusted_sources.add(security["source"])
+        packages.append({
+            "name": name,
+            "installed_version": installed,
+            "candidate_version": candidate,
+            "repository": info["repository"],
+            "download_size": info["download_size"],
+            "installed_size": info["installed_size"],
+            "security_relevant": bool(security.get("relevant")) if trusted else False,
+            "roles": package_roles(name),
+        })
+    return packages, trusted_sources
+
+
+def _provenance(packages: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+    return {item["name"]: repository_provenance(str(item["repository"])) for item in packages}
+
+
+def _version_set_digest(planned: Mapping[str, str]) -> str:
+    import hashlib, json
+    return hashlib.sha256(json.dumps(dict(sorted(planned.items())), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def discover_updates(
@@ -287,11 +364,7 @@ def discover_updates(
         detail = " | ".join(part for part in (planned_result.stderr.strip(), planned_result.stdout.strip()) if part)
         raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
     planned = parse_name_versions(planned_result.stdout, separator="\t")
-    candidates = [
-        (name, installed.get(name, "<not-installed>"), version)
-        for name, version in sorted(planned.items())
-        if installed.get(name) != version
-    ]
+    candidates = _candidate_rows(installed, planned)
     if not candidates:
         raise LookupError("no coherent update candidates were discovered")
     metadata_result = backend.run(backend.info_command([item[0] for item in candidates]))
@@ -299,32 +372,15 @@ def discover_updates(
         raise RuntimeError(f"candidate metadata lookup failed: {metadata_result.stderr.strip()}")
     metadata = parse_sync_info(metadata_result.stdout)
     evidence = security_evidence or {}
-    packages: list[dict[str, Any]] = []
-    trusted_sources: set[str] = set()
-    for name, installed, candidate in candidates:
-        info = metadata.get(name)
-        if info is None or info["version"] != candidate:
-            raise ValueError(f"candidate metadata does not bind exact version: {name}")
-        security = evidence.get(name, {})
-        trusted = security.get("trusted") is True and isinstance(security.get("source"), str)
-        if trusted:
-            trusted_sources.add(security["source"])
-        packages.append({
-            "name": name,
-            "installed_version": installed,
-            "candidate_version": candidate,
-            "repository": info["repository"],
-            "download_size": info["download_size"],
-            "installed_size": info["installed_size"],
-            "security_relevant": bool(security.get("relevant")) if trusted else False,
-            "roles": package_roles(name),
-        })
+    packages, trusted_sources = _packages_from_candidates(candidates, metadata, evidence)
     transaction = create_transaction(
         transaction_id=new_transaction_id(now=now, entropy=entropy),
         source_revision=source_revision,
         packages=packages,
         activation_requirements=activation_requirements(packages),
         recovery_generation_id=recovery_generation_id,
+        provenance_by_package=_provenance(packages),
+        selection={"kind": "full", "deferred_boot_packages": [], "solver_proof": {"kind": "full-system-solver", "versions_sha256": _version_set_digest(planned)}},
         now=now,
     )
     return DiscoveryResult(
@@ -332,4 +388,91 @@ def discover_updates(
         isolated_db=str(backend.db),
         candidate_count=len(packages),
         security_metadata_source=",".join(sorted(trusted_sources)) or None,
+        selection_kind="full",
+        deferred_boot_packages=(),
+    )
+
+
+def discover_independent_normal_updates(
+    backend: IsolatedPacmanDiscovery,
+    *,
+    source_revision: str,
+    security_evidence: Mapping[str, Mapping[str, Any]] | None = None,
+    recovery_generation_id: str | None = None,
+    now: datetime | None = None,
+    entropy: str | None = None,
+) -> DiscoveryResult:
+    """Ask an isolated Pacman solver for a coherent generation that defers preliminary boot effects.
+
+    The exclusion is discovery-only. The resulting exact generation is later staged and
+    installed from local artifacts; no production Pacman execution uses --ignore.
+    """
+    backend.prepare()
+    refreshed = backend.run(backend.refresh_command)
+    if refreshed.returncode != 0:
+        raise RuntimeError(f"isolated_synchronization_failed: {refreshed.stderr.strip()}")
+    backend.sync_database_hashes()
+    installed_result = backend.run(backend.installed_command)
+    if installed_result.returncode != 0:
+        raise RuntimeError(f"installed package comparison failed: {installed_result.stderr.strip()}")
+    installed = parse_name_versions(installed_result.stdout, separator=" ")
+    full_result = backend.run(backend.transaction_command)
+    if full_result.returncode != 0:
+        detail = " | ".join(part for part in (full_result.stderr.strip(), full_result.stdout.strip()) if part)
+        raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
+    full_planned = parse_name_versions(full_result.stdout, separator="\t")
+    full_candidates = _candidate_rows(installed, full_planned)
+    if not full_candidates:
+        raise LookupError("no coherent update candidates were discovered")
+    metadata_result = backend.run(backend.info_command([item[0] for item in full_candidates]))
+    if metadata_result.returncode != 0:
+        raise RuntimeError(f"candidate metadata lookup failed: {metadata_result.stderr.strip()}")
+    metadata = parse_sync_info(metadata_result.stdout)
+    evidence = security_evidence or {}
+    full_packages, _ = _packages_from_candidates(full_candidates, metadata, evidence)
+    deferred = sorted(item["name"] for item in full_packages if preliminary_boot_critical(item["roles"]))
+    if deferred:
+        normal_result = backend.run(backend.independent_transaction_command(deferred))
+        if normal_result.returncode != 0:
+            detail = " | ".join(part for part in (normal_result.stderr.strip(), normal_result.stdout.strip()) if part)
+            raise RuntimeError(f"independent_non_boot_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
+        selected_planned = parse_name_versions(normal_result.stdout, separator="\t")
+    else:
+        selected_planned = full_planned
+    selected_candidates = _candidate_rows(installed, selected_planned)
+    if not selected_candidates:
+        raise LookupError("no coherent non-boot update candidates were discovered")
+    for name, _, version in selected_candidates:
+        if full_planned.get(name) != version:
+            raise RuntimeError(f"independent_non_boot_solver_version_drift:{name}")
+    packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence)
+    escaped = sorted(item["name"] for item in packages if preliminary_boot_critical(item["roles"]))
+    if escaped:
+        raise RuntimeError("independent_non_boot_solver_consumed_boot_effect:" + ",".join(escaped))
+    kind = "independent-normal" if deferred else "full"
+    proof = {
+        "kind": "isolated-pacman-independent-generation" if deferred else "full-system-solver",
+        "deferred_boot_packages": deferred,
+        "full_versions_sha256": _version_set_digest(full_planned),
+        "selected_versions_sha256": _version_set_digest(selected_planned),
+        "selected_versions_match_full": True,
+        "production_ignore_execution": False,
+    }
+    transaction = create_transaction(
+        transaction_id=new_transaction_id(now=now, entropy=entropy),
+        source_revision=source_revision,
+        packages=packages,
+        activation_requirements=activation_requirements(packages),
+        recovery_generation_id=recovery_generation_id,
+        provenance_by_package=_provenance(packages),
+        selection={"kind": kind, "deferred_boot_packages": deferred, "solver_proof": proof},
+        now=now,
+    )
+    return DiscoveryResult(
+        transaction=transaction,
+        isolated_db=str(backend.db),
+        candidate_count=len(packages),
+        security_metadata_source=",".join(sorted(trusted_sources)) or None,
+        selection_kind=kind,
+        deferred_boot_packages=tuple(deferred),
     )

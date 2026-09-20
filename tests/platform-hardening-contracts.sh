@@ -29,6 +29,7 @@ export MAHO_TEST_SYSTEMCTL_LOG="$TMP/systemctl.log"
 export MAHO_PLATFORM_ALLOW_UNPRIVILEGED=1
 export MAHO_PLATFORM_PORTAL_ROOT="$TMP/portal"
 export MAHO_PLATFORM_TIMESYNC_ROOT="$TMP/timesync"
+export MAHO_PLATFORM_PACMAN_ROOT="$TMP/maho"
 export MAHO_PLATFORM_DBUS_ROOT="$TMP/dbus"
 export MAHO_PLATFORM_ZRAM_ROOT="$TMP/zram"
 export MAHO_PLATFORM_SYSTEMD_ROOT="$TMP/systemd-system"
@@ -79,6 +80,10 @@ grep -Fxq 'ConditionPathExists=!/etc/maho/signed-boot-production' "$TMP/systemd-
     || fail "legacy boot writer is not gated by Signed Boot authority"
 grep -Fxq 'OnCalendar=monthly' "$TMP/systemd-system/maho-btrfs-scrub-root.timer" \
     || fail "Btrfs scrub interval is undefined"
+grep -Fxq '[cachyos]' "$TMP/maho/pacman.conf" \
+    || fail "canonical Maho Pacman authority omits CachyOS"
+grep -Fxq 'Include = /etc/pacman.d/cachyos-mirrorlist' "$TMP/maho/pacman.conf" \
+    || fail "canonical Maho Pacman authority omits CachyOS mirror authority"
 [ ! -e "$TMP/sysctl" ] || fail "uncertified sysctl candidate was installed"
 if grep -Eq '(restart|try-restart).*(xdg-desktop-portal|gnome-keyring)' "$MAHO_TEST_SYSTEMCTL_LOG"; then
     fail "platform install disrupted the current graphical session"

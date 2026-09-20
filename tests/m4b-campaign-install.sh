@@ -35,8 +35,9 @@ from pathlib import Path
 p=json.load(open(sys.argv[1]))
 assert p['boot']['kernel_update_snapshot_restore_certified'] is True
 assert p['update']['native_execution_certified'] is False
+assert p['update']['normal_execution_certified'] is False
 assert p['update']['automatic_reboot'] is False
-assert p['update']['pacman_config'] == '/etc/maho/pacman-kernel.conf'
+assert p['update']['pacman_config'] == '/etc/maho/pacman.conf'
 assert p['update']['required_repositories'] == ['core','extra','multilib','cachyos']
 s=Path(sys.argv[2]).read_text()
 start=s.index('def prepare_native_campaign')

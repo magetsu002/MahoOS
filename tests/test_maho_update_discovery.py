@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from maho_update_discovery import (  # noqa: E402
     CommandResult,
     IsolatedPacmanDiscovery,
+    discover_independent_normal_updates,
     discover_updates,
     package_roles,
     parse_name_versions,
@@ -44,6 +45,8 @@ class FakeRunner:
         if "--query" in command:
             return CommandResult(0, "linux-cachyos 7.1-1\nlinux-cachyos-headers 7.1-1\nmaho-os 4.0-1\n")
         if "--sysupgrade" in command:
+            if "--ignore" in command:
+                return CommandResult(0, "maho-os\t4.1-1\nnew-runtime-lib\t1.0-1\n")
             return CommandResult(0, "linux-cachyos\t7.2-1\nlinux-cachyos-headers\t7.2-1\nmaho-os\t4.1-1\nnew-runtime-lib\t1.0-1\n")
         if "--info" in command:
             return CommandResult(0, """Repository      : cachyos
@@ -93,7 +96,8 @@ def main() -> None:
     info = parse_sync_info("Repository : core\nName : linux\nVersion : 2\nDownload Size : 1.00 MiB\nInstalled Size : 2.00 MiB\n")
     check("sync metadata binds repository, version, and sizes", info["linux"]["download_size"] == 1024 * 1024)
     check("kernel roles include boot and initramfs implications", set(package_roles("linux-cachyos")) >= {"kernel", "primary-kernel", "initramfs", "boot-artifacts"})
-    check("NVIDIA roles include DKMS implications", set(package_roles("nvidia-dkms")) >= {"nvidia", "dkms", "initramfs"})
+    check("NVIDIA DKMS roles include kernel-module implications", set(package_roles("nvidia-dkms")) >= {"nvidia-kernel", "dkms", "initramfs"})
+    check("NVIDIA userspace is not preclassified as boot-critical", package_roles("nvidia-utils") == ["nvidia-userspace"])
 
     with tempfile.TemporaryDirectory(prefix="maho-update-discovery-") as temporary:
         root = Path(temporary)
@@ -113,6 +117,9 @@ def main() -> None:
         check("exact candidate version is retained", package_map["linux-cachyos"]["candidate_version"] == "7.2-1")
         check("full solver transaction includes newly introduced dependencies", package_map["new-runtime-lib"]["installed_version"] == "<not-installed>")
         check("trusted security evidence is retained", package_map["linux-cachyos"]["security_relevant"] is True and result.security_metadata_source == "signed-advisory-feed")
+        provenance = {item["name"]: item for item in transaction["source_provenance"]["packages"]}
+        check("source provenance is first-class and repository-bound", provenance["linux-cachyos"]["kind"] == "repository" and provenance["linux-cachyos"]["repository"] == "cachyos")
+        check("full discovery records solver selection proof", transaction["selection"]["kind"] == "full" and transaction["selection"]["solver_proof"]["kind"] == "full-system-solver")
         check("untrusted absence never fabricates security metadata", package_map["maho-os"]["security_relevant"] is False)
         check("kernel update activation is explicit", transaction["activation"]["requirements"] == ["boot-artifacts", "initramfs", "maho-runtime-release", "restart"])
         check("discovery emits no notification merely for available updates", result.notifications_emitted == 0)
@@ -123,6 +130,21 @@ def main() -> None:
         rejected("unallowlisted live refresh is refused", lambda: backend.run(("/usr/bin/pacman", "-Sy")))
         rejected("unallowlisted package install is refused", lambda: backend.run(("/usr/bin/pacman", "-S", "linux")))
         rejected("candidate shell syntax is refused", lambda: backend.info_command(["linux;reboot"]))
+
+        independent_backend = IsolatedPacmanDiscovery(root / "independent", installed_db=installed, runner=FakeRunner())
+        independent = discover_independent_normal_updates(
+            independent_backend,
+            source_revision="b" * 40,
+            now=NOW,
+            entropy="fedcba654321",
+        )
+        selected = {item["name"] for item in independent.transaction["package_generation"]["packages"]}
+        check("isolated solver can prove coherent non-boot generation", selected == {"maho-os", "new-runtime-lib"})
+        check("boot generation is deferred rather than partially executed", independent.deferred_boot_packages == ("linux-cachyos", "linux-cachyos-headers"))
+        check("independent generation records solver-only exclusion proof", independent.transaction["selection"]["solver_proof"]["production_ignore_execution"] is False)
+        check("normal generation does not inherit boot activation requirements", independent.transaction["activation"]["requirements"] == ["maho-runtime-release"])
+        ignore_commands = [command for command in independent_backend.commands if "--ignore" in command]
+        check("boot exclusion is confined to isolated discovery command", len(ignore_commands) == 1 and str(independent_backend.db) in ignore_commands[0])
 
         failed_backend = IsolatedPacmanDiscovery(root / "solver-failure", installed_db=installed, runner=SolverFailureRunner())
         try:

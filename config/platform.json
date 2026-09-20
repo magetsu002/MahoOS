@@ -41,7 +41,10 @@
   "storage_health": {
     "root_scrub_schedule": "monthly",
     "scrub_result_authority": "systemd-service-result",
-    "device_tools": ["nvme-cli", "smartmontools"],
+    "device_tools": [
+      "nvme-cli",
+      "smartmontools"
+    ],
     "smart_attributes_are_diagnostic_not_categorical": true
   },
   "recovery": {
@@ -63,10 +66,11 @@
   },
   "update": {
     "native_execution_certified": false,
+    "normal_execution_certified": false,
     "candidate_root_strategy": "btrfs-subvolume-swap",
     "boot_artifact_transaction_required": true,
     "automatic_reboot": false,
-    "pacman_config": "/etc/maho/pacman-kernel.conf",
+    "pacman_config": "/etc/maho/pacman.conf",
     "required_repositories": [
       "core",
       "extra",

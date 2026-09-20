@@ -11,6 +11,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 export MAHO_PLATFORM_ALLOW_UNPRIVILEGED=1
 export MAHO_PLATFORM_PORTAL_ROOT="$TMP/live/portal"
 export MAHO_PLATFORM_TIMESYNC_ROOT="$TMP/live/timesync"
+export MAHO_PLATFORM_PACMAN_ROOT="$TMP/live/maho"
 export MAHO_PLATFORM_DBUS_ROOT="$TMP/live/dbus"
 export MAHO_PLATFORM_ZRAM_ROOT="$TMP/live/zram"
 export MAHO_PLATFORM_SYSTEMD_ROOT="$TMP/live/systemd-system"
@@ -79,7 +80,7 @@ conflicts=(chronyd.service ntpd.service ntp.service openntpd.service)
 reset_case() {
   rm -rf "$TMP/live" "$TMP/platform-state" "$TMP/run" "$TMP/deps" "$TMP/systemctl-state" "$TMP/systemctl.log"
   mkdir -p "$MAHO_PLATFORM_PORTAL_ROOT" "$MAHO_PLATFORM_TIMESYNC_ROOT" "$MAHO_PLATFORM_DBUS_ROOT" \
-    "$MAHO_PLATFORM_ZRAM_ROOT" "$MAHO_PLATFORM_SYSTEMD_ROOT" "$MAHO_PLATFORM_USER_SYSTEMD_ROOT" \
+    "$MAHO_PLATFORM_ZRAM_ROOT" "$MAHO_PLATFORM_PACMAN_ROOT" "$MAHO_PLATFORM_SYSTEMD_ROOT" "$MAHO_PLATFORM_USER_SYSTEMD_ROOT" \
     "$TMP/deps/system" "$TMP/deps/user" "$TMP/deps/portals" "$TMP/systemctl-state/enabled" "$TMP/systemctl-state/active"
   : > "$TMP/systemctl.log"
   for unit in "${units[@]}"; do printf '[Unit]\nDescription=fixture\n' > "$TMP/deps/system/$unit"; done
@@ -234,7 +235,7 @@ assert d['status']=='committed'
 assert d['verification']['ok'] is True
 assert d['previous_state_identity']
 assert d['resulting_state_identity']
-assert len(d['files'])==11
+assert len(d['files'])==12
 assert len(d['service_changes'])==5
 PY_SUCCESS
 assert_no_temp_debris

@@ -12,6 +12,8 @@ import re
 import secrets
 from typing import Any, Iterable, Mapping, Sequence
 
+from maho_update_effects import repository_provenance, validate_provenance
+
 SCHEMA_VERSION = 1
 _SHA40 = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -146,6 +148,60 @@ def _validate_package_generation(value: Any) -> dict[str, Any]:
     return generation
 
 
+def source_provenance_id(packages: Sequence[Mapping[str, Any]], provenance_by_package: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    provided = provenance_by_package or {}
+    entries: list[dict[str, Any]] = []
+    for package in normalize_packages(packages):
+        raw = provided.get(package["name"])
+        provenance = validate_provenance(raw) if raw is not None else repository_provenance(package["repository"])
+        entries.append({"name": package["name"], **provenance})
+    encoded = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+    return {"id": "src-" + hashlib.sha256(encoded).hexdigest(), "packages": entries}
+
+
+def _validate_source_provenance(value: Any, packages: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    if value is None:
+        return source_provenance_id(packages)
+    data = dict(_mapping(value, "source_provenance"))
+    entries = data.get("packages")
+    if not isinstance(entries, list):
+        raise ValueError("source provenance packages are required")
+    expected_names = [item["name"] for item in normalize_packages(packages)]
+    observed: dict[str, Mapping[str, Any]] = {}
+    for raw in entries:
+        entry = dict(_mapping(raw, "source provenance package"))
+        name = entry.pop("name", None)
+        if not isinstance(name, str) or name in observed:
+            raise ValueError("source provenance package identity is invalid")
+        observed[name] = validate_provenance(entry)
+    if sorted(observed) != sorted(expected_names):
+        raise ValueError("source provenance does not cover exact package generation")
+    expected = source_provenance_id(packages, observed)
+    if data.get("id") != expected["id"]:
+        raise ValueError("source provenance identity does not match exact package origins")
+    return expected
+
+
+def _validate_selection(value: Any, packages: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    if value is None:
+        return {"kind": "full", "deferred_boot_packages": [], "solver_proof": {"kind": "full-system-solver"}}
+    data = dict(_mapping(value, "selection"))
+    kind = data.get("kind")
+    if kind not in {"full", "independent-normal"}:
+        raise ValueError("update selection kind is invalid")
+    deferred = _string_list(data.get("deferred_boot_packages", []), "deferred boot packages")
+    proof = data.get("solver_proof")
+    if not isinstance(proof, Mapping) or not proof:
+        raise ValueError("update selection solver proof is required")
+    json.dumps(proof, sort_keys=True)
+    selected = {item["name"] for item in normalize_packages(packages)}
+    if selected & set(deferred):
+        raise ValueError("deferred boot package cannot remain in selected generation")
+    if kind == "full" and deferred:
+        raise ValueError("full update selection cannot defer packages")
+    return {"kind": kind, "deferred_boot_packages": sorted(deferred), "solver_proof": dict(proof)}
+
+
 def _validate_native_authority(value: Any, name: str, allowed_kinds: set[str]) -> dict[str, Any] | None:
     if value is None:
         return None
@@ -267,6 +323,8 @@ def validate_transaction(payload: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} is required")
     data["state"] = _state(data.get("state")).value
     data["package_generation"] = _validate_package_generation(data.get("package_generation"))
+    data["source_provenance"] = _validate_source_provenance(data.get("source_provenance"), data["package_generation"]["packages"])
+    data["selection"] = _validate_selection(data.get("selection"), data["package_generation"]["packages"])
     data["activation"] = _validate_activation(data.get("activation"))
     data["recovery"] = _validate_recovery(data.get("recovery"))
     for section_name in ("activation", "recovery"):
@@ -290,6 +348,8 @@ def create_transaction(
     packages: Sequence[Mapping[str, Any]],
     activation_requirements: Sequence[str],
     recovery_generation_id: str | None,
+    provenance_by_package: Mapping[str, Mapping[str, Any]] | None = None,
+    selection: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     normalized = normalize_packages(packages)
@@ -302,6 +362,8 @@ def create_transaction(
         "updated_at": stamp,
         "source_revision": source_revision,
         "package_generation": {"id": package_generation_id(normalized), "packages": normalized},
+        "source_provenance": source_provenance_id(normalized, provenance_by_package),
+        "selection": dict(selection) if selection is not None else None,
         "activation": {
             "required": bool(activation_requirements),
             "requirements": list(activation_requirements),
@@ -481,6 +543,9 @@ def transaction_receipt(payload: Mapping[str, Any]) -> dict[str, Any]:
         "state": data["state"],
         "source_revision": data["source_revision"],
         "package_generation_id": data["package_generation"]["id"],
+        "source_provenance_id": data["source_provenance"]["id"],
+        "source_provenance": data["source_provenance"]["packages"],
+        "selection": data["selection"],
         "timestamps": timestamps,
         "package_changes": [{"name": item["name"], "from": item["installed_version"], "to": item["candidate_version"]} for item in packages],
         "maho_runtime_changes": [item["name"] for item in packages if "maho-runtime" in item["roles"]],

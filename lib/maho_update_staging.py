@@ -15,6 +15,7 @@ import subprocess
 from typing import Any, Callable, Mapping, Sequence
 
 from maho_update_discovery import CommandResult, PACMAN
+from maho_update_effects import aggregate_effects, classify_artifact, repository_provenance, validate_provenance
 from maho_update_state import UpdateState, transition_transaction, validate_transaction
 
 LIVE_DB = Path("/var/lib/pacman")
@@ -107,6 +108,12 @@ class IsolatedPacmanStaging:
             "--cachedir", str(self.cache), "--logfile", str(self.log), "--", *targets,
         )
 
+    def list_command(self, package_path: Path) -> tuple[str, ...]:
+        path = package_path.resolve(strict=False)
+        if path.parent != self.cache or path.is_symlink() or ".pkg.tar." not in path.name:
+            raise ValueError("package inspection path escapes isolated staging cache")
+        return (PACMAN, "--query", "--file", "--list", "--", str(path))
+
     def info_command(self, package_path: Path) -> tuple[str, ...]:
         path = package_path.resolve(strict=False)
         if path.parent != self.cache or path.is_symlink() or ".pkg.tar." not in path.name:
@@ -141,9 +148,12 @@ class IsolatedPacmanStaging:
                 return True
             except ValueError:
                 return False
-        if argv[:5] == (PACMAN, "--query", "--file", "--info", "--") and len(argv) == 6:
+        if argv[:5] in {
+            (PACMAN, "--query", "--file", "--info", "--"),
+            (PACMAN, "--query", "--file", "--list", "--"),
+        } and len(argv) == 6:
             try:
-                self.info_command(Path(argv[5]))
+                (self.info_command if argv[3] == "--info" else self.list_command)(Path(argv[5]))
                 return True
             except ValueError:
                 return False
@@ -196,6 +206,20 @@ def _parse_file_info(output: str) -> tuple[str, str]:
     return name, version
 
 
+def _parse_file_list(output: str, expected_name: str) -> list[str]:
+    files: list[str] = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        name, separator, path = line.partition(" ")
+        if separator != " " or name != expected_name or not path.startswith("/"):
+            raise ValueError("package file inventory is ambiguous")
+        files.append(path.strip())
+    if not files:
+        raise ValueError("package file inventory is empty")
+    return files
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -207,7 +231,8 @@ def _sha256(path: Path) -> str:
 def validate_manifest(manifest: Mapping[str, Any], transaction: Mapping[str, Any], cache_root: Path) -> dict[str, Any]:
     transaction = validate_transaction(transaction)
     data = dict(manifest)
-    if data.get("schema_version") != 1 or data.get("transaction_id") != transaction["transaction_id"]:
+    schema = data.get("schema_version")
+    if schema not in {1, 2} or data.get("transaction_id") != transaction["transaction_id"]:
         raise ValueError("staging manifest transaction identity is invalid")
     if data.get("package_generation_id") != transaction["package_generation"]["id"]:
         raise ValueError("staging manifest package generation is invalid")
@@ -232,6 +257,15 @@ def validate_manifest(manifest: Mapping[str, Any], transaction: Mapping[str, Any
             raise ValueError("staging payload lacks Pacman signature verification")
         if payload.get("size") != path.stat().st_size:
             raise ValueError("staging payload size mismatch")
+        if schema >= 2:
+            validate_provenance(payload.get("provenance", {}))
+            effects = payload.get("effects")
+            if not isinstance(effects, Mapping) or effects.get("classification") not in {"normal", "boot-critical"}:
+                raise ValueError("staging payload effect analysis is invalid")
+            if not isinstance(effects.get("files_sha256"), str) or _DIGEST.fullmatch(effects["files_sha256"]) is None:
+                raise ValueError("staging payload file inventory digest is invalid")
+            if not isinstance(effects.get("file_count"), int) or effects["file_count"] < 1:
+                raise ValueError("staging payload file inventory count is invalid")
         observed.add(identity)
     if observed != expected:
         raise ValueError("staging manifest is incomplete")
@@ -341,6 +375,7 @@ def stage_transaction(
         return StagingResult(failed, None, requirement, free, resumed, ())
 
     expected = {(item["name"], item["candidate_version"]) for item in packages}
+    package_by_name = {item["name"]: item for item in packages}
     payloads: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for path in sorted(backend.cache.iterdir(), key=lambda item: item.name):
@@ -355,21 +390,36 @@ def stage_transaction(
         if identity in seen:
             failed = transition_transaction(current, UpdateState.FAILED_RECOVERABLE, reason="duplicate exact package payloads are ambiguous", now=now)
             return StagingResult(failed, None, requirement, free, resumed, ())
+        listed = backend.run(backend.list_command(path))
+        if listed.returncode != 0:
+            failed = transition_transaction(current, UpdateState.FAILED_RECOVERABLE, reason="exact package file inventory is unavailable", now=now)
+            return StagingResult(failed, None, requirement, free, resumed, ())
+        files = _parse_file_list(listed.stdout, identity[0])
+        package = package_by_name[identity[0]]
         seen.add(identity)
         payloads.append({
             "name": identity[0], "version": identity[1], "path": str(path.resolve()),
             "sha256": _sha256(path), "size": path.stat().st_size,
             "signature_status": "verified-by-pacman",
+            "provenance": repository_provenance(package["repository"]),
+            "effects": classify_artifact(package_name=identity[0], roles=package["roles"], files=files),
         })
     if seen != expected:
         failed = transition_transaction(current, UpdateState.FAILED_RECOVERABLE, reason="staging completed without every exact payload", now=now)
         return StagingResult(failed, None, requirement, free, resumed, ())
+    effect_summary = aggregate_effects(payloads)
+    exact_current = dict(current)
+    exact_current["activation"] = dict(current["activation"])
+    exact_current["activation"]["requirements"] = list(effect_summary["activation_requirements"])
+    exact_current["activation"]["required"] = bool(effect_summary["activation_requirements"])
+    current = validate_transaction(exact_current)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "transaction_id": current["transaction_id"],
         "package_generation_id": current["package_generation"]["id"],
         "payloads": sorted(payloads, key=lambda item: item["name"]),
-        "verification": "pacman-signature-policy-and-sha256",
+        "verification": "pacman-signature-policy-sha256-and-file-effects",
+        "effects": effect_summary,
     }
     validate_manifest(manifest, current, backend.cache)
     _write_manifest(manifest_path, manifest)

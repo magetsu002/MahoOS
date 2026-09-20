@@ -459,7 +459,7 @@ class NativeCandidateUpdateOps(OfflineRootUpdateOps):
     """M4A executor bound to one M4B candidate subvolume and one M3B target."""
 
     production_safe = True
-    PACMAN_CONFIG = "/etc/maho/pacman-kernel.conf"
+    PACMAN_CONFIG = "/etc/maho/pacman.conf"
 
     def __init__(
         self,

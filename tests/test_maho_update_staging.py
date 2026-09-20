@@ -67,6 +67,12 @@ class FakePacman:
             return CommandResult(0, "")
         if "--file" in command:
             filename = Path(command[-1]).name
+            if "--list" in command:
+                if filename.startswith("linux-cachyos-"):
+                    return CommandResult(0, "linux-cachyos /usr/lib/modules/7.2/kernel/test.ko.zst\nlinux-cachyos /usr/lib/initcpio/install/linux\n")
+                if filename.startswith("maho-os-"):
+                    return CommandResult(0, "maho-os /usr/lib/maho/current\nmaho-os /usr/bin/maho-session\n")
+                return CommandResult(1, "")
             if filename.startswith("linux-cachyos-"):
                 return CommandResult(0, "Name : linux-cachyos\nVersion : 7.2\n")
             if filename.startswith("maho-os-"):
@@ -93,6 +99,12 @@ def main() -> None:
         result = stage_transaction(transaction(), staging, available_bytes=1024**3, now=NOW)
         check("complete exact payload set reaches STAGED", result.transaction["state"] == "STAGED")
         check("all staged payloads carry hashes and Pacman signature status", all(len(item["sha256"]) == 64 and item["signature_status"] == "verified-by-pacman" for item in result.manifest["payloads"]))
+        payloads = {item["name"]: item for item in result.manifest["payloads"]}
+        check("repository provenance is independent from effects", payloads["linux-cachyos"]["provenance"]["kind"] == "repository" and payloads["maho-os"]["provenance"]["kind"] == "repository")
+        check("exact kernel artifact is boot-critical", payloads["linux-cachyos"]["effects"]["classification"] == "boot-critical")
+        check("non-boot Maho artifact remains normal", payloads["maho-os"]["effects"]["classification"] == "normal")
+        check("manifest aggregates exact effects", result.manifest["effects"]["boot_critical_packages"] == ["linux-cachyos"] and result.manifest["effects"]["normal_packages"] == ["maho-os"])
+        check("exact effects replace preliminary activation guess", result.transaction["activation"]["requirements"] == ["explicit-reboot", "initramfs-or-boot-refresh", "maho-runtime-release"])
         check("STAGED manifest binds the package generation", result.manifest["package_generation_id"] == transaction()["package_generation"]["id"])
         check("bounded cleanup removes stale isolated cache payload", str(stale) in result.cleanup_removed and not stale.exists())
         check("staging never targets live package state", all("/var/lib/pacman" not in command and "/var/cache/pacman/pkg" not in command for command in staging.commands))

@@ -38,6 +38,7 @@ class PlatformInstaller:
         self.source = root / "config/platform"
         self.portal_root = env_path("MAHO_PLATFORM_PORTAL_ROOT", "/etc/xdg/xdg-desktop-portal")
         self.timesync_root = env_path("MAHO_PLATFORM_TIMESYNC_ROOT", "/etc/systemd/timesyncd.conf.d")
+        self.pacman_root = env_path("MAHO_PLATFORM_PACMAN_ROOT", "/etc/maho")
         self.dbus_root = env_path("MAHO_PLATFORM_DBUS_ROOT", "/usr/local/share/dbus-1/services")
         self.zram_root = env_path("MAHO_PLATFORM_ZRAM_ROOT", "/etc/systemd/zram-generator.conf.d")
         self.systemd_root = env_path("MAHO_PLATFORM_SYSTEMD_ROOT", "/etc/systemd/system")
@@ -77,6 +78,7 @@ class PlatformInstaller:
 
     def _file_map(self) -> list[tuple[str, Path, Path]]:
         return [
+            ("pacman-authority", self.source / "maho-pacman.conf", self.pacman_root / "pacman.conf"),
             ("portal", self.source / "maho-portals.conf", self.portal_root / "maho-portals.conf"),
             ("timesync", self.source / "systemd-timesyncd.conf", self.timesync_root / "60-maho.conf"),
             ("zram", self.source / "zram-generator.conf", self.zram_root / "60-maho.conf"),
