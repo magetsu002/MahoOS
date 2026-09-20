@@ -16,12 +16,16 @@ from typing import Any, Mapping, Sequence
 
 from maho_adaptive_battery import battery_proposals
 from maho_adaptive_integrations import guardian_proposals
-from maho_adaptive_actuators import CERTIFIED_EFFECTS, executable_proposal_ids, execute_certified_actuators
+from maho_adaptive_actuators import (
+    CERTIFIED_EFFECTS, executable_policy_effects, executable_proposal_effects,
+    execute_certified_actuators,
+)
 from maho_adaptive_leases import (
     LeaseBook, active_posture, book_from_dict, posture_for_mode, reconcile_leases,
     verify_executable, verify_shadow,
 )
 from maho_adaptive_maintenance import maintenance_proposals
+from maho_adaptive_maintenance_state import MaintenanceVetoError, read_state as read_maintenance_veto
 from maho_adaptive_network import network_proposals
 from maho_adaptive_notifications import notification_context_proposals
 from maho_adaptive_observers import observe_live
@@ -80,12 +84,16 @@ def adaptive_execution_policy(root: Path) -> dict[str, Any]:
         return {"certified": False, "effects": (), "service_enabled": False, "reason": "adaptive-effects-invalid"}
     normalized = tuple(sorted(set(effects)))
     expected = tuple(sorted(CERTIFIED_EFFECTS))
-    certified = adaptive.get("a15_execution_certified") is True and normalized == expected
+    a15_certified = adaptive.get("a15_execution_certified") is True
+    a16_certified = adaptive.get("a16_maintenance_execution_certified") is True
+    certified = a15_certified and a16_certified and normalized == expected
     return {
         "certified": certified,
+        "a15_certified": a15_certified,
+        "a16_certified": a16_certified,
         "effects": normalized,
         "service_enabled": adaptive.get("service_enabled") is True,
-        "reason": None if certified else "a15-execution-uncertified",
+        "reason": None if certified else "adaptive-execution-uncertified",
     }
 
 def read_json(path: Path) -> Mapping[str, Any] | None:
@@ -605,7 +613,8 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
     resolved = resolve_posture(snapshot, proposals)
     execution_policy = adaptive_execution_policy(root)
     execution_authorized = execute_certified and execution_policy["certified"] is True
-    eligible_ids = executable_proposal_ids(proposals) if execution_authorized else frozenset()
+    eligible_pairs = executable_proposal_effects(proposals) if execution_authorized else frozenset()
+    eligible_policy_pairs = executable_policy_effects(proposals) if execution_authorized else frozenset()
     actuation = None
     actuation_blocker = None if not execute_certified or execution_authorized else str(execution_policy["reason"])
 
@@ -618,7 +627,7 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
             previous_posture=active_posture(book),
             now=current,
             executable_effects=CERTIFIED_EFFECTS if execution_authorized else frozenset(),
-            executable_proposal_ids=eligible_ids,
+            executable_proposal_effects=eligible_pairs,
         )
         # Shadow verification proves only internal posture consistency.
         for lease in tuple(updated_book.leases):
@@ -627,15 +636,21 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
 
         if execution_authorized:
             try:
-                actuation = execute_certified_actuators(root, updated_book, runner=actuator_runner)
+                actuation = execute_certified_actuators(
+                    root, updated_book, runner=actuator_runner, now=current,
+                    eligible_policy_effects=eligible_policy_pairs,
+                )
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
                 actuation_blocker = f"certified-actuator-error:{exc}"
             else:
-                if actuation.ok:
-                    for lease_id in actuation.verified_lease_ids:
-                        updated_book = verify_executable(updated_book, lease_id)
-                else:
-                    actuation_blocker = f"certified-actuator-failed:{actuation.detail or 'unknown'}"
+                for lease_id in actuation.verified_lease_ids:
+                    updated_book = verify_executable(updated_book, lease_id)
+                if not actuation.ok:
+                    failed = [
+                        f"{result.resource}:{result.detail or 'unknown'}"
+                        for result in actuation.results if not result.ok
+                    ]
+                    actuation_blocker = "certified-actuator-failed:" + ",".join(failed)
         save_book(runtime_root, updated_book)
     else:
         # Corrupted durable lease state is uncertainty: observe and explain, but
@@ -645,11 +660,12 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
     blocked = book_error or actuation_blocker
     if execute_certified:
         actions = {
-            "mode": "A15_CERTIFIED" if execution_authorized else "A15_BLOCKED",
+            "mode": "A16_CERTIFIED" if execution_authorized else "A16_BLOCKED",
             "mutation_executed": bool(actuation and actuation.ok and actuation.mutation_executed),
             "verified": bool(actuation and actuation.ok),
-            "resource": actuation.resource if actuation is not None else "notifications.presentation.adaptive-quiet",
-            "cycle_id": actuation.cycle_id if actuation is not None else None,
+            "resources": [result.resource for result in actuation.results] if actuation is not None else [],
+            "cycle_ids": list(actuation.cycle_ids) if actuation is not None else [],
+            "results": [result.as_dict() for result in actuation.results] if actuation is not None else [],
         }
     else:
         actions = {"mode": "SHADOW_ONLY", "mutation_executed": False}
@@ -725,7 +741,9 @@ def doctor_report(root: Path, runtime_root: Path) -> dict[str, Any]:
         root / "lib/maho_adaptive_resolver.py",
         root / "lib/maho_adaptive_leases.py",
         root / "lib/maho_adaptive_actuators.py",
+        root / "lib/maho_adaptive_maintenance_state.py",
         root / "adapters/notifications/adaptive-quiet.sh",
+        root / "adapters/updates/adaptive-maintenance-veto.sh",
     ]
     checks = {str(path.relative_to(root)): path.is_file() for path in required}
     policy = adaptive_execution_policy(root)
@@ -748,37 +766,91 @@ def doctor_report(root: Path, runtime_root: Path) -> dict[str, Any]:
         mode = actions.get("mode")
         current_authority_safe = (
             mode == "SHADOW_ONLY"
-            or (policy["certified"] is True and mode == "A15_CERTIFIED" and actions.get("verified") is True)
+            or (policy["certified"] is True and mode == "A16_CERTIFIED" and actions.get("verified") is True)
         )
+    active_executable = [
+        lease for lease in lease_book.leases
+        if lease.mode == "executable" and lease.state in {"ACTIVE_EXECUTABLE", "VERIFIED_EXECUTABLE"}
+    ]
+    verified_executable = all(lease.state == "VERIFIED_EXECUTABLE" for lease in active_executable)
+    maintenance_leases = [lease for lease in active_executable if lease.effect.key == "maintenance"]
+    veto_path = runtime_root / "maintenance-veto.json"
+    try:
+        veto = read_maintenance_veto(veto_path)
+        maintenance_projection_safe = (
+            (not maintenance_leases and veto is None)
+            or (
+                len(maintenance_leases) == 1
+                and veto is not None
+                and veto["lease_id"] == maintenance_leases[0].lease_id
+                and veto["source_policy"] == maintenance_leases[0].source_policy
+            )
+        )
+        maintenance_projection_state = "active" if veto is not None else "absent"
+    except MaintenanceVetoError as exc:
+        maintenance_projection_safe = False
+        maintenance_projection_state = f"invalid:{exc}"
+    results = []
+    if current is not None:
+        actions = current.get("actions") if isinstance(current.get("actions"), Mapping) else {}
+        results = actions.get("results") if isinstance(actions.get("results"), list) else []
+    verified_actuator_results = all(isinstance(item, Mapping) and item.get("ok") is True for item in results)
     service_policy_safe = policy["service_enabled"] is not True or policy["certified"] is True
     return {
         "schema_version": SCHEMA_VERSION,
-        "mode": "A15_CERTIFIED" if policy["certified"] else "SHADOW_ONLY",
+        "mode": "A16_CERTIFIED" if policy["certified"] else "SHADOW_ONLY",
         "source_checks": checks,
         "lease_state": "ok" if lease_error is None else lease_error,
         "lease_shadow_only": lease_shadow_only,
         "lease_authority_safe": lease_authority_safe,
+        "live_executable_leases": len(active_executable),
+        "verified_executable_leases": verified_executable,
+        "verified_actuator_results": verified_actuator_results,
+        "maintenance_projection_state": maintenance_projection_state,
+        "maintenance_projection_safe": maintenance_projection_safe,
+        "shadow_only_effects": sorted(posture_for_mode(lease_book, "shadow")),
         "current_record_shadow_only": current_shadow_only,
         "current_record_authority_safe": current_authority_safe,
         "execution_certified": policy["certified"],
+        "a15_execution_certified": policy.get("a15_certified", False),
+        "a16_maintenance_execution_certified": policy.get("a16_certified", False),
         "certified_effects": list(policy["effects"]),
         "service_enabled_by_policy": policy["service_enabled"],
-        "healthy": all(checks.values()) and lease_authority_safe and current_authority_safe and service_policy_safe,
+        "healthy": (
+            all(checks.values()) and lease_authority_safe and current_authority_safe
+            and service_policy_safe and verified_executable and verified_actuator_results
+            and maintenance_projection_safe
+        ),
     }
 
 def _print_status(status: Mapping[str, Any]) -> None:
     situation = status.get("situation") if isinstance(status.get("situation"), Mapping) else {}
-    print("Maho adaptive policy shadow")
+    print("Adaptive: active")
     print(f"Captured:    {status.get('captured_at', 'unknown')}")
     print(f"Mode:        {(status.get('actions') or {}).get('mode', 'SHADOW_ONLY')}")
     print(f"Transitions: {status.get('transition_count', 0)}")
-    print(f"Posture:     {json.dumps(status.get('active_shadow_posture', {}), sort_keys=True)}")
+    executable = status.get("active_executable_posture") if isinstance(status.get("active_executable_posture"), Mapping) else {}
+    shadow = status.get("active_shadow_posture") if isinstance(status.get("active_shadow_posture"), Mapping) else {}
     if status.get("blocked"):
         print(f"Blocked:     {status['blocked']}")
     thermal = situation.get("thermal") if isinstance(situation.get("thermal"), Mapping) else {}
     power = situation.get("power") if isinstance(situation.get("power"), Mapping) else {}
     workload = situation.get("workload") if isinstance(situation.get("workload"), Mapping) else {}
-    print(f"Context:     battery={power.get('severity_band', UNKNOWN)} thermal={thermal.get('level', UNKNOWN)} gaming={workload.get('gaming', UNKNOWN)}")
+    contexts: list[str] = []
+    if workload.get("gaming") is True: contexts.append("Gaming")
+    if workload.get("compile") is True: contexts.append("Compiling")
+    if workload.get("rendering") is True: contexts.append("Rendering")
+    if power.get("severity_band") in {"LOW", "CONSERVING", "CRITICAL"}: contexts.append(f"Battery {power.get('severity_band')}")
+    if thermal.get("level") in {"hot", "critical"}: contexts.append(f"Thermal {str(thermal.get('level')).title()}")
+    print("Context:     " + (", ".join(contexts) if contexts else "Normal"))
+    changes: list[str] = []
+    if executable.get("notifications") in {"quiet", "defer-noncritical"}: changes.append("Notifications quiet")
+    if executable.get("maintenance") == "suspended": changes.append("Maintenance suspended")
+    print("Temporary changes: " + (", ".join(changes) if changes else "None"))
+    shadow_rows = [f"{key.replace('_', ' ').title()} {value}" for key, value in sorted(shadow.items())]
+    print("Shadow-only: " + (", ".join(shadow_rows) if shadow_rows else "None"))
+    if changes:
+        print("Returns to normal: after the condition clears and cooldown expires")
 
 def watch(runtime_root: Path, *, interval: float = DEFAULT_INTERVAL, iterations: int = 0, execute_certified: bool = False) -> int:
     if interval < 1.0:
@@ -792,7 +864,7 @@ def watch(runtime_root: Path, *, interval: float = DEFAULT_INTERVAL, iterations:
             completed += 1
             if status.get("meaningful_transition"):
                 print(
-                    f"maho-adaptive: {'a15' if execute_certified else 'shadow'} transition {status.get('transition_count')} "
+                    f"maho-adaptive: {'a16' if execute_certified else 'shadow'} transition {status.get('transition_count')} "
                     f"posture={json.dumps(status.get('active_shadow_posture', {}), sort_keys=True, separators=(',', ':'))}",
                     flush=True,
                 )
@@ -809,7 +881,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     evaluate = sub.add_parser("evaluate")
     evaluate.add_argument("--json", action="store_true")
-    evaluate.add_argument("--execute-certified", action="store_true", help="execute only A15-certified reversible actuators")
+    evaluate.add_argument("--execute-certified", action="store_true", help="execute only certified reversible actuators")
     for name in ("status", "doctor"):
         command = sub.add_parser(name)
         command.add_argument("--json", action="store_true")
@@ -819,7 +891,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     watcher = sub.add_parser("watch")
     watcher.add_argument("--interval", type=float, default=DEFAULT_INTERVAL)
     watcher.add_argument("--iterations", type=int, default=0, help=argparse.SUPPRESS)
-    watcher.add_argument("--execute-certified", action="store_true", help="execute only A15-certified reversible actuators")
+    watcher.add_argument("--execute-certified", action="store_true", help="execute only certified reversible actuators")
     args = parser.parse_args(argv)
     runtime_root = (args.state_root or state_root()).expanduser()
 
@@ -859,9 +931,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Maho adaptive policy doctor")
             for name, ok in report["source_checks"].items():
                 print(f"{'PASS' if ok else 'FAIL'}  {name}")
-            print(f"{'PASS' if report['lease_shadow_only'] else 'FAIL'}  shadow-only lease authority")
-            print(f"{'PASS' if report['current_record_shadow_only'] else 'FAIL'}  no mutation record")
-            print("INFO  maho-adaptive.service is shipped disabled; A15 actuator enablement is deferred")
+            print(f"{'PASS' if report['lease_authority_safe'] else 'FAIL'}  certified lease authority")
+            print(f"{'PASS' if report['verified_executable_leases'] else 'FAIL'}  executable leases verified")
+            print(f"{'PASS' if report['verified_actuator_results'] else 'FAIL'}  actuator results verified")
+            print(f"{'PASS' if report['maintenance_projection_safe'] else 'FAIL'}  maintenance veto projection {report['maintenance_projection_state']}")
+            print(f"PASS  unsupported effects remain shadow-only: {', '.join(report['shadow_only_effects']) or 'none'}")
+            print(f"{'PASS' if report['service_enabled_by_policy'] else 'INFO'}  maho-adaptive.service policy enabled")
         return 0 if report["healthy"] else 1
     if args.command == "watch":
         return watch(runtime_root, interval=args.interval, iterations=args.iterations, execute_certified=args.execute_certified)

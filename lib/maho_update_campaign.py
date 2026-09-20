@@ -29,6 +29,7 @@ from maho_update_admission import (
     issue_activation_authority,
     verify_activation_authority,
 )
+from maho_adaptive_maintenance_state import MaintenanceVetoError, maintenance_gate_for_user
 from maho_update_native import (
     NativeBtrfsOps,
     NativeCandidateUpdateOps,
@@ -496,11 +497,28 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
     if l3_journal["phase"] != "prepared":
         raise RuntimeError("M3B recovery transaction is no longer prepared")
 
+    # Adaptive contributes only an additional bounded veto. This check is at
+    # the final pre-mutation boundary: it cannot authorize maintenance, change
+    # any native gate, or interrupt a transaction that has already begun.
+    try:
+        adaptive_maintenance = maintenance_gate_for_user(str(journal["user"]))
+    except MaintenanceVetoError as exc:
+        raise RuntimeError(f"adaptive maintenance execution state is unsafe:{exc}") from exc
+    if adaptive_maintenance["veto_active"]:
+        raise RuntimeError(
+            "adaptive_maintenance_suspended:"
+            + str(adaptive_maintenance.get("source_policy", "unknown"))
+        )
+
     ready = transition_transaction(
         transaction,
         UpdateState.MAINTENANCE_READY,
         reason="explicit M4B certification campaign authority granted",
-        evidence={"confirmation": "exact", "campaign_source_revision": source_revision},
+        evidence={
+            "confirmation": "exact",
+            "campaign_source_revision": source_revision,
+            "adaptive_maintenance": adaptive_maintenance,
+        },
     )
     publish_transaction(_STATE_ROOT, ready)
     btrfs = NativeBtrfsOps(transaction_id)

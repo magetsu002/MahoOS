@@ -208,6 +208,7 @@ def reconcile_leases(
     now: datetime,
     executable_effects: frozenset[str] = frozenset(),
     executable_proposal_ids: frozenset[str] = frozenset(),
+    executable_proposal_effects: frozenset[tuple[str, str]] = frozenset(),
 ) -> LeaseBook:
     """Reconcile shadow leases without restoring remembered values directly.
 
@@ -249,7 +250,11 @@ def reconcile_leases(
         if winner is None:
             continue
         effect = Effect(key, str(field.value))
-        mode = "executable" if key in executable_effects and winner.proposal_id in executable_proposal_ids else "shadow"
+        explicitly_certified = (
+            (winner.proposal_id, key) in executable_proposal_effects
+            or (not executable_proposal_effects and winner.proposal_id in executable_proposal_ids)
+        )
+        mode = "executable" if key in executable_effects and explicitly_certified else "shadow"
         if any(_equivalent(lease, effect, winner, mode) for lease in leases):
             continue
         if _cooldown_blocked(LeaseBook(SCHEMA_VERSION, tuple(leases)), effect, winner, now, mode):

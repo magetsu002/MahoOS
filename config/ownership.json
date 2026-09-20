@@ -2,7 +2,8 @@
   "resources": {
     "appearance.hyprland.borders": "maho",
     "appearance.wallpaper.runtime": "maho",
-    "notifications.presentation.adaptive-quiet": "maho"
+    "notifications.presentation.adaptive-quiet": "maho",
+    "updates.maintenance.adaptive-veto": "maho"
   },
   "version": 1
 }

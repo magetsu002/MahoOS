@@ -80,7 +80,9 @@
   },
   "adaptive": {
     "a15_execution_certified": true,
+    "a16_maintenance_execution_certified": true,
     "certified_effects": [
+      "maintenance",
       "notifications"
     ],
     "service_enabled": true
