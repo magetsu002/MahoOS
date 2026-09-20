@@ -36,7 +36,7 @@ FILES_DESKTOP_REL="apps/maho-files/io.maho.Files.desktop"
 FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
 
 COMMANDS=(
-  mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
+  maho mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
@@ -307,7 +307,7 @@ preflight() {
     "$ROOT/lib/maho_update_maintenance.py" "$ROOT/lib/maho_update_transaction.py" \
     "$ROOT/lib/maho_update_receipts.py" "$ROOT/lib/maho_update_cli.py" \
     "$ROOT/lib/maho_update_admission.py" \
-    "$ROOT/lib/maho_boot_authority.py" "$ROOT/lib/maho_secure_boot.py" "$ROOT/lib/maho_behavior_preferences.py" "$ROOT/lib/maho_system_status.py" \
+    "$ROOT/lib/maho_boot_authority.py" "$ROOT/lib/maho_secure_boot.py" "$ROOT/lib/maho_behavior_preferences.py" "$ROOT/lib/maho_system_status.py" "$ROOT/lib/maho_system_tui.py" "$ROOT/lib/maho_system_cli.py" "$ROOT/lib/maho_tui.py" \
     "$ROOT/lib/guardian_update.py" "$ROOT/lib/maho_platform_install.py" "$ROOT"/lib/maho_adaptive_*.py \
     "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \

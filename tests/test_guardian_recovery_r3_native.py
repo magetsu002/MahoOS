@@ -42,6 +42,7 @@ def main() -> int:
         probe = subprocess.run([sys.executable, str(maho / "guardian_r3_native_verify.py")], text=True, capture_output=True)
         check("R3 initrd-layout verifier imports successfully", "usage: guardian_r3_native_verify.py COMMAND" in probe.stderr)
         shutil.copy2(ROOT / "lib/guardian_recovery_tui.py", maho / "guardian_recovery_tui.py")
+        shutil.copy2(ROOT / "lib/maho_tui.py", maho / "maho_tui.py")
         usr_bin = pathlib.Path(import_td) / "usr/bin"; usr_bin.mkdir()
         shutil.copy2(ROOT / "bin/maho-guardian-recovery-tui", usr_bin / "maho-guardian-recovery-tui")
         wrapper = (usr_bin / "maho-guardian-recovery-tui").read_text().replace('"/usr/lib/maho"', f'"{maho}"')
