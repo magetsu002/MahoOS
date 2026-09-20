@@ -19,6 +19,30 @@ pass "installer has explicit root boundary"
 grep -Fq 'rev-parse --show-toplevel' "$INSTALLER" || fail "linked worktree validation missing"
 grep -Fq 'git_cmd show "$rev:$file"' "$INSTALLER" || fail "exact committed blob install missing"
 grep -Fq 'git_cmd cat-file -e "$EXPECTED_REV:$file"' "$INSTALLER" || fail "exact committed blob preflight missing"
+python - "$ROOT" "$INSTALLER" <<'PY_IMPORT_CLOSURE'
+import ast,re,sys
+from pathlib import Path
+root=Path(sys.argv[1]); installer=Path(sys.argv[2]).read_text()
+block=installer.split('FILES=(',1)[1].split(')\n',1)[0]
+files={line.strip() for line in block.splitlines() if line.strip() and not line.lstrip().startswith('#')}
+local={p.stem:p for p in (root/'lib').glob('*.py')}
+queue=[root/f for f in files if f.endswith('.py')]; seen=set(); missing=set()
+while queue:
+    path=queue.pop()
+    if path in seen: continue
+    seen.add(path); tree=ast.parse(path.read_text())
+    for node in ast.walk(tree):
+        names=[]
+        if isinstance(node,ast.Import): names=[a.name.split('.')[0] for a in node.names]
+        elif isinstance(node,ast.ImportFrom) and node.module: names=[node.module.split('.')[0]]
+        for name in names:
+            dep=local.get(name)
+            if dep is None: continue
+            rel=str(dep.relative_to(root))
+            if rel not in files: missing.add((str(path.relative_to(root)),rel))
+assert not missing, 'campaign local import closure incomplete: '+repr(sorted(missing))
+PY_IMPORT_CLOSURE
+pass "installer payload closes every local Python import"
 pass "installer trusts exact Git objects"
 grep -Fq 'unset PYTHONPATH PYTHONHOME' "$WRAPPER" || fail "Python injection variables retained"
 grep -Fq 'MAHO_UPDATE_CAMPAIGN_ROOT' "$WRAPPER" || fail "installed root is not explicit"
