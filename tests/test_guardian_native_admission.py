@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from guardian_admission import AdmissionOutcome, CandidateDeclaration, EffectKind  # noqa: E402
 from guardian_native_admission import (  # noqa: E402
     CandidateRoots, NativeAdmissionError, admit_candidate, candidate_first_admission,
-    filesystem_observations, package_ownership, parse_runtime_evidence,
+    _mount_id, filesystem_observations, package_ownership, parse_runtime_evidence,
     parse_declaration, revalidate_promotion_authority, root_identity,
     verify_promotion_authority,
 )
@@ -104,6 +104,12 @@ def declaration(paths, effects=(EffectKind.FILE,)):
 
 
 def main() -> None:
+    with tempfile.TemporaryDirectory(prefix="guardian-mount-identity-") as td:
+        ordinary = Path(td) / "ordinary"
+        ordinary.mkdir()
+        check("ordinary directory retains its parent Linux mount identity", _mount_id(ordinary) == _mount_id(Path(td)))
+        check("real procfs mount has a distinct Linux mount identity", _mount_id(Path("/proc")) != _mount_id(Path("/")))
+
     with tempfile.TemporaryDirectory(prefix="guardian-zero-file-package-") as td:
         root = Path(td)
         package_db(root, {"meta": [], "demo": ["/usr/bin/demo"]})

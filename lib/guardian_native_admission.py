@@ -262,12 +262,32 @@ def _xattr_identity(path: Path) -> tuple[str, str | None]:
     return hashlib.sha256(canonical_bytes(rows)).hexdigest(), capability
 
 
+def _mount_id(path: Path) -> int:
+    """Return the Linux mount identity without confusing Btrfs subvolumes for mounts."""
+    flags = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(path, flags)
+    try:
+        lines = Path(f"/proc/self/fdinfo/{fd}").read_text(
+            encoding="ascii", errors="strict",
+        ).splitlines()
+    finally:
+        os.close(fd)
+    for line in lines:
+        key, separator, value = line.partition(":")
+        if separator and key == "mnt_id":
+            try:
+                return int(value.strip())
+            except ValueError as exc:
+                raise OSError("mount identity is malformed") from exc
+    raise OSError("mount identity is unavailable")
+
+
 def filesystem_observations(
     root: Path, ownership: Mapping[str, str],
 ) -> tuple[dict[str, FileObservation], tuple[str, ...]]:
     observations: dict[str, FileObservation] = {}
     errors: list[str] = []
-    root_dev = root.stat().st_dev
+    root_mount_id = _mount_id(root)
     stack = [root]
     while stack:
         directory = stack.pop()
@@ -294,7 +314,7 @@ def filesystem_observations(
                 mode = stat.S_IMODE(st.st_mode)
                 owner = ownership.get(rel)
                 if stat.S_ISDIR(st.st_mode):
-                    if st.st_dev != root_dev:
+                    if _mount_id(path) != root_mount_id:
                         errors.append(f"unexpected_mount_boundary:{rel}")
                     else:
                         xattrs, capability = _xattr_identity(path)
