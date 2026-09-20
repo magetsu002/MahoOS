@@ -155,10 +155,12 @@ echo "=== deterministic missing-artwork fallback ==="
 require_text "$APP_ICON" 'readonly property bool candidatesExhausted: candidateIndex >= candidates.length' "failed icon candidates do not reach an explicit fallback state"
 require_text "$APP_ICON" 'visible: !root.ready && root.candidatesExhausted' "broken app artwork can expose toolkit error visuals"
 require_text "$APP_ICON" 'MahoFallbackAppGlyph {' "Dock has no deliberate neutral fallback icon"
+require_text "$APP_ICON" 'readonly property bool syntheticEntry:' "Dock cannot distinguish synthetic window identities from desktop IDs"
+require_text "$APP_ICON" 'if (!root.syntheticEntry)' "synthetic window identities can still resolve toolkit placeholder artwork"
 require_text "$FALLBACK_ICON" 'import QtQuick.Shapes' "Dock fallback is not resolution-independent vector geometry"
 require_text "$FALLBACK_ICON" 'objectName: "mahoFallbackAppGlyph"' "Dock fallback has no native-test identity"
 reject_text "$APP_ICON" 'text: "◇"' "legacy low-detail diamond fallback returned"
-QT_QPA_PLATFORM=offscreen "$QMLTESTRUNNER" -input "$ROOT/tests/tst-maho-fallback-app-glyph.qml"
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software "$QMLTESTRUNNER" -input "$ROOT/tests/tst-maho-fallback-app-glyph.qml"
 echo PASS
 
 echo "=== shared application identity and activation ==="

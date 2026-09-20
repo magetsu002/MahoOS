@@ -116,6 +116,14 @@ TestCase {
 
         tryVerify(function() { return pinnedButton.opacity > 0.9 }, 500,
                   "filled pin is hidden while its row is idle")
+        tryVerify(function() { return pinnedButton.color.a < 0.01 }, 500,
+                  "filled pin keeps permanent background material while idle")
+        compare(pinnedButton.border.width, 0)
+
+        mouseMove(pinnedButton, pinnedButton.width / 2, pinnedButton.height / 2)
+        tryVerify(function() { return pinnedButton.color.a > 0.05 }, 500,
+                  "filled pin hover did not reveal its background material")
+        compare(pinnedButton.border.width, 1)
 
         var firstButton = findChild(panel, "clipboardPinButton-0")
         verify(firstButton !== null)
@@ -127,5 +135,8 @@ TestCase {
         mouseMove(host, 4, 4)
         tryVerify(function() { return pinnedButton.opacity > 0.9 }, 500,
                   "filled pin disappeared after leaving the clipboard rows")
+        tryVerify(function() { return pinnedButton.color.a < 0.01 }, 500,
+                  "filled pin background remained active after hover ended")
+        compare(pinnedButton.border.width, 0)
     }
 }

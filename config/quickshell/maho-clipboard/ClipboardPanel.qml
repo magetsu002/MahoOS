@@ -520,15 +520,15 @@ Item {
                     width: 34
                     height: 34
                     radius: 11
-                    color: row.pinLatched
-                        ? theme.alpha(root.mix(root.accent, root.textSecondary, 0.24), 0.13)
-                        : pinHover.containsMouse
-                            ? theme.alpha(root.textSecondary, 0.045)
-                            : theme.alpha(root.textSecondary, 0.018)
-                    border.width: 1
+                    color: pinHover.containsMouse
+                        ? (row.pinLatched
+                            ? theme.alpha(root.mix(root.accent, root.textSecondary, 0.24), 0.13)
+                            : theme.alpha(root.textSecondary, 0.045))
+                        : "transparent"
+                    border.width: pinHover.containsMouse ? 1 : 0
                     border.color: row.pinLatched
                         ? theme.alpha(root.accent, 0.26)
-                        : theme.alpha(theme.foreground, pinHover.containsMouse ? 0.075 : 0.035)
+                        : theme.alpha(theme.foreground, 0.075)
                     opacity: row.revealPin
                         ? (root.clipboardState.mutating ? 0.48 : 1)
                         : 0

@@ -19,6 +19,7 @@ Item {
             : ""
     readonly property bool ready: artwork.status === Image.Ready
     readonly property bool candidatesExhausted: candidateIndex >= candidates.length
+    readonly property bool syntheticEntry: String(root.entryId || "").startsWith("window:")
 
     function appendUnique(output, value) {
         const text = value === undefined || value === null ? "" : String(value).trim()
@@ -49,10 +50,17 @@ Item {
         const parts = stem.split(/[.]/)
         const tail = parts.length > 0 ? parts[parts.length - 1] : ""
 
+        // Synthetic window identities are not icon-theme names. Asking
+        // Quickshell to resolve "window:<class>" or a generated display name
+        // can return the toolkit's own missing-image placeholder and make it
+        // look like real app artwork. Unknown apps with no explicit icon must
+        // fall through to MahoFallbackAppGlyph instead.
         appendUnique(output, themed(rawIcon))
-        appendUnique(output, themed(stem))
-        appendUnique(output, themed(tail))
-        appendUnique(output, themed(normalizedName(root.name)))
+        if (!root.syntheticEntry) {
+            appendUnique(output, themed(stem))
+            appendUnique(output, themed(tail))
+            appendUnique(output, themed(normalizedName(root.name)))
+        }
 
         if (rawIcon.startsWith("/") || rawIcon.startsWith("file://"))
             appendUnique(output, rawIcon)
