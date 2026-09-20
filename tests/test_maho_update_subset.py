@@ -52,7 +52,8 @@ class Runner:
 
 def main():
     with tempfile.TemporaryDirectory(prefix='maho-subset-') as temp:
-        backend=IsolatedPacmanDiscovery(Path(temp)/'ok',runner=Runner())
+        installed=Path(temp)/'installed'; installed.mkdir()
+        backend=IsolatedPacmanDiscovery(Path(temp)/'ok',installed_db=installed,runner=Runner())
         result=discover_coherent_subset_updates(
             backend,target_packages=['teams-for-linux'],source_revision='a'*40,entropy='123456abcdef')
         packages=result.transaction['package_generation']['packages']
@@ -63,7 +64,8 @@ def main():
         ignores=[c for c in backend.commands if '--ignore' in c]
         check('subset exclusion occurs only in isolated solver',len(ignores)==1 and str(backend.db) in ignores[0])
     with tempfile.TemporaryDirectory(prefix='maho-subset-extra-') as temp:
-        bad=IsolatedPacmanDiscovery(Path(temp)/'bad',runner=Runner(extra_subset=True))
+        installed=Path(temp)/'installed'; installed.mkdir()
+        bad=IsolatedPacmanDiscovery(Path(temp)/'bad',installed_db=installed,runner=Runner(extra_subset=True))
         rejected('solver-added unexpected update rejects subset',lambda:discover_coherent_subset_updates(
             bad,target_packages=['teams-for-linux'],source_revision='a'*40,entropy='abcdef123456'))
     print('ALL MAHO COHERENT SUBSET CONTRACTS PASS')
