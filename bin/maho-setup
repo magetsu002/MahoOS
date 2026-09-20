@@ -707,6 +707,17 @@ install_platform() {
   sudo env MAHO_PLATFORM_USER="$account" bash "$installer" status
 }
 
+effective_notify_runtime_authority() {
+  systemd_available || return 0
+  local effective_exec
+  effective_exec="$(systemctl --user show maho-notify.service --property=ExecStart --value 2>/dev/null || true)"
+  [ -z "$effective_exec" ] && return 0
+  case "$effective_exec" in
+    *"$BIN_DIR/maho-notify"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 status() {
   local failed=0 name current
   [ -L "$CURRENT" ] && [ -d "$CURRENT" ] || { echo "FAIL  runtime current"; failed=1; }
@@ -720,6 +731,7 @@ status() {
   managed_hypr || { echo "FAIL  Hyprland session hook"; failed=1; }
   managed_files_desktop || { echo "FAIL  Maho Files desktop entry"; failed=1; }
   if systemd_available; then
+    effective_notify_runtime_authority || { echo "FAIL  Notify execution authority bypasses runtime/current"; failed=1; }
     for name in "${CORE_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  core ownership $name"; failed=1; }; done
     for name in "${GRAPHICAL_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants; then echo "FAIL  stale graphical ownership $name"; failed=1; fi; done
     for name in "${PASSIVE_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants || managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; then echo "FAIL  passive unit unexpectedly enabled $name"; failed=1; fi; done

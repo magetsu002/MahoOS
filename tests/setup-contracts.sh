@@ -24,6 +24,10 @@ cat >"$TMP/fake-bin/systemctl" <<'EOF_SYSTEMCTL'
 printf '%s\n' "$*" >>"$MAHO_TEST_SYSTEMCTL_LOG"
 case "$*" in
   '--user show-environment') exit 0 ;;
+  '--user show maho-notify.service --property=ExecStart --value')
+    [ -z "${MAHO_TEST_NOTIFY_EXECSTART:-}" ] || printf '%s\n' "$MAHO_TEST_NOTIFY_EXECSTART"
+    exit 0
+    ;;
   '--user daemon-reload')
     if [ -n "${MAHO_TEST_DAEMON_RELOAD_COUNT_FILE:-}" ]; then
       count=0
@@ -415,6 +419,16 @@ for wants in default.target.wants graphical-session.target.wants; do [ ! -e "$UN
 [ -L "$UNIT_DIR/default.target.wants/maho-waybar-theme.path" ] || fail 'unrelated Waybar watcher was touched'
 if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG"; then fail 'install restarted or directly activated live services'; fi
 "$HOME/.local/bin/maho-setup" status >/dev/null
+
+echo '=== effective Notify execution authority ==='
+export MAHO_TEST_NOTIFY_EXECSTART="$HOME/.local/bin/maho-notify run"
+"$HOME/.local/bin/maho-setup" status >/dev/null || fail 'canonical Notify wrapper was rejected'
+export MAHO_TEST_NOTIFY_EXECSTART="$HOME/Projects/Maho-OS/bin/maho-notify run"
+if "$HOME/.local/bin/maho-setup" status >/dev/null 2>&1; then
+  fail 'setup status accepted repository-checkout Notify execution authority'
+fi
+unset MAHO_TEST_NOTIFY_EXECSTART
+echo PASS
 
 echo '=== runtime status verifies immutable payload identity ==='
 RUNTIME_PROBE="$NEW_RELEASE/bin/maho-power"
