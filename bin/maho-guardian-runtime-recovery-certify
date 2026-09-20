@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Physical certification frontend for the existing Guardian runtime recovery path.
+set -euo pipefail
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+exec python "$ROOT/lib/guardian_runtime_recovery_campaign.py" "$@"
