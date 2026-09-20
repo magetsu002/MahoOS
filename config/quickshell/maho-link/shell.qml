@@ -21,6 +21,9 @@ ShellRoot {
     property bool placementValid: false
     property bool placementLoadPending: false
     property bool placementApplied: false
+    property bool launchPlacementLocked: false
+    property real launchPlacementX: 0
+    property real launchPlacementY: 0
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
     readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
@@ -104,6 +107,13 @@ ShellRoot {
         }
         placementApplied = true
         reportAppliedGeometry()
+    }
+
+    function commitLaunchPlacement() {
+        applyPlacement()
+        launchPlacementX = linkSurface.x
+        launchPlacementY = linkSurface.y
+        launchPlacementLocked = true
     }
 
     function persistPlacement() {
@@ -205,7 +215,7 @@ ShellRoot {
         blockLoading: true
         onFileChanged: {
             reload()
-            if (!root.placementValid && root.overlayOpen)
+            if (!root.placementValid && root.overlayOpen && !root.launchPlacementLocked)
                 Qt.callLater(root.applyPlacement)
         }
 
@@ -254,9 +264,12 @@ ShellRoot {
         // foreground material window is still completely unmapped. Only after
         // coordinates are applied may Link enter the compositor, preventing a
         // one-frame default-position flash.
-        applyPlacement()
+        commitLaunchPlacement()
+        linkSurface.x = launchPlacementX
+        linkSurface.y = launchPlacementY
         linkSurface.shown = true
         overlayOpen = true
+        launchPlacementUnlock.restart()
         linkSurface.forceActiveFocus()
     }
 
@@ -264,6 +277,8 @@ ShellRoot {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
         idleRetireTimer.stop()
+        launchPlacementUnlock.stop()
+        launchPlacementLocked = false
         closeAfterPlacementSave = false
         presented = true
         if (placementSave.running || placementSavePending) {
@@ -307,6 +322,8 @@ ShellRoot {
         if (!presented)
             return
         modeAfterPlacementSave = ""
+        launchPlacementUnlock.stop()
+        launchPlacementLocked = false
         overlayOpen = false
         linkSurface.shown = false
         if (placementSave.running || placementSavePending) {
@@ -368,6 +385,13 @@ ShellRoot {
         id: openDelay
         interval: 1
         onTriggered: root.showOverlay()
+    }
+
+    Timer {
+        id: launchPlacementUnlock
+        interval: 320
+        repeat: false
+        onTriggered: root.launchPlacementLocked = false
     }
 
     Timer {
@@ -435,13 +459,13 @@ ShellRoot {
         onWidthChanged: {
             if (root.placementLoadPending)
                 Qt.callLater(root.resumePendingPlacementLoad)
-            if (root.overlayOpen && !root.dragging)
+            if (root.overlayOpen && !root.dragging && !root.launchPlacementLocked)
                 Qt.callLater(root.applyPlacement)
         }
         onHeightChanged: {
             if (root.placementLoadPending)
                 Qt.callLater(root.resumePendingPlacementLoad)
-            if (root.overlayOpen && !root.dragging)
+            if (root.overlayOpen && !root.dragging && !root.launchPlacementLocked)
                 Qt.callLater(root.applyPlacement)
         }
 
@@ -511,7 +535,7 @@ ShellRoot {
             section: root.activeMode
             shown: false
             onHeightChanged: {
-                if (root.overlayOpen && !root.dragging)
+                if (root.overlayOpen && !root.dragging && !root.launchPlacementLocked)
                     Qt.callLater(root.applyPlacement)
             }
             onCloseRequested: root.closeOverlay()
@@ -527,7 +551,7 @@ ShellRoot {
             y: linkSurface.y + 16
             width: Math.max(100, linkSurface.width - 220)
             height: 48
-            enabled: root.overlayOpen && linkSurface.shown
+            enabled: root.overlayOpen && linkSurface.shown && !root.launchPlacementLocked
             hoverEnabled: true
             preventStealing: true
             cursorShape: Qt.SizeAllCursor
