@@ -254,15 +254,15 @@ def main() -> None:
         check(
             "undersized terminal shows only a resize guard",
             "Terminal too small" in narrow
-            and "Required: 100x28" in narrow
+            and "Required: 60x18" in narrow
             and "Current system" not in narrow
             and all(len(line) <= 52 for line in narrow.splitlines()),
         )
-        short = render(pending, width=120, height=20)
+        short = render(pending, width=120, height=17)
         check(
             "short terminal also shows only a resize guard",
             "Terminal too small" in short
-            and "Current: 120x20" in short
+            and "Current: 120x17" in short
             and "Current system" not in short,
         )
         minimum = render(pending, width=100, height=28)
@@ -272,6 +272,14 @@ def main() -> None:
             and "more content" not in minimum
             and "Recent generations" in minimum
             and all(len(line) <= 100 for line in minimum.splitlines()),
+        )
+        compact = render(pending, width=80, height=24)
+        check(
+            "80x24 terminal remains usable without overflow",
+            "Terminal too small" not in compact
+            and "MahoOS / Guardian Recovery" in compact
+            and all(len(line) <= 80 for line in compact.splitlines())
+            and len(compact.splitlines()) == 24,
         )
         for page_name in ("recovery", "trust", "generations", "logs", "plan"):
             page_screen = render(pending, page=page_name, width=100, height=28)

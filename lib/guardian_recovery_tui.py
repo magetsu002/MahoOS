@@ -14,13 +14,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
-import select
 import shutil
 import sys
-import termios
-import textwrap
-import tty
 from typing import Any, Mapping, Sequence, TextIO
 
 from guardian_offline_recovery import DirectoryRecoveryProvider
@@ -28,6 +23,12 @@ from guardian_recovery_r3_executor import parse_envelope
 from maho_generation_v2 import GenerationGraph
 from maho_kernel_generation import KernelGenerationGraph
 from maho_trust_identity import canonical_json
+from maho_tui import (
+    ANSI, box as _box, clip as _clip, colorize_line as _colorize_line,
+    columns as _columns, field_rows as _field_rows, human as _human,
+    paint as _paint, read_key as _read_key, short_id as _short_id,
+    status_word as _status_word, wrap as _wrap,
+)
 
 
 class TUIEvidenceError(ValueError):
@@ -35,17 +36,9 @@ class TUIEvidenceError(ValueError):
 
 
 PAGES = ("Recovery", "Trust", "Generations", "Logs", "Plan")
-MIN_TUI_WIDTH = 100
-MIN_TUI_HEIGHT = 28
+MIN_TUI_WIDTH = 60
+MIN_TUI_HEIGHT = 18
 DEFAULT_EVIDENCE_ROOT = Path("/usr/lib/maho/guardian-r3-campaign/r2-evidence")
-ANSI = {
-    "reset": "\033[0m",
-    "green": "\033[32m",
-    "yellow": "\033[33m",
-    "red": "\033[31m",
-    "dim": "\033[2m",
-    "reverse": "\033[7m",
-}
 
 
 @dataclass(frozen=True)
@@ -514,51 +507,8 @@ def build_presentation(
     )
 
 
-def _clip(value: str, width: int) -> str:
-    if width <= 0:
-        return ""
-    if len(value) <= width:
-        return value
-    if width == 1:
-        return "…"
-    return value[: width - 1] + "…"
-
-
-def _wrap(value: str, width: int) -> list[str]:
-    return textwrap.wrap(
-        value, width=max(1, width), replace_whitespace=False,
-        drop_whitespace=True, break_long_words=True, break_on_hyphens=False,
-    ) or [""]
-
-
-def _short_id(value: str | None, width: int = 28) -> str:
-    if value is None:
-        return "—"
-    if len(value) <= width:
-        return value
-    if width < 12:
-        return _clip(value, width)
-    side = max(5, width // 2 - 2)
-    return value[:side] + "…" + value[-side:]
-
-
-def _human(value: str) -> str:
-    return value.replace("_", " ").replace("-", " ").strip()
-
-
 def _scope_label(scope: str) -> str:
     return "Kernel only" if scope == "KERNEL_ONLY" else "Full generation"
-
-
-def _status_word(value: str) -> str:
-    return {
-        "REQUIRED": "Needs approval",
-        "GRANTED": "Granted",
-        "REFUSED": "Refused",
-        "PENDING": "Pending",
-        "SUCCESS": "Success",
-        "FAILURE": "Failed",
-    }.get(value, _human(value).capitalize())
 
 
 def _credential_label(value: str | None) -> str:
@@ -568,86 +518,6 @@ def _credential_label(value: str | None) -> str:
         "possible": "Possible",
         "unresolved": "Unresolved",
     }[value]
-
-
-def _paint(text: str, semantic: str, enabled: bool) -> str:
-    if not enabled:
-        return text
-    color = {
-        "good": "green", "warn": "yellow", "bad": "red",
-        "dim": "dim", "active": "reverse",
-    }.get(semantic)
-    if color is None:
-        return text
-    return ANSI[color] + text + ANSI["reset"]
-
-
-_COLOR_SEMANTICS = {
-    "Selection evidence missing": "warn",
-    "Evidence not supplied": "warn",
-    "None established": "good",
-    "Needs approval": "warn",
-    "Verified kernel": "good",
-    "Verified pair": "good",
-    "Trust lost": "bad",
-    "CONTAMINATED": "bad",
-    "REVALIDATED": "good",
-    "REVOKED": "bad",
-    "VERIFIED": "good",
-    "UNKNOWN": "warn",
-    "Unresolved": "warn",
-    "Possible": "warn",
-    "Preserved": "good",
-    "Verified": "good",
-    "Granted": "good",
-    "Success": "good",
-    "Missing": "warn",
-    "Pending": "warn",
-    "Refused": "bad",
-    "Failed": "bad",
-}
-_COLOR_PATTERN = re.compile("|".join(re.escape(item) for item in sorted(_COLOR_SEMANTICS, key=len, reverse=True)))
-
-
-def _colorize_line(text: str) -> str:
-    return _COLOR_PATTERN.sub(
-        lambda match: _paint(match.group(0), _COLOR_SEMANTICS[match.group(0)], True),
-        text,
-    )
-
-
-def _field_rows(label: str, value: str, width: int) -> list[str]:
-    label_width = min(18, max(10, width // 4))
-    value_width = max(1, width - label_width - 3)
-    wrapped = _wrap(value, value_width)
-    rows = [f"{label:<{label_width}} : {wrapped[0]}"]
-    rows.extend(" " * (label_width + 3) + part for part in wrapped[1:])
-    return rows
-
-
-def _box(title: str, rows: Sequence[str], width: int) -> list[str]:
-    width = max(16, width)
-    inner = width - 2
-    heading = f" {title} "
-    top = "┌" + heading + "─" * max(0, inner - len(heading)) + "┐"
-    out = [top]
-    for row in rows:
-        for part in _wrap(row, inner - 2):
-            out.append("│ " + _clip(part, inner - 2).ljust(inner - 2) + " │")
-    out.append("└" + "─" * inner + "┘")
-    return out
-
-
-def _columns(left: Sequence[str], right: Sequence[str], width: int, gap: int = 2) -> list[str]:
-    left_width = (width - gap) // 2
-    right_width = width - gap - left_width
-    height = max(len(left), len(right))
-    out = []
-    for index in range(height):
-        l = left[index] if index < len(left) else ""
-        r = right[index] if index < len(right) else ""
-        out.append(_clip(l, left_width).ljust(left_width) + " " * gap + _clip(r, right_width))
-    return out
 
 
 def _recovery_body(p: RecoveryPresentation, width: int) -> list[str]:
@@ -1062,51 +932,6 @@ def write_authorization_request(path: str | os.PathLike[str], request: Mapping[s
         os.fsync(fd)
     finally:
         os.close(fd)
-
-
-def _read_key(stdin: TextIO, timeout: float | None = None) -> str:
-    """Read one navigation key; use raw terminal input only for a real TTY."""
-    is_tty = bool(getattr(stdin, "isatty", lambda: False)())
-    if not is_tty:
-        value = stdin.readline()
-        if not value:
-            return "q"
-        return value.strip().lower()
-
-    fd = stdin.fileno()
-    previous = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        if timeout is not None:
-            ready, _, _ = select.select([fd], [], [], timeout)
-            if not ready:
-                return "timeout"
-        first = os.read(fd, 1)
-        if not first:
-            return "q"
-        if first == b"\x1b":
-            sequence = bytearray(first)
-            while len(sequence) < 3:
-                ready, _, _ = select.select([fd], [], [], 0.04)
-                if not ready:
-                    break
-                sequence.extend(os.read(fd, 1))
-            return {
-                b"\x1b[A": "up",
-                b"\x1b[B": "down",
-                b"\x1b[C": "right",
-                b"\x1b[D": "left",
-                b"\x1b[Z": "shift-tab",
-            }.get(bytes(sequence), "escape")
-        if first == b"\t":
-            return "tab"
-        if first in {b"\r", b"\n"}:
-            return "enter"
-        if first == b"\x03":
-            return "q"
-        return first.decode("utf-8", errors="ignore").lower()
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
 
 
 def _pause(stdin: TextIO, stdout: TextIO, message: str) -> None:
