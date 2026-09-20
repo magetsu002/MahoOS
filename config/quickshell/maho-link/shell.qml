@@ -19,6 +19,8 @@ ShellRoot {
     property bool dragging: false
     property bool placementReady: false
     property bool placementValid: false
+    property bool placementLoadPending: false
+    property bool placementApplied: false
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
     readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
@@ -27,6 +29,9 @@ ShellRoot {
     property real requestedPlacementY: -1
     readonly property real surfaceMarginX: 24
     readonly property real surfaceMarginY: 20
+    readonly property bool bootstrapGeometryReady:
+        overlay.width >= linkSurface.width + (surfaceMarginX * 2)
+        && overlay.height >= linkSurface.height + (surfaceMarginY * 2)
     property string activeMode:
         String(Quickshell.env("MAHO_LINK_MODE")) === "bluetooth" ? "bluetooth" : "wifi"
 
@@ -97,6 +102,7 @@ ShellRoot {
             )
             linkSurface.y = clamp(20, surfaceMarginY, maxY)
         }
+        placementApplied = true
         reportAppliedGeometry()
     }
 
@@ -128,6 +134,12 @@ ShellRoot {
     function requestPlacementLoad() {
         placementReady = false
         placementValid = false
+        placementApplied = false
+        if (!bootstrapGeometryReady) {
+            placementLoadPending = true
+            return
+        }
+        placementLoadPending = false
         placementLoad.command = [
             "python3", positionHelperPath, "load",
             "--path", linkPlacementPath,
@@ -143,6 +155,11 @@ ShellRoot {
             "--margin-y", String(surfaceMarginY)
         ]
         placementLoad.running = true
+    }
+
+    function resumePendingPlacementLoad() {
+        if (placementLoadPending && !placementLoad.running && bootstrapGeometryReady)
+            requestPlacementLoad()
     }
 
     function placementLoaded(text) {
@@ -233,13 +250,13 @@ ShellRoot {
         if (activeMode === "wifi" && !wifi.statusReady)
             return
 
-        // Present Link as one compositor event: placement and data settle while
-        // hidden, then the catcher/dim and blurred card become visible together.
-        // This avoids the old two-stage intro where the desktop dimmed first and
-        // the card appeared a moment later.
+        // Resolve placement against authoritative screen geometry while the
+        // foreground material window is still completely unmapped. Only after
+        // coordinates are applied may Link enter the compositor, preventing a
+        // one-frame default-position flash.
         applyPlacement()
-        overlayOpen = true
         linkSurface.shown = true
+        overlayOpen = true
         linkSurface.forceActiveFocus()
     }
 
@@ -416,10 +433,14 @@ ShellRoot {
         mask: Region { item: root.overlayOpen ? dimPlane : null }
 
         onWidthChanged: {
+            if (root.placementLoadPending)
+                Qt.callLater(root.resumePendingPlacementLoad)
             if (root.overlayOpen && !root.dragging)
                 Qt.callLater(root.applyPlacement)
         }
         onHeightChanged: {
+            if (root.placementLoadPending)
+                Qt.callLater(root.resumePendingPlacementLoad)
             if (root.overlayOpen && !root.dragging)
                 Qt.callLater(root.applyPlacement)
         }
@@ -465,7 +486,10 @@ ShellRoot {
         aboveWindows: true
         focusable: root.overlayOpen
         exclusionMode: ExclusionMode.Ignore
-        visible: root.presented
+        // Unlike the transparent catcher/bootstrap window, the foreground
+        // material must not map until applyPlacement() has committed final
+        // coordinates for this launch.
+        visible: root.presented && root.placementApplied
         mask: Region { item: root.overlayOpen ? linkSurface : null }
 
         WlrLayershell.layer: WlrLayer.Overlay
@@ -481,7 +505,9 @@ ShellRoot {
             theme: theme
             wifi: wifi
             bluetooth: bluetooth
-            availableHeight: materialOverlay.height
+            // Size hidden Link from the already-mapped transparent bootstrap
+            // surface, so materialOverlay itself never needs to map for geometry.
+            availableHeight: overlay.height
             section: root.activeMode
             shown: false
             onHeightChanged: {
