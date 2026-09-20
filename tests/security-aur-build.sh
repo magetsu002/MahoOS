@@ -190,6 +190,28 @@ grep -q 'repository-owned package cannot enter AUR authority:maho-test' "$TMP/re
 printf 'normal\n' > "$MAHO_TEST_PACMAN_MODE_FILE"
 echo "PASS"
 
+echo "=== exact AUR receipt has a clean root-owned Maho Update handoff ==="
+cat > "$TMP/fake-campaign" <<'EOF_CAMPAIGN'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$MAHO_HANDOFF_LOG"
+EOF_CAMPAIGN
+cat > "$TMP/pkexec" <<'EOF_PKEXEC'
+#!/usr/bin/env bash
+exec "$@"
+EOF_PKEXEC
+chmod +x "$TMP/fake-campaign" "$TMP/pkexec"
+export MAHO_HANDOFF_LOG="$TMP/handoff.log"
+export MAHO_UPDATE_CAMPAIGN_COMMAND="$TMP/fake-campaign"
+PATH="$TMP:$PATH" bash "$ROOT/bin/maho-aur-build" handoff "$RECORD" --preflight-only
+EXPECTED="APPLY-AUR:$(sha256sum "$RECORD" | awk '{print $1}')"
+grep -Fxq 'apply-aur' "$MAHO_HANDOFF_LOG" || fail "Maho Update AUR action missing"
+grep -Fxq "$RECORD" "$MAHO_HANDOFF_LOG" || fail "exact AUR receipt path missing"
+grep -Fxq "$EXPECTED" "$MAHO_HANDOFF_LOG" || fail "exact receipt confirmation missing"
+grep -Fxq -- '--preflight-only' "$MAHO_HANDOFF_LOG" || fail "bounded preflight option missing"
+grep -Fq 'stage_aur_artifacts' "$ROOT/lib/maho_update_campaign.py" || fail "root-owned campaign does not consume AUR staging"
+grep -Fq 'execute_normal_update' "$ROOT/lib/maho_update_campaign.py" || fail "AUR handoff does not use existing normal execution"
+echo "PASS"
+
 echo "=== exact AUR file effects can route output to boot-critical ==="
 printf 'boot\n' > "$MAHO_TEST_PACMAN_MODE_FILE"
 bash "$ROOT/bin/maho-aur-build" "$BENIGN" >/dev/null

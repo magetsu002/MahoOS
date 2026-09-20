@@ -27,6 +27,7 @@ FILES=(
   lib/maho_update_state.py
   lib/maho_update_discovery.py
   lib/maho_update_effects.py
+  lib/maho_update_external.py
   lib/maho_update_staging.py
   lib/maho_update_normal_authority.py
   lib/maho_update_normal.py

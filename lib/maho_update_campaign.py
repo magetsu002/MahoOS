@@ -12,6 +12,7 @@ import pwd
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 from typing import Any, Mapping
 
@@ -22,6 +23,7 @@ from maho_system_restore_campaign import prepare_campaign as prepare_l3_campaign
 from maho_system_restore_host import SystemPreparationOps
 from maho_system_restore_journal import read_journal as read_l3_journal
 from maho_update_discovery import IsolatedPacmanDiscovery, discover_updates
+from maho_update_external import stage_aur_artifacts, transaction_from_aur_receipt
 from maho_update_admission import (
     admission_review_confirmation,
     evaluate_production_candidate,
@@ -38,6 +40,9 @@ from maho_update_native import (
     update_confirmation,
 )
 from maho_update_normal_campaign import certify_normal_update
+from maho_update_normal import NormalPreparationEvidence, execute_normal_update, prepare_normal_transaction
+from maho_update_normal_authority import load_normal_execution_authority
+from maho_update_normal_host import NormalProductionOps
 from maho_update_preparation import PreparationEvidence, prepare_transaction
 from maho_update_receipts import record_receipt
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction
@@ -57,6 +62,7 @@ from maho_trust_identity import ArtifactID
 _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
 _SHA40 = re.compile(r"[0-9a-f]{40}")
 _STATE_ROOT = Path("/var/lib/maho/update")
+_AUR_CACHE_ROOT = Path("/var/cache/maho/update-aur")
 
 
 def _root() -> Path:
@@ -833,6 +839,142 @@ def status_native_campaign(transaction_id: str) -> dict[str, Any]:
     }
 
 
+def _aur_receipt(path_value: str) -> tuple[dict[str, Any], Path, str]:
+    path = Path(path_value)
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise ValueError("AUR build receipt path is unsafe")
+    resolved = path.resolve(strict=True)
+    metadata = resolved.stat()
+    if metadata.st_uid == 0 or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValueError("AUR build receipt must be private non-root evidence")
+    encoded = resolved.read_bytes()
+    value = json.loads(encoded)
+    if not isinstance(value, Mapping):
+        raise ValueError("AUR build receipt is not an object")
+    return dict(value), resolved, hashlib.sha256(encoded).hexdigest()
+
+
+def apply_aur_campaign(
+    receipt_path: str, confirmation: str, *, preflight_only: bool = False,
+) -> dict[str, Any]:
+    """Consume one exact isolated-build receipt through the certified normal lane.
+
+    Boot-affecting output is identified and refused here so it cannot leak into
+    normal activation. It remains bound to the transaction for the M4B lane.
+    """
+    _require_root()
+    root = _root()
+    revision = _source_revision(root)
+    receipt, resolved_receipt, receipt_sha256 = _aur_receipt(receipt_path)
+    if confirmation != f"APPLY-AUR:{receipt_sha256}":
+        raise ValueError("exact AUR receipt confirmation token is required")
+    config = Path(_repo_contract(_platform(root))["config_path"])
+    transaction = transaction_from_aur_receipt(receipt, source_revision=revision)
+    txid = str(transaction["transaction_id"])
+    work = _AUR_CACHE_ROOT / txid
+    cache = work / "staging"
+    btrfs = None
+    candidate = None
+    ops = None
+    remove_work = False
+    work.mkdir(mode=0o700, parents=True, exist_ok=False)
+    os.chmod(work, 0o700)
+    try:
+        staged = stage_aur_artifacts(
+            transaction, receipt, cache, pacman="/usr/bin/pacman",
+            pacman_config=config,
+        )
+        publish_transaction(_STATE_ROOT, staged.transaction)
+        if staged.routing_target != "normal":
+            return {
+                "phase": "routed-m4b",
+                "transaction_id": txid,
+                "route": staged.routing_target,
+                "receipt_path": str(resolved_receipt),
+                "receipt_sha256": receipt_sha256,
+                "mutation_started": False,
+                "blockers": ["boot_critical_aur_requires_m4b_campaign"],
+            }
+        power_known, power_ok, power = _power_evidence()
+        if not power_known or not power_ok:
+            raise RuntimeError("AUR normal campaign power policy is not satisfied")
+        if Path("/var/lib/pacman/db.lck").exists():
+            raise RuntimeError("live Pacman lock exists")
+        free = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
+        required = sum(
+            int(item.get("download_size", 0)) + int(item.get("installed_size", 0))
+            for item in staged.transaction["package_generation"]["packages"]
+        ) + 512 * 1024 * 1024
+        prepared = prepare_normal_transaction(
+            staged.transaction, staged.manifest, cache,
+            NormalPreparationEvidence(
+                _generation_is_current(staged.transaction), True, required, free,
+                power_known, power_ok, False, True, True, "production",
+            ),
+        )
+        publish_transaction(_STATE_ROOT, prepared.transaction)
+        if prepared.transaction["state"] != UpdateState.PREPARED.value:
+            raise RuntimeError("AUR normal campaign preparation failed closed")
+        btrfs = NativeBtrfsOps(txid, run_root=Path("/run/maho-update-aur"))
+        btrfs.root_identity()
+        candidate = btrfs.create_candidate()
+        ops = NormalProductionOps(
+            transaction=prepared.transaction, cache_root=cache,
+            btrfs=btrfs, candidate=candidate,
+        )
+        if preflight_only:
+            install = ops.install_candidate(prepared.plan)
+            admission = ops.guardian_admit(prepared.plan)
+            activation = ops.preflight_activation(prepared.plan)
+            if any(item.get("ok") is not True for item in (install, admission, activation)):
+                raise RuntimeError("AUR normal preflight did not produce positive bounded evidence")
+            cleanup = ops.cleanup_success()
+            if cleanup.get("ok") is not True:
+                raise RuntimeError("AUR normal preflight could not retire candidate state")
+            candidate = None
+            remove_work = True
+            return {
+                "phase": "preflight-ready", "transaction_id": txid,
+                "route": "normal", "receipt_path": str(resolved_receipt),
+                "receipt_sha256": receipt_sha256, "power": power,
+                "guardian": admission, "activation_preflight": activation,
+                "candidate_cleanup": cleanup, "mutation_started": False,
+            }
+        authority = load_normal_execution_authority(source_revision=revision)
+        execution = execute_normal_update(
+            prepared.transaction, prepared.plan, ops, authority=authority,
+        )
+        publish_transaction(_STATE_ROOT, execution.transaction)
+        if execution.transaction["state"] != UpdateState.HEALTHY.value:
+            raise RuntimeError("AUR normal execution did not reach HEALTHY")
+        cleanup = ops.cleanup_success()
+        if cleanup.get("ok") is not True:
+            raise RuntimeError("AUR normal execution could not retire candidate state")
+        candidate = None
+        remove_work = True
+        durable_receipt = record_receipt(_STATE_ROOT, execution.transaction)
+        return {
+            "phase": "healthy", "transaction_id": txid, "route": "normal",
+            "receipt_path": str(durable_receipt),
+            "build_receipt_path": str(resolved_receipt),
+            "build_receipt_sha256": receipt_sha256,
+            "candidate_cleanup": cleanup, "mutation_started": True,
+        }
+    finally:
+        if btrfs is not None and candidate is not None and (ops is None or not ops.live_mutation_started):
+            try:
+                btrfs.cleanup_candidate(str(candidate["uuid"]))
+            except Exception:
+                pass
+        if btrfs is not None:
+            try:
+                btrfs.close()
+            except Exception:
+                pass
+        if remove_work:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="maho-update-campaign")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -854,6 +996,10 @@ def main() -> None:
     normal.add_argument("--package", action="append", required=True)
     normal.add_argument("--confirm", required=True)
     normal.add_argument("--preflight-only", action="store_true")
+    aur = sub.add_parser("apply-aur")
+    aur.add_argument("--receipt", required=True)
+    aur.add_argument("--confirm", required=True)
+    aur.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -869,6 +1015,10 @@ def main() -> None:
         elif args.command == "certify-normal":
             payload = certify_normal_update(
                 args.package, args.confirm, preflight_only=args.preflight_only,
+            )
+        elif args.command == "apply-aur":
+            payload = apply_aur_campaign(
+                args.receipt, args.confirm, preflight_only=args.preflight_only,
             )
         else:
             payload = status_native_campaign(args.transaction_id)

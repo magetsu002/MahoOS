@@ -278,10 +278,26 @@ discover_command() {
         --config "$PACMAN_CONFIG" --yay "$YAY" --pacman "$PACMAN" "$@"
 }
 
+handoff_command() {
+    local receipt="${1:-}" mode="${2:-}" campaign digest confirm
+    [ -n "$receipt" ] || { echo "usage: maho-aur-build handoff /path/to/build-receipt.json [--preflight-only]" >&2; return 1; }
+    case "$receipt" in /*) ;; *) echo "maho-aur-build: handoff receipt must be an absolute path" >&2; return 2 ;; esac
+    [ -f "$receipt" ] && [ ! -L "$receipt" ] || { echo "maho-aur-build: handoff receipt is unavailable or unsafe" >&2; return 2; }
+    case "$mode" in ""|--preflight-only) ;; *) echo "maho-aur-build: unknown handoff option: $mode" >&2; return 2 ;; esac
+    campaign="${MAHO_UPDATE_CAMPAIGN_COMMAND:-/usr/lib/maho/update-campaign/current/bin/maho-update-campaign}"
+    [ -x "$campaign" ] || { echo "maho-aur-build: root-owned Maho Update campaign is unavailable" >&2; return 2; }
+    digest="$(sha256sum -- "$receipt" | awk '{print $1}')"
+    confirm="APPLY-AUR:$digest"
+    local -a args=("$campaign" apply-aur --receipt "$receipt" --confirm "$confirm")
+    [ "$mode" != --preflight-only ] || args+=(--preflight-only)
+    exec pkexec "${args[@]}"
+}
+
 case "${1:-}" in
     build) shift; build_command "$@" ;;
     fetch) shift; fetch_command "$@" ;;
     discover) shift; discover_command "$@" ;;
+    handoff) shift; handoff_command "$@" ;;
     doctor) doctor_command ;;
     *)
         if [ -n "${1:-}" ] && [ "${1#-}" = "$1" ]; then
@@ -295,6 +311,7 @@ Usage:
   maho-aur-build /path/to/aur/source --confirm-risk
   maho-aur-build fetch <package> [expected-version]
   maho-aur-build discover [--json]
+  maho-aur-build handoff /path/to/build-receipt.json [--preflight-only]
   maho-aur-build doctor
 
 The source directory is copied into Maho cache first. PKGBUILD preflight never
@@ -306,6 +323,10 @@ into exact Maho artifact identities only after canonical repository ownership,
 source provenance and file effects are verified. They are never installed
 automatically. This reduces blast radius; it is not a
 kernel/VM security boundary and cannot guarantee safety against kernel exploits.
+
+The handoff command passes one exact private receipt to the installed root-owned
+Maho Update campaign. Normal output must satisfy the certified normal profile;
+boot-affecting output is routed out of that lane and cannot be activated there.
 HELP
         fi
         ;;
