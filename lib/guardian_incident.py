@@ -29,6 +29,7 @@ _RISK_IMPACT = {
 _DURABLE_SIGNAL_KINDS = {
     "confirmed-finding",
     "integrity-drift",
+    "runtime-integrity-drift",
     "persistence-drift",
 }
 
@@ -61,11 +62,13 @@ def _ownership(subject: Mapping[str, Any]) -> str:
         # mutation.
         if subject_id == "maho" or subject_id.startswith("maho-") or subject_id.startswith("mahoos-"):
             return "maho"
+    if subject_type == "runtime" and subject_id == "maho-runtime":
+        return "maho"
     return "unknown"
 
 
 def _scope(subject: Mapping[str, Any]) -> str:
-    if subject.get("type") == "package":
+    if subject.get("type") in {"package", "runtime"}:
         return "component"
     if subject.get("type") == "host":
         return "system"

@@ -75,6 +75,8 @@ def main() -> None:
         check("status reports provider freshness", payload["evidence_freshness"]["security.integrity"]["freshness"] == "current")
         check("plain status exposes trust and self-health", "Trust" in render_status(payload) and "Guardian self-health" in render_status(payload))
         check("no automatic containment authority is invented", payload["containment"]["automatic_authority"] is False)
+        check("no automatic runtime recovery authority is invented", payload["runtime_recovery"]["automatic_authority"] is False and payload["runtime_recovery"]["state"] == "none")
+        check("plain status exposes live runtime recovery separately from generation trust", "Runtime recovery" in render_status(payload))
 
         incident_id = "inc-host-stale-demo"
         source_dir = p.security_root / "incidents" / "active"

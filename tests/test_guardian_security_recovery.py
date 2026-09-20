@@ -26,6 +26,23 @@ def runtime_incident(package: str = "maho-runtime") -> dict:
     }
 
 
+def immutable_runtime_incident() -> dict:
+    return {
+        "incident_id": "inc-runtime-integrity-001",
+        "status": "active",
+        "subject": {"type": "runtime", "id": "maho-runtime"},
+        "signals": [{
+            "kind": "runtime-integrity-drift",
+            "source": "maho-runtime-verifier",
+            "details": {
+                "path": "/tmp/runtime/releases/" + "a" * 64,
+                "verified": False,
+                "reasons": ["payload_content_identity_mismatch"],
+            },
+        }],
+    }
+
+
 def proven_graph(package: str) -> CausalGraph:
     subject = CausalNode(f"subject:package:{package}", "package", package)
     file_node = CausalNode("file:/usr/bin/maho-runtime", "file", "/usr/bin/maho-runtime")
@@ -60,6 +77,22 @@ def main() -> None:
     )
     check("pre-authorized transaction can use certified runtime rollback", ready.outcome is SecurityRecoveryOutcome.READY_RUNTIME_RECOVERY)
     check("postcondition remains explicit", bool(ready.postcondition))
+
+    direct_runtime = immutable_runtime_incident()
+    direct_needs_auth = plan_security_recovery(direct_runtime, previous_runtime_available=True)
+    check(
+        "immutable runtime verifier evidence maps directly to bounded runtime recovery",
+        direct_needs_auth.outcome is SecurityRecoveryOutcome.AUTHORIZATION_REQUIRED
+        and direct_needs_auth.provider == "maho-runtime"
+        and direct_needs_auth.action == "rollback-previous",
+    )
+    direct_bad_source = immutable_runtime_incident()
+    direct_bad_source["signals"][0]["source"] = "untrusted-detector"
+    check(
+        "runtime subject cannot forge recovery authority without canonical verifier evidence",
+        plan_security_recovery(direct_bad_source, previous_runtime_available=True).outcome
+        is SecurityRecoveryOutcome.DIAGNOSIS_ONLY,
+    )
 
     unproven = plan_security_recovery(incident, causal_graph=CausalGraph((), ()), previous_runtime_available=True, runtime_transaction_authorized=True)
     check("unproven package contamination cannot reach mutation authority", unproven.outcome is SecurityRecoveryOutcome.DIAGNOSIS_ONLY)

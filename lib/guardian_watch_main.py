@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import threading
 
+from guardian_live_recovery import recovery_loop
 from guardian_live_response import response_loop
 from guardian_reliability_provider import reliability_loop, resolve_state_root
 from guardian_service_watcher import main as service_watcher_main
@@ -32,6 +33,12 @@ def main() -> int:
             target=response_loop,
             kwargs={"state_root": root},
             name="maho-guardian-live-response",
+            daemon=True,
+        ).start()
+        threading.Thread(
+            target=recovery_loop,
+            kwargs={"state_root": root},
+            name="maho-guardian-live-recovery",
             daemon=True,
         ).start()
     return service_watcher_main()

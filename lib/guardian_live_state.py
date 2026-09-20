@@ -27,6 +27,7 @@ from guardian_evidence import (
     utc_stamp,
 )
 from guardian_journal_stream import JournalStreamState, StreamContinuity, load_stream
+from guardian_live_recovery import recovery_status as live_runtime_recovery_status
 from guardian_live_response import containment_status
 from guardian_provider_state import ProviderHeartbeat, load_heartbeat
 from guardian_signed_boot_provider import SignedBootTrust, observe_signed_boot
@@ -619,6 +620,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         "evidence_freshness": freshness,
         "authorized_operation_evidence": authority_records,
         "containment": containment_status(paths.security_root),
+        "runtime_recovery": live_runtime_recovery_status(paths.security_root),
         "recent_activity": _recent_activity(incidents, recovery, transaction),
         "errors": sorted(set(schema_errors + incident_errors + authority_errors)),
     }
@@ -635,6 +637,7 @@ def render_status(payload: Mapping[str, Any]) -> str:
     recovery = payload.get("recovery") if isinstance(payload.get("recovery"), Mapping) else {}
     incidents = payload.get("active_incidents") if isinstance(payload.get("active_incidents"), list) else []
     containment = payload.get("containment") if isinstance(payload.get("containment"), Mapping) else {}
+    runtime_recovery = payload.get("runtime_recovery") if isinstance(payload.get("runtime_recovery"), Mapping) else {}
 
     lines = [
         "Maho Guardian status",
@@ -647,6 +650,7 @@ def render_status(payload: Mapping[str, Any]) -> str:
         f"KernelGeneration        {system.get('current_kernel_generation') or 'unknown'}",
         f"Recovery                {recovery.get('current_generation_trust', 'UNRESOLVED')}",
         f"Containment             {containment.get('state', 'none')}",
+        f"Runtime recovery        {runtime_recovery.get('state', 'none')}",
         f"Active incidents        {len(incidents)}",
         "",
         "Evidence freshness",

@@ -10,6 +10,7 @@ import os
 import re
 from pathlib import Path
 
+from maho_runtime_release import verify_release
 from security_probe import atomic_private, normalized_package_paths, package_records, read_process, stable_hash
 
 VERSION = 1
@@ -21,6 +22,7 @@ WEIGHTS = {
     "confirmed-finding": 60,
     "high-confidence-finding": 48,
     "integrity-drift": 38,
+    "runtime-integrity-drift": 68,
     "privilege-boundary": 48,
     "persistence-drift": 34,
     "runtime-executable": 18,
@@ -241,12 +243,42 @@ def recent_timestamp(value: str | None, seconds: int) -> bool:
     return -5 <= age <= seconds
 
 
-def collect_groups(security_state: Path, db_root: Path, proc_root: Path, fs_root: Path, uid: int | None) -> dict[tuple[str, str], list[dict]]:
+def collect_groups(
+    security_state: Path,
+    db_root: Path,
+    proc_root: Path,
+    fs_root: Path,
+    uid: int | None,
+    runtime_root: Path,
+) -> dict[tuple[str, str], list[dict]]:
     monitor = security_state / "monitor-v2"
     groups: dict[tuple[str, str], list[dict]] = {}
     path_index = path_package_index(db_root)
     versions = installed_versions(db_root)
     processes = package_process_map(db_root, proc_root, fs_root, uid)
+
+    current_runtime = runtime_root / "current"
+    runtime_releases = runtime_root / "releases"
+    runtime_verification = verify_release(current_runtime, runtime_releases)
+    if (
+        not runtime_verification.verified
+        and "release_unavailable" not in runtime_verification.reasons
+        and "release_not_direct_child" not in runtime_verification.reasons
+        and "release_identity_invalid" not in runtime_verification.reasons
+    ):
+        add_signal(groups, "runtime", "maho-runtime", signal(
+            "runtime-integrity-drift",
+            "maho-runtime-verifier",
+            WEIGHTS["runtime-integrity-drift"],
+            {
+                "path": runtime_verification.path,
+                "content_sha256": runtime_verification.content_sha256,
+                "source_revision": runtime_verification.source_revision,
+                "reasons": list(runtime_verification.reasons),
+                "verified": False,
+            },
+            "confirmed",
+        ))
 
     persistence = read_json(monitor / "persistence.json", {}) or {}
     if persistence.get("result") == "changed":
@@ -418,6 +450,7 @@ def reconcile(args) -> dict:
     db_root = Path(args.db_root)
     proc_root = Path(args.proc_root)
     fs_root = Path(args.fs_root)
+    runtime_root = Path(args.runtime_root)
     active_dir = security_state / "incidents" / "active"
     archive_dir = security_state / "incidents" / "archive"
     active_dir.mkdir(parents=True, exist_ok=True)
@@ -425,7 +458,7 @@ def reconcile(args) -> dict:
     os.chmod(active_dir, 0o700)
     os.chmod(archive_dir, 0o700)
 
-    groups = collect_groups(security_state, db_root, proc_root, fs_root, args.uid)
+    groups = collect_groups(security_state, db_root, proc_root, fs_root, args.uid, runtime_root)
     provenance_baseline = (security_state / "provenance" / "baseline.json").is_file()
     persistence_baseline = (security_state / "persistence" / "baseline.json").is_file()
 
@@ -529,6 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--db-root", required=True)
     rec.add_argument("--proc-root", default="/proc")
     rec.add_argument("--fs-root", default="/")
+    rec.add_argument("--runtime-root", default=os.environ.get("MAHO_RUNTIME_ROOT") or str(Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "maho/runtime"))
     rec.add_argument("--uid", type=int)
     rec.add_argument("--prevention-mode", choices=("off", "shadow"), default="shadow")
     rec.add_argument("--autonomy-level", choices=("observe", "guard", "contain", "recover"), default="guard")
@@ -559,7 +593,7 @@ def main() -> int:
             "status": "ok",
             "automatic_system_mutation": False,
             "unit_of_reasoning": "incident",
-            "risk_inputs": ["finding", "integrity", "persistence", "privilege-transition", "runtime", "affected-package-process", "network-correlation", "source-diversity"],
+            "risk_inputs": ["finding", "integrity", "runtime-integrity", "persistence", "privilege-transition", "runtime", "affected-package-process", "network-correlation", "source-diversity"],
         }
     else:
         raise SystemExit("unknown command")

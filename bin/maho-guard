@@ -13,6 +13,7 @@ SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
 FS_ROOT="${MAHO_FS_ROOT:-/}"
 PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"
+RUNTIME_ROOT="${MAHO_RUNTIME_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime}"
 INCIDENT_ENGINE="$ROOT/lib/security_incident.py"
 PREFLIGHT_ENGINE="$ROOT/lib/security_preflight.py"
 GUARDIAN_INCIDENT="$ROOT/lib/guardian_incident.py"
@@ -23,6 +24,7 @@ GUARDIAN_WATCHER="$ROOT/lib/guardian_service_watcher.py"
 GUARDIAN_UPDATE="$ROOT/lib/guardian_update.py"
 GUARDIAN_LIVE="$ROOT/lib/guardian_live_cli.py"
 GUARDIAN_RESPONSE="$ROOT/lib/guardian_live_response.py"
+GUARDIAN_RECOVERY="$ROOT/lib/guardian_live_recovery.py"
 UPDATE_STATE="${MAHO_UPDATE_STATE_ROOT:-/var/lib/maho/update}"
 AUR_BUILD="$ROOT/bin/maho-aur-build"
 INTENT="$ROOT/lib/intent.sh"
@@ -150,6 +152,7 @@ reconcile_command() {
         --db-root "$DB_ROOT" \
         --proc-root "$PROC_ROOT" \
         --fs-root "$FS_ROOT" \
+        --runtime-root "$RUNTIME_ROOT" \
         --uid "$(id -u)" \
         --prevention-mode "$mode" \
         --autonomy-level "$level")" || return 1
@@ -245,6 +248,18 @@ response_command() {
         "$@"
 }
 
+recovery_command() {
+    [ -r "$GUARDIAN_RECOVERY" ] || { echo "maho-guard: live runtime recovery coordinator unavailable" >&2; return 1; }
+    python "$GUARDIAN_RECOVERY" \
+        --state-root "$SEC_STATE" \
+        --db-root "$DB_ROOT" \
+        --proc-root "$PROC_ROOT" \
+        --fs-root "$FS_ROOT" \
+        --runtime-root "$RUNTIME_ROOT" \
+        --uid "$(id -u)" \
+        "$@"
+}
+
 why_command() {
     local explainer="$ROOT/lib/guardian_explain.py" wanted="" verbose=0 arg
     [ -r "$explainer" ] || { echo "maho-guard: Guardian explainer unavailable" >&2; return 1; }
@@ -322,6 +337,7 @@ doctor_command() {
     parse_python "$GUARDIAN_UPDATE" && echo "PASS  Guardian update authority projection" || echo "FAIL  Guardian update authority projection"
     parse_python "$GUARDIAN_LIVE" && echo "PASS  Guardian live world-state projection" || echo "FAIL  Guardian live world-state projection"
     parse_python "$GUARDIAN_RESPONSE" && echo "PASS  Guardian live response coordinator" || echo "FAIL  Guardian live response coordinator"
+    parse_python "$GUARDIAN_RECOVERY" && echo "PASS  Guardian live runtime recovery coordinator" || echo "FAIL  Guardian live runtime recovery coordinator"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
@@ -331,6 +347,8 @@ doctor_command() {
     echo "INFO  automatic system mutation: none without explicit bounded live-response authorization"
     echo "INFO  automatic containment authority: none"
     echo "INFO  Guardian live containment: exact target + explicit bounded user authorization only"
+    echo "INFO  Guardian live runtime recovery: exact immutable-runtime integrity evidence or exact contained Maho target + separate bounded user authorization only"
+    echo "INFO  automatic security-driven runtime recovery authority: none"
     echo "INFO  systemd remains owner of ordinary L1 service restart"
 }
 
@@ -341,6 +359,7 @@ case "${1:-}" in
     guardian-update-status) guardian_update_status_command ;;
     world-status) guardian_world_status_command "${2:-}" ;;
     response) shift; response_command "$@" ;;
+    recovery) shift; recovery_command "$@" ;;
     why) shift; why_command "$@" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
@@ -357,6 +376,7 @@ Usage:
   maho-guard guardian-update-status
   maho-guard world-status [--json]
   maho-guard response {reconcile,status,plan,authorize,execute,authorize-release,release} ...
+  maho-guard recovery {status,plan,authorize,execute} ...
   maho-guard why [INCIDENT_ID] [--verbose]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
@@ -369,7 +389,11 @@ recovery planner what is permitted, and persists an explanation/history record.
 world-status is the canonical read-only live system/trust/self-health projection;
 guardian-status remains the legacy active-assessment list used by current UI.
 Live process containment is available only through exact causal targets plus a
-separate bounded user authorization; ordinary L1 restart ownership stays with systemd.
+separate bounded user authorization. Live Maho runtime recovery additionally requires
+exact immutable-runtime integrity evidence (or an exact contained Maho target), a
+verified previous immutable runtime, and a separate single-use user recovery
+authorization; it never creates automatic security-driven rollback authority.
+Ordinary L1 restart ownership stays with systemd.
 PKGBUILD static preflight never executes untrusted instructions. Optional AUR
 execution uses the separate bounded Bubblewrap build path and never installs
 the produced package automatically.

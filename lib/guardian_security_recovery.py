@@ -66,6 +66,28 @@ def _proven_package_integrity(graph: CausalGraph | None, package: str) -> bool:
     )
 
 
+def _proven_runtime_integrity(incident: Mapping[str, Any]) -> bool:
+    rows = incident.get("signals") if isinstance(incident.get("signals"), list) else []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("kind") != "runtime-integrity-drift" or row.get("source") != "maho-runtime-verifier":
+            continue
+        details = row.get("details") if isinstance(row.get("details"), Mapping) else {}
+        path = details.get("path")
+        reasons = details.get("reasons")
+        release_id = path.rsplit("/", 1)[-1] if isinstance(path, str) else ""
+        if (
+            details.get("verified") is False
+            and isinstance(path, str) and path.startswith("/")
+            and len(release_id) == 64
+            and all(ch in "0123456789abcdef" for ch in release_id)
+            and isinstance(reasons, list) and bool(reasons)
+        ):
+            return True
+    return False
+
+
 def _offline_value(plan: Any, name: str, default: Any = None) -> Any:
     if plan is None:
         return default
@@ -88,7 +110,7 @@ def plan_security_recovery(
     subject_id = str(subject.get("id") or "unknown")
     subject_name = f"{subject_type}:{subject_id}"
     kinds = _signal_kinds(incident)
-    contamination_signal = bool(kinds & {"integrity-drift", "package-provenance-untrusted", "executable-provenance-untrusted"})
+    contamination_signal = bool(kinds & {"integrity-drift", "runtime-integrity-drift", "package-provenance-untrusted", "executable-provenance-untrusted"})
 
     def handoff(outcome: SecurityRecoveryOutcome, *reasons: str, **kwargs: Any) -> SecurityRecoveryHandoff:
         return SecurityRecoveryHandoff(
@@ -111,6 +133,34 @@ def plan_security_recovery(
         return handoff(SecurityRecoveryOutcome.DIAGNOSIS_ONLY, "no active security incident is available")
     if not contamination_signal:
         return handoff(SecurityRecoveryOutcome.DIAGNOSIS_ONLY, "incident does not establish trusted-component contamination")
+
+    if subject_type == "runtime":
+        if subject_id != "maho-runtime" or not _proven_runtime_integrity(incident):
+            return handoff(SecurityRecoveryOutcome.DIAGNOSIS_ONLY, "runtime contamination is not bound to exact immutable Maho runtime verification")
+        contract = certified_runtime_recovery("maho-runtime")
+        if contract is None:
+            return handoff(SecurityRecoveryOutcome.DIAGNOSIS_ONLY, "Maho runtime has no certified recovery provider")
+        if contract.previous_runtime_required and not previous_runtime_available:
+            return handoff(SecurityRecoveryOutcome.DIAGNOSIS_ONLY, "certified runtime rollback requires a verified previous runtime")
+        if contract.automatic_only_in_transaction and not runtime_transaction_authorized:
+            return handoff(
+                SecurityRecoveryOutcome.AUTHORIZATION_REQUIRED,
+                "exact immutable runtime corruption is proven but the security incident cannot self-authorize rollback",
+                provider=contract.provider,
+                action=contract.action,
+                scope=contract.scope,
+                requires_authorization=True,
+                postcondition=contract.postcondition,
+            )
+        return handoff(
+            SecurityRecoveryOutcome.READY_RUNTIME_RECOVERY,
+            "exact immutable runtime corruption maps to the existing certified transactional rollback",
+            provider=contract.provider,
+            action=contract.action,
+            scope=contract.scope,
+            requires_authorization=True,
+            postcondition=contract.postcondition,
+        )
 
     if subject_type == "package":
         if not _maho_owned_package(subject_id):
