@@ -240,7 +240,17 @@ doctor() {
         failed=1
     fi
 
-    if python3 -m py_compile "$BACKEND" >/dev/null 2>&1; then
+    # The installed Maho runtime is intentionally immutable. py_compile writes
+    # __pycache__ beside the source and therefore falsely fails on a healthy
+    # runtime. Parse/compile the backend in memory so doctor stays read-only.
+    if python3 - "$BACKEND" >/dev/null 2>&1 <<'PY_BACKEND_SYNTAX'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY_BACKEND_SYNTAX
+    then
         backend_json="$(python3 "$BACKEND" doctor 2>/dev/null || true)"
         if [ -n "$backend_json" ]; then
             printf 'PASS  standards      %s\n' "$backend_json"

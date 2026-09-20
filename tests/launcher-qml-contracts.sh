@@ -307,6 +307,11 @@ echo "PASS"
 echo "=== syntax ==="
 bash -n "$LAUNCHER"
 python3 -m py_compile "$APP_MODEL" "$BACKEND"
+grep -Fq 'compile(path.read_text(encoding="utf-8"), str(path), "exec")' "$LAUNCHER"     || { echo "FAIL  launcher doctor writes bytecode into immutable runtime"; exit 1; }
+if grep -Fq 'python3 -m py_compile "$BACKEND"' "$LAUNCHER"; then
+    echo "FAIL  launcher doctor still requires writable runtime bytecode cache"
+    exit 1
+fi
 if command -v qmllint >/dev/null 2>&1; then
     qmllint "$QML"/*.qml >/dev/null 2>&1 || echo "INFO  qmllint needs the installed Quickshell import environment; native doctor is authoritative"
 else
