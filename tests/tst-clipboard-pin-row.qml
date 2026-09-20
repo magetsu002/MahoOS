@@ -29,11 +29,18 @@ TestCase {
         property string errorText: ""
         property var items: [{
             "id": "7",
-            "preview": "Pinned-row render proof",
+            "preview": "Hover-only pin render proof",
             "type": "Text",
-            "search": "pinned-row render proof",
+            "search": "hover-only pin render proof",
             "pinned": false,
             "pinKey": ""
+        }, {
+            "id": "pin:8",
+            "preview": "Filled pin latch proof",
+            "type": "Text",
+            "search": "filled pin latch proof pinned",
+            "pinned": true,
+            "pinKey": "8"
         }]
         property int toggleCalls: 0
         property int selectCalls: 0
@@ -75,15 +82,16 @@ TestCase {
     }
 
     function test_real_delegate_reveals_clickable_pin_only_on_row_hover() {
-        var glyph = findChild(panel, "clipboardPinGlyph")
-        tryVerify(function() { return glyph !== null }, 1000,
-                  "real ClipboardPanel delegate never instantiated its pin glyph")
+        var button = findChild(panel, "clipboardPinButton-0")
+        tryVerify(function() { return button !== null }, 1000,
+                  "real ClipboardPanel delegate never instantiated its first pin button")
 
+        var glyph = findChild(button, "clipboardPinGlyph")
+        verify(glyph !== null)
         verify(glyph.geometryReady)
         compare(glyph.width, 17)
         compare(glyph.height, 17)
 
-        var button = glyph.parent
         verify(button !== null)
         compare(button.width, 34)
         compare(button.height, 34)
@@ -99,5 +107,25 @@ TestCase {
         mouseClick(button, button.width / 2, button.height / 2, Qt.LeftButton)
         compare(fakeState.toggleCalls, 1)
         compare(fakeState.selectCalls, 0)
+    }
+
+    function test_filled_pin_stays_visible_when_pointer_moves_elsewhere() {
+        var pinnedButton = findChild(panel, "clipboardPinButton-1")
+        tryVerify(function() { return pinnedButton !== null }, 1000,
+                  "real ClipboardPanel delegate never instantiated its filled pin button")
+
+        tryVerify(function() { return pinnedButton.opacity > 0.9 }, 500,
+                  "filled pin is hidden while its row is idle")
+
+        var firstButton = findChild(panel, "clipboardPinButton-0")
+        verify(firstButton !== null)
+        var firstRow = firstButton.parent
+        mouseMove(firstRow, firstRow.width / 2, firstRow.height / 2)
+        tryVerify(function() { return pinnedButton.opacity > 0.9 }, 500,
+                  "filled pin disappeared while hovering another row")
+
+        mouseMove(host, 4, 4)
+        tryVerify(function() { return pinnedButton.opacity > 0.9 }, 500,
+                  "filled pin disappeared after leaving the clipboard rows")
     }
 }

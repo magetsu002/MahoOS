@@ -433,7 +433,10 @@ Item {
                 required property int index
                 width: ListView.view.width
                 height: 70
-                readonly property bool revealPin: Boolean(row.modelData.pinned) || rowHover.containsMouse || pinHover.containsMouse
+                // A filled pin is a latched state, not a hover affordance. Keep
+                // it visible while the pointer moves across other rows.
+                readonly property bool pinLatched: Boolean(row.modelData.pinned)
+                readonly property bool revealPin: row.pinLatched || rowHover.containsMouse || pinHover.containsMouse
 
                 Rectangle {
                     anchors.fill: parent
@@ -509,6 +512,7 @@ Item {
 
                 Rectangle {
                     id: pinButton
+                    objectName: "clipboardPinButton-" + row.index
                     z: 3
                     anchors.right: parent.right
                     anchors.rightMargin: 13
@@ -516,13 +520,13 @@ Item {
                     width: 34
                     height: 34
                     radius: 11
-                    color: row.modelData.pinned
+                    color: row.pinLatched
                         ? theme.alpha(root.mix(root.accent, root.textSecondary, 0.24), 0.13)
                         : pinHover.containsMouse
                             ? theme.alpha(root.textSecondary, 0.045)
                             : theme.alpha(root.textSecondary, 0.018)
                     border.width: 1
-                    border.color: row.modelData.pinned
+                    border.color: row.pinLatched
                         ? theme.alpha(root.accent, 0.26)
                         : theme.alpha(theme.foreground, pinHover.containsMouse ? 0.075 : 0.035)
                     opacity: row.revealPin
@@ -537,8 +541,8 @@ Item {
                         anchors.centerIn: parent
                         width: 17
                         height: 17
-                        filled: Boolean(row.modelData.pinned)
-                        glyphColor: row.modelData.pinned
+                        filled: row.pinLatched
+                        glyphColor: row.pinLatched
                             ? theme.alpha(root.textPrimary, 1.0)
                             : theme.alpha(root.textSecondary, pinHover.containsMouse ? 0.88 : 0.68)
                     }
