@@ -187,7 +187,7 @@ def _validate_selection(value: Any, packages: Sequence[Mapping[str, Any]]) -> di
         return {"kind": "full", "deferred_boot_packages": [], "solver_proof": {"kind": "full-system-solver"}}
     data = dict(_mapping(value, "selection"))
     kind = data.get("kind")
-    if kind not in {"full", "independent-normal"}:
+    if kind not in {"full", "independent-normal", "artifact-set"}:
         raise ValueError("update selection kind is invalid")
     deferred = _string_list(data.get("deferred_boot_packages", []), "deferred boot packages")
     proof = data.get("solver_proof")
@@ -197,8 +197,8 @@ def _validate_selection(value: Any, packages: Sequence[Mapping[str, Any]]) -> di
     selected = {item["name"] for item in normalize_packages(packages)}
     if selected & set(deferred):
         raise ValueError("deferred boot package cannot remain in selected generation")
-    if kind == "full" and deferred:
-        raise ValueError("full update selection cannot defer packages")
+    if kind in {"full", "artifact-set"} and deferred:
+        raise ValueError(f"{kind} update selection cannot defer packages")
     return {"kind": kind, "deferred_boot_packages": sorted(deferred), "solver_proof": dict(proof)}
 
 

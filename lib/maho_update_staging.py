@@ -253,12 +253,15 @@ def validate_manifest(manifest: Mapping[str, Any], transaction: Mapping[str, Any
             raise ValueError("staging payload path is unsafe or unavailable")
         if not isinstance(digest, str) or _DIGEST.fullmatch(digest) is None or _sha256(path) != digest:
             raise ValueError("staging payload digest mismatch")
-        if payload.get("signature_status") != "verified-by-pacman":
-            raise ValueError("staging payload lacks Pacman signature verification")
         if payload.get("size") != path.stat().st_size:
             raise ValueError("staging payload size mismatch")
         if schema >= 2:
-            validate_provenance(payload.get("provenance", {}))
+            provenance = validate_provenance(payload.get("provenance", {}))
+            verification = payload.get("signature_status")
+            if provenance["kind"] == "repository" and verification != "verified-by-pacman":
+                raise ValueError("repository staging payload lacks Pacman signature verification")
+            if provenance["kind"] == "aur-built" and verification != "maho-isolated-build":
+                raise ValueError("AUR staging payload lacks Maho isolated-build verification")
             effects = payload.get("effects")
             if not isinstance(effects, Mapping) or effects.get("classification") not in {"normal", "boot-critical"}:
                 raise ValueError("staging payload effect analysis is invalid")

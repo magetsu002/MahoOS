@@ -9,6 +9,13 @@ PREFLIGHT="$ROOT/lib/security_preflight.py"
 EVENTS="$ROOT/lib/events.sh"
 BWRAP="${MAHO_BWRAP:-$(command -v bwrap 2>/dev/null || true)}"
 MAKEPKG="${MAHO_MAKEPKG:-$(command -v makepkg 2>/dev/null || true)}"
+PACMAN="${MAHO_PACMAN:-$(command -v pacman 2>/dev/null || true)}"
+YAY="${MAHO_YAY:-$(command -v yay 2>/dev/null || true)}"
+GIT="${MAHO_GIT:-$(command -v git 2>/dev/null || true)}"
+PACMAN_CONFIG="${MAHO_PACMAN_CONFIG:-/etc/maho/pacman.conf}"
+AUR_DISCOVERY="$ROOT/lib/maho_aur_discovery.py"
+AUR_SOURCE="$ROOT/lib/maho_aur_source.py"
+AUR_ARTIFACT="$ROOT/lib/maho_aur_artifact.py"
 
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
     maho_event_emit() { return 0; }
@@ -27,8 +34,20 @@ capability_check() {
         echo "maho-aur-build: makepkg is unavailable; isolated build capability is unavailable" >&2
         return 2
     }
+    [ -n "$PACMAN" ] && [ -x "$PACMAN" ] || {
+        echo "maho-aur-build: pacman package inspection is unavailable" >&2
+        return 2
+    }
+    [ -f "$PACMAN_CONFIG" ] && [ ! -L "$PACMAN_CONFIG" ] || {
+        echo "maho-aur-build: canonical Maho Pacman authority is unavailable: $PACMAN_CONFIG" >&2
+        return 2
+    }
     [ -r "$PREFLIGHT" ] || {
         echo "maho-aur-build: static preflight engine is unavailable" >&2
+        return 2
+    }
+    [ -r "$AUR_ARTIFACT" ] || {
+        echo "maho-aur-build: AUR artifact identity engine is unavailable" >&2
         return 2
     }
 }
@@ -48,6 +67,15 @@ cache.mkdir(parents=True,exist_ok=True); os.chmod(cache,0o700)
 if stage.exists(): shutil.rmtree(stage)
 ignore=shutil.ignore_patterns('.git','.SRCINFO','pkg','src','*.pkg.tar.*','*.log')
 shutil.copytree(src,stage,symlinks=True,ignore=ignore)
+root=stage.resolve()
+for path in stage.rglob('*'):
+    if not path.is_symlink(): continue
+    target=os.readlink(path)
+    if target.startswith('/'):
+        raise SystemExit(f"AUR source absolute symlink is refused: {path.relative_to(stage)}")
+    resolved=(path.parent/target).resolve(strict=False)
+    if root != resolved and root not in resolved.parents:
+        raise SystemExit(f"AUR source escaping symlink is refused: {path.relative_to(stage)}")
 os.chmod(stage,0o700)
 print(stage)
 PY
@@ -100,67 +128,39 @@ run_sandbox() {
 
 record_result() {
     local stage="$1" preflight="$2" status="$3" phase="$4"
-    python - "$SEC_STATE" "$stage" "$preflight" "$status" "$phase" <<'PY'
-import datetime as dt,json,os,sys,uuid
-from pathlib import Path
-state=Path(sys.argv[1]); stage=Path(sys.argv[2]); pre=json.loads(sys.argv[3]); status=sys.argv[4]; phase=sys.argv[5]
-packages=sorted(str(p) for p in stage.glob('*.pkg.tar.*') if p.is_file())
-payload={
-    'version':1,
-    'kind':'aur-isolated-build',
-    'at':dt.datetime.now(dt.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),
-    'status':status,
-    'phase':phase,
-    'stage':str(stage),
-    'pkgbuild_sha256':pre.get('sha256'),
-    'preflight_risk':pre.get('risk'),
-    'preflight_score':pre.get('score'),
-    'sandbox':{
-        'host_root':'read-only',
-        'host_home':'hidden',
-        'root_home':'hidden',
-        'runtime_user_dir':'hidden',
-        'process_namespace':'isolated',
-        'capabilities':'dropped',
-        'fetch_network':'available',
-        'build_network':'isolated',
-    },
-    'packages':packages,
-    'automatic_install':False,
-}
-out=state/'aur-builds'; out.mkdir(parents=True,exist_ok=True); os.chmod(out,0o700)
-path=out/f"build-{pre.get('sha256','unknown')[:20]}.json"
-data=(json.dumps(payload,indent=2,sort_keys=True)+'\n').encode(); tmp=path.with_name(f'.{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp')
-fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
-try:
-    os.fchmod(fd,0o600); off=0
-    while off<len(data): off+=os.write(fd,data[off:])
-    os.fsync(fd)
-finally: os.close(fd)
-os.replace(tmp,path); os.chmod(path,0o600)
-print(json.dumps(payload,sort_keys=True))
-PY
+    PYTHONPATH="$ROOT/lib${PYTHONPATH:+:$PYTHONPATH}" python "$AUR_ARTIFACT" \
+        --state-root "$SEC_STATE" \
+        --stage "$stage" \
+        --preflight-json "$preflight" \
+        --status "$status" \
+        --phase "$phase" \
+        --pacman-config "$PACMAN_CONFIG" \
+        --pacman "$PACMAN"
 }
 
 pretty_result() {
-    python - "$1" <<'PY'
+    python - "$1" <<'PY_PRETTY'
 import json,sys
 r=json.loads(sys.argv[1])
 print('Maho isolated AUR build')
 print('Status:        ',r['status'])
 print('Phase:         ',r['phase'])
 print('Preflight:     ',r['preflight_risk'],f"({r['preflight_score']}/100)")
+print('Source:        ',r.get('source_tree_sha256','unknown'))
 print('Stage:         ',r['stage'])
 print('Host home:      hidden')
 print('Build network:  isolated')
 print('Capabilities:   dropped')
 print('Auto install:   no')
+if r.get('rejection'):
+    print('Rejected:      ',r['rejection'])
 if r.get('packages'):
-    print('Packages:')
-    for p in r['packages']: print('  '+p)
+    print('Artifacts:')
+    for p in r['packages']:
+        print(f"  {p['name']} {p['version']}  {p['route']}  {p['artifact_id']}")
 else:
-    print('Packages:       none produced')
-PY
+    print('Artifacts:      none accepted')
+PY_PRETTY
 }
 
 build_command() {
@@ -207,8 +207,16 @@ PY
     fi
 
     result="$(record_result "$stage" "$preflight" verified complete)"
+    local artifact_rc=$?
+    if [ "$artifact_rc" -ne 0 ]; then
+        emit_event prevention.aur-build-rejected failed "$risk" \
+            "AUR output was rejected by canonical repository ownership or exact artifact verification; nothing was installed" \
+            security.package-build maho-aur-build "$result"
+        pretty_result "$result"
+        return "$artifact_rc"
+    fi
     emit_event prevention.aur-build verified "$risk" \
-        "AUR package was built in a bounded Bubblewrap sandbox; output was not installed automatically" \
+        "AUR package became a Maho-owned exact artifact after provenance and effect analysis; output was not installed automatically" \
         security.package-build maho-aur-build "$result"
     pretty_result "$result"
 }
@@ -218,6 +226,10 @@ doctor_command() {
     [ -r "$PREFLIGHT" ] && python -c 'import ast,pathlib,sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(), filename=sys.argv[1])' "$PREFLIGHT" >/dev/null 2>&1 && echo "PASS  static preflight" || echo "FAIL  static preflight"
     [ -n "$BWRAP" ] && [ -x "$BWRAP" ] && echo "AVAILABLE  bubblewrap: $BWRAP" || echo "UNAVAILABLE bubblewrap"
     [ -n "$MAKEPKG" ] && [ -x "$MAKEPKG" ] && echo "AVAILABLE  makepkg: $MAKEPKG" || echo "UNAVAILABLE makepkg"
+    [ -n "$PACMAN" ] && [ -x "$PACMAN" ] && echo "AVAILABLE  pacman: $PACMAN" || echo "UNAVAILABLE pacman"
+    [ -n "$YAY" ] && [ -x "$YAY" ] && echo "AVAILABLE  yay: $YAY" || echo "UNAVAILABLE yay"
+    [ -n "$GIT" ] && [ -x "$GIT" ] && echo "AVAILABLE  git: $GIT" || echo "UNAVAILABLE git"
+    [ -f "$PACMAN_CONFIG" ] && [ ! -L "$PACMAN_CONFIG" ] && echo "PASS  repository authority: $PACMAN_CONFIG" || echo "FAIL  repository authority: $PACMAN_CONFIG"
     echo "INFO  host root: read-only"
     echo "INFO  host home/root/run-user: hidden"
     echo "INFO  source fetch: network available in sandbox"
@@ -226,8 +238,50 @@ doctor_command() {
     echo "INFO  high/critical static preflight: explicit --confirm-risk required"
 }
 
+fetch_command() {
+    local package="${1:-}" expected="${2:-}"
+    [ -n "$package" ] || { echo "usage: maho-aur-build fetch <package> [expected-version]" >&2; return 1; }
+    [ -n "$YAY" ] && [ -x "$YAY" ] || { echo "maho-aur-build: yay is unavailable for AUR source fetch" >&2; return 2; }
+    [ -n "$PACMAN" ] && [ -x "$PACMAN" ] || { echo "maho-aur-build: pacman is unavailable for repository ownership checks" >&2; return 2; }
+    [ -n "$GIT" ] && [ -x "$GIT" ] || { echo "maho-aur-build: git is unavailable for AUR source identity" >&2; return 2; }
+    [ -f "$PACMAN_CONFIG" ] && [ ! -L "$PACMAN_CONFIG" ] || {
+        echo "maho-aur-build: canonical Maho Pacman authority is unavailable: $PACMAN_CONFIG" >&2
+        return 2
+    }
+    [ -r "$AUR_SOURCE" ] || { echo "maho-aur-build: AUR source authority is unavailable" >&2; return 2; }
+    local -a args=(
+        "$AUR_SOURCE" "$package"
+        --cache-root "$CACHE_ROOT"
+        --config "$PACMAN_CONFIG"
+        --yay "$YAY"
+        --pacman "$PACMAN"
+        --git "$GIT"
+    )
+    [ -z "$expected" ] || args+=(--expected-version "$expected")
+    PYTHONPATH="$ROOT/lib${PYTHONPATH:+:$PYTHONPATH}" python "${args[@]}"
+}
+
+discover_command() {
+    [ -n "$YAY" ] && [ -x "$YAY" ] || {
+        echo "maho-aur-build: yay is unavailable for AUR metadata discovery" >&2
+        return 2
+    }
+    [ -n "$PACMAN" ] && [ -x "$PACMAN" ] || {
+        echo "maho-aur-build: pacman is unavailable for repository authority checks" >&2
+        return 2
+    }
+    [ -f "$PACMAN_CONFIG" ] && [ ! -L "$PACMAN_CONFIG" ] || {
+        echo "maho-aur-build: canonical Maho Pacman authority is unavailable: $PACMAN_CONFIG" >&2
+        return 2
+    }
+    PYTHONPATH="$ROOT/lib${PYTHONPATH:+:$PYTHONPATH}" python "$AUR_DISCOVERY" \
+        --config "$PACMAN_CONFIG" --yay "$YAY" --pacman "$PACMAN" "$@"
+}
+
 case "${1:-}" in
     build) shift; build_command "$@" ;;
+    fetch) shift; fetch_command "$@" ;;
+    discover) shift; discover_command "$@" ;;
     doctor) doctor_command ;;
     *)
         if [ -n "${1:-}" ] && [ "${1#-}" = "$1" ]; then
@@ -239,14 +293,18 @@ Maho isolated AUR build
 Usage:
   maho-aur-build /path/to/aur/source
   maho-aur-build /path/to/aur/source --confirm-risk
+  maho-aur-build fetch <package> [expected-version]
+  maho-aur-build discover [--json]
   maho-aur-build doctor
 
 The source directory is copied into Maho cache first. PKGBUILD preflight never
 executes it. If execution proceeds, both makepkg phases run under Bubblewrap
 with a read-only host root, hidden host homes/runtime secrets, isolated process
 namespaces and dropped capabilities. The build/package phase additionally has
-no network. Produced package files stay in the private staging directory and
-are never installed automatically. This reduces blast radius; it is not a
+no network. Produced package files stay in the private staging directory and are converted
+into exact Maho artifact identities only after canonical repository ownership,
+source provenance and file effects are verified. They are never installed
+automatically. This reduces blast radius; it is not a
 kernel/VM security boundary and cannot guarantee safety against kernel exploits.
 HELP
         fi
