@@ -36,6 +36,7 @@ from maho_adaptive_thermal import thermal_proposals
 from maho_adaptive_workload import workload_proposals
 from guardian_completion_status import enrich_status as enrich_guardian_status
 from guardian_live_state import LivePaths, live_status as guardian_live_status
+from maho_behavior_preferences import BehaviorPreferences, apply_preferences, load_preferences
 
 SCHEMA_VERSION = 1
 DEFAULT_INTERVAL = 30.0
@@ -454,7 +455,10 @@ def posture_observation(book: LeaseBook, now: datetime) -> dict[str, Any]:
         "source_policies": sorted({lease.source_policy for lease in active}),
     }
 
-def policy_proposals(snapshot: SituationSnapshot, *, now: datetime) -> tuple[AdaptationProposal, ...]:
+def policy_proposals(
+    snapshot: SituationSnapshot, *, now: datetime,
+    preferences: BehaviorPreferences | None = None,
+) -> tuple[AdaptationProposal, ...]:
     proposals: list[AdaptationProposal] = []
     for policy in (
         battery_proposals,
@@ -470,6 +474,7 @@ def policy_proposals(snapshot: SituationSnapshot, *, now: datetime) -> tuple[Ada
         except (TypeError, ValueError):
             # One optional policy capability must not invalidate all other policy families.
             continue
+    proposals = list(apply_preferences(proposals, preferences or load_preferences()))
     unique = {proposal.proposal_id: proposal for proposal in proposals}
     return tuple(unique[key] for key in sorted(unique))
 
@@ -600,7 +605,8 @@ def count_history(path: Path) -> int:
 
 def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
                     observations: Mapping[str, Any] | None = None,
-                    execute_certified: bool = False, actuator_runner=None) -> dict[str, Any]:
+                    execute_certified: bool = False, actuator_runner=None,
+                    preferences: BehaviorPreferences | None = None) -> dict[str, Any]:
     current = (now or utc_now()).astimezone(timezone.utc)
     root = repo_root()
     runtime_root.mkdir(parents=True, exist_ok=True)
@@ -609,7 +615,8 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
     live = dict(observations) if observations is not None else collect_observations(root, runtime_root, current)
     live["adaptive_posture"] = posture_observation(book, current)
     snapshot = build_situation(live, captured_at=current)
-    proposals = policy_proposals(snapshot, now=current)
+    behavior_preferences = preferences or load_preferences()
+    proposals = policy_proposals(snapshot, now=current, preferences=behavior_preferences)
     resolved = resolve_posture(snapshot, proposals)
     execution_policy = adaptive_execution_policy(root)
     execution_authorized = execute_certified and execution_policy["certified"] is True
@@ -681,6 +688,7 @@ def evaluate_shadow(runtime_root: Path, *, now: datetime | None = None,
         "captured_at": stamp(current),
         "snapshot_id": snapshot.snapshot_id,
         "situation": situation_summary(snapshot),
+        "behavior_preferences": behavior_preferences.as_dict(),
         "proposals": proposal_summary(proposals),
         "resolved_posture": dict(resolved.effective_posture),
         "active_shadow_posture": posture_for_mode(updated_book, "shadow"),
