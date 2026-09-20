@@ -26,7 +26,7 @@ def guardian_proposals(snapshot:SituationSnapshot,*,created_at:datetime|None=Non
  if g.recovery_in_progress is True or (g.severity_level!=UNKNOWN and int(g.severity_level)>=3):
   effects.append(Effect("background_work","reduced"))
  return (create_proposal(source_policy="guardian.reliability-state",policy_version=POLICY_VERSION,situation_snapshot_id=snapshot.snapshot_id,
-  priority_domain="reliability-recovery",disruption_class="A",confidence=.99,reason="Guardian recovery or unresolved reliability state must prevent unrelated maintenance and optimization interference",
+  priority_domain="hardware-data-safety",disruption_class="A",confidence=.99,reason="Guardian recovery or unresolved reliability state must prevent unrelated maintenance and optimization interference",
   supporting_evidence=evidence,requested_effects=effects,minimum_dwell_seconds=0,expiry_condition=ExpiryCondition("condition-clears","guardian-reliability-state"),
   cooldown_seconds=30,minimum_residency_seconds=0,reversibility=True,user_override_behavior="safety-may-override",notification_policy="none",
   verification_requirement="required",failure_behavior="preserve-current",created_at=created_at),)

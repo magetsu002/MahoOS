@@ -236,6 +236,18 @@ def guardian_m4_cases() -> None:
     assert dict(posture.effective_posture)["maintenance"] == "suspended"
     assert dict(posture.effective_posture)["background_work"] == "reduced"
     mark("Guardian recovery begins during adaptation")
+    gaming_recovery = snapshot(
+        workload={"probable_gaming": True, "interactive": True, "confidence": .99},
+        guardian={"active_incident": True, "severity_level": 3, "recovery_in_progress": True},
+    )
+    combined_guardian = resolve_posture(
+        gaming_recovery,
+        [*workload_proposals(gaming_recovery, created_at=T0), *guardian_proposals(gaming_recovery, created_at=T0)],
+    )
+    maintenance_field = next(field for field in combined_guardian.fields if field.effect == "maintenance")
+    guardian_ids = {proposal.proposal_id for proposal in guardian_proposals(gaming_recovery, created_at=T0)}
+    assert guardian_ids.intersection(maintenance_field.winning_proposal_ids)
+    mark("Guardian recovery outranks convenience optimization")
     critical = snapshot(maintenance={"in_critical_section": True, "interruption_safe": False})
     assert assess_maintenance(critical).must_finish_bounded_critical_section
     mark("M4 critical section represented")
@@ -337,7 +349,7 @@ def main() -> None:
         "idle but unlocked", "lock + AC + cool + idle", "eligibility disappears immediately before mutation", "unlock before mutation",
         "unlock during hypothetical critical section", "network disappears briefly", "network flaps", "network stable again",
         "update staging pending during instability", "Guardian incident begins while maintenance candidate", "Guardian recovery begins during adaptation",
-        "M4 critical section represented", "update pending activation", "two policies request compatible effect", "two policies conflict",
+        "M4 critical section represented", "update pending activation", "Guardian recovery outranks convenience optimization", "two policies request compatible effect", "two policies conflict",
         "explicit user intent conflicts with optimization", "safety conflicts with user intent", "stale evidence conflicts with fresh evidence",
         "equal-priority ambiguous conflict", "reboot/suspend-style stale leases", "clock/time jump", "observer restart", "duplicate event",
         "reordered events", "corrupted persisted lease", "unknown proposal field", "unknown effect", "unsupported schema version",

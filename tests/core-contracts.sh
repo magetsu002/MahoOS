@@ -230,7 +230,7 @@ bash "$ROOT/tests/platform-transaction-contracts.sh"
 echo "=== Disposable full-system VM certification harness ==="
 bash "$ROOT/tests/vm-certification-contracts.sh"
 
-echo "=== Adaptive policy A1-A15 ==="
+echo "=== Adaptive policy A1-A16 ==="
 for test in "$ROOT"/tests/test_adaptive_*.py; do
   python "$test"
 done

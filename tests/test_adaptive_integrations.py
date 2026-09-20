@@ -22,6 +22,8 @@ def main():
  # Adaptive suspension vetoes an otherwise native-eligible M4 opportunity.
  suspended=evaluate_maintenance(prepared(),project_m4_context(ctx(),{"maintenance":"suspended"}),now=NOW)
  assert not suspended.may_begin and "adaptive_maintenance_suspended" in suspended.reasons
+ explicit_suspended=evaluate_maintenance(prepared(),project_m4_context(ctx(intent="explicit-update"),{"maintenance":"suspended"}),now=NOW)
+ assert not explicit_suspended.may_begin and "adaptive_maintenance_suspended" in explicit_suspended.reasons
  # Adaptive eligibility is permission only; native active-user gate still wins.
  native_block=evaluate_maintenance(prepared(),project_m4_context(ctx(active_user=True),{"maintenance":"eligible"}),now=NOW)
  assert not native_block.may_begin and "active_user" in native_block.reasons

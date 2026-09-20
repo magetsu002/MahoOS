@@ -9,6 +9,11 @@
       "adapter": "adapters/notifications/adaptive-quiet.sh",
       "domain": "adaptive",
       "resource": "notifications.presentation.adaptive-quiet"
+    },
+    "set-adaptive-maintenance-veto": {
+      "adapter": "adapters/updates/adaptive-maintenance-veto.sh",
+      "domain": "adaptive",
+      "resource": "updates.maintenance.adaptive-veto"
     }
   },
   "version": 1

@@ -315,7 +315,9 @@ preflight() {
   for name in "${COMMANDS[@]}"; do bash -n "$ROOT/bin/$name" >/dev/null 2>&1 || { echo "FAIL  shell syntax $name"; failed=1; }; done
   bash -n "$ROOT/lib/authority.sh" "$ROOT/lib/intent.sh" "$ROOT/lib/state.sh" "$ROOT/lib/events.sh" \
     "$ROOT/lib/decision.sh" "$ROOT/lib/policy.sh" "$ROOT/lib/cycle.sh" "$ROOT/lib/transaction.sh" \
-    "$ROOT/adapters/appearance/wallpaper-theme.sh" >/dev/null 2>&1 || { echo "FAIL  shared shell syntax"; failed=1; }
+    "$ROOT/adapters/appearance/wallpaper-theme.sh" \
+    "$ROOT/adapters/notifications/adaptive-quiet.sh" \
+    "$ROOT/adapters/updates/adaptive-maintenance-veto.sh" >/dev/null 2>&1 || { echo "FAIL  shared shell syntax"; failed=1; }
   [ "$failed" -eq 0 ] && echo "PASS  preflight"
   for name in journalctl quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
   return "$failed"

@@ -23,6 +23,7 @@ export MAHO_ROOT="$ROOT"
 export MAHO_NOTIFY_BIN="$FAKE_NOTIFY"
 export MAHO_TEST_NOTIFY_STATE="$STATE"
 export XDG_STATE_HOME="$TMP/state"
+export MAHO_ADAPTIVE_MAINTENANCE_VETO_PATH="$TMP/state/maho/adaptive/maintenance-veto.json"
 source "$ROOT/lib/decision.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 execute() { bash "$ROOT/bin/maho-adapt" execute "$1"; }
@@ -41,6 +42,7 @@ python - "$ROOT/config/ownership.json" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
 assert p["resources"]["notifications.presentation.adaptive-quiet"] == "maho"
+assert p["resources"]["updates.maintenance.adaptive-veto"] == "maho"
 PY
 echo PASS
 echo '=== verified mutation ==='
@@ -66,6 +68,57 @@ import json,sys
 r=json.load(sys.stdin)
 assert r["status"] == "verified" and r["action"] == "adapt"
 assert "already verified" in r["reason"]
+'
+echo PASS
+
+maintenance_desired() {
+  python - "$1" <<'PY'
+from datetime import datetime,timedelta,timezone
+import json,sys
+active=sys.argv[1] == "true"
+desired={"operation":"set-adaptive-maintenance-veto","active":active}
+if active:
+ now=datetime.now(timezone.utc)
+ stamp=lambda value:value.isoformat(timespec="milliseconds").replace("+00:00","Z")
+ desired["state"]={
+  "schema_version":1,"kind":"maho-adaptive-maintenance-veto","active":True,
+  "lease_id":"lease-"+"1"*20,"effect":"maintenance","value":"suspended",
+  "source_policy":"gaming.foreground","source_proposal_id":"prop-"+"2"*20,
+  "captured_at":stamp(now-timedelta(seconds=30)),"updated_at":stamp(now),
+  "valid_until":stamp(now+timedelta(seconds=120)),
+ }
+print(json.dumps(desired,sort_keys=True,separators=(",",":")))
+PY
+}
+
+maintenance_decision() {
+  maho_decision_create adaptive adaptive.a16.maintenance-veto adapt \
+    updates.maintenance.adaptive-veto \
+    'certified bounded Adaptive maintenance veto lease' \
+    '{"lease_ids":["lease-11111111111111111111"],"certified_effect":"maintenance"}' \
+    "$(maintenance_desired "$1")"
+}
+
+echo '=== verified maintenance veto and restoration ==='
+RESULT="$(execute "$(maintenance_decision true)")"
+[ -f "$MAHO_ADAPTIVE_MAINTENANCE_VETO_PATH" ] || fail 'maintenance veto was not created'
+[ "$(stat -c %a "$MAHO_ADAPTIVE_MAINTENANCE_VETO_PATH")" = 600 ] || fail 'maintenance veto is not private'
+printf '%s\n' "$RESULT" | python -c '
+import json,sys
+r=json.load(sys.stdin)
+assert r["status"] == "verified"
+assert r["resource"] == "updates.maintenance.adaptive-veto"
+assert r["desired"]["active"] is True
+assert r["before"]["present"] is False
+'
+RESULT="$(execute "$(maintenance_decision false)")"
+[ ! -e "$MAHO_ADAPTIVE_MAINTENANCE_VETO_PATH" ] || fail 'lease expiry did not remove maintenance veto'
+printf '%s\n' "$RESULT" | python -c '
+import json,sys
+r=json.load(sys.stdin)
+assert r["status"] == "verified"
+assert r["desired"] == {"operation":"set-adaptive-maintenance-veto","active":False}
+assert r["before"]["present"] is True
 '
 echo PASS
 echo '=== verify failure rolls back captured state ==='

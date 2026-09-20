@@ -203,9 +203,11 @@ def test_doctor_and_static_authority() -> None:
     with tempfile.TemporaryDirectory(prefix="maho-adaptive-doctor-") as temporary:
         report = doctor_report(ROOT, Path(temporary))
         assert report["healthy"] is True, report
-        assert report["mode"] == "A15_CERTIFIED"
+        assert report["mode"] == "A16_CERTIFIED"
         assert report["execution_certified"] is True
-        assert report["certified_effects"] == ["notifications"]
+        assert report["a15_execution_certified"] is True
+        assert report["a16_maintenance_execution_certified"] is True
+        assert report["certified_effects"] == ["maintenance", "notifications"]
         assert report["service_enabled_by_policy"] is True
 
     wrapper = (ROOT / "bin/maho-adaptive").read_text()
@@ -232,6 +234,55 @@ def test_frontend_status() -> None:
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert payload["actions"] == {"mode": "SHADOW_ONLY", "mutation_executed": False}
+
+    old_policy = adaptive_shadow.adaptive_execution_policy
+    adaptive_shadow.adaptive_execution_policy = lambda root: {
+        "certified": True, "a15_certified": True, "a16_certified": True,
+        "effects": ("maintenance", "notifications"),
+        "service_enabled": True, "reason": None,
+    }
+    try:
+        with tempfile.TemporaryDirectory(prefix="maho-adaptive-status-a16-") as temporary:
+            state = Path(temporary)
+            actuator_state = {"quiet": False, "veto": None}
+
+            def runner(command, _environment):
+                decision = json.loads(command[-1])
+                desired = decision["desired"]
+                if decision["resource"] == "notifications.presentation.adaptive-quiet":
+                    actuator_state["quiet"] = bool(desired["enabled"])
+                else:
+                    actuator_state["veto"] = desired.get("state") if desired["active"] else None
+                return 0, json.dumps({
+                    "version": 1, "status": "verified",
+                    "resource": decision["resource"], "cycle_id": "cyc-status-fixture",
+                }), ""
+
+            gaming = fixture(T0, battery=80, ac=True)
+            gaming["workload"]["data"].update({
+                "fullscreen": True, "probable_gaming": True, "interactive": True,
+                "gpu_activity": True, "confidence": .99, "evidence": ["game-window"],
+            })
+            evaluate_shadow(state, now=T0, observations=gaming, execute_certified=True, actuator_runner=runner)
+            later = T0 + timedelta(seconds=15)
+            for envelope in gaming.values():
+                envelope["observed_at"] = stamp(later)
+            evaluate_shadow(state, now=later, observations=gaming, execute_certified=True, actuator_runner=runner)
+            result = subprocess.run(
+                [str(ROOT / "bin/maho-adaptive"), "--state-root", str(state), "status"],
+                text=True, capture_output=True, check=False,
+                env={**dict(__import__("os").environ), "MAHO_ROOT": str(ROOT)},
+            )
+            assert result.returncode == 0, result.stderr
+            assert "Adaptive: active" in result.stdout
+            assert "Context:     Gaming" in result.stdout
+            assert "Notifications quiet" in result.stdout
+            assert "Maintenance suspended" in result.stdout
+            assert "Background Work reduced" in result.stdout
+            assert "Foreground Performance preserve" in result.stdout
+            assert "after the condition clears and cooldown expires" in result.stdout
+    finally:
+        adaptive_shadow.adaptive_execution_policy = old_policy
 
 
 def main() -> None:

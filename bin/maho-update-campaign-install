@@ -38,6 +38,7 @@ FILES=(
   lib/maho_update_native.py
   lib/maho_boot_authority.py
   lib/maho_update_admission.py
+  lib/maho_adaptive_maintenance_state.py
   lib/maho_update_campaign.py
   bin/maho-update-campaign
 )

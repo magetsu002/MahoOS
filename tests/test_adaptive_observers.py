@@ -2,11 +2,15 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from maho_adaptive_observers import ProcessEvidence, SessionEvidence, WindowEvidence, classify_workload
+from maho_adaptive_observers import (
+    ProcessEvidence, SessionEvidence, WindowEvidence, classify_workload,
+    process_uses_gpu,
+)
 
 
 def p(pid, name, *, ppid=1, age=30, cpu=5, foreground=False, gpu=False):
@@ -14,6 +18,15 @@ def p(pid, name, *, ppid=1, age=30, cpu=5, foreground=False, gpu=False):
 
 
 def main() -> None:
+    with tempfile.TemporaryDirectory(prefix="maho-adaptive-gpu-") as temporary:
+        process_root = Path(temporary)
+        (process_root / "fd").mkdir()
+        (process_root / "fd/7").symlink_to("/dev/dri/renderD128")
+        assert process_uses_gpu(process_root) is True
+        (process_root / "fd/7").unlink()
+        (process_root / "fd/8").symlink_to("/dev/null")
+        assert process_uses_gpu(process_root) is False
+
     recent = SessionEvidence(False, 0, 0, 1, ())
     idle = SessionEvidence(True, 600, 600, 600, ())
 
@@ -37,6 +50,14 @@ def main() -> None:
     assert gaming.probable_gaming is True
     assert gaming.interactive is True
     assert gaming.gpu_activity is True
+
+    desktop_gpu = [p(41, "/usr/lib/chatgpt/ChatGPT", age=300, cpu=30, foreground=True, gpu=True)]
+    desktop = classify_workload(desktop_gpu, WindowEvidence(False, 41, "ChatGPT", "chatgpt"), recent)
+    assert desktop.probable_gaming is False
+
+    native_game = [p(42, "/home/user/Games/demo/game/demo", age=300, cpu=30, foreground=True, gpu=True)]
+    native = classify_workload(native_game, WindowEvidence(True, 42, "Demo", "demo"), idle)
+    assert native.probable_gaming is True
 
     video = [p(50, "mpv", age=300, cpu=12, foreground=True)]
     media = classify_workload(video, WindowEvidence(True, 50, "Movie", "mpv"), recent, audio_active=True)

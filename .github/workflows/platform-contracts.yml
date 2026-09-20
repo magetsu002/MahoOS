@@ -47,7 +47,8 @@ jobs:
           assert p['update']['pacman_config'] == '/etc/maho/pacman.conf'
           assert p['update']['required_repositories'] == ['core', 'extra', 'multilib', 'cachyos']
           assert p['adaptive']['a15_execution_certified'] is True
-          assert p['adaptive']['certified_effects'] == ['notifications']
+          assert p['adaptive']['a16_maintenance_execution_certified'] is True
+          assert p['adaptive']['certified_effects'] == ['maintenance', 'notifications']
           assert p['adaptive']['service_enabled'] is True
           assert p['system_states']['filesystem'] == 'btrfs'
           assert p['system_states']['home_rollback_policy'] == 'exclude-personal-data-by-default'
@@ -108,7 +109,7 @@ jobs:
           python tests/test_system_restore_campaign.py
           bash tests/l3-campaign-install.sh
 
-      - name: Adaptive policy A1-A15 contracts
+      - name: Adaptive policy A1-A16 contracts
         shell: bash
         run: |
           set -euo pipefail
