@@ -39,6 +39,7 @@ class NormalProductionOps:
             "script_sha256": "90e00dd01359565be85a8cdd93b424b4c1c89563300d16eaf0e7eedc349bf9fc",
         },
     }
+    MAX_GUARDIAN_INSPECTION_ERRORS = 128
 
     def __init__(
         self, *,
@@ -372,6 +373,19 @@ class NormalProductionOps:
         result = evaluate_normal_production_candidate(roots, self.transaction)
         self.admission = result
         self.roots = roots
+        return self._guardian_evidence(result)
+
+    @classmethod
+    def _guardian_evidence(cls, result: Any) -> dict[str, Any]:
+        errors = tuple(result.inspection.errors)
+        bounded_errors = errors[:cls.MAX_GUARDIAN_INSPECTION_ERRORS]
+        effects = tuple(result.inspection.graph.effects)
+        effects_by_kind: dict[str, int] = {}
+        effects_by_operation: dict[str, int] = {}
+        for effect in effects:
+            kind = effect.kind.value
+            effects_by_kind[kind] = effects_by_kind.get(kind, 0) + 1
+            effects_by_operation[effect.operation] = effects_by_operation.get(effect.operation, 0) + 1
         return {
             "ok": result.decision.outcome is AdmissionOutcome.ALLOW,
             "outcome": result.decision.outcome.value,
@@ -379,6 +393,22 @@ class NormalProductionOps:
             "graph_id": str(result.inspection.graph.graph_id),
             "base_root_identity": result.inspection.base_root_identity,
             "candidate_root_identity": result.inspection.candidate_root_identity,
+            "inspection_errors": list(bounded_errors),
+            "inspection_errors_total": len(errors),
+            "inspection_errors_truncated": len(errors) > len(bounded_errors),
+            "inspection_errors_sha256": hashlib.sha256(
+                json.dumps(errors, ensure_ascii=False, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "inspection_complete": result.inspection.graph.inspection_complete,
+            "runtime_complete": result.inspection.runtime_complete,
+            "runtime_isolated": result.inspection.runtime_isolated,
+            "effects": {
+                "total": len(effects),
+                "declared": sum(1 for effect in effects if effect.declared),
+                "undeclared": sum(1 for effect in effects if not effect.declared),
+                "by_kind": dict(sorted(effects_by_kind.items())),
+                "by_operation": dict(sorted(effects_by_operation.items())),
+            },
             "promotion_authority": result.promotion_authority.as_dict() if result.promotion_authority else None,
         }
 

@@ -306,8 +306,10 @@ def main() -> None:
 
         incomplete = admit_candidate(candidate, declaration(("/usr/bin/demo",)), runtime(candidate, complete=False)[0])
         check("incomplete runtime evidence fails closed", incomplete.decision.outcome is AdmissionOutcome.REJECT and not incomplete.inspection.graph.inspection_complete)
+        check("runtime completeness is retained in native rejection evidence", incomplete.inspection.runtime_complete is False and incomplete.inspection.runtime_isolated is True)
         unisolated = admit_candidate(candidate, declaration(("/usr/bin/demo",)), runtime(candidate, isolated=False)[0])
         check("runtime probe outside isolation fails closed", unisolated.decision.outcome is AdmissionOutcome.REJECT)
+        check("runtime isolation is retained in native rejection evidence", unisolated.inspection.runtime_complete is True and unisolated.inspection.runtime_isolated is False)
 
         try:
             runtime(candidate, observer="self-declared-observer")

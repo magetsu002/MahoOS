@@ -12,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'lib'))
 
 from guardian_admission import AdmissionOutcome
+from guardian_admission import EffectKind
 from maho_update_discovery import CommandResult
 from maho_update_native import NativeBtrfsOps
 from maho_update_normal_host import NormalProductionOps
@@ -172,6 +173,35 @@ class ActivationGateProbe(NormalProductionOps):
         return subprocess.CompletedProcess(command,0,'','')
 
 def main():
+    inspection_error='unexpected_mount_boundary:/var/lib/example'
+    fake_result=SimpleNamespace(
+        decision=SimpleNamespace(
+            outcome=AdmissionOutcome.REJECT,
+            reasons=('candidate_inspection_incomplete',),
+        ),
+        inspection=SimpleNamespace(
+            errors=(inspection_error,),
+            runtime_complete=True,
+            runtime_isolated=True,
+            base_root_identity='base-id',
+            candidate_root_identity='candidate-id',
+            graph=SimpleNamespace(
+                graph_id='art-test',
+                inspection_complete=False,
+                effects=(SimpleNamespace(kind=EffectKind.FILE,operation='CHANGE',declared=True),),
+            ),
+        ),
+        promotion_authority=None,
+    )
+    guardian_evidence=NormalProductionOps._guardian_evidence(fake_result)
+    check('normal Guardian rejection preserves exact inspection errors',guardian_evidence['inspection_errors']==[inspection_error] and guardian_evidence['inspection_errors_total']==1 and guardian_evidence['inspection_errors_truncated'] is False)
+    check('normal Guardian evidence preserves inspection and runtime status',guardian_evidence['inspection_complete'] is False and guardian_evidence['runtime_complete'] is True and guardian_evidence['runtime_isolated'] is True)
+    check('normal Guardian evidence summarizes bounded candidate effects',guardian_evidence['effects']=={'total':1,'declared':1,'undeclared':0,'by_kind':{'FILE':1},'by_operation':{'CHANGE':1}})
+    many_errors=tuple(f'path_unreadable:/tmp/{index}:PermissionError' for index in range(NormalProductionOps.MAX_GUARDIAN_INSPECTION_ERRORS+1))
+    fake_result.inspection.errors=many_errors
+    bounded=NormalProductionOps._guardian_evidence(fake_result)
+    check('normal Guardian error evidence is explicitly bounded and digest-bound',len(bounded['inspection_errors'])==NormalProductionOps.MAX_GUARDIAN_INSPECTION_ERRORS and bounded['inspection_errors_total']==len(many_errors) and bounded['inspection_errors_truncated'] is True and len(bounded['inspection_errors_sha256'])==64)
+
     with tempfile.TemporaryDirectory(prefix='maho-normal-runtime-') as temporary:
         fake=FakeBtrfs(Path(temporary))
         evidence=fake.mount_normal_candidate_runtime()

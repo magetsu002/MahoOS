@@ -98,6 +98,8 @@ class NativeInspection:
     candidate_root_identity: str
     excluded_roots: tuple[str, ...]
     errors: tuple[str, ...]
+    runtime_complete: bool
+    runtime_isolated: bool
     runtime_evidence_sha256: str
 
 
@@ -140,6 +142,9 @@ class NativeAdmissionResult:
             "candidate_root_identity": self.inspection.candidate_root_identity,
             "excluded_roots": list(self.inspection.excluded_roots),
             "inspection_errors": list(self.inspection.errors),
+            "inspection_complete": self.inspection.graph.inspection_complete,
+            "runtime_complete": self.inspection.runtime_complete,
+            "runtime_isolated": self.inspection.runtime_isolated,
             "runtime_evidence_sha256": self.inspection.runtime_evidence_sha256,
             "mutation_graph": json.loads(self.inspection.graph.canonical()),
             "decision": self.decision.as_dict(),
@@ -429,6 +434,8 @@ def inspect_candidate(
         candidate_root_identity=root_identity(roots.candidate_root),
         excluded_roots=tuple(sorted(_EXCLUDED_ROOTS)),
         errors=errors,
+        runtime_complete=runtime.complete,
+        runtime_isolated=runtime.isolated,
         runtime_evidence_sha256=runtime.evidence_sha256,
     )
 
