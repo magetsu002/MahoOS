@@ -6,7 +6,7 @@ import sys
 import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
-from guardian_trust_status import recovery_history, render_status, status_payload
+from guardian_trust_status import recovery_history, render_history, render_status, status_payload, unified_recovery_history
 
 def check(name: str, ok: bool) -> None:
     if not ok: raise AssertionError(name)
@@ -22,6 +22,29 @@ def proof(campaign: str, kernel: str = "6.18.42-1-cachyos-lts") -> dict:
         "home_subvolume_uuid": "home-uuid", "normal_root_active": True,
         "boot_artifacts_verified": True, "firmware_mutated": False,
         "default_entry": "MahoOS/Fallback (LTS)",
+    }
+
+def runtime_proof(campaign: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "maho-guardian-runtime-recovery-physical-campaign",
+        "campaign_id": campaign,
+        "phase": "VERIFIED",
+        "receipt": {
+            "schema_version": 1,
+            "kind": "maho-guardian-runtime-recovery-physical-receipt",
+            "campaign_id": campaign,
+            "incident_id": "inc-runtime-test",
+            "verified": True,
+            "current_is_verified_previous": True,
+            "corrupted_generation_retained": True,
+            "incident_resolved": True,
+            "runtime_after_recovery": {"current": {"content_sha256": "a" * 64}},
+            "guardian_result": {
+                "result": "recovered", "verified": True,
+                "receipt_id": "recovery-receipt-test",
+            },
+        },
     }
 
 def main() -> int:
@@ -41,6 +64,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         payload=status_payload(td, current_kernel_release="test")
         check("missing recovery evidence stays non-authoritative", payload["last_verified_recovery"] is None and payload["current_generation_trust"]=="UNRESOLVED")
+    with tempfile.TemporaryDirectory() as r3td, tempfile.TemporaryDirectory() as runtimetd:
+        campaign="runtime-recovery-20260920T185413Z-aaaaaaaaaaaa"
+        (Path(runtimetd)/f"{campaign}.json").write_text(json.dumps(runtime_proof(campaign)))
+        records=unified_recovery_history(r3td, runtimetd)
+        check("unified history includes verified runtime recovery", len(records)==1 and records[0].mode=="RUNTIME" and records[0].valid)
+        payload=status_payload(r3td, current_kernel_release="test", runtime_campaign_root=runtimetd)
+        check("runtime history never promotes generation trust", payload["current_generation_trust"]=="UNRESOLVED" and payload["recovery_modes"]==["RUNTIME"])
+        check("mode-neutral history exposes exact runtime receipt", "RUNTIME  VERIFIED  recovery-receipt-test" in render_history(records))
+        row=json.loads((Path(runtimetd)/f"{campaign}.json").read_text()); row["receipt"]["incident_resolved"]=False
+        (Path(runtimetd)/f"{campaign}.json").write_text(json.dumps(row))
+        check("invalid runtime receipt remains visible", unified_recovery_history(r3td, runtimetd)[0].valid is False)
     print("ALL GUARDIAN TRUST STATUS TESTS PASS")
     return 0
 
