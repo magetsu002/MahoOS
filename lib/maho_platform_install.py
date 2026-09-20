@@ -51,6 +51,10 @@ class PlatformInstaller:
         self.zram_generator = env_path("MAHO_PLATFORM_ZRAM_GENERATOR", "/usr/lib/systemd/system-generators/zram-generator")
         self.gnome_keyring = env_path("MAHO_PLATFORM_GNOME_KEYRING", "/usr/bin/gnome-keyring-daemon")
         self.btrfs = env_path("MAHO_PLATFORM_BTRFS", "/usr/bin/btrfs")
+        self.boot_root = env_path("MAHO_PLATFORM_BOOT_ROOT", "/boot")
+        self.bootctl = env_path("MAHO_PLATFORM_BOOTCTL", "/usr/bin/bootctl")
+        self.findmnt = env_path("MAHO_PLATFORM_FINDMNT", "/usr/bin/findmnt")
+        self.boot_seed = self.boot_root / "loader/random-seed"
         self.files = self._file_map()
         self.providers = [
             "systemd-timesyncd.service",
@@ -85,6 +89,126 @@ class PlatformInstaller:
             ("dbus-keyring", self.source / "org.gnome.keyring.service", self.dbus_root / "org.gnome.keyring.service"),
             ("dbus-portal-secret", self.source / "org.freedesktop.impl.portal.Secret.service", self.dbus_root / "org.freedesktop.impl.portal.Secret.service"),
         ]
+
+    def _boot_authority_for_test(self) -> bool:
+        return (
+            self.allow_unprivileged
+            and self.boot_root != Path("/boot")
+            and self.state_root != Path("/var/lib/maho-platform")
+        )
+
+    def require_boot_authority(self) -> None:
+        if os.geteuid() == 0 or self._boot_authority_for_test():
+            return
+        raise PlatformError("ESP seed hardening requires root")
+
+    def _boot_fstype(self) -> str:
+        result = self._run([str(self.findmnt), "-no", "FSTYPE", str(self.boot_root)])
+        if result.returncode != 0:
+            raise PlatformError(f"cannot determine filesystem for {self.boot_root}")
+        return result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+
+    def _bootctl(self, command: str) -> subprocess.CompletedProcess[str]:
+        return self._run([str(self.bootctl), f"--esp-path={self.boot_root}", command])
+
+    def _limine_seed_policy(self) -> dict[str, object]:
+        fstype = self._boot_fstype()
+        if fstype != "vfat":
+            raise PlatformError(f"ESP seed policy requires vfat at {self.boot_root}, got {fstype or 'unknown'}")
+        installed = self._bootctl("is-installed")
+        if installed.returncode == 0:
+            raise PlatformError("systemd-boot is installed; refusing to remove its random seed")
+        status = self._bootctl("status")
+        text = (status.stdout or "") + "\n" + (status.stderr or "")
+        product = next((line.split(":", 1)[1].strip() for line in text.splitlines() if line.strip().startswith("Product:")), "")
+        feature = next((line.strip() for line in text.splitlines() if "Support for passing random seed to OS" in line), "")
+        if not product.startswith("Limine "):
+            raise PlatformError(f"active bootloader is not verified Limine: {product or 'unknown'}")
+        if not feature or "✗" not in feature:
+            raise PlatformError("Limine random-seed capability is ambiguous or supported; refusing removal")
+        return {"fstype": fstype, "bootloader": product, "random_seed_feature": feature}
+
+    def esp_seed_status(self) -> int:
+        policy = self._limine_seed_policy()
+        if self.boot_seed.exists():
+            mode = self.boot_seed.stat().st_mode & 0o777
+            print(f"FAIL  exposed unused ESP random seed exists: {self.boot_seed} mode={mode:04o}")
+            print(f"INFO  {policy['bootloader']} does not support passing the ESP seed to the OS")
+            return 1
+        print("PASS  no unused systemd-boot random seed is exposed on the Limine ESP")
+        print(f"PASS  {policy['bootloader']} reports random-seed handoff unsupported")
+        return 0
+
+    @staticmethod
+    def _atomic_private_bytes(path: Path, data: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(path.parent, 0o700)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            offset = 0
+            while offset < len(data):
+                offset += os.write(fd, data[offset:])
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+
+    def harden_esp_seed(self) -> int:
+        self.require_boot_authority()
+        policy = self._limine_seed_policy()
+        if not self.boot_seed.exists():
+            print("PASS  ESP random seed already absent; no mutation required")
+            return 0
+        if not self.boot_seed.is_file() or self.boot_seed.is_symlink():
+            raise PlatformError(f"refusing unexpected random-seed inode: {self.boot_seed}")
+        data = self.boot_seed.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if len(data) != 32:
+            raise PlatformError(f"unexpected ESP random-seed size: {len(data)} bytes")
+        archive_root = self.state_root / "esp-random-seed"
+        archive_root.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.state_root, 0o700)
+        os.chmod(archive_root, 0o700)
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        archive = archive_root / f"{stamp}-{digest[:16]}.bin"
+        receipt = archive_root / f"{stamp}-{digest[:16]}.json"
+        if archive.exists() or receipt.exists():
+            raise PlatformError("ESP random-seed rollback archive identity already exists")
+        self._atomic_private_bytes(archive, data)
+        metadata = {
+            "schema_version": 1,
+            "kind": "maho-esp-random-seed-retirement",
+            "status": "prepared",
+            "prepared_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "source_revision": self.source_revision(),
+            "esp": str(self.boot_root),
+            "seed_path": str(self.boot_seed),
+            "seed_sha256": digest,
+            "seed_bytes": len(data),
+            "archive": str(archive),
+            "policy": policy,
+            "reason": "Limine cannot consume systemd-boot random seed and per-file VFAT permissions cannot protect it without breaking normal-user recovery reads",
+            "firmware_variables_modified": False,
+            "mount_policy_modified": False,
+        }
+        self._atomic_private_bytes(receipt, (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode())
+        self.boot_seed.unlink()
+        self._fsync_dir(self.boot_seed.parent)
+        if self.boot_seed.exists():
+            raise PlatformError("ESP random-seed removal did not converge")
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
+            raise PlatformError("ESP random-seed rollback archive verification failed")
+        metadata["status"] = "committed"
+        metadata["completed_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        self._atomic_private_bytes(receipt, (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode())
+        print(f"PASS  retired unused Limine ESP random seed {digest}")
+        print(f"PASS  rollback archive {archive}")
+        print(f"PASS  receipt {receipt}")
+        print("INFO  fstab, mount options, EFI variables, Secure Boot keys, and BootOrder were not modified")
+        return 0
 
     def failpoint(self, point: str) -> None:
         if self.allow_unprivileged and os.environ.get("MAHO_PLATFORM_TEST_FAIL") == point:
@@ -616,7 +740,7 @@ class PlatformInstaller:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="maho-platform-install")
-    parser.add_argument("command", choices=("preflight", "install", "status", "uninstall"))
+    parser.add_argument("command", choices=("preflight", "install", "status", "uninstall", "esp-seed-status", "esp-seed-harden"))
     args = parser.parse_args(argv)
     root = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.parent)
     installer = PlatformInstaller(root)
@@ -633,6 +757,10 @@ def main(argv: list[str] | None = None) -> int:
             return installer.install()
         if args.command == "status":
             return installer.status()
+        if args.command == "esp-seed-status":
+            return installer.esp_seed_status()
+        if args.command == "esp-seed-harden":
+            return installer.harden_esp_seed()
         return installer.uninstall()
     except PlatformError as exc:
         print(f"maho-platform-install: {exc}", file=sys.stderr)
