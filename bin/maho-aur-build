@@ -99,8 +99,9 @@ sandbox_common() {
         --tmpfs /tmp \
         --tmpfs /var/tmp \
         --tmpfs /run/user \
-        --bind "$stage" /build \
-        --chdir /build \
+        --dir /tmp/build \
+        --bind "$stage" /tmp/build \
+        --chdir /tmp/build \
         --setenv HOME /home/maho \
         --setenv XDG_CONFIG_HOME /home/maho/.config \
         --setenv XDG_CACHE_HOME /home/maho/.cache \
