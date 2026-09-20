@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_containment import ContainmentAuthority, ContainmentPlanState, ContainmentTarget, ProcessIdentity, plan_containment
 from guardian_containment_adapter import ExactProcessContainmentDriver, execute_containment, release_containment
+from security_containment import process_executable_identity
 
 NOW = "2026-09-15T12:00:00Z"
 
@@ -98,7 +99,12 @@ def _real_driver_fixture(tmp: Path, *, fail_second_stop: bool = False, rollback_
         proc.joinpath("cmdline").write_bytes(b"maho-runtime\0")
         _write_status(proc, uid, "S (sleeping)")
         _write_stat(proc, pid, start)
-        identities.append(ProcessIdentity(pid, start, str(binary)))
+        identities.append(ProcessIdentity(
+            pid,
+            start,
+            str(binary),
+            process_executable_identity(proc_root, pid),
+        ))
 
     signals: list[tuple[int, int]] = []
 
@@ -179,6 +185,26 @@ def main() -> None:
         rolled = rollback_driver.freeze_exact(exact)
         check("partial freeze with unverifiable rollback is never reported safe", rolled["result"] == "failed-rollback-incomplete")
         check("rollback state verification failure is explicit", any(str(item.get("reason", "")).startswith("resume-not-verified:") for item in rolled["failed"]))
+
+    with tempfile.TemporaryDirectory() as raw:
+        protected_driver, exact, _proc_root, _fs, _state, signals = _real_driver_fixture(Path(raw))
+        protected_driver.protected_pids = {201}
+        refused = protected_driver.freeze_exact(exact)
+        check("protected target fails closed before any process is signaled",
+              refused["result"] == "refused" and not signals)
+        check("protected target reason is explicit",
+              any(item.get("pid") == 201 and item.get("reason") == "protected-ancestor" for item in refused["failed"]))
+
+    with tempfile.TemporaryDirectory() as raw:
+        inode_driver, exact, _proc_root, fs, _state, signals = _real_driver_fixture(Path(raw))
+        binary = fs / "usr/bin/maho-runtime"
+        binary.unlink()
+        binary.write_text("replacement-at-same-path", encoding="utf-8")
+        refused = inode_driver.freeze_exact(exact)
+        check("same-path executable object replacement fails closed before signaling",
+              refused["result"] == "refused" and not signals)
+        check("same-path executable identity mismatch is explicit",
+              any(item.get("reason") == "executable-identity-mismatch" for item in refused["failed"]))
 
     with tempfile.TemporaryDirectory() as raw:
         drift_driver, exact, proc_root, fs, _state, signals = _real_driver_fixture(Path(raw))

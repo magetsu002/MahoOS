@@ -11,7 +11,13 @@ import time
 from typing import Any, Callable, Protocol
 
 from guardian_containment import ContainmentPlan, ContainmentPlanState, ContainmentTarget, ProcessIdentity
-from security_containment import ancestor_chain, process_start_ticks, process_state, session_id
+from security_containment import (
+    ancestor_chain,
+    process_executable_identity,
+    process_start_ticks,
+    process_state,
+    session_id,
+)
 from security_probe import atomic_private, normalized_package_paths, package_record, read_process
 
 
@@ -83,6 +89,11 @@ class ExactProcessContainmentDriver:
             return "executable-mismatch"
         if process_start_ticks(self.proc_root, identity.pid) != identity.start_time_ticks:
             return "process-start-mismatch"
+        if (
+            identity.exe_identity is not None
+            and process_executable_identity(self.proc_root, identity.pid) != identity.exe_identity
+        ):
+            return "executable-identity-mismatch"
         return None
 
     def _validate(self, target: ContainmentTarget) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -108,6 +119,12 @@ class ExactProcessContainmentDriver:
                 continue
             if process_start_ticks(self.proc_root, identity.pid) != identity.start_time_ticks:
                 failures.append({"pid": identity.pid, "reason": "process-start-mismatch"})
+                continue
+            if (
+                identity.exe_identity is not None
+                and process_executable_identity(self.proc_root, identity.pid) != identity.exe_identity
+            ):
+                failures.append({"pid": identity.pid, "reason": "executable-identity-mismatch"})
         return record, failures
 
     def _resume_and_verify(self, identity: ProcessIdentity) -> dict[str, Any] | None:
@@ -204,7 +221,12 @@ def _parse_identities(rows: Any) -> tuple[ProcessIdentity, ...]:
         if not isinstance(row, dict):
             continue
         try:
-            parsed.append(ProcessIdentity(int(row["pid"]), int(row["start_time_ticks"]), str(row["exe"])))
+            parsed.append(ProcessIdentity(
+                int(row["pid"]),
+                int(row["start_time_ticks"]),
+                str(row["exe"]),
+                str(row["exe_identity"]) if row.get("exe_identity") is not None else None,
+            ))
         except (KeyError, TypeError, ValueError):
             continue
     return tuple(sorted(parsed))

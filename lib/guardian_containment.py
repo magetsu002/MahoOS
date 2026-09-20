@@ -22,12 +22,15 @@ class ProcessIdentity:
     pid: int
     start_time_ticks: int
     exe: str
+    exe_identity: str | None = None
 
     def __post_init__(self) -> None:
         if self.pid <= 1 or self.start_time_ticks <= 0:
             raise ValueError("containment process identity is incomplete")
         if not self.exe.startswith("/") or "*" in self.exe:
             raise ValueError("containment executable must be an exact absolute path")
+        if self.exe_identity is not None and (not self.exe_identity or "*" in self.exe_identity):
+            raise ValueError("containment executable identity must be exact")
 
 
 @dataclass(frozen=True)

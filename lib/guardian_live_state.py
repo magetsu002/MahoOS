@@ -27,6 +27,7 @@ from guardian_evidence import (
     utc_stamp,
 )
 from guardian_journal_stream import JournalStreamState, StreamContinuity, load_stream
+from guardian_live_response import containment_status
 from guardian_provider_state import ProviderHeartbeat, load_heartbeat
 from guardian_signed_boot_provider import SignedBootTrust, observe_signed_boot
 from guardian_trust_status import status_payload as recovery_status_payload
@@ -617,7 +618,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         "retained_incidents": retained_incidents,
         "evidence_freshness": freshness,
         "authorized_operation_evidence": authority_records,
-        "containment": {"state": "none", "active": [], "automatic_authority": False},
+        "containment": containment_status(paths.security_root),
         "recent_activity": _recent_activity(incidents, recovery, transaction),
         "errors": sorted(set(schema_errors + incident_errors + authority_errors)),
     }
