@@ -19,6 +19,12 @@ ShellRoot {
     property bool dragging: false
     property bool placementReady: false
     property bool placementValid: false
+    property bool placementLoadPending: false
+    property bool placementApplied: false
+    property bool materialMapped: false
+    property bool launchPlacementLocked: false
+    property real launchPlacementX: 0
+    property real launchPlacementY: 0
     property bool placementSavePending: false
     property bool closeAfterPlacementSave: false
     readonly property string runtimeIdentity: Quickshell.env("MAHO_RUNTIME_IDENTITY")
@@ -27,6 +33,9 @@ ShellRoot {
     property real requestedPlacementY: -1
     readonly property real surfaceMarginX: 24
     readonly property real surfaceMarginY: 20
+    readonly property bool bootstrapGeometryReady:
+        overlay.width >= linkSurface.width + (surfaceMarginX * 2)
+        && overlay.height >= linkSurface.height + (surfaceMarginY * 2)
     property string activeMode:
         String(Quickshell.env("MAHO_LINK_MODE")) === "bluetooth" ? "bluetooth" : "wifi"
 
@@ -97,7 +106,15 @@ ShellRoot {
             )
             linkSurface.y = clamp(20, surfaceMarginY, maxY)
         }
+        placementApplied = true
         reportAppliedGeometry()
+    }
+
+    function commitLaunchPlacement() {
+        applyPlacement()
+        launchPlacementX = linkSurface.x
+        launchPlacementY = linkSurface.y
+        launchPlacementLocked = true
     }
 
     function persistPlacement() {
@@ -128,6 +145,12 @@ ShellRoot {
     function requestPlacementLoad() {
         placementReady = false
         placementValid = false
+        placementApplied = false
+        if (!bootstrapGeometryReady) {
+            placementLoadPending = true
+            return
+        }
+        placementLoadPending = false
         placementLoad.command = [
             "python3", positionHelperPath, "load",
             "--path", linkPlacementPath,
@@ -143,6 +166,11 @@ ShellRoot {
             "--margin-y", String(surfaceMarginY)
         ]
         placementLoad.running = true
+    }
+
+    function resumePendingPlacementLoad() {
+        if (placementLoadPending && !placementLoad.running && bootstrapGeometryReady)
+            requestPlacementLoad()
     }
 
     function placementLoaded(text) {
@@ -188,7 +216,7 @@ ShellRoot {
         blockLoading: true
         onFileChanged: {
             reload()
-            if (!root.placementValid && root.overlayOpen)
+            if (!root.placementValid && root.overlayOpen && !root.launchPlacementLocked)
                 Qt.callLater(root.applyPlacement)
         }
 
@@ -228,18 +256,31 @@ ShellRoot {
     }
 
     function revealSurfaceWhenReady() {
-        if (!presented || !placementReady || linkSurface.shown)
+        if (!presented || !placementReady || linkSurface.shown || materialMapped)
             return
         if (activeMode === "wifi" && !wifi.statusReady)
             return
 
-        // Present Link as one compositor event: placement and data settle while
-        // hidden, then the catcher/dim and blurred card become visible together.
-        // This avoids the old two-stage intro where the desktop dimmed first and
-        // the card appeared a moment later.
-        applyPlacement()
-        overlayOpen = true
+        // Commit coordinates while the card is fully absent. Then map only the
+        // transparent foreground carrier for one compositor-safe settle window.
+        // The visible material is revealed later, after x/y have already existed
+        // on the mapped carrier, so no default/fallback position can flash.
+        commitLaunchPlacement()
+        linkSurface.x = launchPlacementX
+        linkSurface.y = launchPlacementY
+        linkSurface.shown = false
+        materialMapped = true
+        launchRevealDelay.restart()
+    }
+
+    function finishLaunchReveal() {
+        if (!presented || !materialMapped || !placementApplied || linkSurface.shown)
+            return
+        linkSurface.x = launchPlacementX
+        linkSurface.y = launchPlacementY
         linkSurface.shown = true
+        overlayOpen = true
+        launchPlacementUnlock.restart()
         linkSurface.forceActiveFocus()
     }
 
@@ -247,6 +288,10 @@ ShellRoot {
         const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
         closeTimer.stop()
         idleRetireTimer.stop()
+        launchRevealDelay.stop()
+        launchPlacementUnlock.stop()
+        materialMapped = false
+        launchPlacementLocked = false
         closeAfterPlacementSave = false
         presented = true
         if (placementSave.running || placementSavePending) {
@@ -290,6 +335,9 @@ ShellRoot {
         if (!presented)
             return
         modeAfterPlacementSave = ""
+        launchRevealDelay.stop()
+        launchPlacementUnlock.stop()
+        launchPlacementLocked = false
         overlayOpen = false
         linkSurface.shown = false
         if (placementSave.running || placementSavePending) {
@@ -321,7 +369,10 @@ ShellRoot {
         function retire(nextIdentity: string): bool {
             if (nextIdentity === root.runtimeIdentity)
                 return false
+            launchRevealDelay.stop()
+            launchPlacementUnlock.stop()
             root.overlayOpen = false
+            root.materialMapped = false
             root.presented = false
             retireTimer.restart()
             return true
@@ -354,12 +405,27 @@ ShellRoot {
     }
 
     Timer {
+        id: launchRevealDelay
+        interval: 16
+        repeat: false
+        onTriggered: root.finishLaunchReveal()
+    }
+
+    Timer {
+        id: launchPlacementUnlock
+        interval: 320
+        repeat: false
+        onTriggered: root.launchPlacementLocked = false
+    }
+
+    Timer {
         id: closeTimer
         // Keep the mapped surface alive just long enough for the restrained
         // material fade to finish. Pointer masks are removed immediately by
         // overlayOpen=false, so this does not leave an invisible hit target.
         interval: 120
         onTriggered: {
+            root.materialMapped = false
             root.presented = false
             idleRetireTimer.restart()
         }
@@ -416,11 +482,15 @@ ShellRoot {
         mask: Region { item: root.overlayOpen ? dimPlane : null }
 
         onWidthChanged: {
-            if (root.overlayOpen && !root.dragging)
+            if (root.placementLoadPending)
+                Qt.callLater(root.resumePendingPlacementLoad)
+            if (root.overlayOpen && !root.dragging && !root.launchPlacementLocked)
                 Qt.callLater(root.applyPlacement)
         }
         onHeightChanged: {
-            if (root.overlayOpen && !root.dragging)
+            if (root.placementLoadPending)
+                Qt.callLater(root.resumePendingPlacementLoad)
+            if (root.overlayOpen && !root.dragging && !root.launchPlacementLocked)
                 Qt.callLater(root.applyPlacement)
         }
 
@@ -465,7 +535,10 @@ ShellRoot {
         aboveWindows: true
         focusable: root.overlayOpen
         exclusionMode: ExclusionMode.Ignore
-        visible: root.presented
+        // Map this carrier only after final coordinates are committed. The
+        // child card remains fully transparent for launchRevealDelay before the
+        // visible reveal begins, giving the compositor a settled geometry frame.
+        visible: root.presented && root.materialMapped
         mask: Region { item: root.overlayOpen ? linkSurface : null }
 
         WlrLayershell.layer: WlrLayer.Overlay
@@ -481,11 +554,13 @@ ShellRoot {
             theme: theme
             wifi: wifi
             bluetooth: bluetooth
-            availableHeight: materialOverlay.height
+            // Size hidden Link from the already-mapped transparent bootstrap
+            // surface, so materialOverlay itself never needs to map for geometry.
+            availableHeight: overlay.height
             section: root.activeMode
             shown: false
             onHeightChanged: {
-                if (root.overlayOpen && !root.dragging)
+                if (root.overlayOpen && !root.dragging && !root.launchPlacementLocked)
                     Qt.callLater(root.applyPlacement)
             }
             onCloseRequested: root.closeOverlay()
@@ -501,7 +576,7 @@ ShellRoot {
             y: linkSurface.y + 16
             width: Math.max(100, linkSurface.width - 220)
             height: 48
-            enabled: root.overlayOpen && linkSurface.shown
+            enabled: root.overlayOpen && linkSurface.shown && !root.launchPlacementLocked
             hoverEnabled: true
             preventStealing: true
             cursorShape: Qt.SizeAllCursor

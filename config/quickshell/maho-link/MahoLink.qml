@@ -36,23 +36,16 @@ Item {
             : Math.min(652, Math.max(500, availableHeight - 40))
     focus: shown
     opacity: shown ? 1 : 0
-    scale: shown ? 1 : 0.985
-    transform: Translate {
-        y: root.shown ? 0 : -7
-
-        Behavior on y {
-            NumberAnimation { duration: root.shown ? 235 : 105; easing.type: Easing.OutCubic }
-        }
-    }
+    property real revealProgress: shown ? 1 : 0
     Behavior on height {
         enabled: root.shown
         NumberAnimation { duration: 86; easing.type: Easing.OutCubic }
     }
     Behavior on opacity {
-        NumberAnimation { duration: root.shown ? 205 : 110; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: root.shown ? 235 : 110; easing.type: Easing.OutCubic }
     }
-    Behavior on scale {
-        NumberAnimation { duration: root.shown ? 220 : 105; easing.type: Easing.OutCubic }
+    Behavior on revealProgress {
+        NumberAnimation { duration: root.shown ? 265 : 110; easing.type: Easing.OutCubic }
     }
 
     readonly property color textPrimary: theme.foreground
@@ -235,6 +228,8 @@ Item {
     Item {
         id: header
         z: 2
+        opacity: 0.18 + 0.82 * root.revealProgress
+        transform: Translate { y: -14 * (1 - root.revealProgress) }
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -393,6 +388,8 @@ Item {
     Item {
         id: body
         z: 2
+        opacity: 0.18 + 0.82 * root.revealProgress
+        transform: Translate { y: -14 * (1 - root.revealProgress) }
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: header.bottom
@@ -485,6 +482,8 @@ Item {
 
     Rectangle {
         z: 5
+        opacity: 0.18 + 0.82 * root.revealProgress
+        transform: Translate { y: -14 * (1 - root.revealProgress) }
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 14

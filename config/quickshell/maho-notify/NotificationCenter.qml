@@ -61,7 +61,7 @@ Item {
     // never leaves a moving blur footprint. The shell fades in while the
     // foreground content settles a few pixels into place below.
     Behavior on opacity {
-        NumberAnimation { duration: center.shown ? 220 : 125; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: center.shown ? 240 : 120; easing.type: Easing.OutCubic }
     }
 
     function dismissMenus() {
@@ -180,22 +180,21 @@ Item {
             anchors.bottomMargin: 20
             spacing: 12
 
-            // Premium entrance: the stationary glass material resolves first,
-            // then the content gently settles from above. Moving only content
-            // avoids compositor-blur ghosting while making the center feel
-            // intentional instead of appearing in a single frame.
-            opacity: center.shown ? 1 : 0.42
+            // Keep the blur footprint stationary while the foreground visibly
+            // resolves into place. The larger but still restrained offset makes
+            // the entrance readable at 240 Hz instead of looking like a pop.
+            opacity: center.shown ? 1 : 0.18
             transform: Translate {
                 id: contentReveal
-                y: center.shown ? 0 : -8
+                y: center.shown ? 0 : -14
 
                 Behavior on y {
-                    NumberAnimation { duration: center.shown ? 245 : 110; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: center.shown ? 270 : 110; easing.type: Easing.OutCubic }
                 }
             }
 
             Behavior on opacity {
-                NumberAnimation { duration: center.shown ? 205 : 100; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: center.shown ? 230 : 100; easing.type: Easing.OutCubic }
             }
 
             Item {
