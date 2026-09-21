@@ -59,6 +59,15 @@ _DOMAIN_FOR_EFFECT: Mapping[EffectKind, ProtectedDomain] = {
     EffectKind.SYSTEM_SERVICE: ProtectedDomain.SERVICE,
 }
 
+_EFFECT_FOR_DOMAIN: Mapping[ProtectedDomain, EffectKind] = {
+    ProtectedDomain.BOOT: EffectKind.BOOT_STATE,
+    ProtectedDomain.KERNEL: EffectKind.KERNEL_MODULE,
+    ProtectedDomain.GUARDIAN: EffectKind.PRIVILEGE_AUTHORITY,
+    ProtectedDomain.RECOVERY: EffectKind.BOOT_STATE,
+    ProtectedDomain.GENERATION: EffectKind.BOOT_STATE,
+    ProtectedDomain.PACKAGE: EffectKind.PACKAGE_FILE_OVERRIDE,
+}
+
 _EXACT_PREFIXES: tuple[tuple[str, ProtectedDomain], ...] = (
     ("/var/lib/maho/guardian", ProtectedDomain.GUARDIAN),
     ("/var/lib/maho/recovery", ProtectedDomain.RECOVERY),
@@ -101,6 +110,8 @@ def classify_target(path: str, *, context: TargetContext = TargetContext()) -> S
     for prefix, domain in _EXACT_PREFIXES:
         if _beneath(target, prefix):
             effect = classify_effect(target)
+            if effect is EffectKind.FILE:
+                effect = _EFFECT_FOR_DOMAIN.get(domain, effect)
             return ScopeMatch(True, domain, effect, target, f"protected_{domain.value}", True)
     if context.owner_home:
         home = normalize_target(context.owner_home)
@@ -112,4 +123,3 @@ def classify_target(path: str, *, context: TargetContext = TargetContext()) -> S
     if effect in SECURITY_BOUNDARY_EFFECTS and domain is not None:
         return ScopeMatch(True, domain, effect, target, f"guardian_{effect.value.lower()}")
     return ScopeMatch(False, None, effect, target, "outside_protected_system_scope")
-
