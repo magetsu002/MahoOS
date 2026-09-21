@@ -241,6 +241,10 @@ python "$ROOT/tests/test_guardian_completion_status.py"
 bash "$ROOT/tests/platform-hardening-contracts.sh"
 bash "$ROOT/tests/platform-transaction-contracts.sh"
 
+echo "=== Vesktop session reliability ==="
+bash "$ROOT/tests/vesktop-session-reliability.sh"
+bash "$ROOT/tests/vesktop-install-contracts.sh"
+
 echo "=== Disposable full-system VM certification harness ==="
 bash "$ROOT/tests/vm-certification-contracts.sh"
 

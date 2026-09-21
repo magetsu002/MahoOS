@@ -34,13 +34,17 @@ SHELL_TARGET="$CONFIG_HOME/quickshell/maho-shell"
 NOTIFY_LEGACY_TARGET="$CONFIG_HOME/quickshell/maho-notify"
 FILES_DESKTOP_REL="apps/maho-files/io.maho.Files.desktop"
 FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
+VESKTOP_WRAPPER="$BIN_DIR/vesktop-guard"
+VESKTOP_DESKTOP_TARGET="$DATA_HOME/applications/vesktop.desktop"
+MIMEAPPS_TARGET="$CONFIG_HOME/mimeapps.list"
 
 COMMANDS=(
   maho mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock maho-kbdlight
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
-  maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-aur-build maho-guardian-runtime-recovery-certify maho-setup
+  maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-aur-build maho-guardian-runtime-recovery-certify
+  maho-vesktop-guard maho-vesktop-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 STARTUP_UNITS=(maho-kbdlight.service)
@@ -324,7 +328,8 @@ preflight() {
     "$ROOT/lib/maho_update_admission.py" \
     "$ROOT/lib/maho_boot_authority.py" "$ROOT/lib/maho_secure_boot.py" "$ROOT/lib/maho_behavior_preferences.py" "$ROOT/lib/maho_system_status.py" "$ROOT/lib/maho_system_tui.py" "$ROOT/lib/maho_system_cli.py" "$ROOT/lib/maho_tui.py" \
     "$ROOT/lib/guardian_update.py" "$ROOT/lib/maho_platform_install.py" "$ROOT"/lib/maho_adaptive_*.py \
-    "$ROOT/lib/maho_launcher_backend.py" "$ROOT/config/quickshell/maho-shell/state.py" \
+    "$ROOT/lib/maho_launcher_backend.py" "$ROOT/lib/maho_vesktop_patch.py" \
+    "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
   for name in "${COMMANDS[@]}"; do bash -n "$ROOT/bin/$name" >/dev/null 2>&1 || { echo "FAIL  shell syntax $name"; failed=1; }; done
@@ -486,6 +491,9 @@ snapshot_all() {
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$SHELL_TARGET" "$index"
   for path in "${HYPR_MANAGED_RELS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(hypr_target_for "$path")" "$index"; done
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$FILES_DESKTOP_TARGET" "$index"
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$VESKTOP_WRAPPER" "$index"
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$VESKTOP_DESKTOP_TARGET" "$index"
+  index=$((index+1)); snapshot_one "$tx" "$manifest" "$MIMEAPPS_TARGET" "$index"
   for name in "${UNITS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(unit_path "$name")" "$index"; done
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do path="$UNIT_DIR/$wants/$name"; index=$((index+1)); snapshot_one "$tx" "$manifest" "$path" "$index"; done; done
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$PREVIOUS" "$index"
@@ -536,6 +544,7 @@ wire_runtime() {
   render_files_desktop >"$desktop_tmp"
   chmod 0644 "$desktop_tmp"
   mv -Tf -- "$desktop_tmp" "$FILES_DESKTOP_TARGET"
+  bash "$(runtime_path "bin/maho-vesktop-install")" install
   for name in "${UNITS[@]}"; do atomic_link "$(runtime_path "systemd/user/$name")" "$(unit_path "$name")"; done
 }
 systemd_available() { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }
@@ -782,6 +791,7 @@ status() {
   managed_shell || { echo "FAIL  shell config"; failed=1; }
   managed_hypr || { echo "FAIL  Maho Hyprland managed configuration"; failed=1; }
   managed_files_desktop || { echo "FAIL  Maho Files desktop entry"; failed=1; }
+  bash "$(runtime_path "bin/maho-vesktop-install")" status >/dev/null 2>&1 || { echo "FAIL  Vesktop canonical wiring"; failed=1; }
   if systemd_available; then
     effective_notify_runtime_authority || { echo "FAIL  Notify execution authority bypasses runtime/current"; failed=1; }
     for name in "${CORE_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  core ownership $name"; failed=1; }; done
