@@ -38,11 +38,12 @@ FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
 COMMANDS=(
   maho mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
-  maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
+  maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock maho-kbdlight
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
   maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-aur-build maho-guardian-runtime-recovery-certify maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
+STARTUP_UNITS=(maho-kbdlight.service)
 PASSIVE_UNITS=()
 GRAPHICAL_UNITS=(
   maho-awww-daemon.service
@@ -54,7 +55,7 @@ GRAPHICAL_UNITS=(
   maho-adaptive.service
 )
 SESSION_TARGET_UNIT=maho-hyprland-session.target
-UNITS=("${CORE_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "${PASSIVE_UNITS[@]}" "$SESSION_TARGET_UNIT")
+UNITS=("${CORE_UNITS[@]}" "${STARTUP_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "${PASSIVE_UNITS[@]}" "$SESSION_TARGET_UNIT")
 
 die() { echo "maho-setup: $*" >&2; return 1; }
 command_path() { printf '%s/%s\n' "$BIN_DIR" "$1"; }
@@ -162,6 +163,10 @@ legacy_clipboard_history() {
   local path="$1"
   sha_is "$path" "528f9e8105af185b6bf9a0299b8538ac7b6db94082c6d2e3a8d1cd3fff4155a5" || cmp -s "$path" "$ROOT/bin/maho-clipboard-history"
 }
+legacy_kbdlight() {
+  local path="$1"
+  [ -f "$path" ] && [ ! -L "$path" ] && cmp -s "$path" "$ROOT/bin/maho-kbdlight"
+}
 
 safe_command() {
   local name="$1" path; path="$(command_path "$name")"
@@ -179,6 +184,7 @@ safe_command() {
     maho-power) legacy_power "$path" ;;
     maho-clipboard) legacy_clipboard "$path" ;;
     maho-clipboard-history) legacy_clipboard_history "$path" ;;
+    maho-kbdlight) legacy_kbdlight "$path" ;;
     *) return 1 ;;
   esac
 }
@@ -196,6 +202,10 @@ legacy_clipboard_history_unit() {
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
   grep -Fq 'PartOf=graphical-session.target' "$path" && grep -Fq 'ExecStart=%h/.local/bin/maho-clipboard-history serve' "$path" && grep -Fq 'WantedBy=default.target' "$path"
 }
+legacy_kbdlight_unit() {
+  local path="$1"
+  [ -f "$path" ] && [ ! -L "$path" ] && cmp -s "$path" "$ROOT/systemd/user/maho-kbdlight.service"
+}
 safe_unit() {
   local name="$1" path; path="$(unit_path "$name")"
   [ ! -e "$path" ] && [ ! -L "$path" ] && return 0
@@ -203,6 +213,7 @@ safe_unit() {
   case "$name" in
     maho-dock.service) legacy_dock_unit "$path" ;;
     maho-clipboard-history.service) legacy_clipboard_history_unit "$path" ;;
+    maho-kbdlight.service) legacy_kbdlight_unit "$path" ;;
     *) return 1 ;;
   esac
 }
@@ -535,6 +546,7 @@ wire_ownership() {
   local name
   mkdir -p "$UNIT_DIR/default.target.wants" "$UNIT_DIR/graphical-session.target.wants" "$UNIT_DIR/$SESSION_TARGET_UNIT.wants"
   for name in "${CORE_UNITS[@]}"; do remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; atomic_link "$UNIT_DIR/$name" "$UNIT_DIR/default.target.wants/$name"; done
+  for name in "${STARTUP_UNITS[@]}"; do remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; atomic_link "$UNIT_DIR/$name" "$UNIT_DIR/default.target.wants/$name"; done
   for name in "${GRAPHICAL_UNITS[@]}"; do remove_managed_wants_link "$name" default.target.wants; remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; done
   for name in "${PASSIVE_UNITS[@]}"; do remove_managed_wants_link "$name" default.target.wants; remove_managed_wants_link "$name" graphical-session.target.wants; remove_managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; done
   remove_managed_wants_link "$SESSION_TARGET_UNIT" default.target.wants
@@ -769,6 +781,7 @@ status() {
   if systemd_available; then
     effective_notify_runtime_authority || { echo "FAIL  Notify execution authority bypasses runtime/current"; failed=1; }
     for name in "${CORE_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  core ownership $name"; failed=1; }; done
+    for name in "${STARTUP_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  startup ownership $name"; failed=1; }; done
     for name in "${GRAPHICAL_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants; then echo "FAIL  stale graphical ownership $name"; failed=1; fi; done
     for name in "${PASSIVE_UNITS[@]}"; do if managed_wants_link "$name" default.target.wants || managed_wants_link "$name" graphical-session.target.wants || managed_wants_link "$name" "$SESSION_TARGET_UNIT.wants"; then echo "FAIL  passive unit unexpectedly enabled $name"; failed=1; fi; done
     if managed_wants_link "$SESSION_TARGET_UNIT" default.target.wants || managed_wants_link "$SESSION_TARGET_UNIT" graphical-session.target.wants; then echo "FAIL  stale session target ownership"; failed=1; fi
@@ -787,7 +800,7 @@ rollback() {
 }
 uninstall() {
   local name path wants
-  if systemd_available; then systemctl --user stop "$SESSION_TARGET_UNIT" >/dev/null 2>&1 || true; for name in "${CORE_UNITS[@]}"; do systemctl --user disable --now "$name" >/dev/null 2>&1 || true; done; for name in "${PASSIVE_UNITS[@]}"; do systemctl --user stop "$name" >/dev/null 2>&1 || true; done; fi
+  if systemd_available; then systemctl --user stop "$SESSION_TARGET_UNIT" >/dev/null 2>&1 || true; for name in "${CORE_UNITS[@]}" "${STARTUP_UNITS[@]}"; do systemctl --user disable --now "$name" >/dev/null 2>&1 || true; done; for name in "${PASSIVE_UNITS[@]}"; do systemctl --user stop "$name" >/dev/null 2>&1 || true; done; fi
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do remove_managed_wants_link "$name" "$wants"; done; done
   for name in "${UNITS[@]}"; do path="$(unit_path "$name")"; if managed_unit "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged user unit $path"; fi; done
   managed_shell && rm -f -- "$SHELL_TARGET" || true

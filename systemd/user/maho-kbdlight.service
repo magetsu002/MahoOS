@@ -1,0 +1,11 @@
+[Unit]
+Description=Maho keyboard lighting one-shot restore
+After=graphical-session-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/maho-kbdlight restore
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

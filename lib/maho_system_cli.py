@@ -19,14 +19,18 @@ ALIASES = {
 def plain(model, page: str) -> str:
     if page == "Overview":
         s = model.summary
+        human = lambda value: str(value).replace("_", " ").title()
         return "\n".join((
-            f"System health: {s.operational_health}", f"Trust: {s.trust}",
-            f"Guardian: {s.guardian_health}", f"Severity: {s.severity}",
+            f"System health: {human(s.operational_health)}", f"Trust: {human(s.trust)}",
+            f"Guardian: {human(s.guardian_health)}", f"Severity: {human(s.severity)}",
             f"Updates: {s.updates}", f"Recovery: {s.recovery}",
-            f"Behavior: {s.behavior}", f"Attention: {s.attention}",
+            f"Behavior: {s.behavior}", f"Attention: {human(s.attention)}",
         )) + "\n"
     if page == "Doctor":
-        rows = [f"{item.state:<7} {item.subsystem:<10} {item.summary}: {item.reason}" for item in model.diagnostics]
+        rows = [
+            f"{('N/A' if item.id in {'provider.environment.power', 'provider.environment.thermal'} and item.state == 'UNKNOWN' and not item.attention else item.state):<7} {item.subsystem:<10} {item.summary}: {item.reason}"
+            for item in model.diagnostics
+        ]
         return "\n".join(rows) + "\n"
     width = max(80, min(140, shutil.get_terminal_size((100, 30)).columns))
     return render(model, width=width, height=60, page=page, color=False).rstrip() + "\n"

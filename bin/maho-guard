@@ -344,11 +344,12 @@ doctor_command() {
     echo "INFO  autonomy target: $(autonomy_level)"
     echo "INFO  unit of reasoning: correlated incident"
     echo "INFO  default interruption: silent; critical confirmed incidents may warrant one notification"
-    echo "INFO  automatic system mutation: none without explicit bounded live-response authorization"
-    echo "INFO  automatic containment authority: none"
-    echo "INFO  Guardian live containment: exact target + explicit bounded user authorization only"
-    echo "INFO  Guardian live runtime recovery: exact immutable-runtime integrity evidence or exact contained Maho target + separate bounded user authorization only"
-    echo "INFO  automatic security-driven runtime recovery authority: none"
+    echo "INFO  automatic host recovery: not authorized"
+    echo "INFO  automatic containment: not authorized"
+    echo "INFO  Guardian live containment: exact process/target with explicit bounded authorization only"
+    echo "INFO  automatic runtime recovery: available for exact confirmed Maho runtime-integrity damage only when the strict automatic recovery predicate succeeds"
+    echo "INFO  broader runtime recovery: bounded authorization remains required where applicable"
+    echo "INFO  system/kernel/boot recovery: separate authority domains"
     echo "INFO  systemd remains owner of ordinary L1 service restart"
 }
 

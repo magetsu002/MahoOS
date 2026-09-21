@@ -41,6 +41,7 @@ MAHO_EXPECTED_DEFAULT_USER_UNITS = frozenset({
     "maho-observe.service",
     "maho-security.service",
     "maho-guardian.service",
+    "maho-kbdlight.service",
 })
 
 

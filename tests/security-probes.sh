@@ -319,7 +319,7 @@ sys.path.insert(0,str(root/'lib'))
 from maho_runtime_release import _payload_hash
 runtime=data/'maho/runtime'; releases=runtime/'releases'; releases.mkdir(parents=True)
 stage=releases/'.fixture'; (stage/'systemd/user').mkdir(parents=True); (stage/'share/maho').mkdir(parents=True)
-for name in ('maho-adaptive.service','maho-observe.service','maho-shell.service'):
+for name in ('maho-adaptive.service','maho-observe.service','maho-shell.service','maho-kbdlight.service'):
     (stage/'systemd/user'/name).write_text('[Service]\nExecStart=true\n')
 revision='a'*40; (stage/'share/maho/runtime-source-revision').write_text(revision+'\n')
 digest=_payload_hash(stage); release=releases/digest; stage.rename(release)
@@ -367,6 +367,31 @@ assert 'expected-maho-enable' in classes,r
 assert r['attention_result']=='clean',r
 PY_CORE_EXPECTED
 rm -f "$XDG_CONFIG_HOME/systemd/user/default.target.wants/maho-observe.service" "$XDG_CONFIG_HOME/systemd/user/maho-observe.service"
+
+echo "=== canonical kbdlight unit and enablement are exact expected Maho wiring ==="
+ln -s "$XDG_DATA_HOME/maho/runtime/current/systemd/user/maho-kbdlight.service" "$XDG_CONFIG_HOME/systemd/user/maho-kbdlight.service"
+ln -s "$XDG_CONFIG_HOME/systemd/user/maho-kbdlight.service" "$XDG_CONFIG_HOME/systemd/user/default.target.wants/maho-kbdlight.service"
+KBD_EXPECTED="$(python "$PROBE" persistence check --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT")"
+python - "$KBD_EXPECTED" <<'PY_KBD_EXPECTED'
+import json,sys
+r=json.loads(sys.argv[1])
+matches=[x for x in r['expected_changes'] if x.get('path','').endswith('/maho-kbdlight.service')]
+assert len(matches)==2,r
+assert {x['attribution']['classification'] for x in matches}=={'expected-maho-unit','expected-maho-enable'},matches
+assert r['attention_result']=='clean',r
+PY_KBD_EXPECTED
+rm -f "$XDG_CONFIG_HOME/systemd/user/maho-kbdlight.service"
+cp "$XDG_DATA_HOME/maho/runtime/current/systemd/user/maho-kbdlight.service" "$XDG_CONFIG_HOME/systemd/user/maho-kbdlight.service"
+KBD_TAMPERED="$(python "$PROBE" persistence check --state-root "$PERSIST_STATE" --home "$HOME" --xdg-config "$XDG_CONFIG_HOME" --fs-root "$MAHO_FS_ROOT")"
+python - "$KBD_TAMPERED" <<'PY_KBD_TAMPERED'
+import json,sys
+r=json.loads(sys.argv[1])
+assert r['attention_result']=='changed',r
+paths={x['path'] for x in r['unexpected_added']}
+assert any(x.endswith('/maho-kbdlight.service') for x in paths),r
+PY_KBD_TAMPERED
+rm -f "$XDG_CONFIG_HOME/systemd/user/default.target.wants/maho-kbdlight.service" "$XDG_CONFIG_HOME/systemd/user/maho-kbdlight.service"
+echo "PASS"
 
 echo "=== enabling a non-core Maho unit is still unexpected ==="
 ln -s "$XDG_DATA_HOME/maho/runtime/current/systemd/user/maho-shell.service" "$XDG_CONFIG_HOME/systemd/user/maho-shell.service"
