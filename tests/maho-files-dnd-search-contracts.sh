@@ -83,6 +83,12 @@ require_text "$QML" 'id: rubberSelectInput' \
     'empty-space M1 drag selection input is missing'
 require_text "$QML" 'id: rubberSelection' \
     'M1 drag selection has no visible marquee'
+require_text "$QML" 'propagateComposedEvents: false' \
+    'marquee release can leak a click into a file and collapse the persistent selection'
+require_text "$QML" 'directoryModel.setSelectedRows(selectedIndexes.slice())' \
+    'M1 marquee selection is not committed when the button is released'
+require_text "$QML" 'selectedIndexes.length > 1 && isSelected(index)' \
+    'clicking a selected group member collapses the group before native multi-drag'
 require_text "$QML" 'rowsInsideSelectionRect' \
     'marquee selection does not resolve intersecting file delegates'
 require_text "$QML" 'root.selectClicked(fileDelegate.index, mouse.modifiers)' \

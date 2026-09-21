@@ -368,8 +368,10 @@ Item {
                             ? root.blend(
                                 root.theme.surfaceHigh,
                                 root.theme.primary,
-                                tileHover.hovered ? 0.16 : 0.115,
-                                root.compact ? 0.82 : 0.26
+                                tileHover.hovered ? 0.205 : 0.115,
+                                root.compact
+                                    ? (tileHover.hovered ? 0.88 : 0.82)
+                                    : (tileHover.hovered ? 0.34 : 0.26)
                               )
                             : Qt.rgba(0.17, 0.19, 0.29, root.compact ? 0.82 : 0.26))
 
@@ -381,47 +383,21 @@ Item {
                       )
                     : tile.selected
                         ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.54)
-                        : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.095 : 0.048)
+                        : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.19 : 0.048)
 
-                scale: tileTap.pressed ? 0.975 : 1
+                // Keep hover feedback on the tile itself. Older Power used
+                // stacked glow/highlight rectangles here, which made the card
+                // feel like several surfaces moving at once.
+                scale: tileTap.pressed ? 0.985 : (tile.highlighted ? 1.006 : 1)
 
-                Behavior on color { ColorAnimation { duration: 150 } }
-                Behavior on border.color { ColorAnimation { duration: 150 } }
-                Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
-
-                Rectangle {
-                    visible: tile.selected && !tile.danger
-                    anchors.fill: parent
-                    anchors.margins: -3
-                    radius: parent.radius + 3
-                    color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.025 : 0.060)
-                    z: -1
+                Behavior on color {
+                    ColorAnimation { duration: tile.highlighted ? 70 : 85; easing.type: Easing.OutCubic }
                 }
-
-                Rectangle {
-                    visible: tile.danger && (tile.highlighted || tile.armed)
-                    anchors.fill: parent
-                    anchors.margins: root.compact ? -2 : -4
-                    radius: parent.radius + (root.compact ? 2 : 4)
-                    color: root.alpha(
-                        root.theme ? root.theme.error : "#ff5265",
-                        tile.armed ? (root.compact ? 0.08 : 0.12)
-                                   : (root.compact ? 0.045 : 0.075)
-                    )
-                    z: -1
-
-                    Behavior on color { ColorAnimation { duration: 150 } }
+                Behavior on border.color {
+                    ColorAnimation { duration: tile.highlighted ? 60 : 80; easing.type: Easing.OutCubic }
                 }
-
-                Rectangle {
-                    visible: tile.selected && !tile.danger
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.leftMargin: root.compact ? 10 : 18
-                    anchors.rightMargin: root.compact ? 10 : 18
-                    height: 1
-                    color: root.alpha(root.theme ? root.theme.foreground : "white", root.compact ? 0.10 : 0.18)
+                Behavior on scale {
+                    NumberAnimation { duration: 70; easing.type: Easing.OutCubic }
                 }
 
                 Text {

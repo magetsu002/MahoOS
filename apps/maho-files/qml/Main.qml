@@ -163,6 +163,16 @@ ApplicationWindow {
             return
         }
 
+        // Once a group is selected, pressing/clicking one member must not
+        // destroy the group before it can be dragged. A click on an unselected
+        // item or empty space still starts a new selection.
+        if (selectedIndexes.length > 1 && isSelected(index)) {
+            selectedIndex = index
+            selectionAnchor = index
+            directoryModel.setSelectedRows(selectedIndexes)
+            return
+        }
+
         selectSingle(index)
     }
 
@@ -267,6 +277,11 @@ ApplicationWindow {
     function endBackgroundSelection() {
         if (selectionDragActive && selectedIndex >= 0)
             selectionAnchor = selectedIndex
+
+        // Commit the finished marquee selection before releasing pointer
+        // ownership. This keeps the selection alive after M1 is released and
+        // synchronizes native drag-out with the exact persistent group.
+        directoryModel.setSelectedRows(selectedIndexes.slice())
         selectionDragPending = false
         selectionDragActive = false
         selectionDragBaseline = []
@@ -1747,7 +1762,10 @@ ApplicationWindow {
                         anchors.fill: parent
                         z: 47
                         acceptedButtons: Qt.LeftButton
-                        propagateComposedEvents: true
+                        // Do not propagate the synthetic click generated when
+                        // a marquee ends over a file. Doing so collapses the
+                        // freshly selected group to the file under M1 release.
+                        propagateComposedEvents: false
                         preventStealing: true
                         property var activeView: null
 
@@ -1769,8 +1787,10 @@ ApplicationWindow {
                         }
 
                         onReleased: function(mouse) {
-                            if (activeView)
+                            if (activeView) {
                                 root.endBackgroundSelection()
+                                mouse.accepted = true
+                            }
                             activeView = null
                         }
 
