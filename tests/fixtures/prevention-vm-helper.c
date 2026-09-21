@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/mount.h>
+#include <sys/sysmacros.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -61,12 +62,62 @@ static int grant(const char *target, int expired, int wrong_start)
     return result;
 }
 
+static int grant_device(const char *target)
+{
+    int map_fd = obj_get("/sys/fs/bpf/maho-prevention/maps/device_authorities");
+    struct maho_device_authority_key key = {};
+    struct maho_authority_value value = {};
+    struct stat executable, object;
+    struct timespec now;
+    FILE *stat_file;
+    char buffer[4096], *cursor;
+    int field = 1;
+    if (map_fd < 0 || stat("/proc/self/exe", &executable) || stat(target, &object) || !S_ISBLK(object.st_mode))
+        return 1;
+    stat_file = fopen("/proc/self/stat", "r");
+    if (!stat_file || !fgets(buffer, sizeof(buffer), stat_file))
+        return 1;
+    fclose(stat_file);
+    cursor = strrchr(buffer, ')');
+    if (!cursor)
+        return 1;
+    cursor += 2;
+    for (char *token = strtok(cursor, " "); token; token = strtok(NULL, " "), field++)
+        if (field == 20) { key.start_ticks = strtoull(token, NULL, 10); break; }
+    key.tgid = getpid();
+    key.executable_dev = executable.st_dev;
+    key.executable_ino = executable.st_ino;
+    key.device = ((__u64)major(object.st_rdev) << 20) | minor(object.st_rdev);
+    clock_gettime(CLOCK_BOOTTIME, &now);
+    value.expires_boot_ns = (__u64)now.tv_sec * 1000000000ULL + now.tv_nsec + 5000000000ULL;
+    value.effect_mask = 1;
+    value.operation_mask = MAHO_OP_DEVICE;
+    union bpf_attr update_attr = {};
+    update_attr.map_fd = map_fd;
+    update_attr.key = (__u64)&key;
+    update_attr.value = (__u64)&value;
+    update_attr.flags = BPF_ANY;
+    int result = syscall(SYS_bpf, BPF_MAP_UPDATE_ELEM, &update_attr, sizeof(update_attr));
+    if (result) perror("device authority map update");
+    return result;
+}
+
 static int write_target(const char *path)
 {
     int fd = open(path, O_WRONLY | O_TRUNC | O_CREAT, 0600);
     if (fd < 0)
         return 1;
     int result = write(fd, "changed\n", 8) == 8 ? 0 : 1;
+    close(fd);
+    return result;
+}
+
+static int write_device(const char *path)
+{
+    int fd = open(path, O_WRONLY);
+    if (fd < 0)
+        return 1;
+    int result = write(fd, "M", 1) == 1 ? 0 : 1;
     close(fd);
     return result;
 }
@@ -105,6 +156,15 @@ int main(int argc, char **argv)
     if (argc < 3)
         return 2;
     if (!strcmp(argv[1], "write")) return write_target(argv[2]);
+    if (!strcmp(argv[1], "device-write")) return write_device(argv[2]);
+    if (!strcmp(argv[1], "authorized-device-write")) return grant_device(argv[2]) || write_device(argv[2]);
+    if (!strcmp(argv[1], "device-alias")) {
+        struct stat object;
+        if (stat(argv[2], &object) || !S_ISBLK(object.st_mode)) return 1;
+        unlink("/ordinary/device-alias");
+        if (mknod("/ordinary/device-alias", S_IFBLK | 0600, object.st_rdev)) return 1;
+        return write_device("/ordinary/device-alias");
+    }
     if (!strcmp(argv[1], "authorized-write")) return grant(argv[2], 0, 0) || write_target(argv[2]);
     if (!strcmp(argv[1], "expired-write")) return grant(argv[2], 1, 0) || write_target(argv[2]);
     if (!strcmp(argv[1], "wrong-start-write")) return grant(argv[2], 0, 1) || write_target(argv[2]);

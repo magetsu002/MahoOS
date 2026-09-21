@@ -8,6 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import platform
+import stat
 import struct
 import subprocess
 from typing import Iterable
@@ -155,6 +156,7 @@ def project_authority(authority: MutationAuthority, map_path: Path) -> int:
     operation_mask = sum(OPERATION_BITS[item] for item in authority.operations)
     transaction_tag = int.from_bytes(hashlib.sha256(authority.transaction_id.encode()).digest()[:8], "little")
     fd = _object_get(map_path)
+    device_fd: int | None = None
     projected = 0
     try:
         for target in authority.target_prefixes:
@@ -167,8 +169,21 @@ def project_authority(authority: MutationAuthority, map_path: Path) -> int:
             value = struct.pack("=QQQQ", authority.expires_at_ns, effect_mask, operation_mask, transaction_tag)
             _map_update(fd, key, value)
             projected += 1
+            if stat.S_ISBLK(info.st_mode):
+                if device_fd is None:
+                    device_fd = _object_get(map_path.with_name("device_authorities"))
+                device_key = struct.pack(
+                    "=IIQQQQ", authority.subject.pid, 0,
+                    authority.subject.start_time_ticks, authority.subject.executable_device,
+                    authority.subject.executable_inode,
+                    (os.major(info.st_rdev) << 20) | os.minor(info.st_rdev),
+                )
+                _map_update(device_fd, device_key, value)
+                projected += 1
     finally:
         os.close(fd)
+        if device_fd is not None:
+            os.close(device_fd)
     return projected
 
 

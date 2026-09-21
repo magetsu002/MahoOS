@@ -43,6 +43,15 @@ struct maho_authority_value {
     __u64 transaction_tag;
 };
 
+struct maho_device_authority_key {
+    __u32 tgid;
+    __u32 reserved;
+    __u64 start_ticks;
+    __u64 executable_dev;
+    __u64 executable_ino;
+    __u64 device;
+};
+
 struct maho_prevention_event {
     __u64 timestamp_ns;
     __u64 target_dev;

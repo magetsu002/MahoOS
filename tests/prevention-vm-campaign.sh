@@ -36,11 +36,13 @@ cp -a /usr/lib/python3.14/encodings "$GUEST/usr/lib/python3.14/encodings"
 cp /usr/lib/python3.14/codecs.py "$GUEST/usr/lib/python3.14/codecs.py"
 
 (cd "$GUEST" && find . -print0 | sort -z | cpio --null -o --format=newc --quiet | gzip -1 > "$WORK/initramfs.img")
+truncate -s 8M "$WORK/device.img"
 KERNEL="${MAHO_PREVENTION_VM_KERNEL:-/boot/vmlinuz-linux-cachyos}"
 [ -r "$KERNEL" ] || { echo "VM kernel unavailable: $KERNEL" >&2; exit 2; }
 set +e
 timeout 90 qemu-system-x86_64 -nodefaults -no-reboot -nographic -serial stdio \
   -m 768 -kernel "$KERNEL" -initrd "$WORK/initramfs.img" \
+  -drive file="$WORK/device.img",format=raw,if=virtio \
   -append 'console=ttyS0 rdinit=/init panic=-1 lsm=landlock,lockdown,yama,integrity,bpf' \
   > "$WORK/serial.log" 2>&1
 qemu_status=$?
@@ -50,6 +52,7 @@ grep -Fq MAHO_PREVENTION_VM_COMPLETE "$WORK/serial.log" || { echo "FAIL hostile 
 if grep -Fq MAHO_PREVENTION_FAIL "$WORK/serial.log"; then exit 1; fi
 required=(
   boundary-active-after-loader-exit ordinary-write helper-denied python-denied opaque-denied
+  device-alias-denied exact-device-authority
   exact-authority expired-write-denied wrong-start-write-denied scope-escape-denied
   unlink-denied chmod-denied rename-denied hardlink-denied symlink-denied
   bind-alias-denied namespace-denied ordinary-churn durable-evidence

@@ -23,8 +23,10 @@ grep -Fq 'start_boottime' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'executable_ino' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'bpf_ktime_get_boot_ns() >= value->expires_boot_ns' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'BPF_MAP_TYPE_RINGBUF' "$ROOT/bpf/maho_prevention.bpf.c"
-grep -Fq '"host_mutation_performed":false' "$ROOT/src/maho_prevention_evidence.c"
-grep -Fq '"compromise_evidence":false' "$ROOT/src/maho_prevention_evidence.c"
+grep -Fq 'protected_devices' "$ROOT/bpf/maho_prevention.bpf.c"
+grep -Fq 'i_rdev' "$ROOT/bpf/maho_prevention.bpf.c"
+grep -Fq 'host_mutation_performed' "$ROOT/src/maho_prevention_evidence.c"
+grep -Fq 'compromise_evidence' "$ROOT/src/maho_prevention_evidence.c"
 if grep -Eiq 'command.*(rm|mkfs)|argv.*(rm|mkfs)' "$ROOT/bpf/maho_prevention.bpf.c"; then
   echo 'FAIL enforcement contains a command-name blacklist' >&2
   exit 1

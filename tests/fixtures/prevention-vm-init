@@ -13,7 +13,7 @@ denied() { label="$1"; shift; "$@" >/dev/null 2>&1 && fail "$label-was-allowed" 
 echo original > /protected/critical
 echo other > /protected/other
 /bin/helper churn /ordinary 1500 || fail pre-benchmark
-/bin/loader load /maho_prevention.bpf.o /sys/fs/bpf/maho-prevention 1:1:/protected || fail bpf-load
+/bin/loader load /maho_prevention.bpf.o /sys/fs/bpf/maho-prevention 1:1:/protected 1:0:/dev/vda || fail bpf-load
 pass boundary-active-after-loader-exit
 /bin/evidence /sys/fs/bpf/maho-prevention/maps/prevention_events /var/lib/maho/prevention/events.jsonl vm-boot &
 reader=$!
@@ -23,6 +23,9 @@ pass ordinary-write
 denied helper /bin/helper write /protected/critical
 denied python /usr/bin/python -S /payload.py
 denied opaque /bin/opaque write /protected/critical
+denied device-alias /bin/helper device-alias /dev/vda
+/bin/helper authorized-device-write /dev/vda || { /bin/sleep 1; /bin/cat /var/lib/maho/prevention/events.jsonl; fail exact-device-authority; }
+pass exact-device-authority
 /bin/helper authorized-write /protected/critical
 authority_status=$?
 if [ "$authority_status" -ne 0 ]; then /bin/sleep 1; /bin/cat /var/lib/maho/prevention/events.jsonl; fail exact-authority; fi

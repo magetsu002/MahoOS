@@ -22,7 +22,7 @@ static int mkdir_one(const char *path)
     return -1;
 }
 
-static int add_scope(int map_fd, const char *spec)
+static int add_scope(int map_fd, int device_map_fd, const char *spec)
 {
     char *copy = strdup(spec), *effect_text, *recursive_text, *path;
     char *save = NULL;
@@ -58,6 +58,14 @@ static int add_scope(int map_fd, const char *spec)
         fprintf(stderr, "cannot protect %s: %s\n", path, strerror(errno));
         goto out;
     }
+    if (S_ISBLK(st.st_mode)) {
+        /* struct inode.i_rdev uses the kernel's 12:20 dev_t encoding. */
+        __u64 device = ((__u64)major(st.st_rdev) << 20) | minor(st.st_rdev);
+        if (bpf_map_update_elem(device_map_fd, &device, &value, BPF_ANY) != 0) {
+            fprintf(stderr, "cannot protect block device %s: %s\n", path, strerror(errno));
+            goto out;
+        }
+    }
     result = 0;
 out:
     free(copy);
@@ -71,7 +79,7 @@ int main(int argc, char **argv)
     struct bpf_link *links[64] = {};
     size_t link_count = 0;
     char maps_dir[PATH_MAX], links_dir[PATH_MAX];
-    int protected_fd, state_fd, error = 1;
+    int protected_fd, device_fd, state_fd, error = 1;
     __u32 state_key = 0, inactive = 0, active = 1;
 
     if (argc < 5 || strcmp(argv[1], "load")) {
@@ -94,13 +102,14 @@ int main(int argc, char **argv)
     if (mkdir_one(argv[3]) || mkdir_one(maps_dir) || mkdir_one(links_dir))
         goto out;
     protected_fd = bpf_object__find_map_fd_by_name(object, "protected_objects");
+    device_fd = bpf_object__find_map_fd_by_name(object, "protected_devices");
     state_fd = bpf_object__find_map_fd_by_name(object, "enforcement_state");
-    if (protected_fd < 0 || state_fd < 0)
+    if (protected_fd < 0 || device_fd < 0 || state_fd < 0)
         goto out;
     if (bpf_map_update_elem(state_fd, &state_key, &inactive, BPF_ANY))
         goto out;
     for (int index = 4; index < argc; index++)
-        if (add_scope(protected_fd, argv[index]))
+        if (add_scope(protected_fd, device_fd, argv[index]))
             goto out;
     if (bpf_object__pin_maps(object, maps_dir)) {
         fprintf(stderr, "cannot pin prevention maps: %s\n", strerror(errno));

@@ -17,6 +17,7 @@ struct inode {
     umode_t i_mode;
     struct super_block *i_sb;
     __u64 i_ino;
+    dev_t i_rdev;
 } __attribute__((preserve_access_index));
 struct dentry {
     struct dentry *d_parent;
@@ -45,10 +46,24 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 64);
+    __type(key, __u64);
+    __type(value, struct maho_protected_value);
+} protected_devices SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16384);
     __type(key, struct maho_authority_key);
     __type(value, struct maho_authority_value);
 } mutation_authorities SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 256);
+    __type(key, struct maho_device_authority_key);
+    __type(value, struct maho_authority_value);
+} device_authorities SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -176,11 +191,10 @@ static __always_inline int exact_authority(
     return 0;
 }
 
-static __always_inline int enforce(
-    struct dentry *dentry, struct inode *inode, __u64 operation, int previous_ret)
+static __always_inline int deny_with_evidence(
+    const struct maho_object_key *target, const struct maho_object_key *scope,
+    __u64 effect, __u64 operation)
 {
-    struct maho_object_key target = {}, scope = {};
-    struct maho_protected_value *protected;
     struct maho_prevention_event *event;
     struct task_struct *task;
     struct mm_struct *mm;
@@ -189,30 +203,15 @@ static __always_inline int enforce(
     struct inode *exe_inode;
     struct maho_object_key executable = {};
 
-    if (previous_ret)
-        return previous_ret;
-    if (!active())
-        return 0;
-    if (dentry) {
-        protected = scope_for_dentry(dentry, &scope);
-        inode = BPF_CORE_READ(dentry, d_inode);
-    } else {
-        protected = scope_for_inode(inode, &scope);
-    }
-    if (!protected)
-        return 0;
-    if (inode)
-        inode_key(inode, &target);
-    if (exact_authority(dentry, inode, protected->effect_mask, operation))
-        return 0;
     event = bpf_ringbuf_reserve(&prevention_events, sizeof(*event), 0);
     if (event) {
+        __builtin_memset(event, 0, sizeof(*event));
         event->timestamp_ns = bpf_ktime_get_boot_ns();
-        event->target_dev = target.dev;
-        event->target_ino = target.ino;
-        event->scope_dev = scope.dev;
-        event->scope_ino = scope.ino;
-        event->effect_mask = protected->effect_mask;
+        event->target_dev = target->dev;
+        event->target_ino = target->ino;
+        event->scope_dev = scope->dev;
+        event->scope_ino = scope->ino;
+        event->effect_mask = effect;
         event->operation_mask = operation;
         task = (struct task_struct *)bpf_get_current_task_btf();
         event->subject_start_ticks = BPF_CORE_READ(task, start_boottime) / 10000000ULL;
@@ -233,26 +232,101 @@ static __always_inline int enforce(
     return -EPERM;
 }
 
+static __always_inline int enforce(
+    struct dentry *dentry, struct inode *inode, __u64 operation, int previous_ret)
+{
+    struct maho_object_key target = {}, scope = {};
+    struct maho_protected_value *protected;
+
+    if (previous_ret)
+        return previous_ret;
+    if (!active())
+        return 0;
+    if (dentry) {
+        protected = scope_for_dentry(dentry, &scope);
+        inode = BPF_CORE_READ(dentry, d_inode);
+    } else {
+        protected = scope_for_inode(inode, &scope);
+    }
+    if (!protected)
+        return 0;
+    if (inode)
+        inode_key(inode, &target);
+    if (exact_authority(dentry, inode, protected->effect_mask, operation))
+        return 0;
+    return deny_with_evidence(&target, &scope, protected->effect_mask, operation);
+}
+
+static __always_inline int enforce_device(struct file *file, int previous_ret)
+{
+    struct inode *inode;
+    struct maho_object_key object = {};
+    struct maho_protected_value *protected;
+    __u64 device;
+
+    if (previous_ret || !active())
+        return previous_ret;
+    inode = BPF_CORE_READ(file, f_path.dentry, d_inode);
+    if (!inode || (BPF_CORE_READ(inode, i_mode) & 0170000) != 0060000)
+        return 0;
+    device = BPF_CORE_READ(inode, i_rdev);
+    protected = bpf_map_lookup_elem(&protected_devices, &device);
+    if (!protected)
+        return 0;
+    object.dev = device;
+    object.ino = 0;
+    {
+        struct maho_device_authority_key key = {};
+        struct maho_authority_value *authority;
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+        struct mm_struct *mm = BPF_CORE_READ(task, mm);
+        struct file *exe = mm ? BPF_CORE_READ(mm, exe_file) : 0;
+        struct dentry *exe_dentry = exe ? BPF_CORE_READ(exe, f_path.dentry) : 0;
+        struct inode *exe_inode = exe_dentry ? BPF_CORE_READ(exe_dentry, d_inode) : 0;
+        struct maho_object_key executable = {};
+        key.tgid = bpf_get_current_pid_tgid() >> 32;
+        key.start_ticks = BPF_CORE_READ(task, start_boottime) / 10000000ULL;
+        if (inode_key(exe_inode, &executable) == 0) {
+            key.executable_dev = executable.dev;
+            key.executable_ino = executable.ino;
+            key.device = device;
+            authority = bpf_map_lookup_elem(&device_authorities, &key);
+            if (authority && bpf_ktime_get_boot_ns() < authority->expires_boot_ns
+                && (authority->effect_mask & protected->effect_mask)
+                && (authority->operation_mask & MAHO_OP_DEVICE))
+                return 1;
+        }
+    }
+    return deny_with_evidence(&object, &object, protected->effect_mask, MAHO_OP_DEVICE);
+}
+
 SEC("lsm/file_open")
 int BPF_PROG(maho_file_open, struct file *file, int ret)
 {
     unsigned int flags = BPF_CORE_READ(file, f_flags);
     if (!(flags & (O_WRONLY | O_RDWR | O_TRUNC | O_APPEND)))
         return ret;
+    {
+        int device_ret = enforce_device(file, ret);
+        if (device_ret < 0)
+            return device_ret;
+        if (device_ret > 0)
+            return ret;
+    }
     return enforce(BPF_CORE_READ(file, f_path.dentry), 0, MAHO_OP_WRITE, ret);
 }
 
 SEC("lsm/inode_create")
 int BPF_PROG(maho_inode_create, struct inode *dir, struct dentry *dentry, umode_t mode, int ret)
-{ return enforce(0, dir, MAHO_OP_CREATE, ret); }
+{ return enforce(dentry, dir, MAHO_OP_CREATE, ret); }
 
 SEC("lsm/inode_mkdir")
 int BPF_PROG(maho_inode_mkdir, struct inode *dir, struct dentry *dentry, umode_t mode, int ret)
-{ return enforce(0, dir, MAHO_OP_CREATE, ret); }
+{ return enforce(dentry, dir, MAHO_OP_CREATE, ret); }
 
 SEC("lsm/inode_mknod")
 int BPF_PROG(maho_inode_mknod, struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev, int ret)
-{ return enforce(0, dir, MAHO_OP_CREATE, ret); }
+{ return enforce(dentry, dir, MAHO_OP_CREATE, ret); }
 
 SEC("lsm/inode_unlink")
 int BPF_PROG(maho_inode_unlink, struct inode *dir, struct dentry *dentry, int ret)
@@ -264,13 +338,13 @@ int BPF_PROG(maho_inode_rmdir, struct inode *dir, struct dentry *dentry, int ret
 
 SEC("lsm/inode_symlink")
 int BPF_PROG(maho_inode_symlink, struct inode *dir, struct dentry *dentry, const char *name, int ret)
-{ return enforce(0, dir, MAHO_OP_SYMLINK, ret); }
+{ return enforce(dentry, dir, MAHO_OP_SYMLINK, ret); }
 
 SEC("lsm/inode_link")
 int BPF_PROG(maho_inode_link, struct dentry *old_dentry, struct inode *dir, struct dentry *new_dentry, int ret)
 {
     int denied = enforce(old_dentry, 0, MAHO_OP_LINK, ret);
-    return denied ? denied : enforce(0, dir, MAHO_OP_LINK, ret);
+    return denied ? denied : enforce(new_dentry, dir, MAHO_OP_LINK, ret);
 }
 
 SEC("lsm/inode_rename")
@@ -278,7 +352,7 @@ int BPF_PROG(maho_inode_rename, struct inode *old_dir, struct dentry *old_dentry
              struct inode *new_dir, struct dentry *new_dentry, int ret)
 {
     int denied = enforce(old_dentry, 0, MAHO_OP_RENAME, ret);
-    return denied ? denied : enforce(0, new_dir, MAHO_OP_RENAME, ret);
+    return denied ? denied : enforce(new_dentry, new_dir, MAHO_OP_RENAME, ret);
 }
 
 SEC("lsm/inode_setattr")
