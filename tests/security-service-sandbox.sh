@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT="$ROOT/systemd/user/maho-security.service"
+VERIFY_HOME="$(mktemp -d)"
+trap 'rm -rf "$VERIFY_HOME"' EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require() { grep -Fxq "$1" "$UNIT" || fail "missing service hardening: $1"; }
@@ -41,7 +43,9 @@ done
 # persistence and immutable-runtime evidence it is required to inspect.
 if grep -Eq '^(ProtectProc|ProcSubset)=' "$UNIT"; then fail 'service restricts required /proc observation'; fi
 if grep -Eq '^ProtectHome=(yes|tmpfs)$' "$UNIT"; then fail 'service hides required home/runtime observation'; fi
-systemd-analyze --user verify "$UNIT" >/dev/null
+mkdir -p "$VERIFY_HOME/.local/bin"
+install -m 0755 "$ROOT/bin/maho-security-monitor" "$VERIFY_HOME/.local/bin/maho-security-monitor"
+HOME="$VERIFY_HOME" systemd-analyze --user verify "$UNIT" >/dev/null
 echo "PASS"
 
 echo "ALL SECURITY SERVICE SANDBOX CONTRACTS PASS"
