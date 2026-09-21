@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib" if (ROOT / "lib").is_dir() else Path("/usr/lib/maho")))
+
+from guardian_admission import EffectKind  # noqa: E402
+from maho_break_glass import BreakGlassRequest, authorize  # noqa: E402
+from maho_prevention_kernel import host_device_roots  # noqa: E402
+from maho_prevention_policy import MutationOperation  # noqa: E402
+from maho_prevention_scope import TargetContext  # noqa: E402
+
+
+def arguments():
+    parser = argparse.ArgumentParser(prog="maho-break-glass", description="Authorize one exact protected mutation after administrative authentication")
+    parser.add_argument("--pid", type=int, required=True, help="already-running process that will perform the one bounded operation")
+    parser.add_argument("--target", required=True)
+    parser.add_argument("--effect", choices=tuple(item.value for item in EffectKind), required=True)
+    parser.add_argument("--operation", choices=tuple(item.value for item in MutationOperation), required=True)
+    parser.add_argument("--duration", type=int, default=120, help="authority lifetime in seconds, maximum 300")
+    parser.add_argument("--authenticated-internal", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = arguments()
+    target = str(Path(args.target).resolve(strict=False))
+    request = BreakGlassRequest(
+        args.pid, target, EffectKind(args.effect), MutationOperation(args.operation),
+        args.duration, int(os.environ.get("PKEXEC_UID", os.getuid())),
+    )
+    if not args.authenticated_internal:
+        if not (sys.stdin.isatty() and sys.stderr.isatty()):
+            print("maho-break-glass: an interactive terminal is required", file=sys.stderr)
+            return 2
+        print("Maho protection will be bypassed for exactly this scope:", file=sys.stderr)
+        print(f"  Target:    {request.target}\n  Effect:    {request.effect.value}\n  Operation: {request.operation.value}\n  Lifetime:  {request.duration_seconds} seconds", file=sys.stderr)
+        print(f"Type exactly: {request.confirmation}", file=sys.stderr)
+        confirmation = input("> ")
+        if confirmation != request.confirmation:
+            print("Cancelled. No authority was issued.", file=sys.stderr)
+            return 1
+        executable = str(Path(__file__).resolve())
+        os.execvp("pkexec", ["pkexec", executable, "--authenticated-internal", "--pid", str(args.pid), "--target", request.target, "--effect", request.effect.value, "--operation", request.operation.value, "--duration", str(request.duration_seconds)])
+    authenticated = os.geteuid() == 0 and "PKEXEC_UID" in os.environ
+    devices = {row.effect: row.path for row in host_device_roots()}
+    context = TargetContext(
+        root_device=devices.get(EffectKind.FILE), boot_device=devices.get(EffectKind.BOOT_STATE),
+        owner_home=None,
+    )
+    confirmation = request.confirmation
+    boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    authority = authorize(
+        request, confirmation=confirmation, authenticated=authenticated, context=context,
+        secret_path=Path("/var/lib/maho/prevention/authority.key"),
+        map_path=Path("/sys/fs/bpf/maho-prevention/maps/mutation_authorities"),
+        audit_path=Path("/var/lib/maho/prevention/break-glass.jsonl"), boot_id=boot_id,
+    )
+    print(f"Authorized exact scope until boot-monotonic {authority.expires_at_ns} ns; audit {authority.authority_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
