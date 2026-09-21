@@ -34,13 +34,13 @@ struct task_struct {
     __u64 start_boottime;
 } __attribute__((preserve_access_index));
 struct iattr;
+struct mnt_idmap;
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 65536);
     __type(key, struct maho_object_key);
     __type(value, struct maho_protected_value);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } protected_objects SEC(".maps");
 
 struct {
@@ -48,7 +48,6 @@ struct {
     __uint(max_entries, 16384);
     __type(key, struct maho_authority_key);
     __type(value, struct maho_authority_value);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } mutation_authorities SEC(".maps");
 
 struct {
@@ -56,13 +55,11 @@ struct {
     __uint(max_entries, 1);
     __type(key, __u32);
     __type(value, __u32);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } enforcement_state SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 20);
-    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } prevention_events SEC(".maps");
 
 static __always_inline int active(void)
@@ -278,14 +275,15 @@ int BPF_PROG(maho_inode_link, struct dentry *old_dentry, struct inode *dir, stru
 
 SEC("lsm/inode_rename")
 int BPF_PROG(maho_inode_rename, struct inode *old_dir, struct dentry *old_dentry,
-             struct inode *new_dir, struct dentry *new_dentry, unsigned int flags, int ret)
+             struct inode *new_dir, struct dentry *new_dentry, int ret)
 {
     int denied = enforce(old_dentry, 0, MAHO_OP_RENAME, ret);
     return denied ? denied : enforce(0, new_dir, MAHO_OP_RENAME, ret);
 }
 
 SEC("lsm/inode_setattr")
-int BPF_PROG(maho_inode_setattr, struct dentry *dentry, struct iattr *attr, int ret)
+int BPF_PROG(maho_inode_setattr, struct mnt_idmap *idmap, struct dentry *dentry,
+             struct iattr *attr, int ret)
 { return enforce(dentry, 0, MAHO_OP_SETATTR, ret); }
 
 SEC("lsm/sb_mount")

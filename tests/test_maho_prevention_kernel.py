@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from guardian_admission import EffectKind  # noqa: E402
 from maho_mutation_authority import issue_authority, process_identity  # noqa: E402
 from maho_prevention_kernel import (  # noqa: E402
-    activation_scope_specs, enforcement_roots, kernel_capabilities,
+    OPERATION_BITS, activation_scope_specs, enforcement_roots, kernel_capabilities,
     project_authority,
 )
 from maho_prevention_policy import MutationOperation  # noqa: E402
@@ -33,6 +33,7 @@ def main() -> None:
     check("ordinary project trees are absent from enforcement roots", not any("Projects" in row.path or row.path == "/home" for row in roots))
     capabilities = kernel_capabilities()
     check("host exposes active BPF LSM and kernel BTF", capabilities["bpf_lsm_active"] is True and capabilities["kernel_btf"] is True)
+    check("high-level write covers truncate hook only as part of write", OPERATION_BITS[MutationOperation.WRITE] == (1 << 0) | (1 << 6) and OPERATION_BITS[MutationOperation.SETATTR] == 1 << 6)
 
     with tempfile.TemporaryDirectory(prefix="maho-kernel-authority-") as temporary:
         target = Path(temporary) / "exact-target"

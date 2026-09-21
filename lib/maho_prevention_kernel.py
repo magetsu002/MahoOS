@@ -19,7 +19,10 @@ from maho_prevention_policy import MutationOperation
 
 EFFECT_BITS = {effect: 1 << index for index, effect in enumerate(EffectKind)}
 OPERATION_BITS = {
-    MutationOperation.WRITE: 1 << 0,
+    # Opening with O_TRUNC crosses inode_setattr before file_open.  WRITE
+    # therefore projects to both kernel hooks, while standalone SETATTR remains
+    # independently authorizable.
+    MutationOperation.WRITE: (1 << 0) | (1 << 6),
     MutationOperation.CREATE: 1 << 1,
     MutationOperation.UNLINK: 1 << 2,
     MutationOperation.RENAME: 1 << 3,
