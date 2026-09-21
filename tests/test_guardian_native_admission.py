@@ -257,8 +257,21 @@ def main() -> None:
 
     adversarial = (
         ("service", "/usr/lib/systemd/system/demo.service", EffectKind.SYSTEM_SERVICE),
-        ("persistence", "/etc/xdg/autostart/demo.desktop", EffectKind.STARTUP_PERSISTENCE),
-        ("privileged file", "/etc/sudoers.d/demo", EffectKind.PRIVILEGE_AUTHORITY),
+        ("desktop persistence", "/etc/xdg/autostart/demo.desktop", EffectKind.STARTUP_PERSISTENCE),
+        ("sudoers authority", "/etc/sudoers.d/demo", EffectKind.PRIVILEGE_AUTHORITY),
+        ("polkit authority", "/usr/share/polkit-1/rules.d/90-demo.rules", EffectKind.PRIVILEGE_AUTHORITY),
+        ("PAM policy", "/etc/pam.d/demo", EffectKind.PRIVILEGE_AUTHORITY),
+        ("udev authority", "/usr/lib/udev/rules.d/90-demo.rules", EffectKind.PRIVILEGE_AUTHORITY),
+        ("sysusers authority", "/usr/lib/sysusers.d/demo.conf", EffectKind.PRIVILEGE_AUTHORITY),
+        ("sysctl authority", "/etc/sysctl.d/90-demo.conf", EffectKind.PRIVILEGE_AUTHORITY),
+        ("D-Bus system authority", "/usr/share/dbus-1/system.d/demo.conf", EffectKind.PRIVILEGE_AUTHORITY),
+        ("tmpfiles persistence", "/usr/lib/tmpfiles.d/demo.conf", EffectKind.STARTUP_PERSISTENCE),
+        ("NetworkManager dispatcher persistence", "/etc/NetworkManager/dispatcher.d/demo", EffectKind.STARTUP_PERSISTENCE),
+        ("systemd generator persistence", "/usr/lib/systemd/system-generators/demo", EffectKind.STARTUP_PERSISTENCE),
+        ("systemd environment generator persistence", "/usr/lib/systemd/system-environment-generators/demo", EffectKind.STARTUP_PERSISTENCE),
+        ("global shell startup persistence", "/etc/profile.d/demo.sh", EffectKind.STARTUP_PERSISTENCE),
+        ("ld.so preload policy", "/etc/ld.so.preload", EffectKind.LOADER_POLICY),
+        ("binfmt interpreter policy", "/usr/lib/binfmt.d/demo.conf", EffectKind.LOADER_POLICY),
         ("boot effect", "/boot/EFI/Linux/demo.efi", EffectKind.BOOT_STATE),
         ("package hook", "/usr/share/libalpm/hooks/demo.hook", EffectKind.PACMAN_HOOK),
         ("kernel module", "/usr/lib/modules/6.18/extra/demo.ko", EffectKind.KERNEL_MODULE),
@@ -269,6 +282,7 @@ def main() -> None:
             result = admit_candidate(candidate, declaration((path,), (EffectKind.FILE,)), runtime(candidate)[0])
             check(f"native inspector detects {label}", any(effect.kind is kind for effect in result.inspection.graph.effects))
             check(f"undeclared {label} is rejected", result.decision.outcome is AdmissionOutcome.REJECT and result.promotion_authority is None)
+            check(f"rejected {label} never mutates base root", not (candidate.base_root / path.lstrip("/")).exists())
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)

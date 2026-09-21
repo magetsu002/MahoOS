@@ -32,15 +32,34 @@ def main():
     sudoers=classify_artifact(package_name='demo',roles=[],files=['/etc/sudoers.d/demo','/usr/bin/demo'])
     check('privilege authority never looks like an ordinary file update',
           'privilege-authority' in sudoers['effects'] and 'security-boundary-review' in sudoers['activation_requirements'])
-    udev=classify_artifact(package_name='demo',roles=[],files=['/usr/lib/udev/rules.d/90-demo.rules'])
-    check('udev authority is classified before candidate execution',
-          'privilege-authority' in udev['effects'])
-    tmpfiles=classify_artifact(package_name='demo',roles=[],files=['/usr/lib/tmpfiles.d/demo.conf'])
-    check('tmpfiles persistence is classified before candidate execution',
-          'startup-persistence' in tmpfiles['effects'])
-    loader=classify_artifact(package_name='demo',roles=[],files=['/etc/ld.so.conf.d/demo.conf'])
-    check('loader policy is classified before candidate execution',
-          'loader-policy' in loader['effects'])
+    privilege_paths=(
+        '/etc/sudoers.d/demo',
+        '/usr/share/polkit-1/rules.d/90-demo.rules',
+        '/etc/pam.d/demo',
+        '/usr/lib/udev/rules.d/90-demo.rules',
+        '/usr/lib/sysusers.d/demo.conf',
+        '/etc/sysctl.d/90-demo.conf',
+        '/usr/share/dbus-1/system.d/demo.conf',
+    )
+    for path in privilege_paths:
+        effect=classify_artifact(package_name='demo',roles=[],files=[path])
+        check(f'privilege authority is classified before candidate execution: {path}',
+              'privilege-authority' in effect['effects'] and 'security-boundary-review' in effect['activation_requirements'])
+    persistence_paths=(
+        '/usr/lib/tmpfiles.d/demo.conf',
+        '/etc/NetworkManager/dispatcher.d/demo',
+        '/usr/lib/systemd/system-generators/demo',
+        '/usr/lib/systemd/system-environment-generators/demo',
+        '/etc/profile.d/demo.sh',
+    )
+    for path in persistence_paths:
+        effect=classify_artifact(package_name='demo',roles=[],files=[path])
+        check(f'startup persistence is classified before candidate execution: {path}',
+              'startup-persistence' in effect['effects'] and 'security-boundary-review' in effect['activation_requirements'])
+    for path in ('/etc/ld.so.preload','/etc/ld.so.conf.d/demo.conf','/usr/lib/binfmt.d/demo.conf'):
+        effect=classify_artifact(package_name='demo',roles=[],files=[path])
+        check(f'loader policy is classified before candidate execution: {path}',
+              'loader-policy' in effect['effects'] and 'security-boundary-review' in effect['activation_requirements'])
     kernel=classify_artifact(package_name='custom-module',roles=[],files=['/usr/lib/modules/7.2/extra/demo.ko.zst'])
     check('artifact paths can elevate harmless-looking package name to boot-critical', kernel['classification']=='boot-critical')
     dkms=classify_artifact(package_name='custom-dkms',roles=['dkms'],files=['/usr/src/custom-1/Makefile'])
