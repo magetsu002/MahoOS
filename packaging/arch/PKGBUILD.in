@@ -37,10 +37,10 @@ depends=(
   'qt6-5compat'
   'qt6-declarative'
   'kio'
-  'clang'
   'libbpf'
 )
 makedepends=(
+  'clang'
   'cmake'
   'ninja'
   'qt6-base'

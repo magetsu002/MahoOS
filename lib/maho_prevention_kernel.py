@@ -229,11 +229,24 @@ def project_process_authority(authority: ProcessControlAuthority, map_path: Path
     return 1
 
 
+def _safe_path_probe(path: Path, method: str) -> bool:
+    try:
+        return bool(getattr(path, method)())
+    except OSError:
+        return False
+
+
 def kernel_capabilities() -> dict[str, object]:
-    lsm = Path("/sys/kernel/security/lsm").read_text().strip().split(",") if Path("/sys/kernel/security/lsm").is_file() else []
+    lsm_path = Path("/sys/kernel/security/lsm")
+    try:
+        lsm = lsm_path.read_text().strip().split(",") if lsm_path.is_file() else []
+    except OSError:
+        lsm = []
     return {
         "bpf_lsm_active": "bpf" in lsm,
-        "kernel_btf": Path("/sys/kernel/btf/vmlinux").is_file(),
-        "bpffs": Path("/sys/fs/bpf").is_mount(),
-        "pin_root_active": Path("/sys/fs/bpf/maho-prevention/maps/enforcement_state").exists(),
+        "kernel_btf": _safe_path_probe(Path("/sys/kernel/btf/vmlinux"), "is_file"),
+        "bpffs": _safe_path_probe(Path("/sys/fs/bpf"), "is_mount"),
+        "pin_root_active": _safe_path_probe(
+            Path("/sys/fs/bpf/maho-prevention/maps/enforcement_state"), "exists",
+        ),
     }
