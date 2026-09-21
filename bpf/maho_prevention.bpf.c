@@ -185,6 +185,12 @@ static __always_inline int enforce(
     struct maho_object_key target = {}, scope = {};
     struct maho_protected_value *protected;
     struct maho_prevention_event *event;
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct file *exe;
+    struct dentry *exe_dentry;
+    struct inode *exe_inode;
+    struct maho_object_key executable = {};
 
     if (previous_ret)
         return previous_ret;
@@ -211,6 +217,16 @@ static __always_inline int enforce(
         event->scope_ino = scope.ino;
         event->effect_mask = protected->effect_mask;
         event->operation_mask = operation;
+        task = (struct task_struct *)bpf_get_current_task_btf();
+        event->subject_start_ticks = BPF_CORE_READ(task, start_boottime) / 10000000ULL;
+        mm = BPF_CORE_READ(task, mm);
+        exe = mm ? BPF_CORE_READ(mm, exe_file) : 0;
+        exe_dentry = exe ? BPF_CORE_READ(exe, f_path.dentry) : 0;
+        exe_inode = exe_dentry ? BPF_CORE_READ(exe_dentry, d_inode) : 0;
+        if (inode_key(exe_inode, &executable) == 0) {
+            event->executable_dev = executable.dev;
+            event->executable_ino = executable.ino;
+        }
         event->tgid = bpf_get_current_pid_tgid() >> 32;
         event->uid = (__u32)bpf_get_current_uid_gid();
         event->result = -EPERM;

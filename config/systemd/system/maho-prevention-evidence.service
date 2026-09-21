@@ -1,0 +1,18 @@
+[Unit]
+Description=Maho Guardian prevention evidence recorder
+After=maho-prevention-boundary.service
+Requires=maho-prevention-boundary.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/maho/prevention/maho-prevention-evidence /sys/fs/bpf/maho-prevention/maps/prevention_events /var/lib/maho/prevention/events.jsonl %b
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/maho/prevention
+
+[Install]
+WantedBy=multi-user.target

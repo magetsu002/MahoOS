@@ -9,6 +9,8 @@ clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
   -c "$ROOT/bpf/maho_prevention.bpf.c" -o "$BUILD/maho_prevention.bpf.o"
 gcc -O2 -Wall -Wextra -Werror "$ROOT/src/maho_prevention_loader.c" \
   -o "$BUILD/maho-prevention-loader" $(pkg-config --cflags --libs libbpf)
+gcc -O2 -Wall -Wextra -Werror "$ROOT/src/maho_prevention_evidence.c" \
+  -o "$BUILD/maho-prevention-evidence" $(pkg-config --cflags --libs libbpf)
 
 for section in file_open inode_create inode_mkdir inode_mknod inode_unlink inode_rmdir inode_symlink inode_link inode_rename inode_setattr sb_mount; do
   llvm-objdump -h "$BUILD/maho_prevention.bpf.o" | grep -Fq "lsm/$section" || {
@@ -21,6 +23,8 @@ grep -Fq 'start_boottime' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'executable_ino' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'bpf_ktime_get_boot_ns() >= value->expires_boot_ns' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'BPF_MAP_TYPE_RINGBUF' "$ROOT/bpf/maho_prevention.bpf.c"
+grep -Fq '"host_mutation_performed":false' "$ROOT/src/maho_prevention_evidence.c"
+grep -Fq '"compromise_evidence":false' "$ROOT/src/maho_prevention_evidence.c"
 if grep -Eiq 'command.*(rm|mkfs)|argv.*(rm|mkfs)' "$ROOT/bpf/maho_prevention.bpf.c"; then
   echo 'FAIL enforcement contains a command-name blacklist' >&2
   exit 1

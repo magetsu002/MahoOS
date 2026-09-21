@@ -30,6 +30,7 @@ from guardian_journal_stream import JournalStreamState, StreamContinuity, load_s
 from guardian_live_recovery import recovery_status as live_runtime_recovery_status, response_projection as guardian_response_projection
 from guardian_live_response import containment_status
 from guardian_provider_state import ProviderHeartbeat, load_heartbeat
+from guardian_prevention import prevention_status
 from guardian_signed_boot_provider import SignedBootTrust, observe_signed_boot
 from guardian_trust_status import status_payload as recovery_status_payload
 from guardian_world_state import (
@@ -79,6 +80,7 @@ class LivePaths:
     runtime_root: Path
     proc_root: Path = Path("/proc")
     signed_boot_root: Path = Path("/var/lib/maho/signed-boot")
+    prevention_root: Path = Path("/var/lib/maho/prevention")
 
     @classmethod
     def defaults(cls) -> "LivePaths":
@@ -513,6 +515,7 @@ def _recent_activity(
     incidents: list[dict[str, Any]],
     recovery: Mapping[str, Any],
     transaction: Mapping[str, Any] | None,
+    prevention: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for incident in incidents[:8]:
@@ -527,7 +530,20 @@ def _recent_activity(
         rows.append({"kind": "recovery", "at": None, "id": verified.get("campaign_id"), "status": "verified"})
     if transaction is not None:
         rows.append({"kind": "update", "at": transaction.get("updated_at"), "id": transaction.get("transaction_id"), "status": transaction.get("state")})
+    recent_prevention = prevention.get("recent") if isinstance(prevention.get("recent"), list) else []
+    for event in reversed(recent_prevention[-4:]):
+        if isinstance(event, Mapping):
+            rows.append({
+                "kind": "prevention", "at": event.get("observed_at"),
+                "id": f"{event.get('boot_id')}:{_object_id(event.get('target'))}",
+                "status": "prevented",
+            })
     return rows[:10]
+
+
+def _object_id(value: Any) -> str:
+    row = value if isinstance(value, Mapping) else {}
+    return f"{row.get('device', 0)}:{row.get('inode', 0)}"
 
 
 def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) -> dict[str, Any]:
@@ -543,6 +559,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
     boot_id = _boot_id(paths)
     recovery = recovery_status_payload(paths.recovery_root, current_kernel_release=platform.release())
     transaction, authority_records, authority_errors = _update_authority(paths)
+    prevention = prevention_status(paths.prevention_root, now=current)
 
     # Guardian self-health is about Guardian's decision machinery, not whether
     # the machine has established boot/generation trust. Boot authority remains
@@ -625,7 +642,8 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
         "containment": containment_status(paths.security_root),
         "runtime_recovery": live_runtime_recovery_status(paths.security_root),
         "response": guardian_response_projection(paths.security_root),
-        "recent_activity": _recent_activity(incidents, recovery, transaction),
+        "prevention": prevention,
+        "recent_activity": _recent_activity(incidents, recovery, transaction, prevention),
         "errors": sorted(set(schema_errors + incident_errors + authority_errors)),
     }
 

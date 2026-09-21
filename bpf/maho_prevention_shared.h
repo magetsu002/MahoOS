@@ -51,6 +51,9 @@ struct maho_prevention_event {
     __u64 scope_ino;
     __u64 effect_mask;
     __u64 operation_mask;
+    __u64 subject_start_ticks;
+    __u64 executable_dev;
+    __u64 executable_ino;
     __u32 tgid;
     __u32 uid;
     __s32 result;

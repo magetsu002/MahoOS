@@ -31,10 +31,11 @@ def make_paths(root: Path) -> LivePaths:
     runtime = root / "runtime"
     proc = root / "proc"
     signed_boot = root / "signed-boot"
-    for item in (security, state, update, recovery, runtime / "releases", proc / "sys/kernel/random", signed_boot):
+    prevention = root / "prevention"
+    for item in (security, state, update, recovery, runtime / "releases", proc / "sys/kernel/random", signed_boot, prevention):
         item.mkdir(parents=True, exist_ok=True)
     (proc / "sys/kernel/random/boot_id").write_text("a" * 32 + "\n", encoding="utf-8")
-    return LivePaths(security, state, update, recovery, runtime, proc, signed_boot)
+    return LivePaths(security, state, update, recovery, runtime, proc, signed_boot, prevention)
 
 
 def seed_security(p: LivePaths, at: datetime) -> None:
@@ -79,6 +80,20 @@ def main() -> None:
         check("no automatic containment authority is invented", payload["containment"]["automatic_authority"] is False)
         check("no automatic runtime recovery authority is invented", payload["runtime_recovery"]["automatic_authority"] is False and payload["runtime_recovery"]["state"] == "none")
         check("plain status exposes live runtime recovery separately from generation trust", "Runtime recovery" in render_status(payload))
+        trust_before = payload["world_state"]["guardian"]["trust"]["state"]
+        prevention_event = {
+            "schema_version": 1, "kind": "guardian-prevention-event", "observed_at": "2026-09-15T08:59:59Z",
+            "boot_id": "a" * 32, "subject": {"pid": 42, "uid": 0, "start_time_ticks": 10, "executable_device": 8, "executable_inode": 20},
+            "target": {"device": 8, "inode": 30, "scope_device": 8, "scope_inode": 31},
+            "effect_mask": 8, "operation_mask": 4, "policy_reason": "exact_mutation_authority_missing_or_invalid",
+            "authority_state": "not-current", "result": "prevented", "host_mutation_performed": False,
+            "compromise_evidence": False,
+        }
+        (p.prevention_root / "events.jsonl").write_text(json.dumps(prevention_event) + "\n", encoding="utf-8")
+        prevented = live_status(p, now=NOW)
+        check("live status exposes successful prevention", prevented["prevention"]["prevented_count"] == 1)
+        check("successful prevention does not degrade machine trust", prevented["world_state"]["guardian"]["trust"]["state"] == trust_before)
+        check("successful prevention is activity, not incident", any(row["kind"] == "prevention" for row in prevented["recent_activity"]) and not prevented["active_incidents"])
 
         incident_id = "inc-host-stale-demo"
         source_dir = p.security_root / "incidents" / "active"
