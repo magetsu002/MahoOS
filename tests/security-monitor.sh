@@ -22,6 +22,11 @@ STATE="$XDG_STATE_HOME/maho/security"
 MONITOR="$ROOT/bin/maho-security-monitor"
 PROBE="$ROOT/lib/security_probe.py"
 
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+
 mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$DB/alpha-1.0-1" "$FS/tmp" "$PROC"
 
 write_alpha() {
@@ -208,5 +213,48 @@ assert sequence('security.integrity') == 1
 assert sequence('security.monitor') == 3
 PY_SCHEDULER
 echo "PASS"
+
+echo "=== fast runtime scheduler observes an injected signal by the next bounded cycle ==="
+rm -rf "$STATE/guardian/providers"
+BEFORE="$(count_kind runtime.executable-observation)"
+MAHO_SECURITY_RUNTIME_INTERVAL=1 \
+MAHO_SECURITY_NETWORK_INTERVAL=20 \
+MAHO_SECURITY_PERSISTENCE_INTERVAL=20 \
+MAHO_SECURITY_PRIVILEGE_INTERVAL=20 \
+MAHO_SECURITY_PACKAGE_INTERVAL=30 \
+MAHO_SECURITY_FINDINGS_INTERVAL=30 \
+MAHO_SECURITY_INTEGRITY_CHECK_INTERVAL=30 \
+MAHO_SECURITY_WATCH_ITERATIONS=3 \
+bash "$MONITOR" watch &
+WATCH_PID=$!
+for _ in $(seq 1 100); do
+    [ -s "$STATE/guardian/providers/security.runtime.json" ] && break
+    sleep 0.05
+done
+[ -s "$STATE/guardian/providers/security.runtime.json" ] || fail "runtime scheduler did not publish its initial heartbeat"
+START_NS="$(date +%s%N)"
+mkdir -p "$PROC/333"
+ln -s "$FS/tmp/injected (deleted)" "$PROC/333/exe"
+cat > "$PROC/333/status" <<EOF_STATUS
+Name:\tinjected
+State:\tS (sleeping)
+Uid:\t$(id -u)\t$(id -u)\t$(id -u)\t$(id -u)
+EOF_STATUS
+printf 'injected\0' > "$PROC/333/cmdline"
+DETECTED=0
+for _ in $(seq 1 100); do
+    if [ "$(count_kind runtime.executable-observation)" -gt "$BEFORE" ]; then
+        DETECTED=1
+        break
+    fi
+    sleep 0.05
+done
+END_NS="$(date +%s%N)"
+rm -rf "$PROC/333"
+wait "$WATCH_PID"
+[ "$DETECTED" -eq 1 ] || fail "injected runtime signal was not observed"
+LATENCY_MS=$(((END_NS - START_NS) / 1000000))
+[ "$LATENCY_MS" -le 5000 ] || fail "runtime detection exceeded fixture bound: ${LATENCY_MS}ms"
+echo "PASS observed runtime detection latency ${LATENCY_MS}ms (1s fixture interval, 5000ms startup bound)"
 
 echo "ALL SECURITY MONITOR CONTRACTS PASS"
