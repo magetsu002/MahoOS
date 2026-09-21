@@ -467,6 +467,22 @@ open_center() {
     }
 }
 
+toggle_center() {
+    if ! notify_running; then
+        start_notify || return 1
+        local attempt
+        for attempt in $(seq 1 30); do
+            notify_running && break
+            sleep 0.1
+        done
+    fi
+
+    [ "$(ipc_value toggleCenter || true)" = "true" ] || {
+        echo "maho-notify: notification center toggle IPC unavailable" >&2
+        return 1
+    }
+}
+
 show_logs() {
     local lines="${1:-120}"
 
@@ -577,9 +593,12 @@ case "${1:-run}" in
     center)
         open_center
         ;;
+    toggle-center)
+        toggle_center
+        ;;
     *)
         cat <<'HELP'
-Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]|center|dnd on|off|toggle|status|adaptive-quiet on|off|status|history clear]
+Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]|center|toggle-center|dnd on|off|toggle|status|adaptive-quiet on|off|status|history clear]
 
 Maho Notify is the independent Quickshell notification surface shipped with
 Maho OS. It refuses to displace an existing org.freedesktop.Notifications owner.
@@ -592,7 +611,7 @@ Commands:
   dnd ...        Read or change persistent Do Not Disturb state.
   adaptive-quiet Read or change temporary adaptive popup suppression.
   history clear  Clear retained history without printing its content.
-  center         Open the bounded Maho Notification Center.
+  center         Open the bounded Maho Notification Center.\n  toggle-center  Toggle the bounded Maho Notification Center.
 HELP
         exit 2
         ;;

@@ -359,6 +359,19 @@ ShellRoot {
             return root.showMode(mode, false)
         }
 
+        function toggleMode(mode: string): bool {
+            const requestedMode = String(mode) === "bluetooth" ? "bluetooth" : "wifi"
+            if (root.presented && !closeTimer.running && root.activeMode === requestedMode) {
+                root.closeOverlay()
+                return true
+            }
+            return root.showMode(requestedMode, false)
+        }
+
+        function isOpen(): bool {
+            return root.presented && !closeTimer.running
+        }
+
         function close(): bool {
             root.closeOverlay()
             return true

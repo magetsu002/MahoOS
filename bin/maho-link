@@ -8,10 +8,32 @@ INSTANCE_HELPER="$ROOT/lib/runtime-instance.sh"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 LOCK="$RUNTIME_DIR/maho-link.lock"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/maho-link.log"
-MODE="${1:-wifi}"
+ACTION="show"
+MODE="wifi"
 
-case "$MODE" in
-    wifi|bluetooth) ;;
+case "${1:-wifi}" in
+    wifi|bluetooth)
+        MODE="$1"
+        [ "$#" -eq 1 ] || {
+            echo "maho-link: too many arguments" >&2
+            exit 2
+        }
+        ;;
+    toggle)
+        ACTION="toggle"
+        MODE="${2:-wifi}"
+        case "$MODE" in
+            wifi|bluetooth) ;;
+            *)
+                echo "maho-link: toggle mode must be wifi or bluetooth" >&2
+                exit 2
+                ;;
+        esac
+        [ "$#" -le 2 ] || {
+            echo "maho-link: too many arguments" >&2
+            exit 2
+        }
+        ;;
     auto-connect-policy)
         if [ "$#" -gt 1 ]; then
             echo "maho-link: too many arguments" >&2
@@ -20,15 +42,10 @@ case "$MODE" in
         exec python3 "$ROOT/config/quickshell/maho-link/bluetooth.py" auto-connect
         ;;
     *)
-        echo "maho-link: mode must be wifi or bluetooth" >&2
+        echo "maho-link: expected wifi, bluetooth, or toggle [wifi|bluetooth]" >&2
         exit 2
         ;;
 esac
-
-if [ "$#" -gt 1 ]; then
-    echo "maho-link: too many arguments" >&2
-    exit 2
-fi
 
 command -v quickshell >/dev/null 2>&1 || {
     echo "maho-link: quickshell is unavailable" >&2
@@ -85,7 +102,11 @@ if ! flock -n 9; then
     # the singleton lock.
     while read -r pid; do
         [ "$(maho_process_runtime_identity "$pid" 2>/dev/null || true)" = "$RUNTIME_IDENTITY" ] || continue
-        if quickshell ipc --pid "$pid" call link showMode "$MODE" >/dev/null 2>&1; then
+        if [ "$ACTION" = "toggle" ]; then
+            if quickshell ipc --pid "$pid" call link toggleMode "$MODE" >/dev/null 2>&1; then
+                exit 0
+            fi
+        elif quickshell ipc --pid "$pid" call link showMode "$MODE" >/dev/null 2>&1; then
             exit 0
         fi
     done < <(link_pids)

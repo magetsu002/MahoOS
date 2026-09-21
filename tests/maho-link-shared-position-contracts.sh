@@ -48,6 +48,12 @@ grep -Fq 'return root.showMode(mode, false)' "$SHELL_QML" \
     || fail 'IPC mode switch does not reach the mode-keyed placement loader'
 grep -Fq 'quickshell ipc --pid "$pid" call link showMode "$MODE"' "$ROOT/bin/maho-link" \
     || fail 'singleton wrapper does not address the exact same-runtime process'
+grep -Fq 'quickshell ipc --pid "$pid" call link toggleMode "$MODE"' "$ROOT/bin/maho-link" \
+    || fail 'keyboard Link toggle does not address the exact same-runtime process'
+grep -Fq 'function toggleMode(mode: string): bool' "$SHELL_QML" \
+    || fail 'running Link process has no atomic same-mode toggle'
+grep -Fq 'root.presented && !closeTimer.running && root.activeMode === requestedMode' "$SHELL_QML" \
+    || fail 'Link toggle does not distinguish an already-open matching mode'
 if grep -Fq 'maho-link: already running' "$ROOT/bin/maho-link"; then
     fail 'singleton wrapper still reports success after dropping a mode request'
 fi

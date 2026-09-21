@@ -267,6 +267,14 @@ ShellRoot {
             return true
         }
 
+        function toggleCenter(): bool {
+            if (root.centerPresented && !centerHideDelay.running)
+                root.closeCenter()
+            else
+                root.openCenter()
+            return true
+        }
+
         function centerStatus(): bool {
             return root.centerOpen
         }

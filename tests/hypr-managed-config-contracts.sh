@@ -16,6 +16,11 @@ require "$BINDS" 'hl.dsp.window.fullscreen_state({' 'Brave fullscreen compatibil
 require "$BINDS" 'XF86AudioMicMute' 'microphone mute key regressed'
 require "$BINDS" 'mainMod .. " + SHIFT + W"' 'Wi-Fi Link shortcut is not canonical'
 require "$BINDS" 'mainMod .. " + SHIFT + B"' 'Bluetooth Link shortcut is not canonical'
+require "$BINDS" '$HOME/.local/bin/maho-launcher toggle' 'launcher shortcut is not a true toggle'
+require "$BINDS" '"$HOME/.local/bin/maho-notify" toggle-center' 'Notify shortcut is not a true center toggle'
+require "$BINDS" '"$HOME/.local/bin/maho-link" toggle wifi' 'Wi-Fi Link shortcut is not a true toggle'
+require "$BINDS" '"$HOME/.local/bin/maho-link" toggle bluetooth' 'Bluetooth Link shortcut is not a true toggle'
+require "$BINDS" '"$HOME/.local/bin/maho-power" toggle' 'Power shortcut is not a true toggle'
 require "$INPUT" 'disable_while_typing = false' 'accepted touchpad typing behavior is not canonical input state'
 echo PASS
 

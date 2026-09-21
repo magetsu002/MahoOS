@@ -167,6 +167,10 @@ assert source.index('NotificationService {') < source.index('Loader {'), 'backgr
 assert source.index('sourceComponent: Component {') < source.index('NotificationCenter {'), 'center is not loader-owned'
 PY_LAZY
 require_text "$RUNTIME" 'open_center' "center runtime command missing"
+require_text "$RUNTIME" 'toggle_center' "center toggle runtime command missing"
+require_text "$RUNTIME" 'toggle-center)' "center toggle command is not exposed"
+require_text "$NOTIFY_DIR/shell.qml" 'function toggleCenter(): bool' "Notify IPC has no atomic center toggle"
+require_text "$NOTIFY_DIR/shell.qml" 'root.centerPresented && !centerHideDelay.running' "Notify toggle cannot distinguish an already-presented center"
 echo "PASS"
 
 echo "=== privacy-safe status bridge contract ==="

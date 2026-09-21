@@ -27,7 +27,7 @@ local acerKeyboardLightQuirk =
 -- Applications.
 hl.bind(
     mainMod .. " + CTRL + RETURN",
-    hl.dsp.exec_cmd([[$HOME/.local/bin/maho-launcher open]])
+    hl.dsp.exec_cmd([[$HOME/.local/bin/maho-launcher toggle]])
 )
 hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd([["$HOME/.local/bin/screenshot-select-copy"]]))
 hl.bind("Print", hl.dsp.exec_cmd([["$HOME/.local/bin/screenshot-copy"]]))
@@ -43,7 +43,7 @@ hl.bind(
 -- maho-notify-bind:begin
 hl.bind(
     mainMod .. " + SHIFT + N",
-    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-notify" center]])
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-notify" toggle-center]])
 )
 -- maho-notify-bind:end
 
@@ -59,11 +59,11 @@ hl.bind(
 -- maho-link-shortcuts:begin
 hl.bind(
     mainMod .. " + SHIFT + W",
-    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-link" wifi]])
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-link" toggle wifi]])
 )
 hl.bind(
     mainMod .. " + SHIFT + B",
-    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-link" bluetooth]])
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-link" toggle bluetooth]])
 )
 -- maho-link-shortcuts:end
 
@@ -90,7 +90,7 @@ hl.bind(
 -- maho-power-bind:begin
 hl.bind(
     mainMod .. " + SHIFT + P",
-    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-power" open]])
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-power" toggle]])
 )
 -- maho-power-bind:end
 
