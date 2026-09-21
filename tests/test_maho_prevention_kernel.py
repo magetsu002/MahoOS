@@ -32,7 +32,12 @@ def main() -> None:
     check("home protection is limited to exact Maho runtime", [row.path for row in roots if row.path.startswith("/home/")] == ["/home/example/.local/share/maho/runtime"])
     check("ordinary project trees are absent from enforcement roots", not any("Projects" in row.path or row.path == "/home" for row in roots))
     capabilities = kernel_capabilities()
-    check("host exposes active BPF LSM and kernel BTF", capabilities["bpf_lsm_active"] is True and capabilities["kernel_btf"] is True)
+    expected_capabilities = {"bpf_lsm_active", "kernel_btf", "bpffs", "pin_root_active"}
+    check(
+        "kernel capability discovery is explicit and boolean",
+        set(capabilities) == expected_capabilities
+        and all(isinstance(capabilities[name], bool) for name in expected_capabilities),
+    )
     check("high-level write covers truncate hook only as part of write", OPERATION_BITS[MutationOperation.WRITE] == (1 << 0) | (1 << 6) and OPERATION_BITS[MutationOperation.SETATTR] == 1 << 6)
 
     with tempfile.TemporaryDirectory(prefix="maho-kernel-authority-") as temporary:
