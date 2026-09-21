@@ -4,6 +4,8 @@
 #include <linux/types.h>
 
 #define MAHO_SCOPE_RECURSIVE (1U << 0)
+#define MAHO_EVENT_OBJECT  1U
+#define MAHO_EVENT_PROCESS 2U
 
 #define MAHO_OP_WRITE   (1ULL << 0)
 #define MAHO_OP_CREATE  (1ULL << 1)
@@ -14,6 +16,7 @@
 #define MAHO_OP_SETATTR (1ULL << 6)
 #define MAHO_OP_MOUNT   (1ULL << 7)
 #define MAHO_OP_DEVICE  (1ULL << 8)
+#define MAHO_OP_SIGNAL  (1ULL << 9)
 
 struct maho_object_key {
     __u64 dev;
@@ -52,6 +55,26 @@ struct maho_device_authority_key {
     __u64 device;
 };
 
+struct maho_process_key {
+    __u32 tgid;
+    __u32 reserved;
+    __u64 start_ticks;
+    __u64 executable_dev;
+    __u64 executable_ino;
+};
+
+struct maho_process_authority_key {
+    struct maho_process_key subject;
+    struct maho_process_key target;
+};
+
+struct maho_process_authority_value {
+    __u64 expires_boot_ns;
+    __u64 effect_mask;
+    __u64 signal_mask;
+    __u64 transaction_tag;
+};
+
 struct maho_prevention_event {
     __u64 timestamp_ns;
     __u64 target_dev;
@@ -67,6 +90,13 @@ struct maho_prevention_event {
     __u32 uid;
     __s32 result;
     __u32 authority_state;
+    __u32 event_kind;
+    __s32 signal;
+    __u32 target_tgid;
+    __u32 reserved;
+    __u64 target_start_ticks;
+    __u64 target_executable_dev;
+    __u64 target_executable_ino;
 };
 
 #endif

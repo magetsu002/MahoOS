@@ -15,9 +15,12 @@ if LIB.is_dir():
 else:
     sys.path.insert(0, "/usr/lib/maho")
 
+from guardian_admission import EffectKind  # noqa: E402
 from maho_mutation_authority import parse_authority  # noqa: E402
+from maho_process_control import parse_process_control_authority  # noqa: E402
 from maho_prevention_kernel import (  # noqa: E402
-    activate, enforcement_roots, host_device_roots, kernel_capabilities, project_authority,
+    activate, enforcement_roots, host_device_roots, kernel_capabilities,
+    project_authority, project_process_authority, register_protected_process,
 )
 
 
@@ -35,6 +38,14 @@ def parser() -> argparse.ArgumentParser:
     project.add_argument("authority", type=Path)
     project.add_argument("--secret", type=Path, default=Path("/var/lib/maho/prevention/authority.key"))
     project.add_argument("--map", type=Path, default=Path("/sys/fs/bpf/maho-prevention/maps/mutation_authorities"))
+    register = commands.add_parser("register-process")
+    register.add_argument("pid", type=int)
+    register.add_argument("--effect", type=EffectKind, required=True)
+    register.add_argument("--map", type=Path, default=Path("/sys/fs/bpf/maho-prevention/maps/protected_processes"))
+    process = commands.add_parser("project-process-authority")
+    process.add_argument("authority", type=Path)
+    process.add_argument("--secret", type=Path, default=Path("/var/lib/maho/prevention/authority.key"))
+    process.add_argument("--map", type=Path, default=Path("/sys/fs/bpf/maho-prevention/maps/process_control_authorities"))
     return value
 
 
@@ -47,14 +58,21 @@ def main() -> int:
         roots = enforcement_roots(owner_home=args.owner_home) + host_device_roots()
         activate(args.loader, args.object, args.pin_root, roots)
         return 0
+    if args.command == "register-process":
+        identity = register_protected_process(args.pid, args.map, args.effect)
+        print(json.dumps({"registered_pid": identity.pid, "start_time_ticks": identity.start_time_ticks, "effect": args.effect.value}))
+        return 0
     payload = json.loads(args.authority.read_text(encoding="utf-8"))
     secret = args.secret.read_bytes()
     boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    authority = parse_authority(
-        payload, secret=secret, boot_id=boot_id,
-        now_ns=time.clock_gettime_ns(time.CLOCK_BOOTTIME),
-    )
-    print(json.dumps({"projected_targets": project_authority(authority, args.map), "authority_id": str(authority.authority_id)}))
+    now_ns = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+    if args.command == "project-process-authority":
+        authority = parse_process_control_authority(payload, secret=secret, boot_id=boot_id, now_ns=now_ns)
+        projected = project_process_authority(authority, args.map)
+    else:
+        authority = parse_authority(payload, secret=secret, boot_id=boot_id, now_ns=now_ns)
+        projected = project_authority(authority, args.map)
+    print(json.dumps({"projected_targets": projected, "authority_id": str(authority.authority_id)}))
     return 0
 
 

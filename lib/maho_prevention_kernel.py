@@ -16,6 +16,7 @@ from typing import Iterable
 from guardian_admission import EffectKind
 from maho_mutation_authority import MutationAuthority, process_identity
 from maho_prevention_policy import MutationOperation
+from maho_process_control import ProcessControlAuthority, signal_mask
 
 
 EFFECT_BITS = {effect: 1 << index for index, effect in enumerate(EffectKind)}
@@ -33,6 +34,7 @@ OPERATION_BITS = {
     MutationOperation.MOUNT: 1 << 7,
     MutationOperation.REMOUNT: 1 << 7,
     MutationOperation.DEVICE_WRITE: 1 << 8,
+    MutationOperation.SIGNAL: 1 << 9,
 }
 
 
@@ -185,6 +187,46 @@ def project_authority(authority: MutationAuthority, map_path: Path) -> int:
         if device_fd is not None:
             os.close(device_fd)
     return projected
+
+
+def _process_key(identity) -> bytes:
+    return struct.pack(
+        "=IIQQQ", identity.pid, 0, identity.start_time_ticks,
+        identity.executable_device, identity.executable_inode,
+    )
+
+
+def register_protected_process(pid: int, map_path: Path, effect: EffectKind) -> object:
+    """Register one live process identity; PID reuse cannot inherit protection."""
+    identity = process_identity(pid)
+    fd = _object_get(map_path)
+    try:
+        _map_update(fd, _process_key(identity), struct.pack("=QII", EFFECT_BITS[effect], 0, 0))
+    finally:
+        os.close(fd)
+    return identity
+
+
+def project_process_authority(authority: ProcessControlAuthority, map_path: Path) -> int:
+    """Project exact caller→target signal authority after both identities revalidate."""
+    if process_identity(authority.subject.pid) != authority.subject:
+        raise PermissionError("process authority subject identity is no longer current")
+    if process_identity(authority.target.pid) != authority.target:
+        raise PermissionError("process authority target identity is no longer current")
+    key = _process_key(authority.subject) + _process_key(authority.target)
+    transaction_tag = int.from_bytes(
+        hashlib.sha256(authority.transaction_id.encode()).digest()[:8], "little",
+    )
+    value = struct.pack(
+        "=QQQQ", authority.expires_at_ns, EFFECT_BITS[authority.effect],
+        signal_mask(authority.signals), transaction_tag,
+    )
+    fd = _object_get(map_path)
+    try:
+        _map_update(fd, key, value)
+    finally:
+        os.close(fd)
+    return 1
 
 
 def kernel_capabilities() -> dict[str, object]:

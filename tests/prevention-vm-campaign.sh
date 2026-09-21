@@ -14,9 +14,10 @@ gcc -O2 "$ROOT/src/maho_prevention_evidence.c" -o "$GUEST/bin/evidence" $(pkg-co
 gcc -O2 -static -I"$ROOT/bpf" "$ROOT/tests/fixtures/prevention-vm-helper.c" -o "$GUEST/bin/helper"
 cp "$GUEST/bin/helper" "$GUEST/bin/opaque"
 cp /usr/lib/initcpio/busybox "$GUEST/bin/busybox"
-for applet in sh cat mkdir poweroff sleep grep kill; do ln -s busybox "$GUEST/bin/$applet"; done
+for applet in sh cat mkdir poweroff sleep grep kill pkill; do ln -s busybox "$GUEST/bin/$applet"; done
 cp "$ROOT/tests/fixtures/prevention-vm-init" "$GUEST/init"
 cp "$ROOT/tests/fixtures/prevention-vm-payload.py" "$GUEST/payload.py"
+cp "$ROOT/tests/fixtures/prevention-vm-signal.py" "$GUEST/signal_payload.py"
 chmod 0755 "$GUEST/init"
 
 copy_deps() {
@@ -55,7 +56,11 @@ required=(
   device-alias-denied exact-device-authority
   exact-authority expired-write-denied wrong-start-write-denied scope-escape-denied
   unlink-denied chmod-denied rename-denied hardlink-denied symlink-denied
-  bind-alias-denied namespace-denied ordinary-churn durable-evidence
+  bind-alias-denied namespace-denied ordinary-churn
+  process-protected-registration direct-signal-denied pkill-denied python-signal-denied
+  opaque-signal-denied indirect-signal-denied ordinary-kill expired-signal-denied
+  wrong-start-signal-denied wrong-signal-authority-denied exact-signal-authority
+  process-evidence durable-evidence
 )
 for marker in "${required[@]}"; do grep -Fq "MAHO_PREVENTION_PASS:$marker" "$WORK/serial.log" || { echo "FAIL missing VM marker $marker" >&2; exit 1; }; done
 python - "$WORK/serial.log" <<'PY'

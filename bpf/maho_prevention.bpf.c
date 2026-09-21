@@ -32,10 +32,14 @@ struct file {
 struct mm_struct { struct file *exe_file; } __attribute__((preserve_access_index));
 struct task_struct {
     struct mm_struct *mm;
+    struct task_struct *group_leader;
     __u64 start_boottime;
+    int tgid;
 } __attribute__((preserve_access_index));
 struct iattr;
 struct mnt_idmap;
+struct kernel_siginfo;
+struct cred;
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -66,6 +70,20 @@ struct {
 } device_authorities SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, struct maho_process_key);
+    __type(value, struct maho_protected_value);
+} protected_processes SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, struct maho_process_authority_key);
+    __type(value, struct maho_process_authority_value);
+} process_control_authorities SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, __u32);
@@ -94,6 +112,38 @@ static __always_inline int inode_key(struct inode *inode, struct maho_object_key
         return -1;
     key->dev = BPF_CORE_READ(sb, s_dev);
     key->ino = BPF_CORE_READ(inode, i_ino);
+    return 0;
+}
+
+static __always_inline int process_key_from_task(
+    struct task_struct *task, struct maho_process_key *key)
+{
+    struct task_struct *leader;
+    struct mm_struct *mm;
+    struct file *exe;
+    struct dentry *dentry;
+    struct inode *inode;
+    struct maho_object_key executable = {};
+
+    if (!task)
+        return -1;
+    leader = BPF_CORE_READ(task, group_leader);
+    if (!leader)
+        leader = task;
+    key->tgid = (__u32)BPF_CORE_READ(leader, tgid);
+    key->start_ticks = BPF_CORE_READ(leader, start_boottime) / 10000000ULL;
+    mm = BPF_CORE_READ(leader, mm);
+    if (!mm)
+        return -1;
+    exe = BPF_CORE_READ(mm, exe_file);
+    if (!exe)
+        return -1;
+    dentry = BPF_CORE_READ(exe, f_path.dentry);
+    inode = dentry ? BPF_CORE_READ(dentry, d_inode) : 0;
+    if (inode_key(inode, &executable) != 0)
+        return -1;
+    key->executable_dev = executable.dev;
+    key->executable_ino = executable.ino;
     return 0;
 }
 
@@ -227,6 +277,7 @@ static __always_inline int deny_with_evidence(
         event->uid = (__u32)bpf_get_current_uid_gid();
         event->result = -EPERM;
         event->authority_state = 0;
+        event->event_kind = MAHO_EVENT_OBJECT;
         bpf_ringbuf_submit(event, 0);
     }
     return -EPERM;
@@ -298,6 +349,78 @@ static __always_inline int enforce_device(struct file *file, int previous_ret)
         }
     }
     return deny_with_evidence(&object, &object, protected->effect_mask, MAHO_OP_DEVICE);
+}
+
+static __always_inline __u64 signal_bit(int sig)
+{
+    if (sig <= 0 || sig > 64)
+        return 0;
+    return 1ULL << (sig - 1);
+}
+
+static __always_inline int deny_process_with_evidence(
+    const struct maho_process_key *subject, const struct maho_process_key *target,
+    __u64 effect, int sig)
+{
+    struct maho_prevention_event *event;
+    event = bpf_ringbuf_reserve(&prevention_events, sizeof(*event), 0);
+    if (event) {
+        __builtin_memset(event, 0, sizeof(*event));
+        event->timestamp_ns = bpf_ktime_get_boot_ns();
+        event->effect_mask = effect;
+        event->operation_mask = MAHO_OP_SIGNAL;
+        event->subject_start_ticks = subject->start_ticks;
+        event->executable_dev = subject->executable_dev;
+        event->executable_ino = subject->executable_ino;
+        event->tgid = subject->tgid;
+        event->uid = (__u32)bpf_get_current_uid_gid();
+        event->result = -EPERM;
+        event->authority_state = 0;
+        event->event_kind = MAHO_EVENT_PROCESS;
+        event->signal = sig;
+        event->target_tgid = target->tgid;
+        event->target_start_ticks = target->start_ticks;
+        event->target_executable_dev = target->executable_dev;
+        event->target_executable_ino = target->executable_ino;
+        bpf_ringbuf_submit(event, 0);
+    }
+    return -EPERM;
+}
+
+static __always_inline int enforce_process_control(
+    struct task_struct *target_task, int sig, int previous_ret)
+{
+    struct maho_process_key subject = {}, target = {};
+    struct maho_process_authority_key authority_key = {};
+    struct maho_process_authority_value *authority;
+    struct maho_protected_value *protected;
+    __u64 bit;
+
+    if (previous_ret || !active() || sig == 0)
+        return previous_ret;
+    bit = signal_bit(sig);
+    if (!bit || process_key_from_task(target_task, &target) != 0)
+        return 0;
+    protected = bpf_map_lookup_elem(&protected_processes, &target);
+    if (!protected)
+        return 0;
+    if (process_key_from_task((struct task_struct *)bpf_get_current_task_btf(), &subject) == 0) {
+        authority_key.subject = subject;
+        authority_key.target = target;
+        authority = bpf_map_lookup_elem(&process_control_authorities, &authority_key);
+        if (authority && bpf_ktime_get_boot_ns() < authority->expires_boot_ns
+            && (authority->effect_mask & protected->effect_mask)
+            && (authority->signal_mask & bit))
+            return 0;
+    }
+    return deny_process_with_evidence(&subject, &target, protected->effect_mask, sig);
+}
+
+SEC("lsm/task_kill")
+int BPF_PROG(maho_task_kill, struct task_struct *p, struct kernel_siginfo *info,
+             int sig, const struct cred *cred, int ret)
+{
+    return enforce_process_control(p, sig, ret);
 }
 
 SEC("lsm/file_open")

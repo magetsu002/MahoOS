@@ -12,7 +12,7 @@ gcc -O2 -Wall -Wextra -Werror "$ROOT/src/maho_prevention_loader.c" \
 gcc -O2 -Wall -Wextra -Werror "$ROOT/src/maho_prevention_evidence.c" \
   -o "$BUILD/maho-prevention-evidence" $(pkg-config --cflags --libs libbpf)
 
-for section in file_open inode_create inode_mkdir inode_mknod inode_unlink inode_rmdir inode_symlink inode_link inode_rename inode_setattr sb_mount; do
+for section in file_open inode_create inode_mkdir inode_mknod inode_unlink inode_rmdir inode_symlink inode_link inode_rename inode_setattr sb_mount task_kill; do
   llvm-objdump -h "$BUILD/maho_prevention.bpf.o" | grep -Fq "lsm/$section" || {
     echo "FAIL missing BPF LSM hook $section" >&2
     exit 1
@@ -24,6 +24,9 @@ grep -Fq 'executable_ino' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'bpf_ktime_get_boot_ns() >= value->expires_boot_ns' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'BPF_MAP_TYPE_RINGBUF' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'protected_devices' "$ROOT/bpf/maho_prevention.bpf.c"
+grep -Fq 'protected_processes' "$ROOT/bpf/maho_prevention.bpf.c"
+grep -Fq 'process_control_authorities' "$ROOT/bpf/maho_prevention.bpf.c"
+grep -Fq 'process_key_from_task' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'i_rdev' "$ROOT/bpf/maho_prevention.bpf.c"
 grep -Fq 'host_mutation_performed' "$ROOT/src/maho_prevention_evidence.c"
 grep -Fq 'compromise_evidence' "$ROOT/src/maho_prevention_evidence.c"

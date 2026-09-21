@@ -25,15 +25,28 @@ def _valid(row: Any) -> bool:
         return False
     if set(subject) != {"pid", "uid", "start_time_ticks", "executable_device", "executable_inode"}:
         return False
-    if set(target) != {"device", "inode", "scope_device", "scope_inode"}:
+    schema = row.get("schema_version")
+    if schema == 1:
+        if set(target) != {"device", "inode", "scope_device", "scope_inode"}:
+            return False
+        target_numbers = tuple(target.values())
+    elif schema == 2:
+        if set(target) != {"kind", "pid", "start_time_ticks", "executable_device", "executable_inode", "signal"}:
+            return False
+        if target.get("kind") != "process" or not isinstance(target.get("signal"), int) or not 1 <= target["signal"] <= 64:
+            return False
+        target_numbers = (
+            target["pid"], target["start_time_ticks"],
+            target["executable_device"], target["executable_inode"], target["signal"],
+        )
+    else:
         return False
     return (
-        row.get("schema_version") == 1
-        and row.get("kind") == "guardian-prevention-event"
+        row.get("kind") == "guardian-prevention-event"
         and row.get("result") == "prevented"
         and row.get("host_mutation_performed") is False
         and row.get("compromise_evidence") is False
-        and all(isinstance(value, int) and value >= 0 for value in (*subject.values(), *target.values(), row.get("effect_mask"), row.get("operation_mask")))
+        and all(isinstance(value, int) and value >= 0 for value in (*subject.values(), *target_numbers, row.get("effect_mask"), row.get("operation_mask")))
     )
 
 

@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <linux/bpf.h>
 #include <sched.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,33 @@ static int obj_get(const char *path)
     union bpf_attr attr = {};
     attr.pathname = (__u64)path;
     return syscall(SYS_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
+}
+
+static int process_key(pid_t pid, struct maho_process_key *key)
+{
+    struct stat executable;
+    FILE *stat_file;
+    char path[64], buffer[4096], *cursor;
+    int field = 1;
+    memset(key, 0, sizeof(*key));
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    stat_file = fopen(path, "r");
+    if (!stat_file || !fgets(buffer, sizeof(buffer), stat_file))
+        return 1;
+    fclose(stat_file);
+    cursor = strrchr(buffer, ')');
+    if (!cursor)
+        return 1;
+    cursor += 2;
+    for (char *token = strtok(cursor, " "); token; token = strtok(NULL, " "), field++)
+        if (field == 20) { key->start_ticks = strtoull(token, NULL, 10); break; }
+    snprintf(path, sizeof(path), "/proc/%d/exe", pid);
+    if (!key->start_ticks || stat(path, &executable))
+        return 1;
+    key->tgid = pid;
+    key->executable_dev = executable.st_dev;
+    key->executable_ino = executable.st_ino;
+    return 0;
 }
 
 static int grant(const char *target, int expired, int wrong_start)
@@ -52,7 +80,8 @@ static int grant(const char *target, int expired, int wrong_start)
     key.scope_dev = object.st_dev;
     key.scope_ino = object.st_ino;
     clock_gettime(CLOCK_BOOTTIME, &now);
-    value.expires_boot_ns = (__u64)now.tv_sec * 1000000000ULL + now.tv_nsec + (expired ? -1 : 5000000000ULL);
+    __u64 now_ns = (__u64)now.tv_sec * 1000000000ULL + now.tv_nsec;
+    value.expires_boot_ns = expired ? now_ns - 1 : now_ns + 5000000000ULL;
     value.effect_mask = 1;
     value.operation_mask = MAHO_OP_WRITE | MAHO_OP_SETATTR;
     int result = syscall(SYS_bpf, BPF_MAP_UPDATE_ELEM, &(union bpf_attr){
@@ -99,6 +128,51 @@ static int grant_device(const char *target)
     update_attr.flags = BPF_ANY;
     int result = syscall(SYS_bpf, BPF_MAP_UPDATE_ELEM, &update_attr, sizeof(update_attr));
     if (result) perror("device authority map update");
+    return result;
+}
+
+static int register_process(pid_t pid, __u64 effect)
+{
+    int map_fd = obj_get("/sys/fs/bpf/maho-prevention/maps/protected_processes");
+    struct maho_process_key key = {};
+    struct maho_protected_value value = {.effect_mask = effect};
+    union bpf_attr update = {};
+    if (map_fd < 0 || process_key(pid, &key))
+        return 1;
+    update.map_fd = map_fd;
+    update.key = (__u64)&key;
+    update.value = (__u64)&value;
+    update.flags = BPF_ANY;
+    int result = syscall(SYS_bpf, BPF_MAP_UPDATE_ELEM, &update, sizeof(update));
+    if (result) perror("protected process map update");
+    close(map_fd);
+    return result;
+}
+
+static int grant_signal(pid_t target_pid, int sig, int expired, int wrong_start, int wrong_signal)
+{
+    int map_fd = obj_get("/sys/fs/bpf/maho-prevention/maps/process_control_authorities");
+    struct maho_process_authority_key key = {};
+    struct maho_process_authority_value value = {};
+    struct timespec now;
+    union bpf_attr update = {};
+    if (map_fd < 0 || process_key(getpid(), &key.subject) || process_key(target_pid, &key.target))
+        return 1;
+    if (wrong_start)
+        key.target.start_ticks++;
+    clock_gettime(CLOCK_BOOTTIME, &now);
+    __u64 now_ns = (__u64)now.tv_sec * 1000000000ULL + now.tv_nsec;
+    value.expires_boot_ns = expired ? now_ns - 1 : now_ns + 5000000000ULL;
+    value.effect_mask = 2;
+    int granted_sig = wrong_signal ? (sig == 9 ? 15 : 9) : sig;
+    value.signal_mask = 1ULL << (granted_sig - 1);
+    update.map_fd = map_fd;
+    update.key = (__u64)&key;
+    update.value = (__u64)&value;
+    update.flags = BPF_ANY;
+    int result = syscall(SYS_bpf, BPF_MAP_UPDATE_ELEM, &update, sizeof(update));
+    if (result) perror("process authority map update");
+    close(map_fd);
     return result;
 }
 
@@ -153,9 +227,28 @@ static int setup(void)
 int main(int argc, char **argv)
 {
     if (argc == 2 && !strcmp(argv[1], "setup")) return setup();
+    if (argc == 2 && !strcmp(argv[1], "protected-loop")) {
+        for (;;) pause();
+    }
     if (argc < 3)
         return 2;
     if (!strcmp(argv[1], "write")) return write_target(argv[2]);
+    if (!strcmp(argv[1], "register-process") && argc == 4)
+        return register_process((pid_t)atoi(argv[2]), strtoull(argv[3], NULL, 0));
+    if (!strcmp(argv[1], "signal") && argc == 4)
+        return kill((pid_t)atoi(argv[2]), atoi(argv[3])) == 0 ? 0 : 1;
+    if (!strcmp(argv[1], "authorized-signal") && argc == 4)
+        return grant_signal((pid_t)atoi(argv[2]), atoi(argv[3]), 0, 0, 0)
+            || (kill((pid_t)atoi(argv[2]), atoi(argv[3])) == 0 ? 0 : 1);
+    if (!strcmp(argv[1], "expired-signal") && argc == 4)
+        return grant_signal((pid_t)atoi(argv[2]), atoi(argv[3]), 1, 0, 0)
+            || (kill((pid_t)atoi(argv[2]), atoi(argv[3])) == 0 ? 0 : 1);
+    if (!strcmp(argv[1], "wrong-start-signal") && argc == 4)
+        return grant_signal((pid_t)atoi(argv[2]), atoi(argv[3]), 0, 1, 0)
+            || (kill((pid_t)atoi(argv[2]), atoi(argv[3])) == 0 ? 0 : 1);
+    if (!strcmp(argv[1], "wrong-signal-authority") && argc == 4)
+        return grant_signal((pid_t)atoi(argv[2]), atoi(argv[3]), 0, 0, 1)
+            || (kill((pid_t)atoi(argv[2]), atoi(argv[3])) == 0 ? 0 : 1);
     if (!strcmp(argv[1], "device-write")) return write_device(argv[2]);
     if (!strcmp(argv[1], "authorized-device-write")) return grant_device(argv[2]) || write_device(argv[2]);
     if (!strcmp(argv[1], "device-alias")) {

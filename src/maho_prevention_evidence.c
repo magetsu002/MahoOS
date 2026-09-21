@@ -31,22 +31,43 @@ static int event(void *opaque, void *data, size_t size)
     clock_gettime(CLOCK_REALTIME, &realtime);
     gmtime_r(&realtime.tv_sec, &broken);
     strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%S", &broken);
-    dprintf(ctx->output,
-        "{\"schema_version\":1,\"kind\":\"guardian-prevention-event\","
-        "\"observed_at\":\"%s.%09ldZ\",\"boot_id\":\"%s\","
-        "\"subject\":{\"pid\":%u,\"uid\":%u,\"start_time_ticks\":%llu,"
-        "\"executable_device\":%llu,\"executable_inode\":%llu},"
-        "\"target\":{\"device\":%llu,\"inode\":%llu,\"scope_device\":%llu,\"scope_inode\":%llu},"
-        "\"effect_mask\":%llu,\"operation_mask\":%llu,"
-        "\"policy_reason\":\"exact_mutation_authority_missing_or_invalid\","
-        "\"authority_state\":\"not-current\",\"result\":\"prevented\","
-        "\"host_mutation_performed\":false,\"compromise_evidence\":false}\n",
-        stamp, realtime.tv_nsec, ctx->boot_id, row->tgid, row->uid,
-        (unsigned long long)row->subject_start_ticks,
-        (unsigned long long)row->executable_dev, (unsigned long long)row->executable_ino,
-        (unsigned long long)row->target_dev, (unsigned long long)row->target_ino,
-        (unsigned long long)row->scope_dev, (unsigned long long)row->scope_ino,
-        (unsigned long long)row->effect_mask, (unsigned long long)row->operation_mask);
+    if (row->event_kind == MAHO_EVENT_PROCESS) {
+        dprintf(ctx->output,
+            "{\"schema_version\":2,\"kind\":\"guardian-prevention-event\","
+            "\"observed_at\":\"%s.%09ldZ\",\"boot_id\":\"%s\","
+            "\"subject\":{\"pid\":%u,\"uid\":%u,\"start_time_ticks\":%llu,"
+            "\"executable_device\":%llu,\"executable_inode\":%llu},"
+            "\"target\":{\"kind\":\"process\",\"pid\":%u,\"start_time_ticks\":%llu,"
+            "\"executable_device\":%llu,\"executable_inode\":%llu,\"signal\":%d},"
+            "\"effect_mask\":%llu,\"operation_mask\":%llu,"
+            "\"policy_reason\":\"exact_process_control_authority_missing_or_invalid\","
+            "\"authority_state\":\"not-current\",\"result\":\"prevented\","
+            "\"host_mutation_performed\":false,\"compromise_evidence\":false}\n",
+            stamp, realtime.tv_nsec, ctx->boot_id, row->tgid, row->uid,
+            (unsigned long long)row->subject_start_ticks,
+            (unsigned long long)row->executable_dev, (unsigned long long)row->executable_ino,
+            row->target_tgid, (unsigned long long)row->target_start_ticks,
+            (unsigned long long)row->target_executable_dev,
+            (unsigned long long)row->target_executable_ino, row->signal,
+            (unsigned long long)row->effect_mask, (unsigned long long)row->operation_mask);
+    } else {
+        dprintf(ctx->output,
+            "{\"schema_version\":1,\"kind\":\"guardian-prevention-event\","
+            "\"observed_at\":\"%s.%09ldZ\",\"boot_id\":\"%s\","
+            "\"subject\":{\"pid\":%u,\"uid\":%u,\"start_time_ticks\":%llu,"
+            "\"executable_device\":%llu,\"executable_inode\":%llu},"
+            "\"target\":{\"device\":%llu,\"inode\":%llu,\"scope_device\":%llu,\"scope_inode\":%llu},"
+            "\"effect_mask\":%llu,\"operation_mask\":%llu,"
+            "\"policy_reason\":\"exact_mutation_authority_missing_or_invalid\","
+            "\"authority_state\":\"not-current\",\"result\":\"prevented\","
+            "\"host_mutation_performed\":false,\"compromise_evidence\":false}\n",
+            stamp, realtime.tv_nsec, ctx->boot_id, row->tgid, row->uid,
+            (unsigned long long)row->subject_start_ticks,
+            (unsigned long long)row->executable_dev, (unsigned long long)row->executable_ino,
+            (unsigned long long)row->target_dev, (unsigned long long)row->target_ino,
+            (unsigned long long)row->scope_dev, (unsigned long long)row->scope_ino,
+            (unsigned long long)row->effect_mask, (unsigned long long)row->operation_mask);
+    }
     fsync(ctx->output);
     return 0;
 }

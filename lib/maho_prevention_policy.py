@@ -21,6 +21,7 @@ class MutationOperation(str, Enum):
     MOUNT = "MOUNT"
     REMOUNT = "REMOUNT"
     DEVICE_WRITE = "DEVICE_WRITE"
+    SIGNAL = "SIGNAL"
 
 
 class PreventionOutcome(str, Enum):

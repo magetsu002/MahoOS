@@ -34,6 +34,19 @@ def event(*, effect: int = 8, inode: int = 40) -> dict:
     }
 
 
+def process_event() -> dict:
+    return {
+        "schema_version": 2, "kind": "guardian-prevention-event",
+        "observed_at": "2026-09-21T17:59:59.000000000Z", "boot_id": "boot-fixture",
+        "subject": {"pid": 42, "uid": 0, "start_time_ticks": 100, "executable_device": 8, "executable_inode": 20},
+        "target": {"kind": "process", "pid": 77, "start_time_ticks": 500, "executable_device": 8, "executable_inode": 90, "signal": 9},
+        "effect_mask": 2, "operation_mask": 512,
+        "policy_reason": "exact_process_control_authority_missing_or_invalid",
+        "authority_state": "not-current", "result": "prevented",
+        "host_mutation_performed": False, "compromise_evidence": False,
+    }
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="guardian-prevention-") as temporary:
         root = Path(temporary)
@@ -44,6 +57,10 @@ def main() -> None:
         check("single prevention is durable bounded evidence", single["state"] == "recording" and single["prevented_count"] == 1)
         check("prevented mutation performed no host mutation", single["recent"][0]["host_mutation_performed"] is False)
         check("prevention is not compromise evidence", single["recent"][0]["compromise_evidence"] is False and single["trust_effect"] == "none")
+        (root / "events.jsonl").write_text(json.dumps(process_event()) + "\n", encoding="utf-8")
+        process = prevention_status(root, now=NOW)
+        check("protected process signal denial is valid prevention evidence", process["prevented_count"] == 1 and process["recent"][0]["target"]["kind"] == "process")
+        check("prevented process control is not compromise evidence", process["recent"][0]["compromise_evidence"] is False and process["trust_effect"] == "none")
         rows = [event(effect=8, inode=40), event(effect=16, inode=41), event(effect=8, inode=42)]
         (root / "events.jsonl").write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
         correlated = prevention_status(root, now=NOW)

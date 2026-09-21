@@ -41,9 +41,34 @@ denied symlink /bin/helper symlink /ordinary/normal /protected/link
 /bin/helper bind /protected /ordinary/bind || fail bind-mount
 denied bind-alias /bin/helper write /ordinary/bind/critical
 /bin/helper namespace-write /protected /ordinary/nsbind >/dev/null 2>&1 && fail namespace-bypass || pass namespace-denied
+
+/bin/helper protected-loop &
+protected=$!
+/bin/helper register-process "$protected" 2 || fail process-register
+pass process-protected-registration
+denied direct-signal /bin/helper signal "$protected" 9
+/bin/kill -0 "$protected" 2>/dev/null || fail protected-target-lost
+denied pkill /bin/pkill -9 helper
+denied python-signal /usr/bin/python -S /signal_payload.py "$protected"
+denied opaque-signal /bin/opaque signal "$protected" 9
+denied indirect-signal /bin/sh -c "/bin/opaque signal $protected 9"
+denied expired-signal /bin/helper expired-signal "$protected" 9
+denied wrong-start-signal /bin/helper wrong-start-signal "$protected" 9
+denied wrong-signal-authority /bin/helper wrong-signal-authority "$protected" 9
+ordinary=$(/bin/sh -c '/bin/sleep 1000 >/dev/null 2>&1 & echo $!')
+/bin/helper signal "$ordinary" 9 || fail ordinary-kill
+pass ordinary-kill
+/bin/helper authorized-signal "$protected" 15 || fail exact-signal-authority-call
+/bin/sleep 1
+if /bin/kill -0 "$protected" 2>/dev/null; then fail exact-signal-target-lived; fi
+pass exact-signal-authority
+
 /bin/helper churn /ordinary 1500 || fail post-benchmark
 pass ordinary-churn
 /bin/sleep 1
+grep -q '"policy_reason":"exact_process_control_authority_missing_or_invalid"' /var/lib/maho/prevention/events.jsonl || fail process-evidence
+grep -q '"kind":"process"' /var/lib/maho/prevention/events.jsonl || fail process-evidence-kind
+pass process-evidence
 kill "$reader" 2>/dev/null
 /bin/sleep 1
 grep -q '"host_mutation_performed":false' /var/lib/maho/prevention/events.jsonl || fail evidence
