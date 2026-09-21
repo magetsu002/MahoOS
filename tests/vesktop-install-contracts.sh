@@ -38,6 +38,8 @@ DESKTOP="$XDG_DATA_HOME/applications/vesktop.desktop"
 grep -Fqx '# managed-by: maho-vesktop-install v1' "$WRAPPER"
 grep -Fqx 'RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime/current"' "$WRAPPER"
 grep -Fqx "Exec=$WRAPPER %U" "$DESKTOP"
+grep -Fqx 'Terminal=false' "$DESKTOP"
+grep -Fqx 'Type=Application' "$DESKTOP"
 grep -Fqx 'MimeType=x-scheme-handler/discord;' "$DESKTOP"
 grep -Fqx 'default vesktop.desktop x-scheme-handler/discord' "$XDG_CONFIG_HOME/xdg-mime.calls"
 

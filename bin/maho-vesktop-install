@@ -25,7 +25,8 @@ render_desktop() {
 # managed-by: maho-vesktop-install v1
 Name=Vesktop
 Exec=$WRAPPER %U
-Terminal=falseType=Application
+Terminal=false
+Type=Application
 Icon=vesktop
 StartupWMClass=vesktop
 GenericName=Internet Messenger
