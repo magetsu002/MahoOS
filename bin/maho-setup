@@ -739,6 +739,7 @@ install_platform() {
   account="$(id -un)"
 
   sudo env MAHO_PLATFORM_USER="$account" bash "$installer" install
+  sudo env MAHO_PLATFORM_USER="$account" bash "$installer" early-kms-refresh
   sudo env MAHO_PLATFORM_USER="$account" bash "$installer" status
 }
 
@@ -846,8 +847,9 @@ configuration.
 --with-sddm explicitly installs and verifies the persistent Maho Lock greeter
 without restarting SDDM or the current graphical session.
 --with-platform installs the singleton Secret Service activation, explicit
-Hyprland portal selection, RTKit, and systemd-timesyncd clock authority. It
-does not restart the current graphical session.
+Hyprland portal selection, RTKit, systemd-timesyncd clock authority, and the
+verified early hybrid-GPU KMS initramfs policy. It does not restart the current
+graphical session or change firmware/Secure Boot state.
 HELP
   ;;
 esac

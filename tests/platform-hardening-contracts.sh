@@ -34,6 +34,7 @@ export MAHO_PLATFORM_DBUS_ROOT="$TMP/dbus"
 export MAHO_PLATFORM_ZRAM_ROOT="$TMP/zram"
 export MAHO_PLATFORM_SYSTEMD_ROOT="$TMP/systemd-system"
 export MAHO_PLATFORM_USER_SYSTEMD_ROOT="$TMP/systemd-user"
+export MAHO_PLATFORM_MKINITCPIO_ROOT="$TMP/mkinitcpio"
 export MAHO_PLATFORM_STATE_ROOT="$TMP/state"
 export MAHO_PLATFORM_LOCK_FILE="$TMP/maho-platform.lock"
 export MAHO_PLATFORM_SYSTEM_UNIT_DIRS="$TMP/deps/system"
@@ -42,11 +43,13 @@ export MAHO_PLATFORM_PORTAL_DATA_ROOT="$TMP/deps/portals"
 export MAHO_PLATFORM_ZRAM_GENERATOR="$TMP/deps/zram-generator"
 export MAHO_PLATFORM_GNOME_KEYRING="$TMP/deps/gnome-keyring-daemon"
 export MAHO_PLATFORM_BTRFS="$TMP/deps/btrfs"
+export MAHO_PLATFORM_MKINITCPIO="$TMP/deps/mkinitcpio"
+export MAHO_PLATFORM_LSINITCPIO="$TMP/deps/lsinitcpio"
 mkdir -p "$TMP/deps/system" "$TMP/deps/user" "$TMP/deps/portals"
 for unit in systemd-timesyncd.service systemd-oomd.service rtkit-daemon.service; do printf '[Unit]\nDescription=fixture\n' > "$TMP/deps/system/$unit"; done
 printf '[Unit]\nDescription=fixture\n' > "$TMP/deps/user/gnome-keyring-daemon.service"
 for portal in gtk.portal hyprland.portal gnome-keyring.portal; do printf '[portal]\nDBusName=fixture\n' > "$TMP/deps/portals/$portal"; done
-for dep in "$MAHO_PLATFORM_ZRAM_GENERATOR" "$MAHO_PLATFORM_GNOME_KEYRING" "$MAHO_PLATFORM_BTRFS"; do printf '#!/usr/bin/env bash\nexit 0\n' > "$dep"; chmod +x "$dep"; done
+for dep in "$MAHO_PLATFORM_ZRAM_GENERATOR" "$MAHO_PLATFORM_GNOME_KEYRING" "$MAHO_PLATFORM_BTRFS" "$MAHO_PLATFORM_MKINITCPIO" "$MAHO_PLATFORM_LSINITCPIO"; do printf '#!/usr/bin/env bash\nexit 0\n' > "$dep"; chmod +x "$dep"; done
 
 echo "=== deliberate platform authorities ==="
 "$INSTALLER" preflight >/dev/null
@@ -87,9 +90,47 @@ grep -Fxq 'Include = /etc/pacman.d/cachyos-mirrorlist' "$TMP/maho/pacman.conf" \
 grep -Fxq 'Usage = Sync Search Install Upgrade' "$TMP/maho/pacman.conf" \
     || fail "canonical Maho Pacman authority disables CachyOS upgrades"
 [ ! -e "$TMP/sysctl" ] || fail "uncertified sysctl candidate was installed"
+grep -Fxq 'MODULES=(i915 nvidia nvidia_modeset nvidia_uvm nvidia_drm)' "$TMP/mkinitcpio/60-maho-early-kms.conf" \
+    || fail "hybrid GPU modules are not pinned into early KMS"
 if grep -Eq '(restart|try-restart).*(xdg-desktop-portal|gnome-keyring)' "$MAHO_TEST_SYSTEMCTL_LOG"; then
     fail "platform install disrupted the current graphical session"
 fi
+echo PASS
+
+echo "=== early KMS refresh verifies both bootable kernels ==="
+export MAHO_PLATFORM_INITRAMFS_IMAGES="$TMP/boot/primary.img:$TMP/boot/fallback.img"
+export MAHO_TEST_EARLY_KMS_STATE="$TMP/early-kms-built"
+mkdir -p "$TMP/boot"
+printf 'old-primary\n' > "$TMP/boot/primary.img"
+printf 'old-fallback\n' > "$TMP/boot/fallback.img"
+cat > "$MAHO_PLATFORM_MKINITCPIO" <<'EOF_MKINITCPIO'
+#!/usr/bin/env bash
+[ "$*" = '-P' ] || exit 2
+printf 'built\n' > "$MAHO_TEST_EARLY_KMS_STATE"
+printf 'new-primary\n' > "${MAHO_PLATFORM_INITRAMFS_IMAGES%%:*}"
+printf 'new-fallback\n' > "${MAHO_PLATFORM_INITRAMFS_IMAGES#*:}"
+EOF_MKINITCPIO
+cat > "$MAHO_PLATFORM_LSINITCPIO" <<'EOF_LSINITCPIO'
+#!/usr/bin/env bash
+printf 'usr/lib/modules/test/i915.ko.zst\n'
+[ -f "$MAHO_TEST_EARLY_KMS_STATE" ] || exit 0
+for module in nvidia nvidia_modeset nvidia_uvm nvidia_drm; do
+    printf 'usr/lib/modules/test/%s.ko.zst\n' "$module"
+done
+EOF_LSINITCPIO
+chmod +x "$MAHO_PLATFORM_MKINITCPIO" "$MAHO_PLATFORM_LSINITCPIO"
+if "$INSTALLER" early-kms-status >/dev/null 2>&1; then fail "incomplete initramfs passed early-KMS status"; fi
+"$INSTALLER" early-kms-refresh >/dev/null
+"$INSTALLER" early-kms-status >/dev/null
+python - "$MAHO_PLATFORM_STATE_ROOT/early-kms-refresh.json" <<'PY_EARLY_KMS'
+import json,sys
+from pathlib import Path
+value=json.loads(Path(sys.argv[1]).read_text())
+assert value['kind']=='maho-early-kms-refresh' and value['verified'] is True
+assert value['secure_boot_modified'] is False and value['firmware_modified'] is False
+assert set(value['modules'])=={'i915','nvidia','nvidia_modeset','nvidia_uvm','nvidia_drm'}
+assert set(value['before'])==set(value['after']) and value['before'] != value['after']
+PY_EARLY_KMS
 echo PASS
 
 echo "=== existing clock authority is protected ==="

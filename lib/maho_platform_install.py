@@ -43,6 +43,7 @@ class PlatformInstaller:
         self.zram_root = env_path("MAHO_PLATFORM_ZRAM_ROOT", "/etc/systemd/zram-generator.conf.d")
         self.systemd_root = env_path("MAHO_PLATFORM_SYSTEMD_ROOT", "/etc/systemd/system")
         self.user_systemd_root = env_path("MAHO_PLATFORM_USER_SYSTEMD_ROOT", "/etc/systemd/user")
+        self.mkinitcpio_root = env_path("MAHO_PLATFORM_MKINITCPIO_ROOT", "/etc/mkinitcpio.conf.d")
         self.state_root = env_path("MAHO_PLATFORM_STATE_ROOT", "/var/lib/maho-platform")
         self.lock_file = env_path("MAHO_PLATFORM_LOCK_FILE", "/run/lock/maho-platform-install.lock")
         self.allow_unprivileged = os.environ.get("MAHO_PLATFORM_ALLOW_UNPRIVILEGED") == "1"
@@ -52,6 +53,14 @@ class PlatformInstaller:
         self.zram_generator = env_path("MAHO_PLATFORM_ZRAM_GENERATOR", "/usr/lib/systemd/system-generators/zram-generator")
         self.gnome_keyring = env_path("MAHO_PLATFORM_GNOME_KEYRING", "/usr/bin/gnome-keyring-daemon")
         self.btrfs = env_path("MAHO_PLATFORM_BTRFS", "/usr/bin/btrfs")
+        self.mkinitcpio = env_path("MAHO_PLATFORM_MKINITCPIO", "/usr/bin/mkinitcpio")
+        self.lsinitcpio = env_path("MAHO_PLATFORM_LSINITCPIO", "/usr/bin/lsinitcpio")
+        self.initramfs_images = tuple(
+            Path(item) for item in os.environ.get(
+                "MAHO_PLATFORM_INITRAMFS_IMAGES",
+                "/boot/initramfs-linux-cachyos.img:/boot/initramfs-linux-cachyos-lts.img",
+            ).split(":") if item
+        )
         self.boot_root = env_path("MAHO_PLATFORM_BOOT_ROOT", "/boot")
         self.bootctl = env_path("MAHO_PLATFORM_BOOTCTL", "/usr/bin/bootctl")
         self.findmnt = env_path("MAHO_PLATFORM_FINDMNT", "/usr/bin/findmnt")
@@ -82,6 +91,7 @@ class PlatformInstaller:
             ("portal", self.source / "maho-portals.conf", self.portal_root / "maho-portals.conf"),
             ("timesync", self.source / "systemd-timesyncd.conf", self.timesync_root / "60-maho.conf"),
             ("zram", self.source / "zram-generator.conf", self.zram_root / "60-maho.conf"),
+            ("early-kms", self.source / "mkinitcpio-early-kms.conf", self.mkinitcpio_root / "60-maho-early-kms.conf"),
             ("user-slice-oom", self.source / "user-.slice-memory-pressure.conf", self.systemd_root / "user-.slice.d/60-maho-memory-pressure.conf"),
             ("shell-oom", self.source / "maho-shell-memory-pressure.conf", self.user_systemd_root / "maho-shell.service.d/60-maho-memory-pressure.conf"),
             ("signed-boot-guard", self.source / "limine-snapper-sync-signed-boot.conf", self.systemd_root / "limine-snapper-sync.service.d/60-maho-signed-boot.conf"),
@@ -226,6 +236,7 @@ class PlatformInstaller:
             self.zram_root: Path("/etc/systemd/zram-generator.conf.d"),
             self.systemd_root: Path("/etc/systemd/system"),
             self.user_systemd_root: Path("/etc/systemd/user"),
+            self.mkinitcpio_root: Path("/etc/mkinitcpio.conf.d"),
             self.state_root: Path("/var/lib/maho-platform"),
         }
         if self.allow_unprivileged and all(actual != default for actual, default in defaults.items()):
@@ -292,6 +303,10 @@ class PlatformInstaller:
             errors.append("zram-generator unavailable")
         if not self.btrfs.is_file() or not os.access(self.btrfs, os.X_OK):
             errors.append("btrfs tooling unavailable")
+        if not self.mkinitcpio.is_file() or not os.access(self.mkinitcpio, os.X_OK):
+            errors.append("mkinitcpio unavailable")
+        if not self.lsinitcpio.is_file() or not os.access(self.lsinitcpio, os.X_OK):
+            errors.append("lsinitcpio unavailable")
         if not self.gnome_keyring.is_file() or not os.access(self.gnome_keyring, os.X_OK):
             errors.append("GNOME Keyring unavailable")
         for portal in ("gtk.portal", "hyprland.portal", "gnome-keyring.portal"):
@@ -725,6 +740,93 @@ class PlatformInstaller:
         print("PASS  timesyncd, oomd, zram, RTKit, and scrub timer provider states")
         return 0
 
+    @staticmethod
+    def _sha256(path: Path) -> str | None:
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def _early_kms_errors(self) -> list[str]:
+        errors: list[str] = []
+        source = self.source / "mkinitcpio-early-kms.conf"
+        target = self.mkinitcpio_root / "60-maho-early-kms.conf"
+        if not self._exact(source, target):
+            errors.append("managed early-KMS policy is not installed exactly")
+        required = {"i915", "nvidia", "nvidia_modeset", "nvidia_uvm", "nvidia_drm"}
+        for image in self.initramfs_images:
+            if not image.is_file():
+                errors.append(f"initramfs image unavailable: {image}")
+                continue
+            result = self._run([str(self.lsinitcpio), str(image)])
+            if result.returncode != 0:
+                errors.append(f"cannot inspect initramfs image: {image}")
+                continue
+            found: set[str] = set()
+            for line in result.stdout.splitlines():
+                name = Path(line.strip()).name
+                for compression in (".zst", ".xz", ".gz", ".lz4"):
+                    if name.endswith(compression):
+                        name = name[:-len(compression)]
+                if name.endswith(".ko"):
+                    name = name[:-3]
+                if name in required:
+                    found.add(name)
+            missing = sorted(required - found)
+            if missing:
+                errors.append(f"initramfs lacks early KMS modules {','.join(missing)}: {image}")
+        return errors
+
+    def early_kms_status(self) -> int:
+        errors = self._early_kms_errors()
+        if errors:
+            for error in errors:
+                print(f"FAIL  {error}")
+            return 1
+        print("PASS  primary and fallback initramfs contain i915 plus the complete NVIDIA DRM stack")
+        print("PASS  next boot has the required early-KMS payload; verify live ordering with maho doctor")
+        return 0
+
+    def early_kms_refresh(self) -> int:
+        self.require_authority()
+        source = self.source / "mkinitcpio-early-kms.conf"
+        target = self.mkinitcpio_root / "60-maho-early-kms.conf"
+        if not self._exact(source, target):
+            raise PlatformError("install exact managed platform policy before refreshing early KMS")
+        before = {str(path): self._sha256(path) for path in self.initramfs_images}
+        if not self._early_kms_errors():
+            print("PASS  early-KMS initramfs state already exact; rebuild not required")
+            return 0
+        result = self._run([str(self.mkinitcpio), "-P"])
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "mkinitcpio failed").strip().splitlines()[-1]
+            raise PlatformError(f"early-KMS initramfs refresh failed: {detail}")
+        errors = self._early_kms_errors()
+        if errors:
+            raise PlatformError("early-KMS verification failed: " + "; ".join(errors))
+        after = {str(path): self._sha256(path) for path in self.initramfs_images}
+        receipt = {
+            "schema_version": 1,
+            "kind": "maho-early-kms-refresh",
+            "source_revision": self.source_revision(),
+            "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "command": [str(self.mkinitcpio), "-P"],
+            "policy": str(target),
+            "modules": ["i915", "nvidia", "nvidia_modeset", "nvidia_uvm", "nvidia_drm"],
+            "before": before,
+            "after": after,
+            "verified": True,
+            "secure_boot_modified": False,
+            "firmware_modified": False,
+        }
+        self._atomic_private_bytes(
+            self.state_root / "early-kms-refresh.json",
+            (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode(),
+        )
+        print("PASS  rebuilt and verified primary/fallback initramfs with early hybrid-GPU KMS")
+        print(f"PASS  receipt {self.state_root / 'early-kms-refresh.json'}")
+        return 0
+
     def uninstall(self) -> int:
         self.require_authority()
         for _, _, target in self.files:
@@ -742,7 +844,7 @@ class PlatformInstaller:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="maho-platform-install")
-    parser.add_argument("command", choices=("preflight", "install", "status", "uninstall", "esp-seed-status", "esp-seed-harden"))
+    parser.add_argument("command", choices=("preflight", "install", "status", "uninstall", "esp-seed-status", "esp-seed-harden", "early-kms-status", "early-kms-refresh"))
     args = parser.parse_args(argv)
     root = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.parent)
     installer = PlatformInstaller(root)
@@ -763,6 +865,10 @@ def main(argv: list[str] | None = None) -> int:
             return installer.esp_seed_status()
         if args.command == "esp-seed-harden":
             return installer.harden_esp_seed()
+        if args.command == "early-kms-status":
+            return installer.early_kms_status()
+        if args.command == "early-kms-refresh":
+            return installer.early_kms_refresh()
         return installer.uninstall()
     except PlatformError as exc:
         print(f"maho-platform-install: {exc}", file=sys.stderr)

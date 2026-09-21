@@ -18,6 +18,7 @@ from maho_adaptive_shadow import doctor_report as behavior_doctor
 from maho_adaptive_shadow import repo_root, state_root as behavior_state_root
 from maho_behavior_preferences import BehaviorPreferences, load_preferences
 from maho_update_cli import status_payload as update_status
+from maho_login_diagnostic import collect_login_diagnostic
 
 
 DIAGNOSTIC_STATES = frozenset({"PASS", "WARN", "FAIL", "UNKNOWN", "BLOCKED"})
@@ -70,6 +71,7 @@ class SystemModel:
     behavior: Mapping[str, Any]
     behavior_doctor: Mapping[str, Any]
     recovery: Mapping[str, Any]
+    login: Mapping[str, Any]
     preferences: BehaviorPreferences
     collection_errors: tuple[str, ...] = ()
 
@@ -89,6 +91,7 @@ class SystemModel:
                 "behavior": dict(self.behavior),
                 "behavior_doctor": dict(self.behavior_doctor),
                 "recovery": dict(self.recovery),
+                "login": dict(self.login),
             }
         return result
 
@@ -134,6 +137,7 @@ def _diagnostics(
     guardian: Mapping[str, Any], update: Mapping[str, Any], behavior: Mapping[str, Any],
     adaptive_doctor: Mapping[str, Any], recovery: Mapping[str, Any],
     preferences: BehaviorPreferences, collection_errors: Sequence[str],
+    login: Mapping[str, Any] | None = None,
 ) -> tuple[DiagnosticRecord, ...]:
     records: list[DiagnosticRecord] = []
     world_guardian = _world_guardian(guardian)
@@ -154,6 +158,21 @@ def _diagnostics(
         "platform.reliability", "Platform", rel_diag, "Operational reliability",
         f"Reliability is {reliability_state}; {counts.get('healthy', 0)} healthy, {counts.get('degraded', 0)} degraded, {counts.get('unknown', 0)} unknown findings.",
         ("guardian.reliability",), "Inspect the non-healthy reliability findings." if rel_diag != "PASS" else "No action required.",
+    ))
+
+    login = login or {}
+    login_state = str(login.get("state", "UNKNOWN")).upper()
+    failed_login = login.get("failed_checks") if isinstance(login.get("failed_checks"), list) else []
+    login_reason = (
+        "Current boot reached an active display manager and instantiated the SDDM greeter after required GPU readiness."
+        if login_state == "PASS" else
+        "Current boot login evidence is incomplete: " + (", ".join(map(str, failed_login)) or "collector unavailable")
+    )
+    records.append(_diag(
+        "platform.login", "Platform/Login", login_state if login_state in DIAGNOSTIC_STATES else "UNKNOWN",
+        "Graphical login contract", login_reason,
+        ("login.current_boot",),
+        "Inspect current-boot SDDM, seat/VT, runtime, session, and DRM ordering evidence." if login_state != "PASS" else "No action required.",
     ))
 
     self_health = _object(world_guardian.get("self_health"))
@@ -314,11 +333,11 @@ def build_system_model(
     *, guardian: Mapping[str, Any], update: Mapping[str, Any],
     behavior: Mapping[str, Any] | None, adaptive_doctor: Mapping[str, Any],
     recovery: Mapping[str, Any], preferences: BehaviorPreferences,
-    collection_errors: Sequence[str] = (),
+    collection_errors: Sequence[str] = (), login: Mapping[str, Any] | None = None,
 ) -> SystemModel:
     behavior_map = behavior or {}
     diagnostics = _diagnostics(
-        guardian, update, behavior_map, adaptive_doctor, recovery, preferences, collection_errors,
+        guardian, update, behavior_map, adaptive_doctor, recovery, preferences, collection_errors, login,
     )
     world_guardian = _world_guardian(guardian)
     reliability_state = str(_object(guardian.get("reliability")).get("state", "unknown")).lower()
@@ -362,7 +381,7 @@ def build_system_model(
         summary=summary, diagnostics=diagnostics,
         events=_events(guardian, update, behavior_map, recovery),
         guardian=guardian, update=update, behavior=behavior_map,
-        behavior_doctor=adaptive_doctor, recovery=recovery, preferences=preferences,
+        behavior_doctor=adaptive_doctor, recovery=recovery, login=login or {}, preferences=preferences,
         collection_errors=tuple(collection_errors),
     )
 
@@ -391,9 +410,10 @@ def collect_system_model(paths: LivePaths | None = None) -> SystemModel:
             paths.recovery_root, runtime_campaign_root=DEFAULT_RUNTIME_CAMPAIGN_ROOT,
         ), {},
     )
+    login = collect("login", collect_login_diagnostic, {"state": "UNKNOWN", "failed_checks": ["collector_unavailable"]})
     preferences = load_preferences()
     return build_system_model(
         guardian=guardian, update=update, behavior=behavior,
         adaptive_doctor=adaptive_doctor, recovery=recovery,
-        preferences=preferences, collection_errors=errors,
+        preferences=preferences, collection_errors=errors, login=login,
     )

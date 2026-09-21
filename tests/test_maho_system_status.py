@@ -44,6 +44,7 @@ def build(**overrides):
         "adaptive_doctor": {"healthy": True, "lease_state": "ok", "maintenance_projection_state": "absent"},
         "recovery": {"recovery_modes": ["RUNTIME"], "last_verified_runtime_recovery": {"valid": True, "campaign_id": "runtime-test", "reason": "verified"}, "invalid_unified_history_records": 0},
         "preferences": defaults(),
+        "login": {"state": "PASS", "failed_checks": []},
     }
     values.update(overrides)
     return build_system_model(**values)
@@ -57,6 +58,8 @@ def main() -> None:
     check("missing boot trust receives review attention", model.summary.attention == "REVIEW")
     check("doctor records use the bounded schema", all(set(item.__dict__) == {"id", "subsystem", "state", "summary", "reason", "evidence_refs", "recommended_action", "attention"} for item in model.diagnostics))
     check("doctor record identities are unique", len({item.id for item in model.diagnostics}) == len(model.diagnostics))
+    login = next(item for item in model.diagnostics if item.id == "platform.login")
+    check("Doctor exposes a distinct Platform/Login contract", login.state == "PASS" and login.subsystem == "Platform/Login")
     check("system model is stable JSON", json.loads(json.dumps(model.as_dict()))["schema_version"] == 1)
 
     degraded = build(guardian=guardian_fixture(reliability="degraded", trust="VERIFIED", incident_level=2))

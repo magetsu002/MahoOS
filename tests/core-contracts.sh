@@ -237,6 +237,8 @@ bash "$ROOT/tests/vm-certification-contracts.sh"
 echo "=== Adaptive policy A1-A16 ==="
 python "$ROOT/tests/test_behavior_preferences.py"
 python "$ROOT/tests/test_maho_system_status.py"
+python "$ROOT/tests/test_maho_login_diagnostic.py"
+python "$ROOT/tests/test_boot_reliability_campaign.py"
 python "$ROOT/tests/test_maho_system_tui.py"
 python "$ROOT/tests/test_maho_system_cli.py"
 for test in "$ROOT"/tests/test_adaptive_*.py; do
