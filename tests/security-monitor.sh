@@ -27,7 +27,9 @@ fail() {
     exit 1
 }
 
-mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$DB/alpha-1.0-1" "$FS/tmp" "$PROC"
+mkdir -p "$HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$DB/alpha-1.0-1" "$FS/tmp" "$PROC/sys/kernel/random"
+printf '%s
+' 'fixture-boot' > "$PROC/sys/kernel/random/boot_id"
 
 write_alpha() {
     local version="$1"
@@ -88,6 +90,26 @@ assert value.get("provider_id") == "security.integrity"
 assert value.get("last_attempt_at")
 assert value.get("sequence") == 1
 PY_INTEGRITY_HEARTBEAT
+echo "PASS"
+
+echo "=== integrity throttle cannot reuse a previous-boot heartbeat ==="
+python - "$INTEGRITY_PROVIDER" <<'PY_STALE_BOOT'
+import json,sys
+from pathlib import Path
+path=Path(sys.argv[1])
+value=json.loads(path.read_text())
+value["boot_id"]="previous-boot"
+path.write_text(json.dumps(value,indent=2,sort_keys=True)+"\n")
+PY_STALE_BOOT
+date +%s > "$STATE/monitor-v2/integrity-last-run"
+bash "$MONITOR" cycle
+python - "$INTEGRITY_PROVIDER" <<'PY_CURRENT_BOOT'
+import json,sys
+from pathlib import Path
+value=json.loads(Path(sys.argv[1]).read_text())
+assert value.get("boot_id") == "fixture-boot"
+assert value.get("sequence") == 2
+PY_CURRENT_BOOT
 echo "PASS"
 
 echo "=== identical package state is quiet ==="
