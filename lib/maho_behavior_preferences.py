@@ -12,7 +12,7 @@ from typing import Any, Iterable, Mapping
 from maho_adaptive_proposal import AdaptationProposal, Effect, create_proposal
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -27,33 +27,45 @@ class PreferenceSpec:
 SPECS = (
     PreferenceSpec(
         "focus.quiet_notifications",
-        "Quiet noncritical notifications while gaming",
+        "Quiet noncritical notifications during games/fullscreen media",
         "Focus",
-        "Restricts the certified notification presentation effect only.",
+        "Controls only Maho's certified noncritical notification presentation; explicit DND remains separate.",
     ),
     PreferenceSpec(
         "focus.pause_maintenance_gaming",
         "Pause optional maintenance while gaming",
         "Focus",
-        "Restricts the certified maintenance veto from the gaming policy.",
+        "Prevents optional Maho maintenance from competing with a detected game.",
     ),
     PreferenceSpec(
-        "focus.pause_maintenance_heavy_work",
-        "Pause optional maintenance during heavy work",
+        "focus.pause_maintenance_interactive",
+        "Pause optional maintenance during focused interactive work",
         "Focus",
-        "Applies to interactive, compile, and rendering context policies.",
+        "Protects high-confidence foreground interactive work without changing the application itself.",
+    ),
+    PreferenceSpec(
+        "focus.pause_maintenance_builds",
+        "Pause optional maintenance during sustained builds",
+        "Focus",
+        "Keeps optional maintenance out of the way while a sustained compile/build is detected.",
+    ),
+    PreferenceSpec(
+        "focus.pause_maintenance_rendering",
+        "Pause optional maintenance during rendering/encoding",
+        "Focus",
+        "Keeps optional maintenance out of the way while sustained rendering or encoding is detected.",
     ),
     PreferenceSpec(
         "power.pause_maintenance_low_battery",
         "Pause optional maintenance on low battery",
         "Power",
-        "Restricts only the maintenance effect; other policy remains non-executable unless certified elsewhere.",
+        "Controls only the certified maintenance veto; unrelated battery policy stays non-executable unless separately certified.",
     ),
     PreferenceSpec(
         "thermal.pause_maintenance_hot",
         "Pause optional maintenance under sustained heat",
         "Thermals",
-        "Does not suppress a separate hardware or recovery safety authority.",
+        "Controls convenience maintenance deferral, never independent hardware/data-safety authority.",
     ),
 )
 SPEC_BY_KEY = {item.key: item for item in SPECS}
@@ -91,19 +103,41 @@ def defaults() -> BehaviorPreferences:
 
 def parse_preferences(payload: Mapping[str, Any]) -> BehaviorPreferences:
     issues: list[str] = []
-    if payload.get("schema_version") != SCHEMA_VERSION:
+    version = payload.get("schema_version")
+    if version not in {1, SCHEMA_VERSION}:
         return BehaviorPreferences(defaults().values, ("unsupported_schema",))
     raw = payload.get("preferences")
     if not isinstance(raw, Mapping):
         return BehaviorPreferences(defaults().values, ("preferences_not_an_object",))
+
+    # V1 exposed one broad "heavy work" switch. V2 keeps the user's choice but
+    # splits it into interactive/build/rendering intentions so Behavior is
+    # actually customizable rather than a collection of broad implementation
+    # buckets.
+    legacy_heavy = raw.get("focus.pause_maintenance_heavy_work", True)
+    if version == 1 and not isinstance(legacy_heavy, bool):
+        issues.append("invalid_boolean:focus.pause_maintenance_heavy_work")
+        legacy_heavy = True
+
     values: dict[str, bool] = {}
     for spec in SPECS:
-        value = raw.get(spec.key, spec.default)
+        if version == 1 and spec.key in {
+            "focus.pause_maintenance_interactive",
+            "focus.pause_maintenance_builds",
+            "focus.pause_maintenance_rendering",
+        }:
+            value = raw.get(spec.key, legacy_heavy)
+        else:
+            value = raw.get(spec.key, spec.default)
         if not isinstance(value, bool):
             issues.append(f"invalid_boolean:{spec.key}")
             value = spec.default
         values[spec.key] = value
-    unknown = tuple(sorted(key for key in raw if isinstance(key, str) and key not in SPEC_BY_KEY))
+
+    known = set(SPEC_BY_KEY)
+    if version == 1:
+        known.add("focus.pause_maintenance_heavy_work")
+    unknown = tuple(sorted(key for key in raw if isinstance(key, str) and key not in known))
     return BehaviorPreferences(values, tuple(issues), unknown)
 
 
@@ -130,12 +164,22 @@ def write_preference(key: str, value: bool, path: Path | None = None) -> Behavio
     if destination.exists():
         try:
             loaded = json.loads(destination.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict) and loaded.get("schema_version") == SCHEMA_VERSION:
+            if isinstance(loaded, dict) and loaded.get("schema_version") in {1, SCHEMA_VERSION}:
                 raw = loaded
         except (OSError, UnicodeError, json.JSONDecodeError):
             raw = {}
     preferences = raw.get("preferences")
     preserved = dict(preferences) if isinstance(preferences, Mapping) else {}
+    if raw.get("schema_version") == 1:
+        legacy_heavy = preserved.pop("focus.pause_maintenance_heavy_work", True)
+        if not isinstance(legacy_heavy, bool):
+            legacy_heavy = True
+        for migrated_key in (
+            "focus.pause_maintenance_interactive",
+            "focus.pause_maintenance_builds",
+            "focus.pause_maintenance_rendering",
+        ):
+            preserved.setdefault(migrated_key, legacy_heavy)
     preserved[key] = value
     raw.update({"schema_version": SCHEMA_VERSION, "preferences": preserved})
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -215,10 +259,12 @@ def apply_preferences(
                 pref = "focus.quiet_notifications"
             elif effect.key == "maintenance" and proposal.source_policy == "gaming.foreground":
                 pref = "focus.pause_maintenance_gaming"
-            elif effect.key == "maintenance" and proposal.source_policy in {
-                "workload.interactive", "compile.sustained", "render.sustained",
-            }:
-                pref = "focus.pause_maintenance_heavy_work"
+            elif effect.key == "maintenance" and proposal.source_policy == "workload.interactive":
+                pref = "focus.pause_maintenance_interactive"
+            elif effect.key == "maintenance" and proposal.source_policy == "compile.sustained":
+                pref = "focus.pause_maintenance_builds"
+            elif effect.key == "maintenance" and proposal.source_policy == "render.sustained":
+                pref = "focus.pause_maintenance_rendering"
             elif effect.key == "maintenance" and proposal.source_policy.startswith("battery."):
                 pref = "power.pause_maintenance_low_battery"
             elif effect.key == "maintenance" and proposal.source_policy.startswith("thermal."):

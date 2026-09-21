@@ -201,11 +201,24 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
     current.append("Returns to normal automatically after the condition and cooldown clear.")
     prefs = []
     selected = min(max(state.row_index, 0), len(SPECS) - 1)
+    last_group = None
     for index, spec in enumerate(SPECS):
+        if spec.group != last_group:
+            if prefs:
+                prefs.append("")
+            prefs.append(spec.group.upper())
+            last_group = spec.group
         cursor = ">" if index == selected else " "
         mark = "ON " if model.preferences.enabled(spec.key) else "OFF"
         prefs.append(f"{cursor} [{mark}] {spec.label}")
-    prefs += ["", "Convenience controls cannot disable Guardian, trust, or recovery coordination."]
+    selected_spec = SPECS[selected]
+    prefs += [
+        "",
+        f"Selected: {selected_spec.description}",
+        "",
+        "These switches restrict already-certified convenience behavior only.",
+        "Guardian, trust, recovery, and independent safety coordination cannot be disabled here.",
+    ]
     return box("Current automatic behavior", current, width) + [""] + box("Preferences", prefs, width)
 
 
