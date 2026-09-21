@@ -1,0 +1,280 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Kernel-enforced target/effect boundary.  No command names are inspected. */
+#include <linux/bpf.h>
+#include <linux/errno.h>
+#include <linux/fcntl.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_tracing.h>
+
+#include "maho_prevention_shared.h"
+
+typedef unsigned int dev_t;
+typedef unsigned short umode_t;
+
+struct super_block { dev_t s_dev; } __attribute__((preserve_access_index));
+struct inode {
+    umode_t i_mode;
+    struct super_block *i_sb;
+    __u64 i_ino;
+} __attribute__((preserve_access_index));
+struct dentry {
+    struct dentry *d_parent;
+    struct inode *d_inode;
+} __attribute__((preserve_access_index));
+struct vfsmount;
+struct path { struct vfsmount *mnt; struct dentry *dentry; } __attribute__((preserve_access_index));
+struct file {
+    unsigned int f_flags;
+    struct path f_path;
+} __attribute__((preserve_access_index));
+struct mm_struct { struct file *exe_file; } __attribute__((preserve_access_index));
+struct task_struct {
+    struct mm_struct *mm;
+    __u64 start_boottime;
+} __attribute__((preserve_access_index));
+struct iattr;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 65536);
+    __type(key, struct maho_object_key);
+    __type(value, struct maho_protected_value);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} protected_objects SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, struct maho_authority_key);
+    __type(value, struct maho_authority_value);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} mutation_authorities SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u32);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} enforcement_state SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 20);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} prevention_events SEC(".maps");
+
+static __always_inline int active(void)
+{
+    __u32 key = 0;
+    __u32 *value = bpf_map_lookup_elem(&enforcement_state, &key);
+    return value && *value == 1;
+}
+
+static __always_inline int inode_key(struct inode *inode, struct maho_object_key *key)
+{
+    struct super_block *sb;
+    if (!inode)
+        return -1;
+    sb = BPF_CORE_READ(inode, i_sb);
+    if (!sb)
+        return -1;
+    key->dev = BPF_CORE_READ(sb, s_dev);
+    key->ino = BPF_CORE_READ(inode, i_ino);
+    return 0;
+}
+
+static __always_inline struct maho_protected_value *scope_for_dentry(
+    struct dentry *dentry, struct maho_object_key *scope)
+{
+    struct dentry *cursor = dentry;
+    struct dentry *parent;
+    struct inode *inode;
+    struct maho_protected_value *value;
+
+#pragma unroll
+    for (int depth = 0; depth < 12; depth++) {
+        if (!cursor)
+            break;
+        inode = BPF_CORE_READ(cursor, d_inode);
+        if (inode && inode_key(inode, scope) == 0) {
+            value = bpf_map_lookup_elem(&protected_objects, scope);
+            if (value && (depth == 0 || (value->flags & MAHO_SCOPE_RECURSIVE)))
+                return value;
+        }
+        parent = BPF_CORE_READ(cursor, d_parent);
+        if (!parent || parent == cursor)
+            break;
+        cursor = parent;
+    }
+    return 0;
+}
+
+static __always_inline struct maho_protected_value *scope_for_inode(
+    struct inode *inode, struct maho_object_key *scope)
+{
+    if (inode_key(inode, scope) != 0)
+        return 0;
+    return bpf_map_lookup_elem(&protected_objects, scope);
+}
+
+static __always_inline int authority_for_object(
+    struct maho_authority_key *key, const struct maho_object_key *object,
+    __u64 effect, __u64 operation)
+{
+    struct maho_authority_value *value;
+    key->scope_dev = object->dev;
+    key->scope_ino = object->ino;
+    value = bpf_map_lookup_elem(&mutation_authorities, key);
+    if (!value || bpf_ktime_get_boot_ns() >= value->expires_boot_ns)
+        return 0;
+    return (value->effect_mask & effect) && (value->operation_mask & operation);
+}
+
+static __always_inline int exact_authority(
+    struct dentry *target_dentry, struct inode *target_inode,
+    __u64 effect, __u64 operation)
+{
+    struct maho_authority_key key = {};
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct file *exe;
+    struct dentry *dentry;
+    struct dentry *parent;
+    struct inode *inode;
+    struct maho_object_key executable = {}, object = {};
+
+    key.tgid = bpf_get_current_pid_tgid() >> 32;
+    task = (struct task_struct *)bpf_get_current_task_btf();
+    key.start_ticks = BPF_CORE_READ(task, start_boottime) / 10000000ULL;
+    mm = BPF_CORE_READ(task, mm);
+    if (!mm)
+        return 0;
+    exe = BPF_CORE_READ(mm, exe_file);
+    if (!exe)
+        return 0;
+    dentry = BPF_CORE_READ(exe, f_path.dentry);
+    inode = dentry ? BPF_CORE_READ(dentry, d_inode) : 0;
+    if (inode_key(inode, &executable) != 0)
+        return 0;
+    key.executable_dev = executable.dev;
+    key.executable_ino = executable.ino;
+    if (!target_dentry)
+        return inode_key(target_inode, &object) == 0
+            && authority_for_object(&key, &object, effect, operation);
+#pragma unroll
+    for (int depth = 0; depth < 12; depth++) {
+        if (!target_dentry)
+            break;
+        inode = BPF_CORE_READ(target_dentry, d_inode);
+        if (inode && inode_key(inode, &object) == 0
+            && authority_for_object(&key, &object, effect, operation))
+            return 1;
+        parent = BPF_CORE_READ(target_dentry, d_parent);
+        if (!parent || parent == target_dentry)
+            break;
+        target_dentry = parent;
+    }
+    return 0;
+}
+
+static __always_inline int enforce(
+    struct dentry *dentry, struct inode *inode, __u64 operation, int previous_ret)
+{
+    struct maho_object_key target = {}, scope = {};
+    struct maho_protected_value *protected;
+    struct maho_prevention_event *event;
+
+    if (previous_ret)
+        return previous_ret;
+    if (!active())
+        return 0;
+    if (dentry) {
+        protected = scope_for_dentry(dentry, &scope);
+        inode = BPF_CORE_READ(dentry, d_inode);
+    } else {
+        protected = scope_for_inode(inode, &scope);
+    }
+    if (!protected)
+        return 0;
+    if (inode)
+        inode_key(inode, &target);
+    if (exact_authority(dentry, inode, protected->effect_mask, operation))
+        return 0;
+    event = bpf_ringbuf_reserve(&prevention_events, sizeof(*event), 0);
+    if (event) {
+        event->timestamp_ns = bpf_ktime_get_boot_ns();
+        event->target_dev = target.dev;
+        event->target_ino = target.ino;
+        event->scope_dev = scope.dev;
+        event->scope_ino = scope.ino;
+        event->effect_mask = protected->effect_mask;
+        event->operation_mask = operation;
+        event->tgid = bpf_get_current_pid_tgid() >> 32;
+        event->uid = (__u32)bpf_get_current_uid_gid();
+        event->result = -EPERM;
+        event->authority_state = 0;
+        bpf_ringbuf_submit(event, 0);
+    }
+    return -EPERM;
+}
+
+SEC("lsm/file_open")
+int BPF_PROG(maho_file_open, struct file *file, int ret)
+{
+    unsigned int flags = BPF_CORE_READ(file, f_flags);
+    if (!(flags & (O_WRONLY | O_RDWR | O_TRUNC | O_APPEND)))
+        return ret;
+    return enforce(BPF_CORE_READ(file, f_path.dentry), 0, MAHO_OP_WRITE, ret);
+}
+
+SEC("lsm/inode_create")
+int BPF_PROG(maho_inode_create, struct inode *dir, struct dentry *dentry, umode_t mode, int ret)
+{ return enforce(0, dir, MAHO_OP_CREATE, ret); }
+
+SEC("lsm/inode_mkdir")
+int BPF_PROG(maho_inode_mkdir, struct inode *dir, struct dentry *dentry, umode_t mode, int ret)
+{ return enforce(0, dir, MAHO_OP_CREATE, ret); }
+
+SEC("lsm/inode_mknod")
+int BPF_PROG(maho_inode_mknod, struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev, int ret)
+{ return enforce(0, dir, MAHO_OP_CREATE, ret); }
+
+SEC("lsm/inode_unlink")
+int BPF_PROG(maho_inode_unlink, struct inode *dir, struct dentry *dentry, int ret)
+{ return enforce(dentry, 0, MAHO_OP_UNLINK, ret); }
+
+SEC("lsm/inode_rmdir")
+int BPF_PROG(maho_inode_rmdir, struct inode *dir, struct dentry *dentry, int ret)
+{ return enforce(dentry, 0, MAHO_OP_UNLINK, ret); }
+
+SEC("lsm/inode_symlink")
+int BPF_PROG(maho_inode_symlink, struct inode *dir, struct dentry *dentry, const char *name, int ret)
+{ return enforce(0, dir, MAHO_OP_SYMLINK, ret); }
+
+SEC("lsm/inode_link")
+int BPF_PROG(maho_inode_link, struct dentry *old_dentry, struct inode *dir, struct dentry *new_dentry, int ret)
+{
+    int denied = enforce(old_dentry, 0, MAHO_OP_LINK, ret);
+    return denied ? denied : enforce(0, dir, MAHO_OP_LINK, ret);
+}
+
+SEC("lsm/inode_rename")
+int BPF_PROG(maho_inode_rename, struct inode *old_dir, struct dentry *old_dentry,
+             struct inode *new_dir, struct dentry *new_dentry, unsigned int flags, int ret)
+{
+    int denied = enforce(old_dentry, 0, MAHO_OP_RENAME, ret);
+    return denied ? denied : enforce(0, new_dir, MAHO_OP_RENAME, ret);
+}
+
+SEC("lsm/inode_setattr")
+int BPF_PROG(maho_inode_setattr, struct dentry *dentry, struct iattr *attr, int ret)
+{ return enforce(dentry, 0, MAHO_OP_SETATTR, ret); }
+
+SEC("lsm/sb_mount")
+int BPF_PROG(maho_sb_mount, const char *dev_name, const struct path *path,
+             const char *type, unsigned long flags, void *data, int ret)
+{ return enforce(path ? BPF_CORE_READ(path, dentry) : 0, 0, MAHO_OP_MOUNT, ret); }
+
+char LICENSE[] SEC("license") = "GPL";

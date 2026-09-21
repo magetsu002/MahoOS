@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+LIB = ROOT / "lib"
+if LIB.is_dir():
+    sys.path.insert(0, str(LIB))
+else:
+    sys.path.insert(0, "/usr/lib/maho")
+
+from maho_mutation_authority import parse_authority  # noqa: E402
+from maho_prevention_kernel import (  # noqa: E402
+    activate, enforcement_roots, host_device_roots, kernel_capabilities, project_authority,
+)
+
+
+def parser() -> argparse.ArgumentParser:
+    value = argparse.ArgumentParser(prog="maho-prevention-boundary")
+    commands = value.add_subparsers(dest="command", required=True)
+    commands.add_parser("capabilities")
+    commands.add_parser("status")
+    activate_cmd = commands.add_parser("activate")
+    activate_cmd.add_argument("--loader", type=Path, default=Path("/usr/lib/maho/prevention/maho-prevention-loader"))
+    activate_cmd.add_argument("--object", type=Path, default=Path("/usr/lib/maho/prevention/maho_prevention.bpf.o"))
+    activate_cmd.add_argument("--pin-root", type=Path, default=Path("/sys/fs/bpf/maho-prevention"))
+    activate_cmd.add_argument("--owner-home", default=os.environ.get("SUDO_USER_HOME"))
+    project = commands.add_parser("project-authority")
+    project.add_argument("authority", type=Path)
+    project.add_argument("--secret", type=Path, default=Path("/var/lib/maho/prevention/authority.key"))
+    project.add_argument("--map", type=Path, default=Path("/sys/fs/bpf/maho-prevention/maps/mutation_authorities"))
+    return value
+
+
+def main() -> int:
+    args = parser().parse_args()
+    if args.command in {"capabilities", "status"}:
+        print(json.dumps(kernel_capabilities(), sort_keys=True))
+        return 0
+    if args.command == "activate":
+        roots = enforcement_roots(owner_home=args.owner_home) + host_device_roots()
+        activate(args.loader, args.object, args.pin_root, roots)
+        return 0
+    payload = json.loads(args.authority.read_text(encoding="utf-8"))
+    secret = args.secret.read_bytes()
+    boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    authority = parse_authority(
+        payload, secret=secret, boot_id=boot_id,
+        now_ns=time.clock_gettime_ns(time.CLOCK_BOOTTIME),
+    )
+    print(json.dumps({"projected_targets": project_authority(authority, args.map), "authority_id": str(authority.authority_id)}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

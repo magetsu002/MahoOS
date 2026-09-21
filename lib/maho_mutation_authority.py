@@ -66,7 +66,7 @@ def process_identity(pid: int) -> SubjectIdentity:
     except (OSError, StopIteration, ValueError, IndexError) as exc:
         raise MutationAuthorityError("subject_identity_unavailable") from exc
     return SubjectIdentity(
-        pid=pid, start_time_ns=start_ticks, executable_path=str(exe),
+        pid=pid, start_time_ticks=start_ticks, executable_path=str(exe),
         executable_sha256=digest, executable_device=info.st_dev,
         executable_inode=info.st_ino, uid=uid,
     )
@@ -99,7 +99,7 @@ class MutationAuthority:
             "parent_kind": self.parent_kind,
             "subject": {
                 "pid": self.subject.pid,
-                "start_time_ns": self.subject.start_time_ns,
+                "start_time_ticks": self.subject.start_time_ticks,
                 "executable_path": self.subject.executable_path,
                 "executable_sha256": self.subject.executable_sha256,
                 "executable_device": self.subject.executable_device,
@@ -156,7 +156,10 @@ def _validate_issue(
     effect_values = tuple(sorted(set(effects), key=lambda item: item.value))
     operation_values = tuple(sorted(set(operations), key=lambda item: item.value))
     targets = tuple(sorted({normalize_target(path) for path in target_prefixes}))
-    if not effect_values or not operation_values or not targets or "/" in targets:
+    root_is_bounded_mount = "/" not in targets or set(operation_values) <= {
+        MutationOperation.MOUNT, MutationOperation.REMOUNT,
+    }
+    if not effect_values or not operation_values or not targets or not root_is_bounded_mount:
         raise MutationAuthorityError("authority_scope_invalid")
     return effect_values, operation_values, targets
 
@@ -206,7 +209,7 @@ def parse_authority(payload: Mapping[str, Any], *, secret: bytes, boot_id: str, 
     try:
         raw_subject = payload["subject"]
         if not isinstance(raw_subject, Mapping) or set(raw_subject) != {
-            "pid", "start_time_ns", "executable_path", "executable_sha256",
+            "pid", "start_time_ticks", "executable_path", "executable_sha256",
             "executable_device", "executable_inode", "uid",
         }:
             raise MutationAuthorityError("authority_subject_fields_invalid")
@@ -249,4 +252,3 @@ def create_secret(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
-

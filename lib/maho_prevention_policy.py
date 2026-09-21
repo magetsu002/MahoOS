@@ -33,7 +33,7 @@ class PreventionOutcome(str, Enum):
 @dataclass(frozen=True)
 class SubjectIdentity:
     pid: int
-    start_time_ns: int
+    start_time_ticks: int
     executable_path: str
     executable_sha256: str
     executable_device: int
@@ -79,7 +79,10 @@ class PreventionDecision:
 
 
 def _within(target: str, prefixes: tuple[str, ...]) -> bool:
-    return any(target == prefix or target.startswith(prefix.rstrip("/") + "/") for prefix in prefixes)
+    return any(
+        target == prefix or (prefix != "/" and target.startswith(prefix.rstrip("/") + "/"))
+        for prefix in prefixes
+    )
 
 
 def _authority_matches(request: MutationRequest, authority: AuthorityView) -> tuple[bool, str]:

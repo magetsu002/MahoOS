@@ -70,7 +70,7 @@ def main() -> None:
     check("expired authority is denied", decide_mutation(replace(protected, now_ns=100), authority).reason == "authority_expired")
     drifted = replace(protected, subject=replace(subject, executable_sha256="c" * 64))
     check("executable identity drift is denied", decide_mutation(drifted, authority).reason == "subject_identity_mismatch")
-    reused = replace(protected, subject=replace(subject, start_time_ns=1001))
+    reused = replace(protected, subject=replace(subject, start_time_ticks=1001))
     check("PID reuse is denied", decide_mutation(reused, authority).reason == "subject_identity_mismatch")
     check("Guardian uncertainty never promotes authority", decide_mutation(replace(protected, guardian_healthy=False), authority).outcome is PreventionOutcome.DENY)
     print("ALL MAHO PREVENTION POLICY TESTS PASS")

@@ -58,7 +58,9 @@ def main() -> None:
     rejects("authority cannot cross boot", lambda: parse_authority(authority.as_dict(), secret=SECRET, boot_id="boot-other", now_ns=50))
     rejects("expired envelope is rejected", lambda: parse_authority(authority.as_dict(), secret=SECRET, boot_id="boot-exact", now_ns=100))
     rejects("unregistered parent kind cannot issue", lambda: issue(parent_kind="some-executable"))
-    rejects("global root scope cannot be granted", lambda: issue(target_prefixes=("/",)))
+    rejects("global root write scope cannot be granted", lambda: issue(target_prefixes=("/",)))
+    root_mount = issue(target_prefixes=("/",), operations=(MutationOperation.MOUNT,))
+    check("root mount authority is exact and operation bounded", root_mount.target_prefixes == ("/",) and root_mount.operations == (MutationOperation.MOUNT,))
     rejects("subject digest must be exact", lambda: issue(subject=replace(SUBJECT, executable_sha256="unknown")))
     break_glass = issue(
         transaction_id="break-glass-exact", parent_authority_id="auth-session-1",
@@ -72,7 +74,7 @@ def main() -> None:
         expires_at_ns=11 + BREAK_GLASS_MAX_LIFETIME_NS,
     ))
     current = process_identity(__import__("os").getpid())
-    check("live process identity binds pid start executable inode and digest", current.pid > 0 and current.start_time_ns > 0 and current.executable_inode > 0 and len(current.executable_sha256) == 64)
+    check("live process identity binds pid start executable inode and digest", current.pid > 0 and current.start_time_ticks > 0 and current.executable_inode > 0 and len(current.executable_sha256) == 64)
     print("ALL MAHO MUTATION AUTHORITY TESTS PASS")
 
 

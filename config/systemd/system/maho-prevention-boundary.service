@@ -1,0 +1,21 @@
+[Unit]
+Description=Maho protected mutation boundary
+Documentation=file:/usr/share/doc/maho/PREVENTION-BOUNDARY.md
+After=local-fs.target
+Before=multi-user.target
+ConditionPathExists=/usr/lib/maho/prevention/maho_prevention.bpf.o
+ConditionPathIsMountPoint=/sys/fs/bpf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/maho/prevention/maho-prevention-boundary activate
+ExecStartPost=/usr/lib/maho/prevention/maho-prevention-boundary verify
+RemainAfterExit=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/sys/fs/bpf/maho-prevention /var/lib/maho/prevention /var/log/maho
+
+[Install]
+WantedBy=multi-user.target
