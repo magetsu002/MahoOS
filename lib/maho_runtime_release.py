@@ -21,6 +21,7 @@ class ReleaseVerification:
     content_sha256: str | None
     source_revision: str | None
     reasons: tuple[str, ...]
+    observed_content_sha256: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -112,7 +113,14 @@ def verify_release(candidate: str | os.PathLike[str], releases_root: str | os.Pa
         reasons.append("immutable_payload_writable")
 
     reasons = list(dict.fromkeys(reasons))
-    return ReleaseVerification(str(real), not reasons, content, revision, tuple(reasons))
+    return ReleaseVerification(
+        str(real),
+        not reasons,
+        content,
+        revision,
+        tuple(reasons),
+        observed_content_sha256=observed_hash,
+    )
 
 
 def main() -> None:

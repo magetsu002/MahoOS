@@ -196,6 +196,15 @@ def main() -> None:
               any(item.get("pid") == 201 and item.get("reason") == "protected-ancestor" for item in refused["failed"]))
 
     with tempfile.TemporaryDirectory() as raw:
+        reuse_driver, exact, proc_root, _fs, _state, signals = _real_driver_fixture(Path(raw))
+        _write_stat(proc_root / "201", 201, 99001)
+        refused = reuse_driver.freeze_exact(exact)
+        check("PID reuse/start identity mismatch fails closed before signaling",
+              refused["result"] == "refused" and not signals)
+        check("PID reuse reason is explicit",
+              any(item.get("pid") == 201 and item.get("reason") == "process-start-mismatch" for item in refused["failed"]))
+
+    with tempfile.TemporaryDirectory() as raw:
         inode_driver, exact, _proc_root, fs, _state, signals = _real_driver_fixture(Path(raw))
         binary = fs / "usr/bin/maho-runtime"
         replacement = binary.with_name("maho-runtime.replacement")

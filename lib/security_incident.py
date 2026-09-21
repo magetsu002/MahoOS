@@ -273,6 +273,7 @@ def collect_groups(
             {
                 "path": runtime_verification.path,
                 "content_sha256": runtime_verification.content_sha256,
+                "observed_content_sha256": runtime_verification.observed_content_sha256,
                 "source_revision": runtime_verification.source_revision,
                 "reasons": list(runtime_verification.reasons),
                 "verified": False,
