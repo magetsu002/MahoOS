@@ -7,7 +7,7 @@ import shutil
 import sys
 from typing import Sequence
 from maho_system_status import collect_system_model
-from maho_system_tui import PAGES, interactive, render
+from maho_system_tui import PAGES, diagnostic_state_label, interactive, render
 
 ALIASES = {
     "status": "Overview", "overview": "Overview", "doctor": "Doctor",
@@ -28,7 +28,7 @@ def plain(model, page: str) -> str:
         )) + "\n"
     if page == "Doctor":
         rows = [
-            f"{('N/A' if item.id in {'provider.environment.power', 'provider.environment.thermal'} and item.state == 'UNKNOWN' and not item.attention else item.state):<7} {item.subsystem:<10} {item.summary}: {item.reason}"
+            f"{diagnostic_state_label(item):<22} {item.subsystem:<10} {item.summary}: {item.reason}"
             for item in model.diagnostics
         ]
         return "\n".join(rows) + "\n"
