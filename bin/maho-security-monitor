@@ -16,6 +16,7 @@ SECURITY="$ROOT/bin/maho-security"
 PROVENANCE="$ROOT/bin/maho-provenance"
 GUARD="$ROOT/bin/maho-guard"
 PROVIDER_STATE="$ROOT/lib/guardian_provider_state.py"
+EVIDENCE_CHANGED=0
 
 if ! { [ -r "$EVENTS" ] && source "$EVENTS" 2>/dev/null; }; then
     maho_event_emit() { return 0; }
@@ -142,6 +143,7 @@ package_cycle() {
     transition="$(record_state packages "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 0 ] || EVIDENCE_CHANGED=1
     [ "$current" = observed ] || return 0
     [ "$changed" = 1 ] || return 0
     if [ -r "$PROVENANCE" ]; then
@@ -158,6 +160,7 @@ persistence_cycle() {
     transition="$(record_state persistence "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"; previous_attention="${fields[4]:-${previous}}"; current_attention="${fields[5]:-${current}}"
+    [ "$changed" = 0 ] || EVIDENCE_CHANGED=1
     [ "$changed" = 1 ] || return 0
     case "$current" in
         changed)
@@ -174,6 +177,7 @@ runtime_cycle() {
     transition="$(record_state runtime "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 0 ] || EVIDENCE_CHANGED=1
     [ "$changed" = 1 ] || return 0
     case "$current" in
         observed) emit_event runtime.executable-observation observed medium "Security monitor observed new or changed runtime executable evidence; no process was modified" security.processes procfs "$payload" ;;
@@ -188,6 +192,7 @@ privilege_cycle() {
     transition="$(record_state privilege "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"
+    [ "$changed" = 0 ] || EVIDENCE_CHANGED=1
     [ "$changed" = 1 ] || return 0
     [ "$first" = 0 ] || return 0
     emit_event privilege.boundary-transition observed high "Security monitor observed a change in high-authority persistence or privilege boundary files; shadow policy only" security.privilege maho-boundary "$payload"
@@ -200,6 +205,7 @@ network_cycle() {
     transition="$(record_state network "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 0 ] || EVIDENCE_CHANGED=1
     [ "$changed" = 1 ] || return 0
     [ "$first" = 0 ] || return 0
     case "$current" in
@@ -251,6 +257,7 @@ integrity_cycle() {
     transition="$(record_state integrity "$payload")" || return 1
     mapfile -t fields < <(transition_fields "$transition")
     changed="${fields[0]}"; first="${fields[1]}"; previous="${fields[2]}"; current="${fields[3]}"
+    [ "$changed" = 0 ] || EVIDENCE_CHANGED=1
     [ "$changed" = 1 ] || return 0
     case "$current" in
         changed) emit_event files.integrity-drift observed high "Periodic critical package-file integrity scan observed drift from local pacman mtree metadata" security.files pacman-mtree "$payload" ;;
@@ -292,6 +299,7 @@ findings_cycle() {
         transition="$(record_state "$key" "$payload")" || continue
         changed="$(printf '%s\n' "$transition" | python -c 'import json,sys; print("1" if json.load(sys.stdin).get("changed") else "0")')"
         [ "$changed" = 1 ] || continue
+        EVIDENCE_CHANGED=1
         case "$(printf '%s\n' "$payload" | python -c 'import json,sys; print(json.load(sys.stdin).get("result"))')" in affected|not-affected) bash "$SECURITY" process "$file" >/dev/null 2>&1 || true ;; esac
     done < <(find "$dir" -maxdepth 1 -type f -name '*.json' -print | sort)
 }
@@ -303,6 +311,7 @@ incident_cycle() {
 
 cycle() {
     local failed=0
+    EVIDENCE_CHANGED=0
     package_cycle || failed=1
     persistence_cycle || failed=1
     runtime_cycle || failed=1
@@ -310,7 +319,7 @@ cycle() {
     network_cycle || failed=1
     integrity_cycle || failed=1
     findings_cycle || failed=1
-    incident_cycle || failed=1
+    if [ "$EVIDENCE_CHANGED" -eq 1 ]; then incident_cycle || failed=1; fi
     if [ "$failed" -eq 0 ]; then
         provider_record security.monitor security 1 healthy "" '{"cycle":"complete"}' || failed=1
     else
@@ -319,10 +328,60 @@ cycle() {
     return "$failed"
 }
 
+interval_value() {
+    local name="$1" fallback="$2" value="${!1:-}"
+    [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge 1 ] && [ "$value" -le 86400 ] \
+        || value="$fallback"
+    printf '%s\n' "$value"
+}
+
 watch() {
-    local poll="${MAHO_SECURITY_POLL:-300}"
-    [[ "$poll" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll=300
-    while :; do cycle || true; sleep "$poll"; done
+    local runtime_interval network_interval persistence_interval privilege_interval
+    local package_interval findings_interval integrity_check_interval iterations
+    local next_runtime=0 next_network=0 next_persistence=0 next_privilege=0
+    local next_package=0 next_findings=0 next_integrity=0 now next sleep_for ran failed loops=0
+    runtime_interval="$(interval_value MAHO_SECURITY_RUNTIME_INTERVAL 7)"
+    network_interval="$(interval_value MAHO_SECURITY_NETWORK_INTERVAL 10)"
+    persistence_interval="$(interval_value MAHO_SECURITY_PERSISTENCE_INTERVAL 15)"
+    privilege_interval="$(interval_value MAHO_SECURITY_PRIVILEGE_INTERVAL 15)"
+    package_interval="$(interval_value MAHO_SECURITY_PACKAGE_INTERVAL 60)"
+    findings_interval="$(interval_value MAHO_SECURITY_FINDINGS_INTERVAL 60)"
+    integrity_check_interval="$(interval_value MAHO_SECURITY_INTEGRITY_CHECK_INTERVAL 60)"
+    iterations="${MAHO_SECURITY_WATCH_ITERATIONS:-0}"
+    [[ "$iterations" =~ ^[0-9]+$ ]] || iterations=0
+
+    while :; do
+        now=$SECONDS
+        ran=0
+        failed=0
+        EVIDENCE_CHANGED=0
+        if [ "$now" -ge "$next_runtime" ]; then runtime_cycle || failed=1; next_runtime=$((now + runtime_interval)); ran=1; fi
+        if [ "$now" -ge "$next_network" ]; then network_cycle || failed=1; next_network=$((now + network_interval)); ran=1; fi
+        if [ "$now" -ge "$next_persistence" ]; then persistence_cycle || failed=1; next_persistence=$((now + persistence_interval)); ran=1; fi
+        if [ "$now" -ge "$next_privilege" ]; then privilege_cycle || failed=1; next_privilege=$((now + privilege_interval)); ran=1; fi
+        if [ "$now" -ge "$next_package" ]; then package_cycle || failed=1; next_package=$((now + package_interval)); ran=1; fi
+        if [ "$now" -ge "$next_findings" ]; then findings_cycle || failed=1; next_findings=$((now + findings_interval)); ran=1; fi
+        if [ "$now" -ge "$next_integrity" ]; then integrity_cycle || failed=1; next_integrity=$((now + integrity_check_interval)); ran=1; fi
+        if [ "$EVIDENCE_CHANGED" -eq 1 ]; then incident_cycle || failed=1; fi
+        if [ "$ran" -eq 1 ]; then
+            if [ "$failed" -eq 0 ]; then
+                provider_record security.monitor security 1 healthy "" '{"scheduler":"healthy"}' || failed=1
+            else
+                provider_record security.monitor security 1 degraded subprovider_cycle_failed '{"scheduler":"degraded"}' || true
+            fi
+            loops=$((loops + 1))
+            if [ "$iterations" -gt 0 ] && [ "$loops" -ge "$iterations" ]; then return 0; fi
+        fi
+
+        now=$SECONDS
+        next="$next_runtime"
+        for candidate in "$next_network" "$next_persistence" "$next_privilege" "$next_package" "$next_findings" "$next_integrity"; do
+            [ "$candidate" -ge "$next" ] || next="$candidate"
+        done
+        sleep_for=$((next - now))
+        [ "$sleep_for" -ge 1 ] || sleep_for=1
+        sleep "$sleep_for"
+    done
 }
 
 doctor() {
@@ -339,8 +398,13 @@ doctor() {
     echo "INFO  runtime: transition-aware heuristic evidence only"
     echo "INFO  privilege boundaries: transition-aware, no trust claim"
     echo "INFO  network exposure: current-user non-loopback TCP listeners (partial host scope; not host-network-clean)"
+    echo "INFO  runtime executable interval: $(interval_value MAHO_SECURITY_RUNTIME_INTERVAL 7)s"
+    echo "INFO  network listener interval: $(interval_value MAHO_SECURITY_NETWORK_INTERVAL 10)s"
+    echo "INFO  persistence interval: $(interval_value MAHO_SECURITY_PERSISTENCE_INTERVAL 15)s"
+    echo "INFO  privilege boundary interval: $(interval_value MAHO_SECURITY_PRIVILEGE_INTERVAL 15)s"
+    echo "INFO  package inventory interval: $(interval_value MAHO_SECURITY_PACKAGE_INTERVAL 60)s"
     echo "INFO  critical integrity interval: ${MAHO_SECURITY_INTEGRITY_INTERVAL:-1800}s"
-    echo "INFO  incident correlation: every monitor cycle after observations settle"
+    echo "INFO  incident correlation: immediately after changed security evidence"
     echo "INFO  automatic system mutation: none"
 }
 

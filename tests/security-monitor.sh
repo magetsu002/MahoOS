@@ -179,6 +179,34 @@ DOCTOR="$(bash "$MONITOR" doctor)"
 grep -q 'automatic system mutation: none' <<< "$DOCTOR"
 grep -q 'package state: captures untrusted evidence snapshots on change' <<< "$DOCTOR"
 grep -q 'incident correlation:' <<< "$DOCTOR"
+grep -q 'runtime executable interval: 7s' <<< "$DOCTOR"
+grep -q 'network listener interval: 10s' <<< "$DOCTOR"
+echo "PASS"
+
+echo "=== monotonic scheduler splits observer cadence without busy looping ==="
+rm -rf "$STATE/guardian/providers"
+MAHO_SECURITY_RUNTIME_INTERVAL=1 \
+MAHO_SECURITY_NETWORK_INTERVAL=1 \
+MAHO_SECURITY_PERSISTENCE_INTERVAL=20 \
+MAHO_SECURITY_PRIVILEGE_INTERVAL=20 \
+MAHO_SECURITY_PACKAGE_INTERVAL=30 \
+MAHO_SECURITY_FINDINGS_INTERVAL=30 \
+MAHO_SECURITY_INTEGRITY_CHECK_INTERVAL=30 \
+MAHO_SECURITY_WATCH_ITERATIONS=3 \
+bash "$MONITOR" watch
+python - "$STATE/guardian/providers" <<'PY_SCHEDULER'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+sequence=lambda name: json.loads((root/f'{name}.json').read_text())['sequence']
+assert sequence('security.runtime') == 3
+assert sequence('security.network') == 3
+assert sequence('security.persistence') == 1
+assert sequence('security.privilege') == 1
+assert sequence('security.packages') == 1
+assert sequence('security.integrity') == 1
+assert sequence('security.monitor') == 3
+PY_SCHEDULER
 echo "PASS"
 
 echo "ALL SECURITY MONITOR CONTRACTS PASS"
