@@ -27,7 +27,19 @@ ApplicationWindow {
     property string viewMode: "grid"
     property bool searchVisible: false
     property int selectedIndex: -1
+    property int selectionAnchor: -1
+    property var selectedIndexes: []
+    property bool selectionDragPending: false
+    property bool selectionDragActive: false
+    property bool selectionDragAdditive: false
+    property var selectionDragBaseline: []
+    property real selectionDragStartX: 0
+    property real selectionDragStartY: 0
+    property real selectionDragCurrentX: 0
+    property real selectionDragCurrentY: 0
     property real sidebarWidth: 228
+
+    readonly property int selectedCount: selectedIndexes.length
 
     readonly property bool narrowWindow: width < 700
     readonly property bool compactToolbar: width < 760
@@ -77,6 +89,187 @@ ApplicationWindow {
     function textEntryHasFocus() {
         const active = root.activeFocusItem
         return active === searchField || active === pathField || active === nameField
+    }
+
+    function isSelected(index) {
+        return selectedIndexes.indexOf(index) >= 0
+    }
+
+    function normalizedIndexes(indexes) {
+        const unique = []
+        for (let i = 0; i < indexes.length; ++i) {
+            const row = Number(indexes[i])
+            if (!isFinite(row) || row < 0 || unique.indexOf(row) >= 0)
+                continue
+            unique.push(row)
+        }
+        unique.sort(function(a, b) { return a - b })
+        return unique
+    }
+
+    function applySelection(indexes, primaryIndex, preserveAnchor) {
+        const next = normalizedIndexes(indexes)
+        selectedIndexes = next
+        selectedIndex = next.indexOf(primaryIndex) >= 0
+            ? primaryIndex
+            : (next.length > 0 ? next[next.length - 1] : -1)
+        if (!preserveAnchor)
+            selectionAnchor = selectedIndex
+        directoryModel.setSelectedRows(next)
+    }
+
+    function clearSelection() {
+        selectedIndexes = []
+        selectedIndex = -1
+        selectionAnchor = -1
+        directoryModel.setSelectedRows([])
+    }
+
+    function selectSingle(index) {
+        if (index < 0) {
+            clearSelection()
+            return
+        }
+        applySelection([index], index, false)
+    }
+
+    function selectClicked(index, modifiers) {
+        if (index < 0)
+            return
+
+        const ctrl = (modifiers & Qt.ControlModifier) !== 0
+        const shift = (modifiers & Qt.ShiftModifier) !== 0
+
+        if (shift && selectionAnchor >= 0) {
+            const first = Math.min(selectionAnchor, index)
+            const last = Math.max(selectionAnchor, index)
+            let range = []
+            for (let row = first; row <= last; ++row)
+                range.push(row)
+            if (ctrl)
+                range = selectedIndexes.concat(range)
+            applySelection(range, index, true)
+            return
+        }
+
+        if (ctrl) {
+            const next = selectedIndexes.slice()
+            const existing = next.indexOf(index)
+            if (existing >= 0)
+                next.splice(existing, 1)
+            else
+                next.push(index)
+            applySelection(next, index, false)
+            return
+        }
+
+        selectSingle(index)
+    }
+
+    function selectAllVisibleModelRows() {
+        const count = viewMode === "grid" ? grid.count : listView.count
+        const rows = []
+        for (let row = 0; row < count; ++row)
+            rows.push(row)
+        applySelection(rows, rows.length > 0 ? rows[rows.length - 1] : -1, false)
+    }
+
+    function selectionViewAt(contentX, contentY) {
+        const view = viewMode === "grid" ? grid : listView
+        if (!view || !view.visible)
+            return null
+        const point = contentArea.mapToItem(view, contentX, contentY)
+        if (point.x < 0 || point.y < 0 || point.x >= view.width || point.y >= view.height)
+            return null
+        return view
+    }
+
+    function rowAtContentPoint(view, contentX, contentY) {
+        const point = contentArea.mapToItem(view, contentX, contentY)
+        return view.indexAt(point.x + view.contentX, point.y + view.contentY)
+    }
+
+    function clampContentPointToView(view, contentX, contentY) {
+        const topLeft = view.mapToItem(contentArea, 0, 0)
+        const bottomRight = view.mapToItem(contentArea, view.width, view.height)
+        return Qt.point(
+            Math.max(topLeft.x, Math.min(bottomRight.x, contentX)),
+            Math.max(topLeft.y, Math.min(bottomRight.y, contentY))
+        )
+    }
+
+    function rowsInsideSelectionRect(view, left, top, right, bottom) {
+        const a = contentArea.mapToItem(view, left, top)
+        const b = contentArea.mapToItem(view, right, bottom)
+        const x1 = Math.min(a.x, b.x)
+        const y1 = Math.min(a.y, b.y)
+        const x2 = Math.max(a.x, b.x)
+        const y2 = Math.max(a.y, b.y)
+        const rows = []
+
+        for (let row = 0; row < view.count; ++row) {
+            const item = view.itemAtIndex(row)
+            if (!item || !item.visible)
+                continue
+            const point = item.mapToItem(view, 0, 0)
+            if (point.x + item.width < x1 || point.x > x2
+                    || point.y + item.height < y1 || point.y > y2)
+                continue
+            rows.push(row)
+        }
+        return rows
+    }
+
+    function beginBackgroundSelection(view, contentX, contentY, modifiers) {
+        selectionDragPending = true
+        selectionDragActive = false
+        selectionDragAdditive = (modifiers & Qt.ControlModifier) !== 0
+        selectionDragBaseline = selectionDragAdditive ? selectedIndexes.slice() : []
+        const point = clampContentPointToView(view, contentX, contentY)
+        selectionDragStartX = point.x
+        selectionDragStartY = point.y
+        selectionDragCurrentX = point.x
+        selectionDragCurrentY = point.y
+        if (!selectionDragAdditive)
+            clearSelection()
+    }
+
+    function updateBackgroundSelection(view, contentX, contentY) {
+        if (!selectionDragPending)
+            return
+
+        const point = clampContentPointToView(view, contentX, contentY)
+        selectionDragCurrentX = point.x
+        selectionDragCurrentY = point.y
+        const dx = selectionDragCurrentX - selectionDragStartX
+        const dy = selectionDragCurrentY - selectionDragStartY
+        if (!selectionDragActive && Math.sqrt(dx * dx + dy * dy) < 5)
+            return
+
+        selectionDragActive = true
+        const hits = rowsInsideSelectionRect(
+            view,
+            Math.min(selectionDragStartX, selectionDragCurrentX),
+            Math.min(selectionDragStartY, selectionDragCurrentY),
+            Math.max(selectionDragStartX, selectionDragCurrentX),
+            Math.max(selectionDragStartY, selectionDragCurrentY)
+        )
+        const merged = selectionDragAdditive ? selectionDragBaseline.concat(hits) : hits
+        applySelection(
+            merged,
+            hits.length > 0 ? hits[hits.length - 1]
+                            : (selectionDragBaseline.length > 0
+                                ? selectionDragBaseline[selectionDragBaseline.length - 1] : -1),
+            true
+        )
+    }
+
+    function endBackgroundSelection() {
+        if (selectionDragActive && selectedIndex >= 0)
+            selectionAnchor = selectedIndex
+        selectionDragPending = false
+        selectionDragActive = false
+        selectionDragBaseline = []
     }
 
     // Scale wheel travel by the amount of content that actually remains to
@@ -443,18 +636,29 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+R"; onActivated: directoryModel.goRecent() }
     Shortcut { sequence: "Ctrl+Shift+N"; onActivated: namePopup.beginNewFolder() }
     Shortcut { sequence: "F5"; onActivated: directoryModel.reload() }
-    Shortcut { sequence: "F2"; enabled: root.selectedIndex >= 0; onActivated: namePopup.beginRename(root.selectedIndex) }
-    Shortcut { sequence: "Delete"; enabled: root.selectedIndex >= 0; onActivated: directoryModel.trashIndex(root.selectedIndex) }
-    Shortcut { sequence: "Ctrl+C"; enabled: root.selectedIndex >= 0; onActivated: directoryModel.copyIndex(root.selectedIndex, false) }
-    Shortcut { sequence: "Ctrl+X"; enabled: root.selectedIndex >= 0; onActivated: directoryModel.copyIndex(root.selectedIndex, true) }
+    Shortcut { sequence: "F2"; enabled: root.selectedCount === 1; onActivated: namePopup.beginRename(root.selectedIndex) }
+    Shortcut {
+        sequence: "Delete"
+        enabled: root.selectedCount > 0
+        onActivated: {
+            directoryModel.trashRows(root.selectedIndexes)
+            root.clearSelection()
+        }
+    }
+    Shortcut { sequence: "Ctrl+C"; enabled: root.selectedCount > 0; onActivated: directoryModel.copyRows(root.selectedIndexes, false) }
+    Shortcut { sequence: "Ctrl+X"; enabled: root.selectedCount > 0; onActivated: directoryModel.copyRows(root.selectedIndexes, true) }
     Shortcut { sequence: "Ctrl+V"; enabled: directoryModel.canPaste; onActivated: directoryModel.paste() }
+    Shortcut { sequence: "Ctrl+A"; enabled: !root.textEntryHasFocus(); onActivated: root.selectAllVisibleModelRows() }
 
     Connections {
         target: directoryModel
         function onCurrentUrlChanged() {
-            root.selectedIndex = -1
+            root.clearSelection()
             if (!pathField.activeFocus)
                 pathField.text = directoryModel.displayPath
+        }
+        function onModelReset() {
+            root.clearSelection()
         }
         function onSearchQueryChanged() {
             if (!searchField.activeFocus)
@@ -549,7 +753,8 @@ ApplicationWindow {
 
         function openFor(index, item) {
             targetIndex = index
-            root.selectedIndex = index
+            if (!root.isSelected(index))
+                root.selectSingle(index)
             const point = item.mapToItem(root.contentItem, Math.min(item.width - 12, 110), 28)
             x = Math.max(12, Math.min(root.width - width - 12, point.x))
             y = Math.max(12, Math.min(root.height - height - 12, point.y))
@@ -574,16 +779,19 @@ ApplicationWindow {
             MenuAction {
                 label: "Rename"
                 iconName: "edit-rename"
+                enabledState: root.selectedCount === 1
                 onTriggered: { const row = contextPopup.targetIndex; contextPopup.close(); namePopup.beginRename(row) }
             }
             MenuAction {
                 label: "Open With…"
                 iconName: "system-run"
+                enabledState: root.selectedCount === 1
                 onTriggered: { contextPopup.close(); directoryModel.openWithIndex(contextPopup.targetIndex) }
             }
             MenuAction {
                 label: "Properties"
                 iconName: "document-properties"
+                enabledState: root.selectedCount === 1
                 onTriggered: {
                     propertiesPopup.details = directoryModel.propertiesText(contextPopup.targetIndex)
                     contextPopup.close()
@@ -592,23 +800,25 @@ ApplicationWindow {
             }
             Rectangle { width: Math.min(226, contextPopup.width - 16); height: 1; color: root.divider }
             MenuAction {
-                label: "Copy"
+                label: root.selectedCount > 1 ? "Copy " + root.selectedCount + " Items" : "Copy"
                 iconName: "edit-copy"
-                onTriggered: { contextPopup.close(); directoryModel.copyIndex(contextPopup.targetIndex, false) }
+                onTriggered: { contextPopup.close(); directoryModel.copyRows(root.selectedIndexes, false) }
             }
             MenuAction {
-                label: "Cut"
+                label: root.selectedCount > 1 ? "Cut " + root.selectedCount + " Items" : "Cut"
                 iconName: "edit-cut"
-                onTriggered: { contextPopup.close(); directoryModel.copyIndex(contextPopup.targetIndex, true) }
+                onTriggered: { contextPopup.close(); directoryModel.copyRows(root.selectedIndexes, true) }
             }
             MenuAction {
                 label: "Duplicate"
                 iconName: "edit-copy"
+                enabledState: root.selectedCount === 1
                 onTriggered: { contextPopup.close(); directoryModel.duplicateIndex(contextPopup.targetIndex) }
             }
             MenuAction {
                 label: "Copy Path"
                 iconName: "edit-copy-path"
+                enabledState: root.selectedCount === 1
                 onTriggered: { contextPopup.close(); directoryModel.copyPathIndex(contextPopup.targetIndex) }
             }
             MenuAction {
@@ -619,10 +829,14 @@ ApplicationWindow {
             }
             Rectangle { width: Math.min(226, contextPopup.width - 16); height: 1; color: root.divider }
             MenuAction {
-                label: "Move to Trash"
+                label: root.selectedCount > 1 ? "Move " + root.selectedCount + " Items to Trash" : "Move to Trash"
                 iconName: "user-trash"
                 destructive: true
-                onTriggered: { contextPopup.close(); directoryModel.trashIndex(contextPopup.targetIndex) }
+                onTriggered: {
+                    contextPopup.close()
+                    directoryModel.trashRows(root.selectedIndexes)
+                    root.clearSelection()
+                }
             }
         }
     }
@@ -1277,7 +1491,7 @@ ApplicationWindow {
                             // visually above this delegate, so C++ must not infer rows
                             // from the topmost hit item.
                             property int mahoFileRow: index
-                            property bool selected: root.selectedIndex === index
+                            property bool selected: root.isSelected(index)
 
                             Rectangle {
                                 anchors.fill: parent
@@ -1346,10 +1560,17 @@ ApplicationWindow {
                             }
 
                             HoverHandler { id: fileHover }
-                            TapHandler {
+                            MouseArea {
+                                anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton
-                                onTapped: root.selectedIndex = fileDelegate.index
-                                onDoubleTapped: directoryModel.openIndex(fileDelegate.index)
+                                onClicked: function(mouse) {
+                                    root.selectClicked(fileDelegate.index, mouse.modifiers)
+                                }
+                                onDoubleClicked: function(mouse) {
+                                    root.selectSingle(fileDelegate.index)
+                                    directoryModel.openIndex(fileDelegate.index)
+                                    mouse.accepted = true
+                                }
                             }
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
@@ -1443,7 +1664,7 @@ ApplicationWindow {
                                 width: listView.width
                                 height: 44
                                 property int mahoFileRow: index
-                                property bool selected: root.selectedIndex === index
+                                property bool selected: root.isSelected(index)
 
                                 Rectangle {
                                     anchors.fill: parent
@@ -1492,10 +1713,17 @@ ApplicationWindow {
                                 }
 
                                 HoverHandler { id: listHover }
-                                TapHandler {
+                                MouseArea {
+                                    anchors.fill: parent
                                     acceptedButtons: Qt.LeftButton
-                                    onTapped: root.selectedIndex = listDelegate.index
-                                    onDoubleTapped: directoryModel.openIndex(listDelegate.index)
+                                    onClicked: function(mouse) {
+                                        root.selectClicked(listDelegate.index, mouse.modifiers)
+                                    }
+                                    onDoubleClicked: function(mouse) {
+                                        root.selectSingle(listDelegate.index)
+                                        directoryModel.openIndex(listDelegate.index)
+                                        mouse.accepted = true
+                                    }
                                 }
                                 TapHandler {
                                     acceptedButtons: Qt.RightButton
@@ -1512,6 +1740,62 @@ ApplicationWindow {
                                     directoryModel.openIndex(root.selectedIndex)
                             }
                         }
+                    }
+
+                    MouseArea {
+                        id: rubberSelectInput
+                        anchors.fill: parent
+                        z: 47
+                        acceptedButtons: Qt.LeftButton
+                        propagateComposedEvents: true
+                        preventStealing: true
+                        property var activeView: null
+
+                        onPressed: function(mouse) {
+                            const view = root.selectionViewAt(mouse.x, mouse.y)
+                            if (!view || root.rowAtContentPoint(view, mouse.x, mouse.y) >= 0) {
+                                mouse.accepted = false
+                                activeView = null
+                                return
+                            }
+                            activeView = view
+                            root.beginBackgroundSelection(view, mouse.x, mouse.y, mouse.modifiers)
+                            mouse.accepted = true
+                        }
+
+                        onPositionChanged: function(mouse) {
+                            if (pressed && activeView)
+                                root.updateBackgroundSelection(activeView, mouse.x, mouse.y)
+                        }
+
+                        onReleased: function(mouse) {
+                            if (activeView)
+                                root.endBackgroundSelection()
+                            activeView = null
+                        }
+
+                        onCanceled: {
+                            root.endBackgroundSelection()
+                            activeView = null
+                        }
+
+                        onWheel: function(wheel) {
+                            wheel.accepted = false
+                        }
+                    }
+
+                    Rectangle {
+                        id: rubberSelection
+                        z: 48
+                        visible: root.selectionDragActive
+                        x: Math.min(root.selectionDragStartX, root.selectionDragCurrentX)
+                        y: Math.min(root.selectionDragStartY, root.selectionDragCurrentY)
+                        width: Math.abs(root.selectionDragCurrentX - root.selectionDragStartX)
+                        height: Math.abs(root.selectionDragCurrentY - root.selectionDragStartY)
+                        radius: 8
+                        color: root.alpha(root.accent, root.lightMode ? 0.10 : 0.12)
+                        border.width: 1
+                        border.color: root.alpha(root.accent, 0.48)
                     }
 
                     DropArea {
@@ -1607,8 +1891,10 @@ ApplicationWindow {
                     anchors.rightMargin: root.tinyToolbar ? 10 : 20
 
                     Text {
-                        text: grid.count + (grid.count === 1 ? " item" : " items")
-                        color: root.alpha(root.muted, 0.76)
+                        text: root.selectedCount > 0
+                            ? root.selectedCount + " selected · " + grid.count + (grid.count === 1 ? " item" : " items")
+                            : grid.count + (grid.count === 1 ? " item" : " items")
+                        color: root.alpha(root.muted, root.selectedCount > 0 ? 0.92 : 0.76)
                         font.pixelSize: 11
                     }
 

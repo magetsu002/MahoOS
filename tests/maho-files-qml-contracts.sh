@@ -150,7 +150,7 @@ require_text "$QML" '88,' "list wheel step lost its bounded baseline"
 echo PASS
 
 echo "=== keyboard parity ==="
-for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X' 'Ctrl+V'; do
+for shortcut in 'Ctrl+L' 'Ctrl+F' 'Ctrl+Shift+N' 'F2' 'Delete' 'Ctrl+C' 'Ctrl+X' 'Ctrl+V' 'Ctrl+A'; do
     require_text "$QML" "sequence: \"$shortcut\"" "missing file-manager shortcut: $shortcut"
 done
 echo PASS

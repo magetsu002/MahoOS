@@ -87,7 +87,10 @@ public:
     Q_INVOKABLE void createFolder(const QString &name);
     Q_INVOKABLE void renameIndex(int row, const QString &name);
     Q_INVOKABLE void trashIndex(int row);
+    Q_INVOKABLE void trashRows(const QVariantList &rows);
     Q_INVOKABLE void copyIndex(int row, bool cut = false);
+    Q_INVOKABLE void copyRows(const QVariantList &rows, bool cut = false);
+    Q_INVOKABLE void setSelectedRows(const QVariantList &rows);
     Q_INVOKABLE void copyPathIndex(int row);
     Q_INVOKABLE void duplicateIndex(int row);
     Q_INVOKABLE void openWithIndex(int row);
@@ -129,6 +132,8 @@ private:
     void sortSearchItems(QVector<KFileItem> &items, const QString &query) const;
     int searchRank(const KFileItem &item, const QString &query) const;
     QString searchDisplayName(const KFileItem &item) const;
+    QVector<int> normalizedRows(const QVariantList &rows) const;
+    QList<QUrl> urlsForRows(const QVector<int> &rows) const;
     void startDragForRow(int row);
     int fileRowAt(QQuickWindow *window, const QPointF &scenePosition) const;
     int fileRowAtItem(QQuickItem *root, const QPointF &scenePosition) const;
@@ -150,6 +155,7 @@ private:
     int m_historyIndex = -1;
     int m_dragCandidateRow = -1;
     QPointF m_dragStartPosition;
+    QVector<int> m_selectedRows;
     bool m_loading = false;
     QString m_errorString;
     bool m_showHidden = false;

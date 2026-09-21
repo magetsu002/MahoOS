@@ -32,8 +32,10 @@ require_text "$MODEL_H" 'bool eventFilter(QObject *watched, QEvent *event) overr
     'file drag initiation is not integrated with the native Qt event path'
 require_text "$MODEL_CPP" '#include <QDrag>' \
     'native Qt drag object is missing'
-require_text "$MODEL_CPP" 'mime->setUrls({item.url()});' \
+require_text "$MODEL_CPP" 'mime->setUrls(urls);' \
     'drag payload does not export a standards-aware URL list'
+require_text "$MODEL_CPP" 'm_selectedRows.size() > 1 && m_selectedRows.contains(row)' \
+    'dragging a selected file does not carry the full current selection'
 require_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction);' \
     'file/folder drag does not enter the native drag-and-drop session'
 require_text "$MODEL_CPP" 'fileRowAt(window, mouse->position())' \
@@ -57,8 +59,40 @@ end = source.index('int MahoDirectoryModel::fileRowAt', start)
 body = source[start:end]
 assert 'item.isDir()' not in body and 'item.isFile()' not in body, \
     'drag source is type-gated; both files and folders must use the same native URL drag path'
-assert 'mime->setUrls({item.url()});' in body, 'drag source lost its URL payload'
+assert 'mime->setUrls(urls);' in body, 'drag source lost its URL payload'
+assert 'm_selectedRows.contains(row)' in body, 'native drag lost selected-group awareness'
 PY_DRAG
+echo PASS
+
+echo '=== native multi-selection contract ==='
+require_text "$MODEL_H" 'copyRows(const QVariantList &rows' \
+    'bulk copy/cut API is missing'
+require_text "$MODEL_H" 'trashRows(const QVariantList &rows)' \
+    'bulk trash API is missing'
+require_text "$MODEL_H" 'setSelectedRows(const QVariantList &rows)' \
+    'native drag cannot consume the QML selection'
+require_text "$MODEL_CPP" 'KIO::trash(urls, KIO::HideProgressInfo)' \
+    'multi-item trash is not delegated to KIO'
+require_text "$QML" 'property var selectedIndexes: []' \
+    'Files has no multi-selection state'
+require_text "$QML" 'function selectClicked(index, modifiers)' \
+    'Ctrl/Shift item selection logic is missing'
+require_text "$QML" 'sequence: "Ctrl+A"' \
+    'Select All keyboard parity is missing'
+require_text "$QML" 'id: rubberSelectInput' \
+    'empty-space M1 drag selection input is missing'
+require_text "$QML" 'id: rubberSelection' \
+    'M1 drag selection has no visible marquee'
+require_text "$QML" 'rowsInsideSelectionRect' \
+    'marquee selection does not resolve intersecting file delegates'
+require_text "$QML" 'root.selectClicked(fileDelegate.index, mouse.modifiers)' \
+    'grid selection does not honor keyboard modifiers'
+require_text "$QML" 'root.selectClicked(listDelegate.index, mouse.modifiers)' \
+    'list selection does not honor keyboard modifiers'
+require_text "$QML" 'directoryModel.copyRows(root.selectedIndexes, false)' \
+    'multi-selection cannot be copied as one operation'
+require_text "$QML" 'directoryModel.trashRows(root.selectedIndexes)' \
+    'multi-selection cannot be moved to Trash as one operation'
 echo PASS
 
 echo '=== recursive search contract ==='

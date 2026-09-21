@@ -471,33 +471,68 @@ void MahoDirectoryModel::renameIndex(int row, const QString &name)
 
 void MahoDirectoryModel::trashIndex(int row)
 {
-    if (row < 0 || row >= m_items.size())
+    trashRows(QVariantList { row });
+}
+
+void MahoDirectoryModel::trashRows(const QVariantList &rows)
+{
+    const QVector<int> normalized = normalizedRows(rows);
+    if (normalized.isEmpty())
         return;
 
-    const KFileItem item = m_items.at(row);
-    if (!item.url().isLocalFile()) {
+    const QList<QUrl> urls = urlsForRows(normalized);
+    if (urls.size() != normalized.size()) {
         setOperationMessage(QStringLiteral("Trash is currently available for local files only."));
         return;
     }
+    for (const QUrl &url : urls) {
+        if (!url.isLocalFile()) {
+            setOperationMessage(QStringLiteral("Trash is currently available for local files only."));
+            return;
+        }
+    }
 
-    watchJob(KIO::trash(item.url(), KIO::HideProgressInfo),
-             QStringLiteral("Moved %1 to Trash").arg(item.text()));
+    const QString success = normalized.size() == 1
+        ? QStringLiteral("Moved %1 to Trash").arg(m_items.at(normalized.first()).text())
+        : QStringLiteral("Moved %1 items to Trash").arg(normalized.size());
+    watchJob(KIO::trash(urls, KIO::HideProgressInfo), success);
 }
 
 void MahoDirectoryModel::copyIndex(int row, bool cut)
 {
-    if (row < 0 || row >= m_items.size() || !QGuiApplication::clipboard())
+    copyRows(QVariantList { row }, cut);
+}
+
+void MahoDirectoryModel::copyRows(const QVariantList &rows, bool cut)
+{
+    if (!QGuiApplication::clipboard())
+        return;
+
+    const QVector<int> normalized = normalizedRows(rows);
+    const QList<QUrl> urls = urlsForRows(normalized);
+    if (urls.isEmpty())
         return;
 
     auto *mime = new QMimeData;
-    mime->setUrls({m_items.at(row).url()});
+    mime->setUrls(urls);
     mime->setData(QStringLiteral("application/x-kde-cutselection"), cut ? QByteArrayLiteral("1") : QByteArrayLiteral("0"));
     QGuiApplication::clipboard()->setMimeData(mime);
 
-    setOperationMessage(cut
-        ? QStringLiteral("Ready to move %1").arg(m_items.at(row).text())
-        : QStringLiteral("Copied %1").arg(m_items.at(row).text()));
+    if (normalized.size() == 1) {
+        setOperationMessage(cut
+            ? QStringLiteral("Ready to move %1").arg(m_items.at(normalized.first()).text())
+            : QStringLiteral("Copied %1").arg(m_items.at(normalized.first()).text()));
+    } else {
+        setOperationMessage(cut
+            ? QStringLiteral("Ready to move %1 items").arg(normalized.size())
+            : QStringLiteral("Copied %1 items").arg(normalized.size()));
+    }
     emit canPasteChanged();
+}
+
+void MahoDirectoryModel::setSelectedRows(const QVariantList &rows)
+{
+    m_selectedRows = normalizedRows(rows);
 }
 
 void MahoDirectoryModel::copyPathIndex(int row)
@@ -1088,18 +1123,56 @@ QString MahoDirectoryModel::searchDisplayName(const KFileItem &item) const
     return QStringLiteral("%1  —  %2").arg(item.text(), relativeParent);
 }
 
+QVector<int> MahoDirectoryModel::normalizedRows(const QVariantList &rows) const
+{
+    QVector<int> normalized;
+    normalized.reserve(rows.size());
+    for (const QVariant &value : rows) {
+        bool ok = false;
+        const int row = value.toInt(&ok);
+        if (!ok || row < 0 || row >= m_items.size())
+            continue;
+        if (!normalized.contains(row))
+            normalized.append(row);
+    }
+    std::sort(normalized.begin(), normalized.end());
+    return normalized;
+}
+
+QList<QUrl> MahoDirectoryModel::urlsForRows(const QVector<int> &rows) const
+{
+    QList<QUrl> urls;
+    urls.reserve(rows.size());
+    for (const int row : rows) {
+        if (row < 0 || row >= m_items.size())
+            continue;
+        const QUrl url = m_items.at(row).url();
+        if (url.isValid() && !url.isEmpty())
+            urls.append(url);
+    }
+    return urls;
+}
+
 void MahoDirectoryModel::startDragForRow(int row)
 {
     if (row < 0 || row >= m_items.size())
         return;
 
-    const KFileItem item = m_items.at(row);
-    if (!item.url().isValid())
+    QVector<int> rows { row };
+    if (m_selectedRows.size() > 1 && m_selectedRows.contains(row))
+        rows = m_selectedRows;
+
+    const QList<QUrl> urls = urlsForRows(rows);
+    if (urls.isEmpty())
         return;
 
     auto *mime = new QMimeData;
-    mime->setUrls({item.url()});
-    mime->setText(item.url().toDisplayString(QUrl::PreferLocalFile));
+    mime->setUrls(urls);
+    QStringList displayUrls;
+    displayUrls.reserve(urls.size());
+    for (const QUrl &url : urls)
+        displayUrls.append(url.toDisplayString(QUrl::PreferLocalFile));
+    mime->setText(displayUrls.join(QLatin1Char('\n')));
 
     QDrag drag(this);
     drag.setMimeData(mime);
