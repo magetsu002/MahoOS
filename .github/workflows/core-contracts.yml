@@ -27,7 +27,7 @@ jobs:
       - name: Install native contract dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-cryptography libbpf-dev
+          sudo apt-get install -y python3-cryptography libbpf-dev llvm
 
       - name: Shell syntax
         shell: bash
