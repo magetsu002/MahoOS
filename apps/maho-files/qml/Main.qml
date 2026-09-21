@@ -1273,6 +1273,10 @@ ApplicationWindow {
 
                             width: grid.cellWidth
                             height: grid.cellHeight
+                            // Explicit native DnD identity. The full-content DropArea is
+                            // visually above this delegate, so C++ must not infer rows
+                            // from the topmost hit item.
+                            property int mahoFileRow: index
                             property bool selected: root.selectedIndex === index
 
                             Rectangle {
@@ -1438,6 +1442,7 @@ ApplicationWindow {
 
                                 width: listView.width
                                 height: 44
+                                property int mahoFileRow: index
                                 property bool selected: root.selectedIndex === index
 
                                 Rectangle {

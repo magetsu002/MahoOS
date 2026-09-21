@@ -38,10 +38,14 @@ require_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction);' \
     'file/folder drag does not enter the native drag-and-drop session'
 require_text "$MODEL_CPP" 'fileRowAt(window, mouse->position())' \
     'drag source does not resolve the actual file delegate under the pointer'
-require_text "$MODEL_CPP" 'looksLikeGridFile' \
-    'grid delegates are not recognized as drag sources'
-require_text "$MODEL_CPP" 'looksLikeListFile' \
-    'list delegates are not recognized as drag sources'
+require_text "$MODEL_CPP" 'fileRowAtItem(window->contentItem(), scenePosition)' \
+    'drag hit testing still stops at the topmost content overlay'
+require_text "$MODEL_CPP" 'root->property("mahoFileRow")' \
+    'drag hit testing is not bound to an explicit file delegate identity'
+require_text "$QML" 'property int mahoFileRow: index' \
+    'file delegates do not publish native drag identity'
+reject_text "$MODEL_CPP" 'deepestChildAt' \
+    'topmost-only hit testing regressed and will be shadowed by the inbound DropArea'
 reject_text "$MODEL_CPP" 'xdotool' \
     'drag-and-drop must not be faked through input automation'
 python3 - "$MODEL_CPP" <<'PY_DRAG'

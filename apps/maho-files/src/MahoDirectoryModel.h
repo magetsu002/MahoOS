@@ -131,7 +131,7 @@ private:
     QString searchDisplayName(const KFileItem &item) const;
     void startDragForRow(int row);
     int fileRowAt(QQuickWindow *window, const QPointF &scenePosition) const;
-    QQuickItem *deepestChildAt(QQuickItem *root, const QPointF &scenePosition) const;
+    int fileRowAtItem(QQuickItem *root, const QPointF &scenePosition) const;
     void watchJob(KJob *job, const QString &successMessage);
     QUrl childUrl(const QString &name) const;
 

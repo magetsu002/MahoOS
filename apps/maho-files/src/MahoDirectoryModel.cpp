@@ -1111,41 +1111,40 @@ int MahoDirectoryModel::fileRowAt(QQuickWindow *window, const QPointF &scenePosi
     if (!window || !window->contentItem())
         return -1;
 
-    QQuickItem *item = deepestChildAt(window->contentItem(), scenePosition);
-    while (item) {
-        const QVariant rowValue = item->property("index");
-        const bool looksLikeGridFile = item->property("mimeType").isValid();
-        const bool looksLikeListFile = item->property("sizeText").isValid()
-            && item->property("mimeComment").isValid();
-
-        if (rowValue.isValid() && (looksLikeGridFile || looksLikeListFile)) {
-            bool ok = false;
-            const int row = rowValue.toInt(&ok);
-            if (ok && row >= 0 && row < m_items.size())
-                return row;
-        }
-
-        item = item->parentItem();
-    }
-
-    return -1;
+    // The content DropArea intentionally sits above the delegates so inbound
+    // drops remain reliable. A normal childAt() hit therefore sees that overlay
+    // first and can never discover the file underneath it. Walk every visible
+    // visual branch under the pointer and look only for the explicit file-row
+    // marker instead of treating the topmost overlay as authoritative.
+    return fileRowAtItem(window->contentItem(), scenePosition);
 }
 
-QQuickItem *MahoDirectoryModel::deepestChildAt(QQuickItem *root, const QPointF &scenePosition) const
+int MahoDirectoryModel::fileRowAtItem(QQuickItem *root, const QPointF &scenePosition) const
 {
-    if (!root)
-        return nullptr;
+    if (!root || !root->isVisible() || root->opacity() <= 0.0)
+        return -1;
 
-    QQuickItem *current = root;
-    while (current) {
-        const QPointF local = current->mapFromScene(scenePosition);
-        QQuickItem *child = current->childAt(local.x(), local.y());
-        if (!child || child == current)
-            break;
-        current = child;
+    const QPointF local = root->mapFromScene(scenePosition);
+    if (!root->contains(local))
+        return -1;
+
+    auto children = root->childItems();
+    std::stable_sort(children.begin(), children.end(), [](QQuickItem *left, QQuickItem *right) {
+        return left->z() > right->z();
+    });
+    for (QQuickItem *child : children) {
+        const int row = fileRowAtItem(child, scenePosition);
+        if (row >= 0)
+            return row;
     }
 
-    return current;
+    const QVariant rowValue = root->property("mahoFileRow");
+    if (!rowValue.isValid())
+        return -1;
+
+    bool ok = false;
+    const int row = rowValue.toInt(&ok);
+    return ok && row >= 0 && row < m_items.size() ? row : -1;
 }
 
 void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage)
