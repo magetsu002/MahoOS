@@ -29,6 +29,18 @@ def main():
     check('ordinary app artifact is normal', ordinary['classification']=='normal')
     service=classify_artifact(package_name='demo',roles=[],files=['/usr/lib/systemd/system/demo.service','/usr/bin/demo'])
     check('service file derives service restart requirement', service['activation_requirements']==['affected-system-service-restart'])
+    sudoers=classify_artifact(package_name='demo',roles=[],files=['/etc/sudoers.d/demo','/usr/bin/demo'])
+    check('privilege authority never looks like an ordinary file update',
+          'privilege-authority' in sudoers['effects'] and 'security-boundary-review' in sudoers['activation_requirements'])
+    udev=classify_artifact(package_name='demo',roles=[],files=['/usr/lib/udev/rules.d/90-demo.rules'])
+    check('udev authority is classified before candidate execution',
+          'privilege-authority' in udev['effects'])
+    tmpfiles=classify_artifact(package_name='demo',roles=[],files=['/usr/lib/tmpfiles.d/demo.conf'])
+    check('tmpfiles persistence is classified before candidate execution',
+          'startup-persistence' in tmpfiles['effects'])
+    loader=classify_artifact(package_name='demo',roles=[],files=['/etc/ld.so.conf.d/demo.conf'])
+    check('loader policy is classified before candidate execution',
+          'loader-policy' in loader['effects'])
     kernel=classify_artifact(package_name='custom-module',roles=[],files=['/usr/lib/modules/7.2/extra/demo.ko.zst'])
     check('artifact paths can elevate harmless-looking package name to boot-critical', kernel['classification']=='boot-critical')
     dkms=classify_artifact(package_name='custom-dkms',roles=['dkms'],files=['/usr/src/custom-1/Makefile'])

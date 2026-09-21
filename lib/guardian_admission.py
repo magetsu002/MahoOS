@@ -167,7 +167,18 @@ class MutationGraph:
 
 
 def _kind(path: str) -> EffectKind:
-    if path in {"/etc/kernel/cmdline", "/etc/ld.so.preload", "/etc/securetty"} or path.startswith("/etc/kernel/cmdline.d/") or path.startswith("/boot/loader/"):
+    # Loader/interpreter policy can redirect execution before an application or
+    # service reaches its own trust boundary.
+    if (
+        path in {
+            "/etc/kernel/cmdline", "/etc/ld.so.preload", "/etc/ld.so.conf",
+            "/etc/securetty",
+        }
+        or path.startswith((
+            "/etc/kernel/cmdline.d/", "/boot/loader/",
+            "/etc/ld.so.conf.d/", "/etc/binfmt.d/", "/usr/lib/binfmt.d/",
+        ))
+    ):
         return EffectKind.LOADER_POLICY
     if path.startswith((
         "/boot/", "/efi/", "/etc/mkinitcpio", "/usr/lib/initcpio/",
@@ -179,16 +190,34 @@ def _kind(path: str) -> EffectKind:
         "/etc/modules-load.d/", "/etc/modprobe.d/",
     )):
         return EffectKind.KERNEL_MODULE
-    if path in {"/etc/passwd", "/etc/group", "/etc/shadow", "/etc/gshadow"} or path.startswith((
+    if path in {
+        "/etc/passwd", "/etc/group", "/etc/shadow", "/etc/gshadow",
+        "/etc/subuid", "/etc/subgid", "/etc/login.defs",
+        "/root/.ssh/authorized_keys",
+    } or path.startswith((
         "/etc/sudoers", "/etc/polkit-1/", "/usr/share/polkit-1/rules.d/",
-        "/etc/pam.d/", "/usr/lib/security/", "/etc/ssh/",
+        "/etc/pam.d/", "/usr/lib/security/", "/etc/security/", "/etc/ssh/",
+        "/etc/dbus-1/system.d/", "/usr/share/dbus-1/system.d/",
+        "/etc/sysusers.d/", "/usr/lib/sysusers.d/",
+        "/etc/udev/rules.d/", "/usr/lib/udev/rules.d/",
+        "/etc/sysctl.d/", "/usr/lib/sysctl.d/",
     )):
         return EffectKind.PRIVILEGE_AUTHORITY
     if path.startswith(("/usr/share/libalpm/hooks/", "/etc/pacman.d/hooks/")):
         return EffectKind.PACMAN_HOOK
-    if path.startswith((
+    if path in {
+        "/etc/profile", "/etc/bash.bashrc", "/etc/environment",
+        "/etc/zsh/zshenv", "/etc/zsh/zprofile", "/etc/zsh/zlogin",
+    } or path.startswith((
         "/etc/xdg/autostart/", "/etc/systemd/user/", "/usr/lib/systemd/user/",
         "/etc/cron", "/var/spool/cron/", "/etc/profile.d/",
+        "/etc/tmpfiles.d/", "/usr/lib/tmpfiles.d/",
+        "/etc/NetworkManager/dispatcher.d/", "/usr/lib/NetworkManager/dispatcher.d/",
+        "/etc/systemd/system-generators/", "/usr/lib/systemd/system-generators/",
+        "/etc/systemd/user-generators/", "/usr/lib/systemd/user-generators/",
+        "/etc/systemd/system-environment-generators/", "/usr/lib/systemd/system-environment-generators/",
+        "/etc/systemd/user-environment-generators/", "/usr/lib/systemd/user-environment-generators/",
+        "/root/.config/systemd/user/", "/root/.config/autostart/",
     )):
         return EffectKind.STARTUP_PERSISTENCE
     if path.startswith(("/etc/systemd/system/", "/usr/lib/systemd/system/")):

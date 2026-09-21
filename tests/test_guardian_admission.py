@@ -70,6 +70,35 @@ persistence_path = "/etc/xdg/autostart/demo.desktop"
 persistence = derive_mutation_graph({}, {persistence_path: observed(b"desktop", "demo")}, transaction_id=TX, declaration=safe_declaration)
 check("startup persistence mutation is observable", persistence.effects[0].kind is EffectKind.STARTUP_PERSISTENCE)
 
+
+for privileged_path in (
+    "/etc/udev/rules.d/90-demo.rules",
+    "/usr/lib/sysusers.d/demo.conf",
+    "/etc/sysctl.d/90-demo.conf",
+    "/etc/dbus-1/system.d/demo.conf",
+):
+    graph = derive_mutation_graph({}, {privileged_path: observed(b"authority", "demo")}, transaction_id=TX, declaration=safe_declaration)
+    check(f"high-authority path is privilege authority: {privileged_path}",
+          graph.effects[0].kind is EffectKind.PRIVILEGE_AUTHORITY and evaluate_admission(graph).outcome is AdmissionOutcome.REJECT)
+
+for persistence_path in (
+    "/usr/lib/tmpfiles.d/demo.conf",
+    "/etc/NetworkManager/dispatcher.d/demo",
+    "/usr/lib/systemd/system-generators/demo",
+    "/etc/profile",
+):
+    graph = derive_mutation_graph({}, {persistence_path: observed(b"startup", "demo")}, transaction_id=TX, declaration=safe_declaration)
+    check(f"startup execution path is persistence: {persistence_path}",
+          graph.effects[0].kind is EffectKind.STARTUP_PERSISTENCE and evaluate_admission(graph).outcome is AdmissionOutcome.REJECT)
+
+for loader_path in (
+    "/etc/ld.so.conf.d/demo.conf",
+    "/usr/lib/binfmt.d/demo.conf",
+):
+    graph = derive_mutation_graph({}, {loader_path: observed(b"loader", "demo")}, transaction_id=TX, declaration=safe_declaration)
+    check(f"loader/interpreter policy is security boundary: {loader_path}",
+          graph.effects[0].kind is EffectKind.LOADER_POLICY and evaluate_admission(graph).outcome is AdmissionOutcome.REJECT)
+
 foreign_path = "/usr/bin/other-package"
 override_decl = CandidateDeclaration("demo", (foreign_path,), (EffectKind.FILE,))
 override = derive_mutation_graph({foreign_path: observed(b"old", "other")}, {foreign_path: observed(b"new", "demo")}, transaction_id=TX, declaration=override_decl)

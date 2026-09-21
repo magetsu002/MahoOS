@@ -43,6 +43,41 @@ _SHARED_LIBRARY_PREFIXES = (
     "/usr/lib/",
     "/usr/lib32/",
 )
+_PRIVILEGE_AUTHORITY_EXACT = frozenset({
+    "/etc/passwd", "/etc/group", "/etc/shadow", "/etc/gshadow",
+    "/etc/subuid", "/etc/subgid", "/etc/login.defs",
+    "/root/.ssh/authorized_keys",
+})
+_PRIVILEGE_AUTHORITY_PREFIXES = (
+    "/etc/sudoers", "/etc/polkit-1/", "/usr/share/polkit-1/rules.d/",
+    "/etc/pam.d/", "/usr/lib/security/", "/etc/security/", "/etc/ssh/",
+    "/etc/dbus-1/system.d/", "/usr/share/dbus-1/system.d/",
+    "/etc/sysusers.d/", "/usr/lib/sysusers.d/",
+    "/etc/udev/rules.d/", "/usr/lib/udev/rules.d/",
+    "/etc/sysctl.d/", "/usr/lib/sysctl.d/",
+)
+_STARTUP_PERSISTENCE_EXACT = frozenset({
+    "/etc/profile", "/etc/bash.bashrc", "/etc/environment",
+    "/etc/zsh/zshenv", "/etc/zsh/zprofile", "/etc/zsh/zlogin",
+})
+_STARTUP_PERSISTENCE_PREFIXES = (
+    "/etc/xdg/autostart/", "/etc/systemd/user/", "/usr/lib/systemd/user/",
+    "/etc/cron", "/var/spool/cron/", "/etc/profile.d/",
+    "/etc/tmpfiles.d/", "/usr/lib/tmpfiles.d/",
+    "/etc/NetworkManager/dispatcher.d/", "/usr/lib/NetworkManager/dispatcher.d/",
+    "/etc/systemd/system-generators/", "/usr/lib/systemd/system-generators/",
+    "/etc/systemd/user-generators/", "/usr/lib/systemd/user-generators/",
+    "/etc/systemd/system-environment-generators/", "/usr/lib/systemd/system-environment-generators/",
+    "/etc/systemd/user-environment-generators/", "/usr/lib/systemd/user-environment-generators/",
+    "/root/.config/systemd/user/", "/root/.config/autostart/",
+)
+_LOADER_POLICY_EXACT = frozenset({
+    "/etc/kernel/cmdline", "/etc/ld.so.preload", "/etc/ld.so.conf", "/etc/securetty",
+})
+_LOADER_POLICY_PREFIXES = (
+    "/etc/kernel/cmdline.d/", "/boot/loader/",
+    "/etc/ld.so.conf.d/", "/etc/binfmt.d/", "/usr/lib/binfmt.d/",
+)
 
 
 def repository_provenance(repository: str) -> dict[str, str]:
@@ -134,6 +169,12 @@ def classify_artifact(*, package_name: str, roles: Sequence[str], files: Iterabl
             note("package-hook", path)
         elif path.startswith("/usr/share/libalpm/hooks/"):
             note("package-hook", path)
+        if path in _PRIVILEGE_AUTHORITY_EXACT or path.startswith(_PRIVILEGE_AUTHORITY_PREFIXES):
+            note("privilege-authority", path)
+        if path in _STARTUP_PERSISTENCE_EXACT or path.startswith(_STARTUP_PERSISTENCE_PREFIXES):
+            note("startup-persistence", path)
+        if path in _LOADER_POLICY_EXACT or path.startswith(_LOADER_POLICY_PREFIXES):
+            note("loader-policy", path)
         if path.startswith(_SYSTEM_SERVICE_PREFIXES):
             note("system-service", path)
         if path.startswith(_USER_SERVICE_PREFIXES):
@@ -153,6 +194,8 @@ def classify_artifact(*, package_name: str, roles: Sequence[str], files: Iterabl
         activation.update({"initramfs-or-boot-refresh", "explicit-reboot"})
     if "system-service" in effects:
         activation.add("affected-system-service-restart")
+    if effects & {"privilege-authority", "startup-persistence", "loader-policy"}:
+        activation.add("security-boundary-review")
     if effects & {"user-service", "desktop-session"}:
         activation.add("affected-user-session-restart")
     if "shared-library" in effects:
