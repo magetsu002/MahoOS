@@ -177,7 +177,12 @@ def _diagnostics(
 
     self_health = _object(world_guardian.get("self_health"))
     guardian_state = str(self_health.get("state", "UNKNOWN")).upper()
-    guardian_diag = "PASS" if guardian_state == "HEALTHY" else "FAIL" if guardian_state == "FAILED" else "UNKNOWN"
+    guardian_diag = (
+        "PASS" if guardian_state == "HEALTHY"
+        else "WARN" if guardian_state == "DEGRADED"
+        else "FAIL" if guardian_state in {"FAILED", "UNTRUSTED"}
+        else "UNKNOWN"
+    )
     missing = self_health.get("missing_providers") if isinstance(self_health.get("missing_providers"), list) else []
     stale = self_health.get("stale_providers") if isinstance(self_health.get("stale_providers"), list) else []
     reason = "Guardian has current required evidence." if guardian_diag == "PASS" else (
@@ -222,12 +227,22 @@ def _diagnostics(
         row = _object(raw)
         fresh = str(row.get("freshness", "unknown"))
         health = str(row.get("health", "unknown"))
-        state = "PASS" if fresh == "current" and health == "healthy" else "FAIL" if health == "failed" else "WARN" if fresh == "stale" else "UNKNOWN"
+        optional = provider_id in {"environment.power", "environment.thermal"}
+        if optional and fresh == "missing":
+            state = "UNKNOWN"
+            summary = f"Optional telemetry {provider_id}"
+            reason = "Not available; optional telemetry does not affect primary Guardian health or machine trust."
+            action = "No action required."
+            attention = False
+        else:
+            state = "PASS" if fresh == "current" and health == "healthy" else "FAIL" if health == "failed" else "WARN" if fresh == "stale" else "UNKNOWN"
+            summary = f"Provider {provider_id}"
+            reason = f"Evidence freshness is {fresh}; provider health is {health}."
+            action = "Restore current provider evidence." if state != "PASS" else "No action required."
+            attention = state in {"FAIL", "WARN"} or provider_id == "boot.authority"
         records.append(_diag(
-            f"provider.{provider_id}", "Guardian", state, f"Provider {provider_id}",
-            f"Evidence freshness is {fresh}; provider health is {health}.",
-            (f"guardian.provider:{provider_id}",), "Restore current provider evidence." if state != "PASS" else "No action required.",
-            attention=state in {"FAIL", "WARN"} or provider_id == "boot.authority",
+            f"provider.{provider_id}", "Guardian", state, summary, reason,
+            (f"guardian.provider:{provider_id}",), action, attention=attention,
         ))
 
     update_attention = update.get("attention_required") is True
@@ -357,14 +372,14 @@ def build_system_model(
     attention = "ACTION REQUIRED" if any(item.state in {"FAIL", "BLOCKED"} for item in attention_records) else "REVIEW" if attention_records else "NONE"
     runtime_recovery = _object(guardian.get("runtime_recovery"))
     runtime_recovery_state = str(runtime_recovery.get("state", "none")).lower()
-    if runtime_recovery_state in {"recovering", "active"}:
-        recovery_label = "ACTIVE"
+    if runtime_recovery_state in {"recovering", "verifying", "active"}:
+        recovery_label = "Recovering"
     elif runtime_recovery_state == "recovered":
-        recovery_label = "COMPLETE"
+        recovery_label = "Ready"
     elif recovery.get("last_verified_recovery") or recovery.get("last_verified_runtime_recovery"):
-        recovery_label = "AVAILABLE"
+        recovery_label = "Ready"
     else:
-        recovery_label = "UNPROVEN"
+        recovery_label = "Unproven"
     posture = _object(behavior_map.get("active_executable_posture"))
     behavior_label = "None" if not posture else ", ".join(f"{key} {value}" for key, value in sorted(posture.items()))
     summary = SystemSummary(
@@ -374,7 +389,7 @@ def build_system_model(
         severity=f"L{severity_level} {severity.get('label', 'none')}" if severity_level else "NONE",
         attention=attention,
         recovery=recovery_label,
-        updates=str(update.get("status") or "Unknown"),
+        updates=str(update.get("presentation_status") or update.get("status") or "Unknown"),
         behavior=behavior_label,
     )
     return SystemModel(

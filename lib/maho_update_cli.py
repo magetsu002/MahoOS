@@ -80,6 +80,7 @@ def _runtime_source_revision() -> str | None:
 def _attach_normal_authority(status: dict[str, Any]) -> dict[str, Any]:
     revision = _runtime_source_revision()
     status["normal_execution_certified"] = False
+    status["normal_authority_state"] = "absent"
     status["normal_authority_id"] = None
     status["normal_certified_profile"] = None
     status["normal_certified_effects"] = []
@@ -100,17 +101,51 @@ def _attach_normal_authority(status: dict[str, Any]) -> dict[str, Any]:
     return status
 
 
+def _presentation_status(status: dict[str, Any]) -> str:
+    blockers = status.get("blockers") if isinstance(status.get("blockers"), list) else []
+    if blockers or status.get("attention_required") is True:
+        return "Review required"
+    receipt = status.get("receipt") if isinstance(status.get("receipt"), dict) else {}
+    state = str(receipt.get("state") or status.get("authority_state") or "").upper()
+    if state in {"BLOCKED", "FAILED_RECOVERABLE", "ATTENTION_REQUIRED"}:
+        return "Review required"
+    if state == "RECOVERING":
+        return "Recovering"
+    if state == "RECOVERED":
+        return "Recovered"
+    if state == "HEALTHY":
+        return "Healthy"
+    if state == "ACTIVE_VERIFYING":
+        return "Verifying"
+    if state in {"INSTALLING", "INSTALLED_PENDING_ACTIVATION"}:
+        return "Installing"
+    if state in {"DISCOVERED", "STAGED"}:
+        return "Preparing"
+    if state in {"PREPARED", "MAINTENANCE_READY"}:
+        effects = status.get("normal_certified_effects")
+        if isinstance(effects, list) and any(str(item).startswith("boot") for item in effects):
+            return "Deferred to boot-safe path"
+        return "Ready" if status.get("normal_execution_certified") is True else "Waiting for certification"
+    return str(status.get("status") or "Unknown")
+
+
 def status_payload(root: Path) -> dict[str, Any]:
     try:
         transaction = current_transaction(root)
         history = load_history(root)
         if transaction is None:
-            return _attach_normal_authority(unavailable_status(root))
+            status = _attach_normal_authority(unavailable_status(root))
+            status["presentation_status"] = _presentation_status(status)
+            return status
         status = product_status(transaction, history=history)
         status["history_count"] = len(history)
-        return _attach_normal_authority(status)
+        status = _attach_normal_authority(status)
+        status["presentation_status"] = _presentation_status(status)
+        return status
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-        return _attach_normal_authority(failed_closed_status("authoritative_update_state_unreadable"))
+        status = _attach_normal_authority(failed_closed_status("authoritative_update_state_unreadable"))
+        status["presentation_status"] = _presentation_status(status)
+        return status
 
 
 def main() -> None:
@@ -132,7 +167,7 @@ def main() -> None:
         if args.json:
             print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         else:
-            print(payload["status"])
+            print(payload.get("presentation_status") or payload["status"])
             if payload["last_maintenance"]:
                 print(f"Last maintenance: {payload['last_maintenance']}")
             if payload["activation_pending"]:

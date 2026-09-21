@@ -67,4 +67,17 @@ EOF_OLDER_HYPR
 validate_targets >/dev/null || fail 'older exact Maho + Waybar migration hook regressed'
 echo 'PASS older exact Maho + Waybar migration hook remains recognized'
 
+echo '=== exact live kbdlight migration ownership ==='
+mkdir -p "$HOME/.local/bin" "$UNIT_DIR"
+cp "$REPO_ROOT/bin/maho-kbdlight" "$HOME/.local/bin/maho-kbdlight"
+chmod +x "$HOME/.local/bin/maho-kbdlight"
+cp "$REPO_ROOT/systemd/user/maho-kbdlight.service" "$UNIT_DIR/maho-kbdlight.service"
+validate_targets >/dev/null || fail 'exact live kbdlight helper/unit were rejected'
+printf '\n# unauthorized mutation\n' >> "$HOME/.local/bin/maho-kbdlight"
+if validate_targets >"$TMP/kbd-reject.out" 2>"$TMP/kbd-reject.err"; then
+  fail 'mutated kbdlight helper was incorrectly accepted'
+fi
+grep -Fq 'refusing unmanaged command' "$TMP/kbd-reject.err" || fail 'kbdlight rejection did not identify command ownership conflict'
+echo 'PASS exact kbdlight migration is accepted and later mutation fails closed'
+
 echo 'ALL LIVE MIGRATION OWNERSHIP CONTRACTS PASS'

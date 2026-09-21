@@ -25,18 +25,21 @@ def fixture(preferences=None, *, active: bool = False):
         "system": {"current_system_generation": None, "current_kernel_generation": None, "maho_runtime": {"verified": True}},
         "reliability": {"state": "healthy", "counts": {"healthy": 4, "degraded": 0, "unknown": 0}},
         "world_state": {"guardian": {
-            "self_health": {"state": "UNKNOWN", "missing_providers": ["boot.authority"], "stale_providers": []},
+            "self_health": {"state": "HEALTHY", "missing_providers": [], "stale_providers": []},
             "severity": {"level": 1, "label": "minor"},
             "trust": {"state": "UNKNOWN", "reasons": ["generation authority unavailable", "Signed Boot proof missing"]},
         }},
         "active_incidents": [{"incident_id": "inc-fixture", "status": "active", "explanation": {"incident": "Low-confidence persistence drift"}}],
-        "boot": {"boot_generation_id": None, "boot_authority_id": None, "signed_boot_authority": "UNKNOWN", "trust_reason": "proof missing"},
+        "boot": {"boot_generation_id": None, "boot_authority_id": None, "signed_boot_authority": "UNKNOWN", "trust_reason": "durable Signed Boot postboot proof is missing"},
         "evidence_freshness": {
             "boot.authority": {"freshness": "missing", "health": "healthy"},
+            "environment.power": {"freshness": "missing", "health": "unknown"},
+            "environment.thermal": {"freshness": "missing", "health": "unknown"},
             "guardian.watch": {"freshness": "current", "health": "healthy"},
         },
         "recent_activity": [{"kind": "incident", "at": "2026-01-01T00:00:00Z", "id": "inc-fixture", "status": "active"}],
         "containment": {"state": "none"}, "runtime_recovery": {"state": "recovered"},
+        "response": {"backend_state": "RECOVERED", "wheel_spinning": False},
     }
     posture = {"notifications": "quiet", "maintenance": "suspended"} if active else {}
     behavior = {
@@ -50,6 +53,7 @@ def fixture(preferences=None, *, active: bool = False):
             "status": "Maintenance queued", "transaction_id": "upd-20260101T000000Z-123456789abc",
             "authority_state": "PREPARED", "attention_required": False, "blockers": [],
             "normal_execution_certified": False, "normal_authority_state": "stale-or-invalid",
+            "presentation_status": "Waiting for certification",
             "receipt": {"state": "PREPARED", "prepared_time": "2026-01-01T00:00:30Z", "package_changes": [{"name": "fzf", "from": "1", "to": "2"}]},
         },
         behavior=behavior,
@@ -74,7 +78,15 @@ def main() -> None:
                 and all(len(line) <= width for line in screen.splitlines())
                 and "\x1b[" not in screen,
             )
-    check("overview keeps health and trust distinct", "HEALTHY" in render(model) and "UNRESOLVED" in render(model))
+    check("overview keeps health and trust distinct", "Healthy" in render(model) and "Unresolved" in render(model))
+    trust_page = render(model, page="Trust", height=35)
+    check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
+    check("Trust renders missing generation authority semantically", trust_page.count("Not established") >= 2)
+    check("Update page renders PREPARED stale authority semantically", "Waiting for certification" in render(model, page="Updates", height=35))
+    check("Recovery page explains unresolved generation authority", "Awaiting generation trust" in render(model, page="Recovery", height=35))
+    check("Guardian response projection remains truthful and idle", "RECOVERED" in render(model, page="Guardian", height=35) and "Idle" in render(model, page="Guardian", height=35))
+    optional = [item for item in model.diagnostics if item.id in {"provider.environment.power", "provider.environment.thermal"}]
+    check("optional telemetry absence does not request attention", len(optional) == 2 and all(not item.attention and "Not available" in item.reason for item in optional))
     check("Doctor uses universal states", "PASS" in render(model, page="Doctor") and "UNKNOWN" in render(model, page="Doctor"))
     check("Trust page refuses historical promotion", "Historical recovery proof" in render(model, page="Trust", height=35))
     check("Update page explains package state", "fzf" in render(model, page="Updates", height=35))

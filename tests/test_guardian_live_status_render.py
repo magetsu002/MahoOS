@@ -15,7 +15,7 @@ def main() -> None:
     payload = {
         "world_state": {"guardian": {"severity": {"level": 0, "label": "normal"}, "trust": {"state": "UNKNOWN"}, "self_health": {"state": "DEGRADED"}}},
         "system": {"current_system_generation": None, "current_kernel_generation": None},
-        "boot": {"boot_id": "boot-a", "kernel_release": "test"},
+        "boot": {"boot_id": "boot-a", "kernel_release": "test", "signed_boot_authority": "UNKNOWN", "trust_reason": "durable Signed Boot postboot proof is missing"},
         "recovery": {"current_generation_trust": "UNRESOLVED"},
         "active_incidents": [],
         "containment": {"state": "none"},
@@ -24,9 +24,11 @@ def main() -> None:
         "errors": [],
     }
     output = render_status(payload)
-    required = ("System", "Trust", "Guardian self-health", "Boot", "Recovery", "Active incidents", "Evidence freshness")
+    required = ("System", "Overall trust", "Guardian", "Boot trust", "System generation", "Recovery authority", "Active incidents", "Evidence freshness")
     if not all(item in output for item in required):
         raise AssertionError("plain technical status is incomplete")
+    if "Awaiting certification" not in output or "Not established" not in output or "Awaiting generation trust" not in output:
+        raise AssertionError("plain status leaked raw unresolved placeholders")
     if "score" in output.lower() or "dashboard" in output.lower():
         raise AssertionError("status introduced a fake score/dashboard surface")
     print("PASS canonical plain status surface")

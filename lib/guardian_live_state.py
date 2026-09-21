@@ -544,7 +544,10 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
     recovery = recovery_status_payload(paths.recovery_root, current_kernel_release=platform.release())
     transaction, authority_records, authority_errors = _update_authority(paths)
 
-    required = tuple(spec.provider_id for spec in (*SECURITY_SPECS, *GUARDIAN_SPECS) if spec.required) + ("boot.authority",)
+    # Guardian self-health is about Guardian's decision machinery, not whether
+    # the machine has established boot/generation trust. Boot authority remains
+    # a trust signal below and must not poison Guardian's own health.
+    required = tuple(spec.provider_id for spec in (*SECURITY_SPECS, *GUARDIAN_SPECS) if spec.required)
     security_current = [
         item for item in evidence
         if item.provider_id.startswith("security.") and item.decision_usable(now=current)
@@ -627,6 +630,30 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
     }
 
 
+def _status_trust_label(value: Any) -> str:
+    raw = str(value or "UNKNOWN").upper()
+    return {
+        "VERIFIED": "Verified",
+        "UNKNOWN": "Unresolved",
+        "DEGRADED": "Unresolved",
+        "UNTRUSTED": "Untrusted",
+        "RECOVERING": "Recovering",
+        "CONTAINED": "Contained",
+    }.get(raw, raw.replace("_", " ").title())
+
+
+def _status_boot_trust(boot: Mapping[str, Any]) -> str:
+    raw = str(boot.get("signed_boot_authority") or "UNKNOWN").upper()
+    reason = str(boot.get("trust_reason") or "").lower()
+    if raw == "VERIFIED":
+        return "Verified"
+    if raw in {"UNTRUSTED", "REVOKED"}:
+        return "Untrusted"
+    if "postboot proof is missing" in reason or ("signed boot" in reason and "missing" in reason):
+        return "Awaiting certification"
+    return "Unknown"
+
+
 def render_status(payload: Mapping[str, Any]) -> str:
     world = payload.get("world_state") if isinstance(payload.get("world_state"), Mapping) else {}
     guardian = world.get("guardian") if isinstance(world.get("guardian"), Mapping) else {}
@@ -641,16 +668,34 @@ def render_status(payload: Mapping[str, Any]) -> str:
     runtime_recovery = payload.get("runtime_recovery") if isinstance(payload.get("runtime_recovery"), Mapping) else {}
     response = payload.get("response") if isinstance(payload.get("response"), Mapping) else {}
 
+    runtime = system.get("maho_runtime") if isinstance(system.get("maho_runtime"), Mapping) else {}
+    generation_missing = not system.get("current_system_generation") or not system.get("current_kernel_generation")
+    recovery_authority = (
+        "Awaiting generation trust"
+        if generation_missing and str(recovery.get("current_generation_trust", "UNRESOLVED")).upper() != "VERIFIED"
+        else _status_trust_label(recovery.get("current_generation_trust"))
+    )
+    freshness_map = payload.get("evidence_freshness") if isinstance(payload.get("evidence_freshness"), Mapping) else {}
+    security_rows = [
+        row for provider_id, row in freshness_map.items()
+        if str(provider_id).startswith("security.") and isinstance(row, Mapping)
+    ]
+    security_label = "Healthy" if security_rows and all(
+        row.get("freshness") == "current" and row.get("health") == "healthy" for row in security_rows
+    ) else "Degraded"
+    system_label = "Normal" if int(severity.get("level", 0) or 0) == 0 else f"L{severity.get('level', 0)} {severity.get('label', 'normal')}"
     lines = [
         "Maho Guardian status",
         "",
-        f"System                  L{severity.get('level', 0)} {severity.get('label', 'normal')}",
-        f"Trust                   {trust.get('state', 'UNKNOWN')}",
-        f"Guardian self-health    {self_health.get('state', 'UNKNOWN')}",
-        f"Boot                    {boot.get('boot_id') or 'unknown'}  kernel={boot.get('kernel_release') or 'unknown'}",
-        f"SystemGeneration        {system.get('current_system_generation') or 'unknown'}",
-        f"KernelGeneration        {system.get('current_kernel_generation') or 'unknown'}",
-        f"Recovery                {recovery.get('current_generation_trust', 'UNRESOLVED')}",
+        f"System                  {system_label}",
+        f"Guardian                {_status_trust_label(self_health.get('state')).replace('Verified', 'Healthy')}",
+        f"Runtime                 {'Verified' if runtime.get('verified') is True else 'Unverified'}",
+        f"Security monitoring     {security_label}",
+        f"Overall trust           {_status_trust_label(trust.get('state'))}",
+        f"Boot trust              {_status_boot_trust(boot)}",
+        f"System generation       {system.get('current_system_generation') or 'Not established'}",
+        f"Kernel generation       {system.get('current_kernel_generation') or 'Not established'}",
+        f"Recovery authority      {recovery_authority}",
         f"Containment             {containment.get('state', 'none')}",
         f"Runtime recovery        {runtime_recovery.get('state', 'none')}",
         f"Guardian response       {response.get('backend_state', 'NONE')}",

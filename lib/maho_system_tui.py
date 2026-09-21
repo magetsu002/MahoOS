@@ -46,8 +46,8 @@ def _status_rows(model: SystemModel, width: int) -> list[str]:
     s = model.summary
     rows: list[str] = []
     for label, value in (
-        ("System health", s.operational_health), ("Trust", s.trust),
-        ("Guardian", s.guardian_health), ("Severity", s.severity),
+        ("System health", _human_state(s.operational_health)), ("Trust", _human_state(s.trust)),
+        ("Guardian", _human_state(s.guardian_health)), ("Severity", _human_state(s.severity)),
         ("Updates", s.updates), ("Recovery", s.recovery),
         ("Behavior", s.behavior), ("Attention", s.attention),
     ):
@@ -80,7 +80,8 @@ def _doctor_rows(model: SystemModel, selected: int, width: int) -> list[str]:
     rows = []
     for index, item in enumerate(model.diagnostics[start:start + visible], start):
         cursor = ">" if index == selected else " "
-        rows.append(f"{cursor} {item.state:<7} {item.subsystem:<10} {item.summary}")
+        display_state = _diagnostic_state_label(item)
+        rows.append(f"{cursor} {display_state:<7} {item.subsystem:<10} {item.summary}")
     return rows
 
 
@@ -91,8 +92,9 @@ def _doctor(model: SystemModel, state: UIState, width: int) -> list[str]:
     item = model.diagnostics[selected]
     rows = box("Doctor", _doctor_rows(model, selected, width), width)
     if state.show_detail:
+        display_state = "Not available" if _diagnostic_state_label(item) == "N/A" else item.state
         detail = [
-            f"State      {item.state}", f"Reason     {item.reason}",
+            f"State      {display_state}", f"Reason     {item.reason}",
             f"Impact     {'User attention requested' if item.attention else 'No user action requested'}",
             f"Action     {item.recommended_action}",
         ]
@@ -111,13 +113,16 @@ def _guardian(model: SystemModel, width: int) -> list[str]:
     trust = _obj(guardian.get("trust"))
     incidents = _list(model.guardian.get("active_incidents"))
     status = []
+    response = _obj(model.guardian.get("response"))
     for label, value in (
         ("Operational state", model.summary.operational_health),
         ("Trust", model.summary.trust),
         ("Severity", f"L{severity.get('level', '?')} {severity.get('label', 'unknown')}"),
-        ("Guardian health", str(health.get("state", "UNKNOWN"))),
+        ("Guardian health", _human_state(health.get("state", "UNKNOWN"))),
         ("Containment", str(_obj(model.guardian.get("containment")).get("state", "none"))),
         ("Recovery", str(_obj(model.guardian.get("runtime_recovery")).get("state", "none"))),
+        ("Response", str(response.get("backend_state", "NONE"))),
+        ("Recovery activity", "Active" if response.get("wheel_spinning") is True else "Idle"),
     ):
         status.extend(field_rows(label, value, width - 4))
     incident_rows = []
@@ -134,11 +139,43 @@ def _guardian(model: SystemModel, width: int) -> list[str]:
     return box("Guardian status", status, width) + [""] + box("Incidents", incident_rows, width) + ([""] + box("Trust reasoning", reasoning, width) if reasoning else [])
 
 
-def _trust_state(value: Any, *, missing: bool = False) -> str:
-    if missing:
-        return "MISSING"
-    value = str(value or "UNKNOWN").upper()
-    return {"UNKNOWN": "UNRESOLVED", "DEGRADED": "UNRESOLVED"}.get(value, value)
+def _human_state(value: Any) -> str:
+    raw = str(value or "UNKNOWN").upper()
+    return {
+        "HEALTHY": "Healthy", "VERIFIED": "Verified", "DEGRADED": "Degraded",
+        "UNKNOWN": "Unknown", "UNTRUSTED": "Untrusted", "RECOVERING": "Recovering",
+        "RECOVERED": "Recovered", "CONTAINED": "Contained",
+    }.get(raw, raw.replace("_", " ").title())
+
+
+def _boot_trust_display(boot: Mapping[str, Any]) -> str:
+    raw = str(boot.get("signed_boot_authority") or "UNKNOWN").upper()
+    reason = str(boot.get("trust_reason") or "").lower()
+    if raw == "VERIFIED":
+        return "Verified"
+    if raw in {"UNTRUSTED", "REVOKED"}:
+        return "Untrusted"
+    if "postboot proof is missing" in reason or "signed boot" in reason and "missing" in reason:
+        return "Awaiting certification"
+    return "Unknown"
+
+
+def _recovery_authority_display(model: SystemModel) -> str:
+    current = str(model.recovery.get("current_generation_trust") or "UNRESOLVED").upper()
+    system = _obj(model.guardian.get("system"))
+    if current == "VERIFIED":
+        return "Verified"
+    if not system.get("current_system_generation") or not system.get("current_kernel_generation"):
+        return "Awaiting generation trust"
+    if current in {"UNTRUSTED", "REVOKED", "CONTAMINATED"}:
+        return "Untrusted"
+    return "Unresolved"
+
+
+def _diagnostic_state_label(item: DiagnosticRecord) -> str:
+    if item.id in {"provider.environment.power", "provider.environment.thermal"} and item.state == "UNKNOWN" and not item.attention:
+        return "N/A"
+    return item.state
 
 
 def _trust(model: SystemModel, width: int) -> list[str]:
@@ -146,16 +183,15 @@ def _trust(model: SystemModel, width: int) -> list[str]:
     runtime = _obj(system.get("maho_runtime"))
     boot = _obj(model.guardian.get("boot"))
     world_trust = _obj(_obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust"))
+    guardian_health = _obj(_obj(_obj(model.guardian.get("world_state")).get("guardian")).get("self_health")).get("state")
     rows = [
-        f"{'Maho runtime':<22} {'VERIFIED' if runtime.get('verified') is True else 'UNRESOLVED'}",
-        f"{'SystemGeneration':<22} {_trust_state(world_trust.get('state'), missing=not system.get('current_system_generation'))}",
-        f"{'KernelGeneration':<22} {_trust_state(world_trust.get('state'), missing=not system.get('current_kernel_generation'))}",
-        f"{'BootGeneration':<22} {_trust_state(None, missing=not boot.get('boot_generation_id'))}",
-        f"{'BootAuthority':<22} {_trust_state(boot.get('signed_boot_authority'), missing=not boot.get('boot_authority_id'))}",
-        f"{'Signed Boot evidence':<22} {_trust_state(boot.get('signed_boot_authority'))}",
-        f"{'Guardian observation':<22} {_trust_state(_obj(_obj(_obj(model.guardian.get('world_state')).get('guardian')).get('self_health')).get('state'))}",
+        f"{'Maho runtime':<22} {'Verified' if runtime.get('verified') is True else 'Unverified'}",
+        f"{'System generation':<22} {system.get('current_system_generation') or 'Not established'}",
+        f"{'Kernel generation':<22} {system.get('current_kernel_generation') or 'Not established'}",
+        f"{'Boot trust':<22} {_boot_trust_display(boot)}",
+        f"{'Guardian observation':<22} {_human_state(guardian_health)}",
         "",
-        f"{'Overall trust':<22} {model.summary.trust}",
+        f"{'Overall trust':<22} {_human_state(world_trust.get('state')) if str(world_trust.get('state')).upper() != 'UNKNOWN' else 'Unresolved'}",
         "Historical recovery proof is shown on Recovery and never promotes current trust.",
     ]
     reasons = [str(value) for value in world_trust.get("reasons", [])] if isinstance(world_trust.get("reasons"), list) else []
@@ -168,11 +204,12 @@ def _updates(model: SystemModel, width: int) -> list[str]:
     update = model.update
     receipt = _obj(update.get("receipt"))
     rows: list[str] = []
+    receipt_state = str(receipt.get("state") or update.get("authority_state") or "Unknown")
     for label, value in (
-        ("Current state", str(update.get("status", "Unknown"))),
+        ("Current state", str(update.get("presentation_status") or update.get("status", "Unknown"))),
+        ("Transaction state", receipt_state),
         ("Transaction", short_id(str(update.get("transaction_id")), 38) if update.get("transaction_id") else "None"),
-        ("Authority", str(update.get("authority_state", "UNKNOWN"))),
-        ("Normal execution", "CERTIFIED" if update.get("normal_execution_certified") is True else str(update.get("normal_authority_state", "UNAVAILABLE")).upper()),
+        ("Execution authority", "Current" if update.get("normal_execution_certified") is True else "Waiting for certification"),
         ("Activation", "Required" if update.get("activation_pending") is True else "Not pending"),
     ):
         rows.extend(field_rows(label, value, width - 4))
@@ -229,7 +266,7 @@ def _recovery(model: SystemModel, width: int) -> list[str]:
     rows = []
     for label, value in (
         ("Readiness", model.summary.recovery),
-        ("Current trust", str(recovery.get("current_generation_trust", "UNRESOLVED"))),
+        ("Recovery authority", _recovery_authority_display(model)),
         ("Available scope", ", ".join(map(str, recovery.get("recovery_modes", []))) or "No verified mode"),
         ("Last runtime", short_id(str(last_runtime.get("campaign_id")), 40) if last_runtime else "Unavailable"),
         ("Last native", short_id(str(last_native.get("campaign_id")), 40) if last_native else "Unavailable"),

@@ -31,7 +31,7 @@ jobs:
           [ "$(grep -Fxc -- '-- maho-notify-bind:begin' "$BINDS" || true)" -eq 1 ]
           [ "$(grep -Fxc -- '-- maho-notify-bind:end' "$BINDS" || true)" -eq 1 ]
           grep -Fq 'mainMod .. " + SHIFT + N"' "$BINDS"
-          grep -Fq '"$HOME/.local/bin/maho-notify" center' "$BINDS"
+          grep -Fq '"$HOME/.local/bin/maho-notify" toggle-center' "$BINDS"
           ! grep -Fq 'mainMod .. " + N"' "$BINDS"
           [ "$(grep -Fc 'mainMod .. " + SHIFT + N"' "$BINDS")" -eq 1 ]
 

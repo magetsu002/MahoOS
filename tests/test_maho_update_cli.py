@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_update_receipts import record_receipt  # noqa: E402
+from maho_update_cli import _presentation_status  # noqa: E402
 from maho_update_state import UpdateState, create_transaction, publish_transaction, transition_transaction  # noqa: E402
 
 NOW = datetime(2026, 9, 12, 8, 0, tzinfo=timezone.utc)
@@ -55,6 +56,10 @@ def main() -> None:
         payload = json.loads(status.stdout)
         check("CLI projects exact authoritative activation state", payload["authority_state"] == "INSTALLED_PENDING_ACTIVATION" and payload["activation_pending"])
         check("CLI exposes receipt history without package badges", payload["history_count"] == 1 and "package_count" not in payload)
+        check("install-pending state renders Installing", payload["presentation_status"] == "Installing")
+        check("PREPARED without current authority renders Waiting for certification", _presentation_status({"authority_state":"PREPARED","normal_execution_certified":False,"blockers":[]}) == "Waiting for certification")
+        check("PREPARED with current authority renders Ready", _presentation_status({"authority_state":"PREPARED","normal_execution_certified":True,"blockers":[]}) == "Ready")
+        check("ACTIVE_VERIFYING renders Verifying", _presentation_status({"authority_state":"ACTIVE_VERIFYING","normal_execution_certified":True,"blockers":[]}) == "Verifying")
         receipt = run(root, "receipt", "current")
         check("CLI renders human-readable current receipt", receipt.returncode == 0 and "Maho Update receipt" in receipt.stdout and "maho-os: 1 -> 2" in receipt.stdout)
         history = run(root, "history", "--json")

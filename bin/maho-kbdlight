@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -u
+
+TARGET="zoned-wmi-keyboard"
+ASENSECTL="${ASENSECTL:-$HOME/.local/bin/asensectl}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/maho-kbdlight"
+STATE_FILE="$STATE_DIR/state"
+LOCK_FILE="$STATE_DIR/lock"
+STEP=25
+
+mkdir -p "$STATE_DIR"
+
+brightness=100
+color="FF0000"
+
+load_state() {
+    brightness=100
+    color="FF0000"
+    if [[ -r "$STATE_FILE" ]]; then
+        # shellcheck disable=SC1090
+        source "$STATE_FILE"
+    fi
+    [[ "$brightness" =~ ^(0|25|50|75|100)$ ]] || brightness=100
+    [[ "$color" =~ ^[0-9A-Fa-f]{6}$ ]] || color="FF0000"
+    color="${color^^}"
+}
+
+save_state() {
+    local tmp
+    tmp="$(mktemp "$STATE_DIR/state.XXXXXX")" || return 1
+    printf 'brightness=%s\ncolor=%s\n' "$brightness" "$color" > "$tmp"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$STATE_FILE"
+}
+
+get_hw() {
+    "$ASENSECTL" RGB GET 2>/dev/null
+}
+
+apply_state() {
+    local out
+    if (( brightness == 0 )); then
+        out="$("$ASENSECTL" LIGHTING POWER "$TARGET" OFF 2>&1)" || return 1
+    else
+        out="$("$ASENSECTL" LIGHTING APPLY "$TARGET" STATIC "$brightness" 0 "$color" - 2>&1)" || return 1
+    fi
+    [[ "$out" == OK* ]]
+}
+
+state_matches_hw() {
+    local hw="$1" power hw_brightness zones expected c
+    power="$(sed -n 's/.*power=\([^ ]*\).*/\1/p' <<<"$hw")"
+    hw_brightness="$(sed -n 's/.*brightness=\([0-9][0-9]*\).*/\1/p' <<<"$hw")"
+    zones="$(sed -n 's/.*zones=\([^ ]*\).*/\1/p' <<<"$hw")"
+
+    if (( brightness == 0 )); then
+        [[ "$power" == "off" || "$hw_brightness" == "0" ]]
+        return
+    fi
+
+    c="${color,,}"
+    expected="$c,$c,$c,$c"
+    [[ "$power" == "on" && "$hw_brightness" == "$brightness" && "${zones,,}" == "$expected" ]]
+}
+
+reconcile_locked() {
+    local hw
+    load_state
+    hw="$(get_hw)" || return 0
+    state_matches_hw "$hw" && return 0
+    apply_state || true
+}
+
+with_lock() {
+    exec 9>"$LOCK_FILE"
+    flock -x 9
+    "$@"
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+    up)
+        exec 9>"$LOCK_FILE"; flock -x 9
+        load_state
+        (( brightness += STEP ))
+        (( brightness > 100 )) && brightness=100
+        save_state
+        apply_state
+        ;;
+    down)
+        exec 9>"$LOCK_FILE"; flock -x 9
+        load_state
+        (( brightness -= STEP ))
+        (( brightness < 0 )) && brightness=0
+        save_state
+        apply_state
+        ;;
+    set)
+        [[ "${2:-}" =~ ^(0|25|50|75|100)$ ]] || { echo "usage: maho-kbdlight set {0|25|50|75|100} [RRGGBB]" >&2; exit 2; }
+        exec 9>"$LOCK_FILE"; flock -x 9
+        load_state
+        brightness="$2"
+        if [[ -n "${3:-}" ]]; then
+            [[ "$3" =~ ^[0-9A-Fa-f]{6}$ ]] || { echo "invalid color: $3" >&2; exit 2; }
+            color="${3^^}"
+        fi
+        save_state
+        apply_state
+        ;;
+    restore)
+        with_lock reconcile_locked
+        ;;
+    status)
+        load_state
+        printf 'desired brightness=%s color=%s\n' "$brightness" "$color"
+        get_hw || true
+        ;;
+    *)
+        echo "usage: maho-kbdlight {up|down|set|restore|status}" >&2
+        exit 2
+        ;;
+esac

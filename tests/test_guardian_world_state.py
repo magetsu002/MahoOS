@@ -21,6 +21,19 @@ trust=(TrustSignal('integrity-trust',GuardianTrustState.VERIFIED,'current integr
 world=build_world_state([ev('security.integrity')],required_provider_ids=['security.integrity'],self_facts=facts,trust_signals=trust,now=NOW)
 check('fresh complete evidence yields healthy Guardian',world.self_health.state is GuardianSelfHealthState.HEALTHY)
 check('verified trust remains separate from L0 severity',world.trust.state is GuardianTrustState.VERIFIED and world.severity['level']==0)
+boot_missing=build_world_state(
+    [ev('security.integrity')],
+    required_provider_ids=['security.integrity'],
+    self_facts=facts,
+    trust_signals=(
+        TrustSignal('system.generation',GuardianTrustState.UNKNOWN,'generation authority unavailable'),
+        TrustSignal('boot.authority',GuardianTrustState.UNKNOWN,'Signed Boot proof missing'),
+        TrustSignal('maho.runtime',GuardianTrustState.VERIFIED,'runtime verified'),
+    ),
+    now=NOW,
+)
+check('missing boot proof does not poison Guardian self-health',boot_missing.self_health.state is GuardianSelfHealthState.HEALTHY)
+check('missing boot proof keeps machine trust unknown',boot_missing.trust.state is GuardianTrustState.UNKNOWN)
 stale=build_world_state([ev('security.integrity','2026-09-15T07:00:00Z')],required_provider_ids=['security.integrity'],self_facts=facts,trust_signals=trust,now=NOW)
 check('stale required observer degrades Guardian self-health',stale.self_health.state is GuardianSelfHealthState.DEGRADED)
 check('degraded visibility downgrades trust without inventing severity',stale.trust.state is GuardianTrustState.DEGRADED and stale.severity['level']==0)

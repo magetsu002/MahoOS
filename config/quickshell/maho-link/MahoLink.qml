@@ -42,7 +42,13 @@ Item {
         NumberAnimation { duration: 86; easing.type: Easing.OutCubic }
     }
     Behavior on opacity {
-        NumberAnimation { duration: root.shown ? 235 : 110; easing.type: Easing.OutCubic }
+        // Opening snaps only after placement/status are authoritative, avoiding
+        // the one-frame staged intro artifact. Dismissal keeps a tiny fade.
+        enabled: !root.shown
+        NumberAnimation {
+            duration: 26
+            easing.type: Easing.OutCubic
+        }
     }
     Behavior on revealProgress {
         NumberAnimation { duration: root.shown ? 265 : 110; easing.type: Easing.OutCubic }
