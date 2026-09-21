@@ -94,4 +94,3 @@ def authorize(
     project_authority(authority, map_path)
     _audit(audit_path, request, authority)
     return authority
-
