@@ -50,6 +50,34 @@ capability_check() {
         echo "maho-aur-build: AUR artifact identity engine is unavailable" >&2
         return 2
     }
+    # Prove the mandatory namespace and mount primitives before inspecting or
+    # executing candidate content.  --unshare-user is deliberately not the
+    # compatibility --unshare-user-try form: a host that cannot create the
+    # namespace has no AUR execution authority.
+    "$BWRAP" \
+        --die-with-parent \
+        --new-session \
+        --unshare-user \
+        --unshare-pid \
+        --unshare-ipc \
+        --unshare-uts \
+        --unshare-net \
+        --cap-drop ALL \
+        --clearenv \
+        --ro-bind / / \
+        --proc /proc \
+        --dev /dev \
+        --tmpfs /run \
+        --tmpfs /tmp \
+        --tmpfs /var/tmp \
+        --tmpfs /home \
+        --tmpfs /root \
+        --tmpfs /mnt \
+        --tmpfs /media \
+        -- /usr/bin/true >/dev/null 2>&1 || {
+        echo "maho-aur-build: mandatory user/mount namespace isolation could not be established; nothing executed" >&2
+        return 2
+    }
 }
 
 stage_source() {
@@ -86,30 +114,36 @@ sandbox_common() {
     printf '%s\0' \
         --die-with-parent \
         --new-session \
-        --unshare-user-try \
+        --unshare-user \
         --unshare-pid \
         --unshare-ipc \
         --unshare-uts \
         --cap-drop ALL \
+        --clearenv \
         --ro-bind / / \
         --proc /proc \
         --dev /dev \
+        --tmpfs /run \
         --tmpfs /home \
         --tmpfs /root \
         --tmpfs /tmp \
         --tmpfs /var/tmp \
-        --tmpfs /run/user \
+        --tmpfs /mnt \
+        --tmpfs /media \
+        --dir /run/user \
         --dir /tmp/build \
         --bind "$stage" /tmp/build \
         --chdir /tmp/build \
+        --setenv PATH /usr/local/bin:/usr/bin:/bin \
         --setenv HOME /home/maho \
+        --setenv USER maho \
+        --setenv LOGNAME maho \
+        --setenv SHELL /bin/bash \
+        --setenv LANG C.UTF-8 \
+        --setenv LC_ALL C.UTF-8 \
         --setenv XDG_CONFIG_HOME /home/maho/.config \
         --setenv XDG_CACHE_HOME /home/maho/.cache \
-        --setenv XDG_STATE_HOME /home/maho/.local/state \
-        --unsetenv SSH_AUTH_SOCK \
-        --unsetenv GPG_AGENT_INFO \
-        --unsetenv DBUS_SESSION_BUS_ADDRESS \
-        --unsetenv XDG_RUNTIME_DIR
+        --setenv XDG_STATE_HOME /home/maho/.local/state
 }
 
 run_sandbox() {
@@ -232,7 +266,9 @@ doctor_command() {
     [ -n "$GIT" ] && [ -x "$GIT" ] && echo "AVAILABLE  git: $GIT" || echo "UNAVAILABLE git"
     [ -f "$PACMAN_CONFIG" ] && [ ! -L "$PACMAN_CONFIG" ] && echo "PASS  repository authority: $PACMAN_CONFIG" || echo "FAIL  repository authority: $PACMAN_CONFIG"
     echo "INFO  host root: read-only"
-    echo "INFO  host home/root/run-user: hidden"
+    echo "INFO  environment: cleared; explicit makepkg-safe variables only"
+    echo "INFO  user namespace: mandatory; no compatibility fallback"
+    echo "INFO  host home/root/run/mnt/media: hidden"
     echo "INFO  source fetch: network available in sandbox"
     echo "INFO  build/package phase: network namespace isolated"
     echo "INFO  automatic installation: never"
@@ -317,7 +353,8 @@ Usage:
 
 The source directory is copied into Maho cache first. PKGBUILD preflight never
 executes it. If execution proceeds, both makepkg phases run under Bubblewrap
-with a read-only host root, hidden host homes/runtime secrets, isolated process
+with a read-only host root, a cleared explicit environment, hidden host
+homes/runtime/mount secrets, a mandatory user namespace, isolated process
 namespaces and dropped capabilities. The build/package phase additionally has
 no network. Produced package files stay in the private staging directory and are converted
 into exact Maho artifact identities only after canonical repository ownership,

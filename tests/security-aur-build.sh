@@ -66,6 +66,7 @@ cat > "$MAHO_BWRAP" <<'EOF_BWRAP'
 set -euo pipefail
 printf '%q ' "$@" >> "$MAHO_BWRAP_LOG"
 printf '\n' >> "$MAHO_BWRAP_LOG"
+[ "${MAHO_TEST_BWRAP_FAIL:-0}" != 1 ] || exit 1
 stage=""
 prev=""
 network_isolated=0
@@ -117,17 +118,33 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 echo "=== benign AUR build uses two-phase sandbox without prompt ==="
 bash "$ROOT/bin/maho-aur-build" "$BENIGN" >/dev/null
-[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq 2 ] || fail "expected fetch + build sandbox calls"
-FIRST="$(sed -n '1p' "$MAHO_BWRAP_LOG")"
-SECOND="$(sed -n '2p' "$MAHO_BWRAP_LOG")"
+[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq 3 ] || fail "expected capability probe + fetch + build sandbox calls"
+PROBE_CALL="$(sed -n '1p' "$MAHO_BWRAP_LOG")"
+FIRST="$(sed -n '2p' "$MAHO_BWRAP_LOG")"
+SECOND="$(sed -n '3p' "$MAHO_BWRAP_LOG")"
+grep -q -- '--unshare-user' <<< "$PROBE_CALL"
+if grep -q -- '--unshare-user-try' <<< "$PROBE_CALL"; then fail "sandbox capability probe permits user namespace fallback"; fi
+grep -q -- '--unshare-net' <<< "$PROBE_CALL"
 grep -q -- '--ro-bind / /' <<< "$FIRST"
+grep -q -- '--clearenv' <<< "$FIRST"
+grep -q -- '--unshare-user' <<< "$FIRST"
+if grep -q -- '--unshare-user-try' <<< "$FIRST"; then fail "fetch sandbox permits user namespace fallback"; fi
 grep -q -- '--tmpfs /home' <<< "$FIRST"
 grep -q -- '--tmpfs /root' <<< "$FIRST"
 grep -q -- '--tmpfs /tmp' <<< "$FIRST"
+grep -q -- '--tmpfs /run' <<< "$FIRST"
+grep -q -- '--tmpfs /mnt' <<< "$FIRST"
+grep -q -- '--tmpfs /media' <<< "$FIRST"
 grep -q -- '--dir /tmp/build' <<< "$FIRST"
 grep -q -- '--bind .* /tmp/build' <<< "$FIRST"
-grep -q -- '--tmpfs /run/user' <<< "$FIRST"
+grep -q -- '--dir /run/user' <<< "$FIRST"
 grep -q -- '--cap-drop ALL' <<< "$FIRST"
+for secret in SSH_AUTH_SOCK GPG_AGENT_INFO DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR WAYLAND_DISPLAY DISPLAY LD_PRELOAD LD_LIBRARY_PATH PYTHONPATH NODE_OPTIONS AWS_SECRET_ACCESS_KEY GITHUB_TOKEN; do
+    if grep -Eq -- "--setenv ${secret}( |$)" <<< "$FIRST"; then fail "dangerous host variable explicitly reintroduced: $secret"; fi
+done
+for safe in PATH HOME USER LOGNAME SHELL LANG LC_ALL XDG_CONFIG_HOME XDG_CACHE_HOME XDG_STATE_HOME; do
+    grep -Eq -- "--setenv ${safe}( |$)" <<< "$FIRST" || fail "minimal sandbox environment is missing $safe"
+done
 if grep -q -- '--unshare-net' <<< "$FIRST"; then fail "fetch phase unexpectedly lost network"; fi
 grep -q -- '--unshare-net' <<< "$SECOND"
 STAGE="$(find "$XDG_CACHE_HOME/maho/security/aur-builds" -mindepth 1 -maxdepth 1 -type d | head -1)"
@@ -163,9 +180,21 @@ BEFORE="$(wc -l < "$MAHO_BWRAP_LOG")"
 if bash "$ROOT/bin/maho-aur-build" "$RISKY" >/dev/null 2>&1; then
     fail "high-risk PKGBUILD executed without --confirm-risk"
 fi
-[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq "$BEFORE" ] || fail "sandbox ran before high-risk confirmation"
+[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq $((BEFORE + 1)) ] || fail "only the trusted mandatory isolation probe may run before high-risk confirmation"
+BEFORE=$((BEFORE + 1))
 bash "$ROOT/bin/maho-aur-build" "$RISKY" --confirm-risk >/dev/null
-[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq $((BEFORE + 2)) ] || fail "confirmed high-risk build did not use both sandbox phases"
+[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq $((BEFORE + 3)) ] || fail "confirmed high-risk build did not use the isolation probe and both sandbox phases"
+echo "PASS"
+
+echo "=== mandatory isolation failure refuses candidate execution ==="
+BEFORE="$(wc -l < "$MAHO_BWRAP_LOG")"
+export MAHO_TEST_BWRAP_FAIL=1
+if bash "$ROOT/bin/maho-aur-build" "$BENIGN" >"$TMP/isolation-failed.out" 2>"$TMP/isolation-failed.err"; then
+    fail "build continued after mandatory isolation setup failed"
+fi
+unset MAHO_TEST_BWRAP_FAIL
+[ "$(wc -l < "$MAHO_BWRAP_LOG")" -eq $((BEFORE + 1)) ] || fail "candidate phases ran after isolation probe failure"
+grep -q 'nothing executed' "$TMP/isolation-failed.err" || fail "fail-closed isolation evidence missing"
 echo "PASS"
 
 echo "=== generated event never claims package was installed ==="
