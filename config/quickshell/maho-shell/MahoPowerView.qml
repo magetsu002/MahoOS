@@ -337,6 +337,7 @@ Item {
 
                 readonly property bool selected: root.keyboardNavigation && root.selectedIndex === actionIndex
                 readonly property bool armed: root.armedAction === action
+                readonly property bool highlighted: tileHover.hovered || tile.selected
 
                 width: (grid.width - root.gridGap) / 2
                 height: root.tileHeight
@@ -348,10 +349,17 @@ Item {
                         ? root.blend(
                             root.theme.surfaceHigh,
                             root.theme.error,
-                            tile.armed ? 0.36 : (tileHover.hovered ? 0.31 : 0.27),
-                            root.compact ? 0.86 : 0.36
+                            tile.armed ? 0.48 : (tile.highlighted ? 0.40 : 0.27),
+                            root.compact
+                                ? (tile.armed ? 0.94 : (tile.highlighted ? 0.91 : 0.86))
+                                : (tile.armed ? 0.52 : (tile.highlighted ? 0.45 : 0.36))
                           )
-                        : Qt.rgba(0.31, 0.14, 0.20, root.compact ? 0.86 : 0.36))
+                        : Qt.rgba(
+                            0.31, 0.14, 0.20,
+                            root.compact
+                                ? (tile.armed ? 0.94 : (tile.highlighted ? 0.91 : 0.86))
+                                : (tile.armed ? 0.52 : (tile.highlighted ? 0.45 : 0.36))
+                          ))
                     : tile.selected
                         ? (root.theme
                             ? root.blend(root.theme.surfaceHigh, root.theme.primary, 0.39, root.compact ? 0.86 : 0.42)
@@ -367,7 +375,10 @@ Item {
 
                 border.width: tile.selected || tile.armed ? 1.1 : 1
                 border.color: tile.danger
-                    ? root.alpha(root.theme ? root.theme.error : "#ff5265", tile.armed ? 0.60 : 0.24)
+                    ? root.alpha(
+                        root.theme ? root.theme.error : "#ff5265",
+                        tile.armed ? 0.72 : (tile.highlighted ? 0.52 : 0.24)
+                      )
                     : tile.selected
                         ? root.alpha(root.theme ? root.theme.primary : "#8aa6ff", 0.54)
                         : root.alpha(root.theme ? root.theme.foreground : "white", tileHover.hovered ? 0.095 : 0.048)
@@ -385,6 +396,21 @@ Item {
                     radius: parent.radius + 3
                     color: root.alpha(root.theme ? root.theme.primary : "#8aa6ff", root.compact ? 0.025 : 0.060)
                     z: -1
+                }
+
+                Rectangle {
+                    visible: tile.danger && (tile.highlighted || tile.armed)
+                    anchors.fill: parent
+                    anchors.margins: root.compact ? -2 : -4
+                    radius: parent.radius + (root.compact ? 2 : 4)
+                    color: root.alpha(
+                        root.theme ? root.theme.error : "#ff5265",
+                        tile.armed ? (root.compact ? 0.08 : 0.12)
+                                   : (root.compact ? 0.045 : 0.075)
+                    )
+                    z: -1
+
+                    Behavior on color { ColorAnimation { duration: 150 } }
                 }
 
                 Rectangle {
@@ -407,7 +433,9 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     text: tile.glyph
                     color: tile.danger
-                        ? (root.theme ? root.theme.error : "#ff5265")
+                        ? (root.theme
+                            ? root.blend(root.theme.error, root.theme.foreground, tile.highlighted ? 0.16 : 0.0, 1.0)
+                            : (tile.highlighted ? "#ff7f8d" : "#ff5265"))
                         : (root.theme ? root.blend(root.theme.primary, root.theme.foreground, tile.selected ? 0.28 : 0.16, 1.0) : "#b9c8ff")
                     font.family: "JetBrainsMono Nerd Font"
                     font.pixelSize: root.iconSize
