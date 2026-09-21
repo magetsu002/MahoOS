@@ -36,6 +36,8 @@ class SubjectIdentity:
     start_time_ns: int
     executable_path: str
     executable_sha256: str
+    executable_device: int
+    executable_inode: int
     uid: int
 
 
@@ -122,4 +124,3 @@ def decide_mutation(request: MutationRequest, authority: AuthorityView = Authori
     if catastrophic:
         return PreventionDecision(PreventionOutcome.BREAK_GLASS_REQUIRED, "catastrophic_protected_mutation", True)
     return PreventionDecision(PreventionOutcome.REQUIRE_AUTHORITY, "exact_mutation_authority_required", True)
-

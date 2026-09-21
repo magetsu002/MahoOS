@@ -22,7 +22,7 @@ def check(name: str, condition: bool) -> None:
     print("PASS", name)
 
 
-subject = SubjectIdentity(42, 1000, "/usr/bin/maho-update", "a" * 64, 0)
+subject = SubjectIdentity(42, 1000, "/usr/bin/maho-update", "a" * 64, 8, 99, 0)
 
 
 def request(path: str, operation: MutationOperation = MutationOperation.WRITE, **kw) -> MutationRequest:
