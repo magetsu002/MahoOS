@@ -41,11 +41,19 @@ assert 'q.action==="minimize"' in patched
 assert 'q.action==="state"' in patched
 assert "chmodSync(s,384)" in patched
 
+try:
+    module.patch_main("unexpected Vesktop runtime shape")
+except RuntimeError:
+    pass
+else:
+    raise AssertionError("patch mismatch did not fail closed")
+
 guard = guard_path.read_text()
 assert 'LOCK="$RUNTIME_DIR/maho-vesktop-profile.lock"' in guard
 assert 'SOCKET="$RUNTIME_DIR/maho-vesktop-control.sock"' in guard
 assert "profile owner exists but could not be activated" in guard
 assert "unmanaged Vesktop profile owner is already running" in guard
+assert '*" --type="*) continue ;;' in guard
 launch_tail = guard.split('local start_ticks', 1)[1]
 launch_tail = launch_tail.split('indexeddb_lock_holders()', 1)[0]
 assert "flock -u 9" not in launch_tail
