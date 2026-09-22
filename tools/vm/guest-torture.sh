@@ -629,7 +629,7 @@ scenario_network_disappearance() {
 }
 
 scenario_update_guardian_restart() {
-  local directory="$1" iteration="$2" marker="$directory/evidence/update-installing.marker" done="$directory/evidence/update-done.json" child guardian
+  local directory="$1" iteration="$2" marker="/tmp/maho-update-guardian-$RANDOM.installing" done="/tmp/maho-update-guardian-$RANDOM.done" child guardian
   rm -f "$marker" "$done"
   u env PYTHONPATH="$SRC/lib" python3 - "$SRC" "$marker" "$done" <<'PY_INNER' &
 import hashlib, json, pathlib, sys, tempfile, time
@@ -666,6 +666,9 @@ PY_INNER
   wait_until 20 unit_replaced maho-guardian.service "$guardian" || { kill "$child" 2>/dev/null || true; SCENARIO_REASON="Guardian did not restart during update"; return 1; }
   wait "$child" || { SCENARIO_REASON="update transaction failed after Guardian restart"; return 1; }
   python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["state"]=="HEALTHY"' "$done"
+  cp "$marker" "$directory/evidence/update-installing.marker"
+  cp "$done" "$directory/evidence/update-done.json"
+  rm -f "$marker" "$done"
   SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
 }
 
@@ -681,6 +684,7 @@ write_runtime_reboot_marker() {
   python3 - "$marker" "$profile" "$phase" "$incident" "$state" "$boot_id" "$REV" <<'PY_INNER'
 import json, pathlib, sys
 path,profile,phase,incident,state,boot,rev=sys.argv[1:]
+runtime=pathlib.Path("/home/mahovm/.local/share/maho/runtime")
 payload={
   "schema_version":1,
   "profile":profile,
@@ -689,6 +693,8 @@ payload={
   "durable_state":state,
   "stage1_boot_id":boot,
   "source_revision":rev,
+  "current_path":str((runtime/"current").resolve()),
+  "previous_path":str((runtime/"previous").resolve()),
 }
 path=pathlib.Path(path)
 path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
@@ -744,6 +750,17 @@ PY_INNER
         [ "$rc" -eq 72 ] || { echo "FAIL  post-mutation reboot injection rc=$rc" >&2; return 1; }
       fi
       state="$(runtime_active_state "$incident")"
+      if [ "$phase" = verifying ] && [ "$state" = recovering ]; then
+        u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$incident" <<'PY_INNER'
+import pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
+result=r._resume_automatic_runtime_recovery(
+    state, incident, runtime_root=runtime, proc_root=pathlib.Path("/proc"))
+assert result.get("result")=="verifying", result
+PY_INNER
+        state="$(runtime_active_state "$incident")"
+      fi
       [ "$state" = "$phase" ] || {
         echo "FAIL  reboot stage expected $phase, got $state" >&2
         return 1
@@ -786,21 +803,50 @@ scenario_runtime_reboot_resume() {
   printf '%s\n' "$new_boot" >"$directory/evidence/stage2-boot-id.txt"
 
   begin="$(date +%s%N)"
-  runtime_refresh_and_reconcile "$incident" || {
-    SCENARIO_REASON="durable $phase recovery did not converge after same-disk power cycle"
-    return 1
-  }
-  wait_until 20 no_active_guardian_incidents || {
-    SCENARIO_REASON="Guardian incident did not close after power-cycle recovery"
-    return 1
-  }
-  u bash "$HOME_VM/.local/bin/maho-setup" status >/dev/null || {
-    SCENARIO_REASON="runtime did not verify after power-cycle recovery"
-    return 1
-  }
+  if [ "$phase" = recovering ]; then
+    local expected_current expected_previous state
+    expected_current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["current_path"])' "$marker")"
+    expected_previous="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["previous_path"])' "$marker")"
+    u "$HOME_VM/.local/bin/maho-security-monitor" cycle >/dev/null 2>&1 || true
+    u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" <<'PY_INNER' >/dev/null 2>&1 || true
+from pathlib import Path
+import sys
+from guardian_live_recovery import reconcile_runtime_recovery
+reconcile_runtime_recovery(Path(sys.argv[1]), db_root=Path("/var/lib/pacman/local"),
+    runtime_root=Path(sys.argv[2]), proc_root=Path("/proc"), fs_root=Path("/"), uid=1500)
+PY_INNER
+    state="$(runtime_active_state "$incident")"
+    [ "$state" = evidence-insufficient ] || {
+      SCENARIO_REASON="pre-reboot automatic mutation authority was not invalidated safely: $state"
+      return 1
+    }
+    [ "$(readlink -f "$HOME_VM/.local/share/maho/runtime/current")" = "$expected_current" ] || {
+      SCENARIO_REASON="runtime mutated after boot invalidated pre-mutation authority"
+      return 1
+    }
+    [ "$(readlink -f "$HOME_VM/.local/share/maho/runtime/previous")" = "$expected_previous" ] || {
+      SCENARIO_REASON="previous runtime pointer drifted after boot invalidated authority"
+      return 1
+    }
+    SCENARIO_MANUAL=true
+    SCENARIO_ACTUAL=DETECTED_ONLY
+  else
+    runtime_refresh_and_reconcile "$incident" || {
+      SCENARIO_REASON="durable $phase recovery did not converge after same-disk power cycle"
+      return 1
+    }
+    wait_until 20 no_active_guardian_incidents || {
+      SCENARIO_REASON="Guardian incident did not close after power-cycle recovery"
+      return 1
+    }
+    u bash "$HOME_VM/.local/bin/maho-setup" status >/dev/null || {
+      SCENARIO_REASON="runtime did not verify after power-cycle recovery"
+      return 1
+    }
+    SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+  fi
   SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
   SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
-  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
 }
 
 torture_reboot_profile() {
@@ -825,7 +871,11 @@ torture_reboot_profile() {
       ;;
     2)
       prepare_reboot_resume_environment
-      scenario_run "runtime-reboot-$phase" RECOVERED_AUTOMATICALLY 1 scenario_runtime_reboot_resume
+      if [ "$phase" = recovering ]; then
+        scenario_run "runtime-reboot-$phase" DETECTED_ONLY 1 scenario_runtime_reboot_resume
+      else
+        scenario_run "runtime-reboot-$phase" RECOVERED_AUTOMATICALLY 1 scenario_runtime_reboot_resume
+      fi
       torture_profile_summary
       ;;
     *)
