@@ -11,6 +11,17 @@ import subprocess
 import sys
 
 OUTCOMES=("PREVENTED","RECOVERED_AUTOMATICALLY","RECOVERED_WITH_AUTHORITY","DETECTED_ONLY","NOT_COVERED","BUG")
+COVERAGE_GAPS=(
+    "same-disk reboot during AWAITING_RECOVERY_AUTHORIZATION/RECOVERING/VERIFYING",
+    "recovery executor death at each durable transition",
+    "real package update process death/reboot at each transaction phase",
+    "isolated network interface disappearance and restoration",
+    "full disposable-root rm-style destruction after protected-scope proof",
+    "live bad-postcondition rejection for each recovery provider",
+    "compound runtime corruption plus recovery-executor death",
+    "compound update transaction plus Guardian restart",
+    "Guardian death during live runtime VERIFYING",
+)
 
 def command(*argv: str) -> str:
     return subprocess.run(argv,check=False,capture_output=True,text=True).stdout.strip()
@@ -46,8 +57,9 @@ def report(repo: Path, campaign: Path, revision: str) -> int:
     rows=load_rows(campaign); counts=Counter(str(r.get("actual_outcome")) for r in rows)
     before=json.loads((campaign/"host-before.json").read_text()); after=json.loads((campaign/"host-after.json").read_text())
     host_checks={"boot_id_unchanged":before["host_boot_id"]==after["host_boot_id"],"root_source_unchanged":before["host_root_source"]==after["host_root_source"],"source_revision_unchanged":before["source_revision"]==after["source_revision"]==revision,"source_clean_after_campaign":after["source_status"]=="","prevention_state_unchanged":before["prevention_state_sha256"]==after["prevention_state_sha256"],"maho_services_unchanged":before["maho_system_services"]==after["maho_system_services"]}
-    passed=bool(rows) and all(bool(r.get("pass")) for r in rows) and all(host_checks.values())
-    payload={"schema_version":1,"kind":"maho-v1-full-system-torture-report","generated_at":datetime.now(timezone.utc).isoformat(),"starting_sha":revision,"ending_sha":command("git","-C",str(repo),"rev-parse","HEAD"),"campaign_path":str(campaign),"total_scenarios":len(rows),"total_iterations":len(rows),"total_destructive_injections":sum(1 for r in rows if r.get("actual_outcome") not in {"NOT_COVERED"}),"outcomes":{name:counts.get(name,0) for name in OUTCOMES},"host_safety":host_checks,"passed":passed,"scenarios":rows}
+    executed_cleanly=bool(rows) and all(bool(r.get("pass")) for r in rows) and all(host_checks.values())
+    passed=executed_cleanly and counts.get("NOT_COVERED",0)==0 and counts.get("BUG",0)==0 and not COVERAGE_GAPS
+    payload={"schema_version":1,"kind":"maho-v1-full-system-torture-report","generated_at":datetime.now(timezone.utc).isoformat(),"starting_sha":revision,"ending_sha":command("git","-C",str(repo),"rev-parse","HEAD"),"campaign_path":str(campaign),"total_scenarios":len(rows),"total_iterations":len(rows),"total_destructive_injections":sum(1 for r in rows if r.get("actual_outcome") not in {"NOT_COVERED"}),"outcomes":{name:counts.get(name,0) for name in OUTCOMES},"host_safety":host_checks,"campaign_executed_cleanly":executed_cleanly,"coverage_gaps":list(COVERAGE_GAPS),"passed":passed,"scenarios":rows}
     date=datetime.now(timezone.utc).date().isoformat(); reports=repo/"docs"/"reports"; reports.mkdir(parents=True,exist_ok=True)
     json_path=reports/f"v1-full-system-torture-{date}.json"; md_path=reports/f"v1-full-system-torture-{date}.md"
     json_path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
@@ -56,6 +68,7 @@ def report(repo: Path, campaign: Path, revision: str) -> int:
     lines += ["","## Scenario matrix","","| Scenario | Iteration | Expected | Actual | Pass |","|---|---:|---|---|---|"]
     for r in rows: lines.append(f"| {r.get('scenario')} | {r.get('iteration')} | {r.get('expected_outcome')} | {r.get('actual_outcome')} | {r.get('pass')} |")
     lines += ["","## Host safety",""]+[f"- {key}: {value}" for key,value in host_checks.items()]
+    lines += ["","## Required coverage not yet demonstrated",""]+[f"- {gap}" for gap in COVERAGE_GAPS]
     lines += ["","## Brutally clear V1 boundary",""]
     for outcome,title in (("PREVENTED","PREVENT"),("RECOVERED_AUTOMATICALLY","RECOVER AUTOMATICALLY"),("RECOVERED_WITH_AUTHORITY","RECOVER WITH AUTHORITY"),("DETECTED_ONLY","DETECT BUT NOT RECOVER"),("NOT_COVERED","OUTSIDE V1"),("BUG","BUG")):
         names=sorted({str(r.get("scenario")) for r in rows if r.get("actual_outcome")==outcome})
