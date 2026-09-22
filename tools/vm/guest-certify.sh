@@ -289,7 +289,7 @@ case "$PROFILE" in
   resilience) adversarial_profile;;
   session) session_profile;;
   performance-4g|performance-8g) performance_profile;;
-  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound)
+  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound)
     source "/mnt/maho-src/tools/vm/guest-torture.sh"
     torture_profile "$PROFILE"
     ;;

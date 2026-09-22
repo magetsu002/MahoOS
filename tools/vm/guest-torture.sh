@@ -687,8 +687,12 @@ torture_profile() {
       scenario_run corrupt-recovery-prior DETECTED_ONLY 1 scenario_corrupt_recovery_prior
       ;;
     torture-runtime-executor)
-      scenario_run recovery-executor-death RECOVERED_AUTOMATICALLY 1 scenario_runtime_executor_death
-      scenario_run recovery-executor-death RECOVERED_AUTOMATICALLY 2 scenario_runtime_executor_death
+      scenario_run recovery-executor-death-before-mutation RECOVERED_AUTOMATICALLY 1 scenario_runtime_executor_death
+      ;;
+    torture-runtime-executor-after)
+      scenario_run recovery-executor-death-after-mutation RECOVERED_AUTOMATICALLY 2 scenario_runtime_executor_death
+      ;;
+    torture-runtime-guardian-verifying)
       scenario_run guardian-death-during-runtime-verifying RECOVERED_AUTOMATICALLY 1 scenario_runtime_guardian_dies_verifying
       ;;
     torture-postconditions)
