@@ -231,7 +231,7 @@ done
 
 require_text "$AWWW_UNIT" 'ExecStartPost=%h/.local/bin/maho-session wait-awww' \
     "awww service no longer waits for socket readiness"
-require_text "$AWWW_UNIT" 'ExecStartPost=/usr/bin/bash %h/.local/bin/maho-wallpaper-session restore' \
+require_text "$AWWW_UNIT" 'ExecStartPost=-/usr/bin/bash %h/.local/bin/maho-wallpaper-session restore' \
     "awww recovery no longer replays the saved wallpaper state"
 require_text "$AWWW_UNIT" 'ExecStart=/usr/bin/awww-daemon --no-cache' \
     "awww service can replay an unrelated private cache at login"
