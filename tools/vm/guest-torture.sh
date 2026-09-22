@@ -25,6 +25,8 @@ prepare_graphical_torture() {
   compile_kill_helper
   rm -rf "$HOME_VM/.cache/maho/files-release-build-"* 2>/dev/null || true
   systemctl daemon-reload
+  u systemctl --user daemon-reload
+  u systemctl --user start maho-observe.service maho-security.service maho-guardian.service
   if ! systemctl start sddm.service; then
     echo "FAIL  SDDM start failed before torture" >&2
     systemctl status sddm.service --no-pager || true
