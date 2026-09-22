@@ -492,8 +492,10 @@ PY_INNER
   echo "INFO  injected runtime executor death mode=$mode rc=$rc"
   [ "$rc" -eq 71 ] || [ "$rc" -eq 72 ] || { SCENARIO_REASON="fault-injected executor did not die at requested transition rc=$rc"; return 1; }
   state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
-  [ "$state" = recovering ] || { SCENARIO_REASON="durable state was not RECOVERING after executor death: $state"; return 1; }
-  if [ "$mode" = after-mutation ]; then
+  if [ "$mode" = before-mutation ]; then
+    [ "$state" = recovering ] || { SCENARIO_REASON="durable state was not RECOVERING after pre-mutation executor death: $state"; return 1; }
+  else
+    [ "$state" = verifying ] || { SCENARIO_REASON="durable state was not VERIFYING after post-mutation executor death: $state"; return 1; }
     [ -s /tmp/maho-runtime-mutation-complete ] || { SCENARIO_REASON="post-mutation death marker absent"; return 1; }
   fi
   if ! u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
