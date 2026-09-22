@@ -470,8 +470,8 @@ scenario_runtime_executor_death() {
   tag="executor-death-$mode-$RANDOM"
   runtime_stage_campaign "$tag" "$directory"
   begin="$(date +%s%N)"
-  set +e
-  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$mode" <<'PY_INNER'
+  rc=0
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$mode" <<'PY_INNER' || rc=$?
 import os, pathlib, sys
 import guardian_live_recovery as r
 state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]; mode=sys.argv[4]
@@ -489,23 +489,27 @@ result=r.execute_automatic_runtime_recovery(
     proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500, driver=CrashDriver())
 print(result)
 PY_INNER
-  rc=$?
-  set -e
+  echo "INFO  injected runtime executor death mode=$mode rc=$rc"
   [ "$rc" -eq 71 ] || [ "$rc" -eq 72 ] || { SCENARIO_REASON="fault-injected executor did not die at requested transition rc=$rc"; return 1; }
   state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
   [ "$state" = recovering ] || { SCENARIO_REASON="durable state was not RECOVERING after executor death: $state"; return 1; }
   if [ "$mode" = after-mutation ]; then
     [ -s /tmp/maho-runtime-mutation-complete ] || { SCENARIO_REASON="post-mutation death marker absent"; return 1; }
   fi
-  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
+  if ! u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
 import pathlib, sys
 import guardian_live_recovery as r
 state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
 result=r.execute_automatic_runtime_recovery(
     state, incident, db_root=pathlib.Path("/var/lib/pacman/local"), runtime_root=runtime,
     proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500)
+print(result)
 assert result.get("result") in {"verifying","recovered"}, result
 PY_INNER
+  then
+    SCENARIO_REASON="automatic recovery refused to resume after executor death"
+    return 1
+  fi
   runtime_refresh_and_reconcile "$RUNTIME_INCIDENT_ID" || { SCENARIO_REASON="recovery did not converge after executor death"; return 1; }
   SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
   SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
