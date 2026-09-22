@@ -1,0 +1,77 @@
+#!/bin/busybox sh
+export PATH=/bin:/usr/bin
+export LD_LIBRARY_PATH=/usr/lib
+export PYTHONHOME=/usr
+/bin/helper setup
+setup_status=$?
+[ "$setup_status" -eq 0 ] || { echo "MAHO_PREVENTION_FAIL:guest-setup-$setup_status"; /bin/poweroff -f; }
+
+pass() { echo "MAHO_PREVENTION_PASS:$1"; }
+fail() { echo "MAHO_PREVENTION_FAIL:$1"; /bin/poweroff -f; }
+denied() { label="$1"; shift; "$@" >/dev/null 2>&1 && fail "$label-was-allowed" || pass "$label-denied"; }
+
+echo original > /protected/critical
+echo other > /protected/other
+/bin/helper churn /ordinary 1500 || fail pre-benchmark
+/bin/loader load /maho_prevention.bpf.o /sys/fs/bpf/maho-prevention 1:1:/protected 1:0:/dev/vda || fail bpf-load
+pass boundary-active-after-loader-exit
+/bin/evidence /sys/fs/bpf/maho-prevention/maps/prevention_events /var/lib/maho/prevention/events.jsonl vm-boot &
+reader=$!
+
+/bin/helper write /ordinary/normal || fail ordinary-write
+pass ordinary-write
+denied helper /bin/helper write /protected/critical
+denied python /usr/bin/python -S /payload.py
+denied opaque /bin/opaque write /protected/critical
+denied device-alias /bin/helper device-alias /dev/vda
+/bin/helper authorized-device-write /dev/vda || { /bin/sleep 1; /bin/cat /var/lib/maho/prevention/events.jsonl; fail exact-device-authority; }
+pass exact-device-authority
+/bin/helper authorized-write /protected/critical
+authority_status=$?
+if [ "$authority_status" -ne 0 ]; then /bin/sleep 1; /bin/cat /var/lib/maho/prevention/events.jsonl; fail exact-authority; fi
+pass exact-authority
+denied expired-write /bin/helper expired-write /protected/critical
+denied wrong-start-write /bin/helper wrong-start-write /protected/critical
+denied scope-escape /bin/helper scope-escape /protected/critical /protected/other
+denied unlink /bin/helper unlink /protected/critical
+denied chmod /bin/helper chmod /protected/critical
+denied rename /bin/helper rename /protected/critical /ordinary/moved
+denied hardlink /bin/helper hardlink /protected/critical /ordinary/hard
+denied symlink /bin/helper symlink /ordinary/normal /protected/link
+/bin/helper bind /protected /ordinary/bind || fail bind-mount
+denied bind-alias /bin/helper write /ordinary/bind/critical
+/bin/helper namespace-write /protected /ordinary/nsbind >/dev/null 2>&1 && fail namespace-bypass || pass namespace-denied
+
+/bin/helper protected-loop &
+protected=$!
+/bin/helper register-process "$protected" 2 || fail process-register
+pass process-protected-registration
+denied direct-signal /bin/helper signal "$protected" 9
+/bin/kill -0 "$protected" 2>/dev/null || fail protected-target-lost
+denied pkill /bin/pkill -9 helper
+denied python-signal /usr/bin/python -S /signal_payload.py "$protected"
+denied opaque-signal /bin/opaque signal "$protected" 9
+denied indirect-signal /bin/sh -c "/bin/opaque signal $protected 9"
+denied expired-signal /bin/helper expired-signal "$protected" 9
+denied wrong-start-signal /bin/helper wrong-start-signal "$protected" 9
+denied wrong-signal-authority /bin/helper wrong-signal-authority "$protected" 9
+ordinary=$(/bin/sh -c '/bin/sleep 1000 >/dev/null 2>&1 & echo $!')
+/bin/helper signal "$ordinary" 9 || fail ordinary-kill
+pass ordinary-kill
+/bin/helper authorized-signal "$protected" 15 || fail exact-signal-authority-call
+/bin/sleep 1
+if /bin/kill -0 "$protected" 2>/dev/null; then fail exact-signal-target-lived; fi
+pass exact-signal-authority
+
+/bin/helper churn /ordinary 1500 || fail post-benchmark
+pass ordinary-churn
+/bin/sleep 1
+grep -q '"policy_reason":"exact_process_control_authority_missing_or_invalid"' /var/lib/maho/prevention/events.jsonl || fail process-evidence
+grep -q '"kind":"process"' /var/lib/maho/prevention/events.jsonl || fail process-evidence-kind
+pass process-evidence
+kill "$reader" 2>/dev/null
+/bin/sleep 1
+grep -q '"host_mutation_performed":false' /var/lib/maho/prevention/events.jsonl || fail evidence
+pass durable-evidence
+echo MAHO_PREVENTION_VM_COMPLETE
+/bin/poweroff -f

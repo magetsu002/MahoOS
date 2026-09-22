@@ -10,6 +10,8 @@ depends=(
   'python'
   'python-cryptography'
   'systemd'
+  'libbpf'
+  'polkit'
   'gnome-keyring'
   'rtkit'
   'zram-generator'
@@ -35,8 +37,10 @@ depends=(
   'qt6-5compat'
   'qt6-declarative'
   'kio'
+  'libbpf'
 )
 makedepends=(
+  'clang'
   'cmake'
   'ninja'
   'qt6-base'
@@ -71,6 +75,15 @@ build() {
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release
   cmake --build "$srcdir/build-maho-files" --parallel 2
+  mkdir -p "$srcdir/build-prevention"
+  clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
+    -I"/usr/include/$(gcc -dumpmachine)" -I"$source_root/bpf" \
+    -c "$source_root/bpf/maho_prevention.bpf.c" \
+    -o "$srcdir/build-prevention/maho_prevention.bpf.o"
+  gcc -O2 -Wall -Wextra -Werror "$source_root/src/maho_prevention_loader.c" \
+    -o "$srcdir/build-prevention/maho-prevention-loader" $(pkg-config --cflags --libs libbpf)
+  gcc -O2 -Wall -Wextra -Werror "$source_root/src/maho_prevention_evidence.c" \
+    -o "$srcdir/build-prevention/maho-prevention-evidence" $(pkg-config --cflags --libs libbpf)
 }
 
 package() {
@@ -102,6 +115,29 @@ package() {
     "$pkgdir/usr/bin/maho-admit"
   install -Dm755 "$source_root/bin/maho-trust" \
     "$pkgdir/usr/bin/maho-trust"
+  install -Dm755 "$source_root/bin/maho-intent-guard" \
+    "$pkgdir/usr/bin/maho-intent-guard"
+  install -d "$pkgdir/usr/lib/maho/prevention"
+  install -Dm755 "$source_root/bin/maho-prevention-boundary" \
+    "$pkgdir/usr/lib/maho/prevention/maho-prevention-boundary"
+  install -Dm755 "$source_root/bin/maho-break-glass" \
+    "$pkgdir/usr/lib/maho/prevention/maho-break-glass"
+  install -Dm755 "$srcdir/build-prevention/maho-prevention-loader" \
+    "$pkgdir/usr/lib/maho/prevention/maho-prevention-loader"
+  install -Dm755 "$srcdir/build-prevention/maho-prevention-evidence" \
+    "$pkgdir/usr/lib/maho/prevention/maho-prevention-evidence"
+  install -Dm644 "$srcdir/build-prevention/maho_prevention.bpf.o" \
+    "$pkgdir/usr/lib/maho/prevention/maho_prevention.bpf.o"
+  install -Dm644 "$source_root/config/systemd/system/maho-prevention-boundary.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-prevention-boundary.service"
+  install -Dm644 "$source_root/config/systemd/system/maho-prevention-evidence.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-prevention-evidence.service"
+  install -Dm644 "$source_root/config/polkit-1/actions/io.maho.prevention.policy" \
+    "$pkgdir/usr/share/polkit-1/actions/io.maho.prevention.policy"
+  install -Dm644 "$source_root/config/tmpfiles.d/maho-prevention.conf" \
+    "$pkgdir/usr/lib/tmpfiles.d/maho-prevention.conf"
+  install -Dm644 "$source_root/docs/PREVENTION-BOUNDARY.md" \
+    "$pkgdir/usr/share/doc/maho/PREVENTION-BOUNDARY.md"
   install -Dm644 "$source_root/README.md" \
     "$pkgdir/usr/share/doc/maho-os/README.md"
 }

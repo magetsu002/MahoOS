@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_behavior_preferences import defaults, load_preferences  # noqa: E402
-from maho_system_status import build_system_model  # noqa: E402
-from maho_system_tui import PAGES, interactive, render  # noqa: E402
+from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
+from maho_system_tui import PAGES, diagnostic_state_label, interactive, render  # noqa: E402
 
 
 def check(name: str, condition: bool) -> None:
@@ -78,7 +78,9 @@ def main() -> None:
                 and all(len(line) <= width for line in screen.splitlines())
                 and "\x1b[" not in screen,
             )
-    check("overview keeps health and trust distinct", "Healthy" in render(model) and "Unresolved" in render(model))
+    overview = render(model)
+    check("overview keeps health, Guardian, runtime, and trust distinct", all(value in overview for value in ("Healthy", "Verified", "Unresolved")))
+    check("overview translates known attention reasons", "Not established" in overview and "Awaiting certification" in overview and "UNKNOWN" not in overview)
     trust_page = render(model, page="Trust", height=35)
     check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
     check("Trust renders missing generation authority semantically", trust_page.count("Not established") >= 2)
@@ -87,7 +89,10 @@ def main() -> None:
     check("Guardian response projection remains truthful and idle", "RECOVERED" in render(model, page="Guardian", height=35) and "Idle" in render(model, page="Guardian", height=35))
     optional = [item for item in model.diagnostics if item.id in {"provider.environment.power", "provider.environment.thermal"}]
     check("optional telemetry absence does not request attention", len(optional) == 2 and all(not item.attention and "Not available" in item.reason for item in optional))
-    check("Doctor uses universal states", "PASS" in render(model, page="Doctor") and "UNKNOWN" in render(model, page="Doctor"))
+    doctor = render(model, page="Doctor", height=40)
+    check("Doctor translates known trust reasons", "Not established" in doctor and "Awaiting certification" in doctor and "UNKNOWN" not in doctor)
+    ambiguous = DiagnosticRecord("fixture.ambiguous", "Fixture", "UNKNOWN", "Ambiguous evidence", "No exact reason is available.", (), "Inspect evidence.", False)
+    check("genuinely ambiguous evidence remains Unknown", diagnostic_state_label(ambiguous) == "Unknown")
     check("Trust page refuses historical promotion", "Historical recovery proof" in render(model, page="Trust", height=35))
     check("Update page explains package state", "fzf" in render(model, page="Updates", height=35))
     active = render(fixture(active=True), page="Behavior", height=35)
@@ -97,6 +102,8 @@ def main() -> None:
     check("Behavior exposes granular work preferences", "sustained builds" in behavior_page and "rendering/encoding" in behavior_page)
     check("Behavior explains the selected preference", "Selected:" in behavior_page)
     check("Recovery page preserves authority boundary", "inspection-only" in render(model, page="Recovery", height=35))
+    recovery_page = render(model, page="Recovery", height=35)
+    check("Recovery uses None yet for absent native history", "Last native" in recovery_page and "None yet" in recovery_page and "Unavailable" not in recovery_page)
     check("Evidence view is bounded structured data", "Raw structured evidence (bounded)" in render(model, page="Guardian", evidence=True, height=30))
     check("render is deterministic", render(model, page="Overview") == render(model, page="Overview"))
 

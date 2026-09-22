@@ -24,10 +24,10 @@ jobs:
           set -euo pipefail
           git diff --check origin/main...HEAD
 
-      - name: Install signed-boot contract dependency
+      - name: Install native contract dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-cryptography
+          sudo apt-get install -y python3-cryptography libbpf-dev llvm
 
       - name: Shell syntax
         shell: bash

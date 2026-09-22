@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib" if (ROOT / "lib").is_dir() else Path("/usr/lib/maho")))
+
+from maho_intent_guard import IntentOutcome, assess_shell_intent  # noqa: E402
+from maho_prevention_scope import TargetContext  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="maho-intent-guard")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--cwd", default=os.getcwd())
+    parser.add_argument("--root-device")
+    parser.add_argument("--boot-device")
+    parser.add_argument("source")
+    args = parser.parse_args()
+    decision = assess_shell_intent(
+        args.source, cwd=args.cwd,
+        context=TargetContext(root_device=args.root_device, boot_device=args.boot_device, owner_home=str(Path.home())),
+    )
+    if args.json:
+        print(json.dumps({
+            "outcome": decision.outcome.value, "reason": decision.reason,
+            "target": decision.mutation.target if decision.mutation else None,
+            "effect": decision.scope.effect.value if decision.scope else None,
+        }, sort_keys=True))
+    elif decision.outcome in {IntentOutcome.BLOCK, IntentOutcome.BREAK_GLASS_REQUIRED}:
+        print("Maho prevented a destructive system mutation.\n")
+        print(f"Target: {decision.mutation.target}")
+        print(f"Reason: {decision.scope.reason}")
+        print("\nNo changes were made.\n")
+        print("Use the explicit authenticated break-glass path if this operation is intentional.")
+    return 77 if decision.outcome in {IntentOutcome.BLOCK, IntentOutcome.BREAK_GLASS_REQUIRED} else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -44,10 +44,13 @@ def _list(value: Any) -> Sequence[Mapping[str, Any]]:
 
 def _status_rows(model: SystemModel, width: int) -> list[str]:
     s = model.summary
+    runtime = _obj(_obj(model.guardian.get("system")).get("maho_runtime"))
     rows: list[str] = []
     for label, value in (
-        ("System health", _human_state(s.operational_health)), ("Trust", _human_state(s.trust)),
-        ("Guardian", _human_state(s.guardian_health)), ("Severity", _human_state(s.severity)),
+        ("System health", _human_state(s.operational_health)),
+        ("Guardian", _human_state(s.guardian_health)),
+        ("Runtime", "Verified" if runtime.get("verified") is True else "Unverified"),
+        ("Trust", _human_state(s.trust)), ("Severity", _human_state(s.severity)),
         ("Updates", s.updates), ("Recovery", s.recovery),
         ("Behavior", s.behavior), ("Attention", s.attention),
     ):
@@ -59,7 +62,7 @@ def _overview(model: SystemModel, width: int) -> list[str]:
     attention = [item for item in model.diagnostics if item.attention]
     attention_rows = []
     for item in attention[:4]:
-        attention_rows.append(f"{item.state:<7} {item.summary}")
+        attention_rows.append(f"{diagnostic_state_label(item):<22} {item.summary}")
         attention_rows.append(f"        {item.reason}")
     if not attention_rows:
         attention_rows = ["No user attention is currently requested."]
@@ -80,8 +83,8 @@ def _doctor_rows(model: SystemModel, selected: int, width: int) -> list[str]:
     rows = []
     for index, item in enumerate(model.diagnostics[start:start + visible], start):
         cursor = ">" if index == selected else " "
-        display_state = _diagnostic_state_label(item)
-        rows.append(f"{cursor} {display_state:<7} {item.subsystem:<10} {item.summary}")
+        display_state = diagnostic_state_label(item)
+        rows.append(f"{cursor} {display_state:<22} {item.subsystem:<10} {item.summary}")
     return rows
 
 
@@ -92,7 +95,7 @@ def _doctor(model: SystemModel, state: UIState, width: int) -> list[str]:
     item = model.diagnostics[selected]
     rows = box("Doctor", _doctor_rows(model, selected, width), width)
     if state.show_detail:
-        display_state = "Not available" if _diagnostic_state_label(item) == "N/A" else item.state
+        display_state = diagnostic_state_label(item, detail=True)
         detail = [
             f"State      {display_state}", f"Reason     {item.reason}",
             f"Impact     {'User attention requested' if item.attention else 'No user action requested'}",
@@ -172,10 +175,26 @@ def _recovery_authority_display(model: SystemModel) -> str:
     return "Unresolved"
 
 
-def _diagnostic_state_label(item: DiagnosticRecord) -> str:
-    if item.id in {"provider.environment.power", "provider.environment.thermal"} and item.state == "UNKNOWN" and not item.attention:
-        return "N/A"
-    return item.state
+def diagnostic_state_label(item: DiagnosticRecord, *, detail: bool = False) -> str:
+    """Translate an enum only when the diagnostic carries an exact reason."""
+    if item.state != "UNKNOWN":
+        return item.state
+    if item.id in {"provider.environment.power", "provider.environment.thermal"} and not item.attention:
+        return "Not available" if detail else "N/A"
+    reason = item.reason.lower()
+    if item.id == "trust.current-generation" and (
+        "generation authority" in reason or "systemgeneration/kernelgeneration authority" in reason
+    ):
+        return "Not established"
+    if item.id == "trust.signed-boot" and (
+        "signed boot" in reason and ("missing" in reason or "unavailable" in reason)
+    ):
+        return "Awaiting certification"
+    if item.id == "provider.boot.authority" and "freshness is missing" in reason:
+        return "Awaiting certification"
+    if item.id == "recovery.readiness" and "verified modes: none" in reason:
+        return "None yet"
+    return "Unknown"
 
 
 def _trust(model: SystemModel, width: int) -> list[str]:
@@ -268,8 +287,8 @@ def _recovery(model: SystemModel, width: int) -> list[str]:
         ("Readiness", model.summary.recovery),
         ("Recovery authority", _recovery_authority_display(model)),
         ("Available scope", ", ".join(map(str, recovery.get("recovery_modes", []))) or "No verified mode"),
-        ("Last runtime", short_id(str(last_runtime.get("campaign_id")), 40) if last_runtime else "Unavailable"),
-        ("Last native", short_id(str(last_native.get("campaign_id")), 40) if last_native else "Unavailable"),
+        ("Last runtime", short_id(str(last_runtime.get("campaign_id")), 40) if last_runtime else "None yet"),
+        ("Last native", short_id(str(last_native.get("campaign_id")), 40) if last_native else "None yet"),
         ("Invalid history", str(recovery.get("invalid_unified_history_records", 0))),
     ):
         rows.extend(field_rows(label, value, width - 4))

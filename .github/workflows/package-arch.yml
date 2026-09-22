@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           pacman -Sy --noconfirm --needed \
-            git zstd python libarchive cmake ninja \
+            git zstd python libarchive cmake ninja clang libbpf \
             qt6-base qt6-declarative kio
 
       - uses: actions/checkout@v4

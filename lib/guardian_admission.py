@@ -166,7 +166,8 @@ class MutationGraph:
         return canonical_json(self.identity_material() | {"graph_id": str(self.graph_id)})
 
 
-def _kind(path: str) -> EffectKind:
+def classify_effect(path: str) -> EffectKind:
+    """Return Guardian's canonical effect classification for an absolute path."""
     # Loader/interpreter policy can redirect execution before an application or
     # service reaches its own trust boundary.
     if (
@@ -243,7 +244,7 @@ def derive_mutation_graph(
         if old == new:
             continue
         operation = "ADD" if old is None else "REMOVE" if new is None else "CHANGE"
-        kind = _kind(path)
+        kind = classify_effect(path)
         owner_before = old.package_owner if old else None
         owner_after = new.package_owner if new else None
         effects.append(MutationEffect(
