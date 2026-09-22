@@ -25,9 +25,18 @@ prepare_graphical_torture() {
   compile_kill_helper
   rm -rf "$HOME_VM/.cache/maho/files-release-build-"* 2>/dev/null || true
   systemctl daemon-reload
-  systemctl start sddm.service
-  wait_graphical_session
-  wait_until 20 user_unit_active maho-guardian.service
+  if ! systemctl start sddm.service; then
+    echo "FAIL  SDDM start failed before torture" >&2
+    systemctl status sddm.service --no-pager || true
+    journalctl -b --no-pager -u sddm.service | tail -160 || true
+    return 1
+  fi
+  wait_graphical_session || return 1
+  if ! wait_until 20 user_unit_active maho-guardian.service; then
+    echo "FAIL  Guardian did not become active before torture" >&2
+    u systemctl --user status maho-guardian.service --no-pager || true
+    return 1
+  fi
 }
 
 user_unit_active() {
