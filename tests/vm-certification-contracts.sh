@@ -47,7 +47,7 @@ require "$RUNNER" 'maho.vm.torture=1' 'destructive profiles lack explicit kernel
 require "$RUNNER" 'maho.vm.allowed_writable_block=vda' 'destructive profiles lack an exact virtual block allowlist'
 require "$TORTURE_LIB" 'torture_destructive_gate' 'destructive helpers bypass the reusable safety predicate'
 require "$TORTURE_LIB" 'unexpected writable host share' 'torture safety does not reject writable host shares'
-require "$TORTURE_LIB" 'unexpected block device exposed' 'torture safety does not reject physical block exposure'
+require "$TORTURE_LIB" 'unexpected writable block device exposed' 'torture safety does not reject writable physical block exposure'
 require "$TORTURE_GUEST" 'RECOVERED_AUTOMATICALLY' 'automatic recovery outcome is not represented'
 require "$TORTURE_GUEST" 'RECOVERED_WITH_AUTHORITY' 'authorized recovery outcome is not represented'
 require "$TORTURE_GUEST" 'DETECTED_ONLY' 'detected-only outcome is not represented'

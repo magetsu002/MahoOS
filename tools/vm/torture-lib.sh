@@ -49,7 +49,10 @@ torture_assert_safety() {
   for device in /sys/class/block/*; do
     device="${device##*/}"
     case "$device" in loop*|ram*|zram*) continue;; esac
-    [ "$device" = "$allowed" ] || torture_fail "unexpected block device exposed: $device"
+    if [ "$device" != "$allowed" ]; then
+      [ "$(cat "/sys/class/block/$device/ro" 2>/dev/null || true)" = 1 ] || torture_fail "unexpected writable block device exposed: $device"
+      grep -qi qemu "/sys/class/block/$device/device/model" 2>/dev/null || torture_fail "unexpected non-QEMU block device exposed: $device"
+    fi
   done
   [ -r /sys/class/block/vda/device/model ] || torture_fail "virtio disk model unavailable"
   grep -qi qemu /sys/class/block/vda/device/model || torture_fail "writable disk is not QEMU virtual media"
