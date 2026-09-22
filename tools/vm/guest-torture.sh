@@ -54,14 +54,14 @@ session_units_healthy() {
 }
 
 wallpaper_is_canonical() {
-  graphical_user awww query -j 2>/dev/null | python3 - "$CANONICAL_WALLPAPER" <<'PY'
+  graphical_user awww query -j 2>/dev/null | python3 -c '
 import json, os, sys
 expected=os.path.realpath(sys.argv[1])
 try: value=json.load(sys.stdin)
 except Exception: raise SystemExit(1)
 paths={os.path.realpath(row["displaying"]["image"]) for rows in value.values() for row in rows if row.get("displaying",{}).get("image")}
 raise SystemExit(0 if paths == {expected} else 1)
-PY
+' "$CANONICAL_WALLPAPER"
 }
 
 seed_canonical_wallpaper() {
