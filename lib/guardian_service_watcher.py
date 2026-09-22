@@ -30,6 +30,8 @@ from guardian_service_incident import (  # noqa: E402
     normalize_journal_event,
 )
 
+SERVICE_RECONCILE_SECONDS = 30.0
+
 def state_root() -> Path:
     return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "maho/security"
 
@@ -180,12 +182,11 @@ def _reconcile_service_state(
                 now=moment,
             )
 
-def _verify_due(store: ServiceIncidentStore, root: Path, boot_id: str) -> None:
-    now = time.time()
-    _reconcile_service_state(store, boot_id, now=now)
-    for state in store.due_verifications(now):
+def _verify_due(store: ServiceIncidentStore, root: Path, *, now: float | None = None) -> None:
+    moment = time.time() if now is None else now
+    for state in store.due_verifications(moment):
         store.verify(state, snapshot(str(state["unit"])))
-    reconcile_service_session(root, now=now)
+    reconcile_service_session(root, now=moment)
 
 def _provider_heartbeat(root: Path, provider_id: str, *, success: bool, health: ProviderHealth, boot_id: str, errors: tuple[str, ...] = (), details: dict | None = None) -> bool:
     try:
@@ -225,6 +226,7 @@ def watch(root: Path) -> int:
     _record_stream_health(root, stream, boot_id)
     _reconcile_service_state(store, boot_id)
     reconcile_service_session(root)
+    next_service_reconcile = time.time() + SERVICE_RECONCILE_SECONDS
     resume_cursor = cursor if probe is CursorProbe.VALID else ""
     process = subprocess.Popen(_journal_argv(resume_cursor), stdout=subprocess.PIPE, stderr=sys.stderr, bufsize=0)
     if process.stdout is None:
@@ -232,11 +234,18 @@ def watch(root: Path) -> int:
     buffer = b""
     try:
         while True:
+            now = time.time()
             deadline = store.next_deadline()
-            timeout = 30.0 if deadline is None else max(0.0, min(30.0, deadline - time.time()))
+            wake_at = next_service_reconcile if deadline is None else min(deadline, next_service_reconcile)
+            timeout = max(0.0, min(30.0, wake_at - now))
             ready, _, _ = select.select([process.stdout], [], [], timeout)
             if not ready:
-                _verify_due(store, root, boot_id)
+                now = time.time()
+                _verify_due(store, root, now=now)
+                if now >= next_service_reconcile:
+                    _reconcile_service_state(store, boot_id, now=now)
+                    next_service_reconcile = now + SERVICE_RECONCILE_SECONDS
+                    _verify_due(store, root, now=now)
                 if process.poll() is not None:
                     stream = persist_stream(root, mark_failed(stream, reason="event_source_exited")); _record_stream_health(root, stream, boot_id); return process.returncode or 1
                 _record_stream_health(root, stream, boot_id)
@@ -259,6 +268,14 @@ def watch(root: Path) -> int:
                     observed_at = observed.timestamp()
                     store.process(event, now=observed_at)
                     reconcile_service_session(root, now=observed_at)
+            now = time.time()
+            deadline = store.next_deadline()
+            if deadline is not None and deadline <= now:
+                _verify_due(store, root, now=now)
+            if now >= next_service_reconcile:
+                _reconcile_service_state(store, boot_id, now=now)
+                next_service_reconcile = now + SERVICE_RECONCILE_SECONDS
+                _verify_due(store, root, now=now)
             _record_stream_health(root, stream, boot_id)
     finally:
         if process.poll() is None:
