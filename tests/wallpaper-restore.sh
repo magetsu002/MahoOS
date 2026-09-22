@@ -211,6 +211,13 @@ echo "PASS"
 echo "=== daemon cannot replay its private cache ==="
 grep -Fq 'ExecStart=/usr/bin/awww-daemon --no-cache' "$ROOT/systemd/user/maho-awww-daemon.service" || \
     fail "awww service can still replay an unrelated cached wallpaper"
+grep -Fq 'ExecStartPost=-/usr/bin/bash %h/.local/bin/maho-wallpaper-session restore' "$ROOT/systemd/user/maho-awww-daemon.service" || \
+    fail "provider restart no longer triggers saved wallpaper restoration"
+grep -Fq 'Wants=maho-awww-daemon.service' "$ROOT/systemd/user/maho-wallpaper.service" || \
+    fail "wallpaper watcher no longer starts its awww provider"
+if grep -Fq 'Requires=maho-awww-daemon.service' "$ROOT/systemd/user/maho-wallpaper.service"; then
+    fail "wallpaper watcher would be stopped by transient awww failure"
+fi
 grep -Fq 'awww-daemon --no-cache' "$ROOT/bin/maho-wallpaper-session" || \
     fail "fallback awww launch can still replay an unrelated cached wallpaper"
 echo "PASS"

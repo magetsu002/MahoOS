@@ -71,8 +71,10 @@ serve() {
     wait -n "$text_pid" "$image_pid"
     status=$?
 
-    # Either watcher exiting means the capture owner is unhealthy. Stop the
-    # sibling as one unit; systemd restarts the owner and recreates both.
+    # EXIT runs after this function's local variables leave scope. Clean the
+    # sibling while the exact child PIDs are still bound, then return the
+    # watcher status so systemd can restart the owner as one unit.
+    cleanup
     return "$status"
 }
 

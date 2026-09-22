@@ -287,6 +287,13 @@ class ServiceIncidentStore:
                 or invocation_id == state.get("failed_invocation_id")
             ):
                 continue
+            existing = state.get("supersession")
+            if (
+                isinstance(existing, Mapping)
+                and existing.get("candidate_boot_id") == boot_id
+                and existing.get("candidate_invocation_id") == invocation_id
+            ):
+                continue
             state["supersession"] = {
                 "candidate_boot_id": boot_id,
                 "candidate_invocation_id": invocation_id,
@@ -349,7 +356,7 @@ class ServiceIncidentStore:
                     "failure_result": event["result"],
                     "opened_at": timestamp,
                 }
-            if state.get("lifecycle") in {"succeeded", "unresolved"}:
+            if state.get("lifecycle") in {"succeeded", "unresolved", "recovering"}:
                 return state
             state.update({
                 "lifecycle": "recovering",

@@ -11,6 +11,7 @@ LAUNCHER_WINDOW="$ROOT/config/quickshell/maho-launcher/MahoLauncherWindow.qml"
 LAUNCHER_SHELL="$ROOT/config/quickshell/maho-launcher/shell.qml"
 LAUNCHER_BACKDROP="$ROOT/config/quickshell/maho-launcher/LauncherBackdrop.qml"
 LAUNCHER_BIN="$ROOT/bin/maho-launcher"
+LAUNCHER_DECORATIONS="$ROOT/config/hypr/maho/appearance/decorations.lua"
 MAHO_SHELL="$ROOT/config/quickshell/maho-shell/shell.qml"
 
 fail() {
@@ -83,7 +84,8 @@ printf '%s\n' 'PASS  Clipboard short/multiline/leading-newline/whitespace previe
 printf '%s\n' '=== Clipboard pin discoverability contract ==='
 require_text "$CLIP_PANEL" 'ClipboardPinGlyph {' 'clipboard row pin affordance is missing'
 require_text "$CLIP_PANEL" 'root.clipboardState.togglePin(row.modelData)' 'clipboard pin affordance is not actionable'
-require_text "$CLIP_PANEL" 'readonly property bool revealPin: rowHover.containsMouse || pinHover.containsMouse' 'clipboard pin action is not scoped to row hover'
+require_text "$CLIP_PANEL" 'readonly property bool pinLatched: Boolean(row.modelData.pinned)' 'clipboard row no longer preserves latched filled pin visibility'
+require_text "$CLIP_PANEL" 'readonly property bool revealPin: row.pinLatched || rowHover.containsMouse || pinHover.containsMouse' 'clipboard pin reveal no longer combines persistent pinned state with row hover'
 require_text "$CLIP_PANEL" 'opacity: row.revealPin' 'clipboard pin action remains permanently visible'
 require_text "$CLIP_PIN_GLYPH" 'import QtQuick.Shapes' 'pin is not rendered through proportional vector geometry'
 require_text "$CLIP_PIN_GLYPH" 'PathSvg {' 'pin vector outline is missing'
@@ -110,20 +112,24 @@ require_text "$MAHO_SHELL" '/.local/bin/maho-launcher' 'Maho Edge does not route
 reject_text "$MAHO_SHELL" 'maho-rice-launcher' 'Maho Edge still routes to the obsolete rice launcher'
 printf '%s\n' 'PASS  Maho Edge and keyboard route to the managed Maho Launcher'
 
-printf '%s\n' '=== Launcher full-output blur contract ==='
+printf '%s\n' '=== Launcher full-output catcher + card blur contract ==='
 for edge in 'top: true' 'bottom: true' 'left: true' 'right: true'; do
-    require_text "$LAUNCHER_BACKDROP" "$edge" "Launcher blur carrier does not cover full output: $edge"
+    require_text "$LAUNCHER_BACKDROP" "$edge" "Launcher catcher does not cover full output: $edge"
 done
-require_text "$LAUNCHER_BACKDROP" 'exclusionMode: ExclusionMode.Ignore' 'Edge reservation can still shrink the blur carrier'
+require_text "$LAUNCHER_BACKDROP" 'exclusionMode: ExclusionMode.Ignore' 'Edge reservation can still shrink the full-output catcher'
 require_text "$LAUNCHER_WINDOW" 'exclusionMode: ExclusionMode.Ignore' 'Edge reservation can still shrink or offset the Launcher interaction plane'
 reject_text "$LAUNCHER_WINDOW" 'exclusiveZone:' 'explicit Launcher exclusiveZone can reset Ignore semantics and reintroduce the top reservation seam'
-require_text "$LAUNCHER_BACKDROP" 'WlrLayershell.layer: WlrLayer.Top' 'blur carrier no longer sits below sharp Overlay surfaces'
-require_text "$LAUNCHER_BACKDROP" 'mask: Region {}' 'blur carrier can intercept pointer input'
-require_text "$LAUNCHER_BACKDROP" 'WlrLayershell.namespace: "maho-launcher-backdrop"' 'backdrop namespace drifted'
-require_text "$LAUNCHER_SHELL" 'LauncherBackdrop {' 'launcher shell no longer owns dedicated blur carrier'
-require_text "$LAUNCHER_BIN" 'match = { namespace = "maho-launcher-backdrop" }' 'Hyprland blur is not scoped to the dedicated carrier'
-require_text "$LAUNCHER_BIN" 'ignore_alpha = 0.001' 'carrier falls below compositor blur threshold'
-reject_text "$LAUNCHER_BIN" 'match = { namespace = "maho-launcher" }' 'sharp interactive Launcher surface is being blurred'
-printf '%s\n' 'PASS  full-output backdrop and interaction plane both ignore Edge reservation'
+require_text "$LAUNCHER_BACKDROP" 'WlrLayershell.layer: WlrLayer.Overlay' 'launcher catcher is no longer an Overlay input surface'
+require_text "$LAUNCHER_BACKDROP" 'mask: Region { item: root.active ? dimPlane : null }' 'launcher catcher input mask is no longer bounded by active state'
+require_text "$LAUNCHER_BACKDROP" 'WlrLayershell.namespace: "maho-launcher-catcher"' 'launcher catcher namespace drifted'
+require_text "$LAUNCHER_WINDOW" 'WlrLayershell.namespace: "maho-launcher"' 'launcher card namespace drifted'
+require_text "$LAUNCHER_SHELL" 'LauncherBackdrop {' 'launcher shell no longer owns the full-output catcher'
+require_text "$LAUNCHER_DECORATIONS" 'name = "maho-launcher-material"' 'launcher card blur rule is missing'
+require_text "$LAUNCHER_DECORATIONS" 'match = { namespace = "maho-launcher" }' 'Hyprland blur is not scoped to the launcher card'
+require_text "$LAUNCHER_DECORATIONS" 'ignore_alpha = 0.16' 'launcher card blur alpha mask drifted'
+reject_text "$LAUNCHER_DECORATIONS" 'namespace = "maho-launcher-catcher"' 'full-output catcher must remain unblurred'
+reject_text "$LAUNCHER_BIN" 'maho-launcher-backdrop' 'obsolete launcher blur namespace returned'
+reject_text "$LAUNCHER_BIN" 'set_hyprland_material_rule' 'launcher wrapper resumed runtime compositor mutation'
+printf '%s\n' 'PASS  full-output catcher and card-scoped blur both ignore Edge reservation'
 
 printf '%s\n' 'ALL UX CLEANUP CONTRACTS PASS'

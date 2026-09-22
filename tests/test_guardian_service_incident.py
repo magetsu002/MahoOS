@@ -19,6 +19,7 @@ from guardian_service_incident import (  # noqa: E402
     incident_identity,
     normalize_journal_event,
 )
+import guardian_service_watcher as watcher  # noqa: E402
 from guardian_service_watcher import _decode_chunk, _journal_argv  # noqa: E402
 
 BOOT_A = "a" * 32
@@ -77,7 +78,8 @@ def main():
     watcher_source = (ROOT / "lib/guardian_service_watcher.py").read_text()
     incident_source = (ROOT / "lib/guardian_service_incident.py").read_text()
     check("delegated watcher contains no direct restart command", '"restart"' not in watcher_source and '"restart"' not in incident_source)
-    check("startup reconciliation can retire stale active latches only through bounded verification", "store.arm_supersession(" in watcher_source)
+    check("always-on reconciliation can retire stale active latches only through bounded verification", "_reconcile_service_state(" in watcher_source and "store.arm_supersession(" in watcher_source)
+    check("service reconciliation has a bounded periodic wake even under journal load", "SERVICE_RECONCILE_SECONDS = 30.0" in watcher_source and "next_service_reconcile" in watcher_source)
     burst = b"prefix" + b' suffix"}\n{"one":1}\n{"two":2}\npartial'
     remainder, rows = _decode_chunk(b'{"zero":0,"text":"', burst)
     check("one readable journal burst drains every complete event", rows == [{"zero": 0, "text": "prefix suffix"}, {"one": 1}, {"two": 2}] and remainder == b"partial")
@@ -149,7 +151,9 @@ def main():
         store = ServiceIncidentStore(Path(tmp))
         failed = store.process(event(UNIT_FAILED), now=300.0)
         recovering = store.process(event(RESTART_SCHEDULED), now=301.0)
+        repeated = store.process(event(RESTART_SCHEDULED), now=304.0)
         check("provider receives a bounded replacement window", recovering["recover_by_epoch"] == 306.0 and store.due_verifications(305.99) == [])
+        check("duplicate recovery observation cannot extend provider deadline", repeated["recover_by_epoch"] == 306.0)
         due = store.due_verifications(306.0)
         check("missing replacement becomes due for failure verification", len(due) == 1)
         check("missing replacement cannot pass", not store.verify(due[0], snap(invocation=FAILED_A, active="failed", sub="failed")))
@@ -180,6 +184,11 @@ def main():
         store.process(event(UNIT_STARTED, LATER), now=511.0)
         armed = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
         check("later invocation arms independent stability verification", armed["supersession"]["candidate_invocation_id"] == LATER and armed["supersession"]["verify_after_epoch"] == 514.0)
+        rearmed = store.arm_supersession(
+            unit="maho-notify.service", boot_id=BOOT_A, invocation_id=LATER, now=512.0,
+        )
+        stable_deadline = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
+        check("same healthy candidate cannot reset supersession deadline", rearmed == [] and stable_deadline["supersession"]["verify_after_epoch"] == 514.0)
         check("supersession is not due before the stability window", store.due_verifications(513.99) == [])
         due = store.due_verifications(514.0)
         check("supersession becomes due after the normal stability window", len(due) == 1 and due[0]["incident_id"] == iid)
@@ -221,6 +230,35 @@ def main():
         history = json.loads((root / "guardian/recovery-history" / f"{iid}.json").read_text())
         check("cross-boot supersession preserves original failed recovery truth", history["status"] == "superseded" and history["verified"] is False and history["superseded_by_service"]["boot_id"] == BOOT_B)
         check("cross-boot supersession clears only active latch", not (root / "guardian/active" / f"{iid}.json").exists())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = ServiceIncidentStore(root)
+        failed = store.process(event(UNIT_FAILED), now=700.0)
+        due = store.due_verifications(705.0)
+        check("fixture reaches unresolved state before periodic convergence", len(due) == 1 and not store.verify(due[0], snap(invocation=FAILED_A, active="failed", sub="failed")))
+        iid = failed["incident_id"]
+
+        original_units = watcher.certified_service_units
+        original_snapshot = watcher.snapshot
+        watcher.certified_service_units = lambda: ("maho-notify.service",)
+        watcher.snapshot = lambda unit: snap(invocation=LATER, boot=BOOT_A)
+        try:
+            watcher._reconcile_service_state(store, BOOT_A, now=710.0)
+            first = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
+            watcher._reconcile_service_state(store, BOOT_A, now=711.0)
+            second = json.loads((root / "guardian/service-state" / f"{iid}.json").read_text())
+        finally:
+            watcher.certified_service_units = original_units
+            watcher.snapshot = original_snapshot
+
+        check("periodic healthy observation arms stale incident retirement", first["supersession"]["candidate_invocation_id"] == LATER)
+        check("periodic re-observation preserves the original stability deadline", first["supersession"]["verify_after_epoch"] == 713.0 and second["supersession"]["verify_after_epoch"] == 713.0)
+        due = store.due_verifications(713.0)
+        check("periodically armed supersession becomes due", len(due) == 1 and due[0]["incident_id"] == iid)
+        check("verified periodic convergence preserves failed recovery truth", not store.verify(due[0], snap(invocation=LATER, boot=BOOT_A), timestamp="2027-01-15T08:30:00+00:00"))
+        history = json.loads((root / "guardian/recovery-history" / f"{iid}.json").read_text())
+        check("periodic convergence retires stale active latch as superseded", history["status"] == "superseded" and not (root / "guardian/active" / f"{iid}.json").exists())
 
     print("ALL GUARDIAN SERVICE INCIDENT TESTS PASS")
 
