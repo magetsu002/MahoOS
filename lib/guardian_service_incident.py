@@ -356,7 +356,7 @@ class ServiceIncidentStore:
                     "failure_result": event["result"],
                     "opened_at": timestamp,
                 }
-            if state.get("lifecycle") in {"succeeded", "unresolved"}:
+            if state.get("lifecycle") in {"succeeded", "unresolved", "recovering"}:
                 return state
             state.update({
                 "lifecycle": "recovering",
