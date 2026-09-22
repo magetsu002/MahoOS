@@ -387,8 +387,35 @@ scenario_failure_storm() {
 }
 
 
+guardian_service_events_healthy() {
+  local state="$HOME_VM/.local/state/maho/security/guardian/providers/guardian.service-events.json"
+  python3 - "$state" <<'PY_INNER'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1])
+try: d=json.loads(p.read_text())
+except Exception: raise SystemExit(1)
+raise SystemExit(0 if d.get("health")=="healthy" and d.get("last_success_at") else 1)
+PY_INNER
+}
+
+ensure_guardian_service_event_continuity() {
+  local cursor="$HOME_VM/.local/state/maho/security/guardian/service-events/journal.cursor"
+  guardian_service_events_healthy && return 0
+  u systemctl --user restart maho-notify.service
+  wait_until 15 test -s "$cursor" || {
+    SCENARIO_REASON="Guardian journal stream never observed an initial certified service event"
+    return 1
+  }
+  u systemctl --user restart maho-guardian.service
+  wait_until 20 guardian_service_events_healthy || {
+    SCENARIO_REASON="Guardian service-event stream did not resume from a durable cursor"
+    return 1
+  }
+}
+
 runtime_stage_campaign() {
   local tag="$1" directory="$2" tool prepare corrupt campaign confirmation
+  ensure_guardian_service_event_continuity || return 1
   install_second_runtime "$tag"
   tool="$HOME_VM/.local/bin/maho-guardian-runtime-recovery-certify"
   prepare="$(u "$tool" prepare)"
