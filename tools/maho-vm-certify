@@ -32,7 +32,7 @@ case "$PROFILE" in
   smoke|fresh-user|update-freeze|resilience|session) MEMORY=4096 ;;
   performance-4g) MEMORY=4096 ;;
   performance-8g) MEMORY=8192 ;;
-  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound) MEMORY=4096 ;;
+  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying) MEMORY=4096 ;;
   torture-prevention)
     export MAHO_VM_PROFILE_EVIDENCE="$EVIDENCE"
     exec "$ROOT/tools/vm/prevention-torture-profile"
@@ -65,7 +65,7 @@ HOME_IMAGE=""
 EXTRA_QEMU=()
 
 case "$PROFILE" in
-  session|performance-4g|performance-8g|torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound)
+  session|performance-4g|performance-8g|torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying)
     command -v mkfs.ext4 >/dev/null || { echo "maho-vm-certify: missing mkfs.ext4" >&2; exit 2; }
     HOME_IMAGE="$WORK/home-$STAMP-$PROFILE.img"
     truncate -s 8G "$HOME_IMAGE"
@@ -104,20 +104,58 @@ QEMU=(
 printf 'INFO  Maho VM profile=%s revision=%s memory=%sMiB\n' "$PROFILE" "$REV" "$MEMORY"
 printf 'INFO  evidence=%s\n' "$EVIDENCE"
 
-set +e
-timeout --signal=TERM --kill-after=10 "$TIMEOUT" "${QEMU[@]}" >"$EVIDENCE/qemu.log" 2>&1
-QEMU_RC=$?
-set -e
+if [[ "$PROFILE" == torture-reboot-* ]]; then
+  QEMU_STAGE1=("${QEMU[@]}")
+  QEMU_STAGE2=("${QEMU[@]}")
+  for i in "${!QEMU_STAGE1[@]}"; do
+    if [ "${QEMU_STAGE1[$i]}" = "-append" ]; then
+      QEMU_STAGE1[$((i+1))]="${QEMU_STAGE1[$((i+1))]} maho.vm.torture_stage=1"
+      QEMU_STAGE2[$((i+1))]="${QEMU_STAGE2[$((i+1))]} maho.vm.torture_stage=2"
+      break
+    fi
+  done
+
+  rm -f "$EVIDENCE/reboot-stage1-ready" "$EVIDENCE/summary.json"
+  "${QEMU_STAGE1[@]}" >"$EVIDENCE/qemu-stage1.log" 2>&1 &
+  QEMU_STAGE1_PID=$!
+  deadline=$((SECONDS + TIMEOUT))
+  while [ ! -e "$EVIDENCE/reboot-stage1-ready" ] && kill -0 "$QEMU_STAGE1_PID" 2>/dev/null; do
+    [ "$SECONDS" -lt "$deadline" ] || break
+    sleep 1
+  done
+  if [ ! -e "$EVIDENCE/reboot-stage1-ready" ]; then
+    kill -TERM "$QEMU_STAGE1_PID" 2>/dev/null || true
+    wait "$QEMU_STAGE1_PID" 2>/dev/null || true
+    echo "FAIL  reboot torture stage1 did not reach durable cut point" >&2
+    tail -160 "$EVIDENCE/qemu-stage1.log" >&2 || true
+    exit 1
+  fi
+  kill -TERM "$QEMU_STAGE1_PID" 2>/dev/null || true
+  wait "$QEMU_STAGE1_PID" 2>/dev/null || true
+  rm -f "$EVIDENCE/summary.json"
+
+  set +e
+  timeout --signal=TERM --kill-after=10 "$TIMEOUT" "${QEMU_STAGE2[@]}" >"$EVIDENCE/qemu-stage2.log" 2>&1
+  QEMU_RC=$?
+  set -e
+  QEMU_RESULT_LOG="$EVIDENCE/qemu-stage2.log"
+else
+  set +e
+  timeout --signal=TERM --kill-after=10 "$TIMEOUT" "${QEMU[@]}" >"$EVIDENCE/qemu.log" 2>&1
+  QEMU_RC=$?
+  set -e
+  QEMU_RESULT_LOG="$EVIDENCE/qemu.log"
+fi
 
 if [ "$QEMU_RC" -ne 0 ]; then
   echo "FAIL  QEMU exited rc=$QEMU_RC" >&2
-  tail -120 "$EVIDENCE/qemu.log" >&2 || true
+  tail -120 "$QEMU_RESULT_LOG" >&2 || true
   exit "$QEMU_RC"
 fi
 
 [ -r "$EVIDENCE/summary.json" ] || {
   echo "FAIL  guest did not emit summary.json" >&2
-  tail -120 "$EVIDENCE/qemu.log" >&2 || true
+  tail -120 "$QEMU_RESULT_LOG" >&2 || true
   exit 1
 }
 

@@ -401,7 +401,7 @@ PY_INNER
 ensure_guardian_service_event_continuity() {
   local cursor="$HOME_VM/.local/state/maho/security/guardian/service-events/journal.cursor"
   guardian_service_events_healthy && return 0
-  u systemctl --user restart maho-notify.service
+  u systemctl --user restart maho-security.service
   wait_until 15 test -s "$cursor" || {
     SCENARIO_REASON="Guardian journal stream never observed an initial certified service event"
     return 1
@@ -668,6 +668,173 @@ PY_INNER
   python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["state"]=="HEALTHY"' "$done"
   SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
 }
+
+torture_reboot_marker() {
+  printf '%s\n' "$HOME_VM/.local/state/maho/certification/runtime-reboot-torture.json"
+}
+
+write_runtime_reboot_marker() {
+  local profile="$1" phase="$2" incident="$3" state="$4" boot_id="$5"
+  local marker
+  marker="$(torture_reboot_marker)"
+  install -d -o "$UID_VM" -g "$UID_VM" "$(dirname "$marker")"
+  python3 - "$marker" "$profile" "$phase" "$incident" "$state" "$boot_id" "$REV" <<'PY_INNER'
+import json, pathlib, sys
+path,profile,phase,incident,state,boot,rev=sys.argv[1:]
+payload={
+  "schema_version":1,
+  "profile":profile,
+  "phase":phase,
+  "incident_id":incident,
+  "durable_state":state,
+  "stage1_boot_id":boot,
+  "source_revision":rev,
+}
+path=pathlib.Path(path)
+path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
+PY_INNER
+  chown "$UID_VM:$UID_VM" "$marker"
+}
+
+stage_runtime_reboot_failure() {
+  local profile="$1" phase="$2" directory="$3"
+  local tool prepare corrupt campaign confirmation incident state rc=0 mode
+  ensure_guardian_service_event_continuity || return 1
+  u systemctl --user stop maho-guardian.service
+  install_second_runtime "reboot-$phase-$RANDOM"
+  tool="$HOME_VM/.local/bin/maho-guardian-runtime-recovery-certify"
+  prepare="$(u "$tool" prepare)"
+  printf '%s\n' "$prepare" >"$directory/prepare.json"
+  campaign="$(printf '%s' "$prepare" | python3 -c 'import json,sys; print(json.load(sys.stdin)["campaign_id"])')"
+  confirmation="$(printf '%s' "$prepare" | python3 -c 'import json,sys; print(json.load(sys.stdin)["corruption_confirmation"])')"
+  torture_destructive_gate
+  corrupt="$(u "$tool" corrupt "$campaign" --confirm "$confirmation")"
+  printf '%s\n' "$corrupt" >"$directory/corrupt.json"
+  incident="$(printf '%s' "$corrupt" | python3 -c 'import json,sys; print(json.load(sys.stdin)["incident_id"])')"
+
+  case "$phase" in
+    awaiting)
+      state="$(runtime_active_state "$incident")"
+      [ "$state" = authorization-required ] || {
+        echo "FAIL  reboot stage expected authorization-required, got $state" >&2
+        return 1
+      }
+      ;;
+    recovering|verifying)
+      [ "$phase" = recovering ] && mode=before-mutation || mode=after-mutation
+      u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$incident" "$mode" <<'PY_INNER' || rc=$?
+import os, pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]; mode=sys.argv[4]
+class CrashDriver:
+    def __init__(self):
+        self.real=r.MahoSetupRollbackDriver(runtime)
+    def execute(self, proposal):
+        if mode=="before-mutation":
+            os._exit(71)
+        self.real.execute(proposal)
+        os._exit(72)
+r.execute_automatic_runtime_recovery(
+    state, incident, db_root=pathlib.Path("/var/lib/pacman/local"), runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500, driver=CrashDriver())
+PY_INNER
+      if [ "$mode" = before-mutation ]; then
+        [ "$rc" -eq 71 ] || { echo "FAIL  pre-mutation reboot injection rc=$rc" >&2; return 1; }
+      else
+        [ "$rc" -eq 72 ] || { echo "FAIL  post-mutation reboot injection rc=$rc" >&2; return 1; }
+      fi
+      state="$(runtime_active_state "$incident")"
+      [ "$state" = "$phase" ] || {
+        echo "FAIL  reboot stage expected $phase, got $state" >&2
+        return 1
+      }
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+
+  write_runtime_reboot_marker "$profile" "$phase" "$incident" "$state" "$(cat /proc/sys/kernel/random/boot_id)"
+  python3 - "$(torture_reboot_marker)" >"$directory/stage1.json" <<'PY_INNER'
+import json,sys
+print(json.dumps(json.load(open(sys.argv[1])),indent=2,sort_keys=True))
+PY_INNER
+}
+
+prepare_reboot_resume_environment() {
+  isolation
+  torture_record_safety
+  prepare_source
+  create_user
+  u systemctl --user daemon-reload
+  u systemctl --user start maho-observe.service maho-security.service maho-guardian.service
+  wait_until 20 user_unit_active maho-guardian.service || return 1
+  wait_until 30 test -s "$HOME_VM/.local/state/maho/security/guardian/providers/security.runtime.json" || return 1
+  ensure_guardian_service_event_continuity || return 1
+}
+
+scenario_runtime_reboot_resume() {
+  local directory="$1" iteration="$2" marker phase incident old_boot new_boot begin
+  marker="$(torture_reboot_marker)"
+  [ -s "$marker" ] || { SCENARIO_REASON="persistent reboot marker missing"; return 1; }
+  phase="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["phase"])' "$marker")"
+  incident="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["incident_id"])' "$marker")"
+  old_boot="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stage1_boot_id"])' "$marker")"
+  new_boot="$(cat /proc/sys/kernel/random/boot_id)"
+  [ "$old_boot" != "$new_boot" ] || { SCENARIO_REASON="guest boot ID did not change across same-disk power cycle"; return 1; }
+  printf '%s\n' "$old_boot" >"$directory/evidence/stage1-boot-id.txt"
+  printf '%s\n' "$new_boot" >"$directory/evidence/stage2-boot-id.txt"
+
+  begin="$(date +%s%N)"
+  runtime_refresh_and_reconcile "$incident" || {
+    SCENARIO_REASON="durable $phase recovery did not converge after same-disk power cycle"
+    return 1
+  }
+  wait_until 20 no_active_guardian_incidents || {
+    SCENARIO_REASON="Guardian incident did not close after power-cycle recovery"
+    return 1
+  }
+  u bash "$HOME_VM/.local/bin/maho-setup" status >/dev/null || {
+    SCENARIO_REASON="runtime did not verify after power-cycle recovery"
+    return 1
+  }
+  SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
+  SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+torture_reboot_profile() {
+  local profile="$1" stage="$2" phase directory
+  case "$profile" in
+    torture-reboot-awaiting) phase=awaiting ;;
+    torture-reboot-recovering) phase=recovering ;;
+    torture-reboot-verifying) phase=verifying ;;
+    *) return 2 ;;
+  esac
+  case "$stage" in
+    1)
+      prepare_graphical_torture
+      directory="$E/reboot-stage1"
+      mkdir -p "$directory"
+      stage_runtime_reboot_failure "$profile" "$phase" "$directory"
+      sync
+      : >"$E/reboot-stage1-ready"
+      echo "PASS  staged durable runtime state=$phase for same-disk power cycle"
+      STATUS=passed
+      while :; do sleep 60; done
+      ;;
+    2)
+      prepare_reboot_resume_environment
+      scenario_run "runtime-reboot-$phase" RECOVERED_AUTOMATICALLY 1 scenario_runtime_reboot_resume
+      torture_profile_summary
+      ;;
+    *)
+      echo "FAIL  missing maho.vm.torture_stage for reboot profile" >&2
+      return 2
+      ;;
+  esac
+}
+
 
 torture_profile() {
   local profile="$1" iteration

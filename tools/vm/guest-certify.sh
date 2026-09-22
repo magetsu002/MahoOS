@@ -18,9 +18,14 @@ cmdv() {
 }
 PROFILE="$(cmdv maho.vm.profile || true)"; [ -n "$PROFILE" ] || PROFILE=smoke
 REV="$(cmdv maho.vm.source_revision || true)"
+TORTURE_STAGE="$(cmdv maho.vm.torture_stage || true)"
 [[ "$REV" =~ ^[0-9a-f]{40}$ ]] || REV=0000000000000000000000000000000000000000
 mkdir -p "$E"
-exec > >(tee "$E/guest.log") 2>&1
+if [ -n "$TORTURE_STAGE" ]; then
+  exec > >(tee "$E/guest-stage${TORTURE_STAGE}.log") 2>&1
+else
+  exec > >(tee "$E/guest.log") 2>&1
+fi
 
 finish() {
   rc=$?; trap - EXIT
@@ -292,6 +297,10 @@ case "$PROFILE" in
   torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound)
     source "/mnt/maho-src/tools/vm/guest-torture.sh"
     torture_profile "$PROFILE"
+    ;;
+  torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying)
+    source "/mnt/maho-src/tools/vm/guest-torture.sh"
+    torture_reboot_profile "$PROFILE" "$TORTURE_STAGE"
     ;;
   *) echo "FAIL  unknown profile $PROFILE" >&2; exit 2;;
 esac
