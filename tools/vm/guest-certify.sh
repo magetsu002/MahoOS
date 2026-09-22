@@ -290,7 +290,7 @@ case "$PROFILE" in
   session) session_profile;;
   performance-4g|performance-8g) performance_profile;;
   torture-session|torture-guardian|torture-runtime|torture-update|torture-storage|torture-compound)
-    source "$SRC/tools/vm/guest-torture.sh"
+    source "/mnt/maho-src/tools/vm/guest-torture.sh"
     torture_profile "$PROFILE"
     ;;
   *) echo "FAIL  unknown profile $PROFILE" >&2; exit 2;;

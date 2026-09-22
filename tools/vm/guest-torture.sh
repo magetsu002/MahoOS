@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$SRC/tools/vm/torture-lib.sh"
+source "/mnt/maho-src/tools/vm/torture-lib.sh"
 
 TORTURE_ITERATIONS="$(cmdv maho.vm.torture_iterations || true)"
 [[ "$TORTURE_ITERATIONS" =~ ^[0-9]+$ ]] || TORTURE_ITERATIONS=20
