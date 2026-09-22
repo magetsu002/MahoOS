@@ -8,7 +8,7 @@ ConditionEnvironment=WAYLAND_DISPLAY
 Type=exec
 ExecStart=/usr/bin/awww-daemon --no-cache
 ExecStartPost=%h/.local/bin/maho-session wait-awww
-ExecStartPost=/usr/bin/bash %h/.local/bin/maho-wallpaper-session restore
+ExecStartPost=-/usr/bin/bash %h/.local/bin/maho-wallpaper-session restore
 Restart=always
 RestartSec=2
 
