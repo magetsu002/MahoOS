@@ -54,8 +54,7 @@ torture_assert_safety() {
       grep -qi qemu "/sys/class/block/$device/device/model" 2>/dev/null || torture_fail "unexpected non-QEMU block device exposed: $device"
     fi
   done
-  [ -r /sys/class/block/vda/device/model ] || torture_fail "virtio disk model unavailable"
-  grep -qi qemu /sys/class/block/vda/device/model || torture_fail "writable disk is not QEMU virtual media"
+  [[ "$(readlink -f /sys/class/block/vda/device 2>/dev/null || true)" == *virtio* ]] || torture_fail "writable disk is not virtio guest media"
   vendor="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)"
   product="$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)"
   [[ "$vendor $product" =~ QEMU|KVM|Standard.PC ]] || torture_fail "machine is not expected QEMU guest"
