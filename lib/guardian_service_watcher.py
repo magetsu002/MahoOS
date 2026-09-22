@@ -137,20 +137,52 @@ def _decode_chunk(buffer: bytes, chunk: bytes) -> tuple[bytes, list[dict]]:
     remainder, rows, _ = _decode_chunk_health(buffer, chunk)
     return remainder, rows
 
-def _startup_reconcile(store: ServiceIncidentStore, boot_id: str) -> None:
-    now = time.time()
+def _reconcile_service_state(
+    store: ServiceIncidentStore, boot_id: str, *, now: float | None = None
+) -> None:
+    """Reconcile certified service truth even when no new journal event arrives."""
+    moment = time.time() if now is None else now
     for unit in certified_service_units():
         current = snapshot(unit)
         contract = certified_service_recovery(unit)
-        if contract is not None and current.load_state == "loaded" and current.active_state == "activating" and current.sub_state == "auto-restart" and current.result not in {"", "success"} and len(current.invocation_id) == 32:
-            base = {"unit": unit, "boot_id": boot_id, "invocation_id": current.invocation_id, "result": current.result, "timestamp_usec": "0", "cursor": ""}
-            store.process({**base, "kind": "failed"}, now=now)
-            store.process({**base, "kind": "recovering"}, now=now)
-        elif contract is not None and current.load_state == "loaded" and current.active_state == contract.healthy_active_state and current.sub_state == contract.healthy_sub_state and current.restart == contract.expected_restart and current.health_check == contract.health_check and current.health_ok is True and len(current.invocation_id) == 32:
-            store.arm_supersession(unit=unit, boot_id=boot_id, invocation_id=current.invocation_id, now=now)
+        if contract is None:
+            continue
+        if (
+            current.load_state == "loaded"
+            and current.active_state == "activating"
+            and current.sub_state == "auto-restart"
+            and current.result not in {"", "success"}
+            and len(current.invocation_id) == 32
+        ):
+            base = {
+                "unit": unit,
+                "boot_id": boot_id,
+                "invocation_id": current.invocation_id,
+                "result": current.result,
+                "timestamp_usec": "0",
+                "cursor": "",
+            }
+            store.process({**base, "kind": "failed"}, now=moment)
+            store.process({**base, "kind": "recovering"}, now=moment)
+        elif (
+            current.load_state == "loaded"
+            and current.active_state == contract.healthy_active_state
+            and current.sub_state == contract.healthy_sub_state
+            and current.restart == contract.expected_restart
+            and current.health_check == contract.health_check
+            and current.health_ok is True
+            and len(current.invocation_id) == 32
+        ):
+            store.arm_supersession(
+                unit=unit,
+                boot_id=current.boot_id or boot_id,
+                invocation_id=current.invocation_id,
+                now=moment,
+            )
 
-def _verify_due(store: ServiceIncidentStore, root: Path) -> None:
+def _verify_due(store: ServiceIncidentStore, root: Path, boot_id: str) -> None:
     now = time.time()
+    _reconcile_service_state(store, boot_id, now=now)
     for state in store.due_verifications(now):
         store.verify(state, snapshot(str(state["unit"])))
     reconcile_service_session(root, now=now)
@@ -191,7 +223,7 @@ def watch(root: Path) -> int:
         stream = mark_failed(stream, reason="historical_stream_state_invalid")
     persist_stream(root, stream)
     _record_stream_health(root, stream, boot_id)
-    _startup_reconcile(store, boot_id)
+    _reconcile_service_state(store, boot_id)
     reconcile_service_session(root)
     resume_cursor = cursor if probe is CursorProbe.VALID else ""
     process = subprocess.Popen(_journal_argv(resume_cursor), stdout=subprocess.PIPE, stderr=sys.stderr, bufsize=0)
@@ -204,7 +236,7 @@ def watch(root: Path) -> int:
             timeout = 30.0 if deadline is None else max(0.0, min(30.0, deadline - time.time()))
             ready, _, _ = select.select([process.stdout], [], [], timeout)
             if not ready:
-                _verify_due(store, root)
+                _verify_due(store, root, boot_id)
                 if process.poll() is not None:
                     stream = persist_stream(root, mark_failed(stream, reason="event_source_exited")); _record_stream_health(root, stream, boot_id); return process.returncode or 1
                 _record_stream_health(root, stream, boot_id)
