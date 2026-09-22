@@ -11,6 +11,7 @@ require() { grep -Fq -- "$2" "$1" || fail "$3"; }
 reject() { ! grep -Fq -- "$2" "$1" || fail "$3"; }
 
 bash -n "$ROOT/bin/maho-update"
+require "$ROOT/bin/maho-update" 'export MAHO_ROOT="$ROOT"' "maho-update does not export its derived immutable runtime root"
 python -m py_compile "$ROOT/lib/maho_update_cli.py"
 [ -x "$ROOT/bin/maho-update" ] || fail "maho-update product CLI is not executable"
 require "$ROOT/bin/maho-setup" 'maho-power maho-update maho-clipboard' "setup does not ship Maho Update"
