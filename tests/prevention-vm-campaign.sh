@@ -44,7 +44,7 @@ set +e
 timeout 90 qemu-system-x86_64 -nodefaults -no-reboot -nographic -serial stdio \
   -m 768 -kernel "$KERNEL" -initrd "$WORK/initramfs.img" \
   -drive file="$WORK/device.img",format=raw,if=virtio \
-  -append 'console=ttyS0 rdinit=/init panic=-1 lsm=landlock,lockdown,yama,integrity,bpf' \
+  -append 'console=ttyS0 rdinit=/init panic=-1 maho.vm.torture=1 lsm=landlock,lockdown,yama,integrity,bpf' \
   > "$WORK/serial.log" 2>&1
 qemu_status=$?
 set -e

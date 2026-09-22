@@ -9,17 +9,34 @@ if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
   echo "maho-vm-certify: refusing dirty checkout; commit the exact candidate before certification" >&2
   exit 2
 fi
-STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/certification/vm"
+if [[ "$PROFILE" == torture-* ]]; then
+  STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/certification/vm-torture"
+else
+  STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/certification/vm"
+fi
 EVIDENCE="${MAHO_VM_EVIDENCE:-$STATE/$STAMP-$PROFILE-$REV}"
 KVER="${MAHO_VM_KERNEL_VERSION:-$(uname -r)}"
 WORK="${XDG_CACHE_HOME:-$HOME/.cache}/maho/vm-certify/$REV-$KVER"
 KERNEL="${MAHO_VM_KERNEL_IMAGE:-/boot/vmlinuz-linux-cachyos}"
-TIMEOUT="${MAHO_VM_TIMEOUT:-720}"
+if [[ "$PROFILE" == torture-* ]]; then
+  TIMEOUT="${MAHO_VM_TIMEOUT:-2700}"
+else
+  TIMEOUT="${MAHO_VM_TIMEOUT:-720}"
+fi
+
+if [ "$PROFILE" = torture ]; then
+  exec "$ROOT/tools/maho-vm-torture"
+fi
 
 case "$PROFILE" in
   smoke|fresh-user|update-freeze|resilience|session) MEMORY=4096 ;;
   performance-4g) MEMORY=4096 ;;
   performance-8g) MEMORY=8192 ;;
+  torture-session|torture-guardian|torture-runtime|torture-update|torture-storage|torture-compound) MEMORY=4096 ;;
+  torture-prevention)
+    export MAHO_VM_PROFILE_EVIDENCE="$EVIDENCE"
+    exec "$ROOT/tools/vm/prevention-torture-profile"
+    ;;
   *) echo "maho-vm-certify: unknown profile: $PROFILE" >&2; exit 2 ;;
 esac
 
@@ -48,7 +65,7 @@ HOME_IMAGE=""
 EXTRA_QEMU=()
 
 case "$PROFILE" in
-  session|performance-4g|performance-8g)
+  session|performance-4g|performance-8g|torture-session|torture-guardian|torture-runtime|torture-update|torture-storage|torture-compound)
     command -v mkfs.ext4 >/dev/null || { echo "maho-vm-certify: missing mkfs.ext4" >&2; exit 2; }
     HOME_IMAGE="$WORK/home-$STAMP-$PROFILE.img"
     truncate -s 8G "$HOME_IMAGE"
@@ -60,6 +77,9 @@ case "$PROFILE" in
     )
     ;;
 esac
+if [[ "$PROFILE" == torture-* ]]; then
+  CMDLINE="$CMDLINE maho.vm.torture=1 maho.vm.allowed_writable_block=vda maho.vm.torture_iterations=${MAHO_TORTURE_ITERATIONS:-20}"
+fi
 trap '[ -z "$HOME_IMAGE" ] || rm -f -- "$HOME_IMAGE"' EXIT
 
 QEMU=(

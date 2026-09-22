@@ -10,8 +10,23 @@ pass() { echo "MAHO_PREVENTION_PASS:$1"; }
 fail() { echo "MAHO_PREVENTION_FAIL:$1"; /bin/poweroff -f; }
 denied() { label="$1"; shift; "$@" >/dev/null 2>&1 && fail "$label-was-allowed" || pass "$label-denied"; }
 
+safety() {
+  grep -qw 'maho.vm.torture=1' /proc/cmdline || fail safety-marker
+  grep -q ' / rootfs ' /proc/mounts || fail safety-root
+  [ -b /dev/vda ] || fail safety-dedicated-device
+  for device in /dev/vd? /dev/sd? /dev/nvme?n?; do
+    [ -e "$device" ] || continue
+    [ "$device" = /dev/vda ] || fail safety-unexpected-device
+  done
+  [ ! -e /sys/class/net/eth0 ] || fail safety-network
+  grep -qi 'qemu' /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name 2>/dev/null || fail safety-machine
+}
+safety
+pass torture-safety-predicate
+
 echo original > /protected/critical
 echo other > /protected/other
+safety
 /bin/helper churn /ordinary 1500 || fail pre-benchmark
 /bin/loader load /maho_prevention.bpf.o /sys/fs/bpf/maho-prevention 1:1:/protected 1:0:/dev/vda || fail bpf-load
 pass boundary-active-after-loader-exit
@@ -20,6 +35,7 @@ reader=$!
 
 /bin/helper write /ordinary/normal || fail ordinary-write
 pass ordinary-write
+safety
 denied helper /bin/helper write /protected/critical
 denied python /usr/bin/python -S /payload.py
 denied opaque /bin/opaque write /protected/critical

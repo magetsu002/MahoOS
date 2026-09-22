@@ -24,6 +24,9 @@ exec > >(tee "$E/guest.log") 2>&1
 
 finish() {
   rc=$?; trap - EXIT
+  if [[ "$PROFILE" == torture-* ]] && [ -r "$E/summary.json" ]; then
+    exit "$rc"
+  fi
   python3 - "$E/summary.json" "$PROFILE" "$REV" "$STATUS" "$rc" "$START_NS" <<'PY'
 import json,pathlib,sys,time
 p,profile,rev,status,rc,start=sys.argv[1:]
@@ -286,6 +289,10 @@ case "$PROFILE" in
   resilience) adversarial_profile;;
   session) session_profile;;
   performance-4g|performance-8g) performance_profile;;
+  torture-session|torture-guardian|torture-runtime|torture-update|torture-storage|torture-compound)
+    source "$SRC/tools/vm/guest-torture.sh"
+    torture_profile "$PROFILE"
+    ;;
   *) echo "FAIL  unknown profile $PROFILE" >&2; exit 2;;
 esac
 STATUS=passed

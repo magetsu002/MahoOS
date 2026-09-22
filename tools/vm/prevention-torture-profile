@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+REV="$(git -C "$ROOT" rev-parse HEAD)"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+E="${MAHO_VM_PROFILE_EVIDENCE:-${MAHO_VM_EVIDENCE:-${XDG_STATE_HOME:-$HOME/.local/state}/maho/certification/vm-torture/$STAMP-torture-prevention-$REV}}"
+mkdir -p "$E/scenarios"
+start="$(date +%s%N)"
+set +e
+"$ROOT/tests/prevention-vm-campaign.sh" >"$E/qemu.log" 2>&1
+rc=$?
+set -e
+cat "$E/qemu.log"
+python3 - "$E" "$REV" "$start" "$rc" <<'PY'
+import json, pathlib, sys, time
+root, rev, start, rc = pathlib.Path(sys.argv[1]), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+log=(root/"qemu.log").read_text(errors="replace")
+groups={
+ "protected-filesystem-destruction":["helper-denied","python-denied","opaque-denied","unlink-denied","chmod-denied","rename-denied","hardlink-denied","symlink-denied","bind-alias-denied","namespace-denied"],
+ "protected-process-signal":["direct-signal-denied","pkill-denied","python-signal-denied","opaque-signal-denied","indirect-signal-denied"],
+ "authority-replay-and-stale-identity":["expired-write-denied","wrong-start-write-denied","expired-signal-denied","wrong-start-signal-denied","wrong-signal-authority-denied"],
+ "scoped-break-glass":["exact-authority","exact-device-authority","exact-signal-authority","durable-evidence"],
+}
+rows=[]
+for name, markers in groups.items():
+    passed=rc==0 and "MAHO_PREVENTION_PASS:torture-safety-predicate" in log and all(f"MAHO_PREVENTION_PASS:{m}" in log for m in markers)
+    expected="PREVENTED" if name != "scoped-break-glass" else "RECOVERED_WITH_AUTHORITY"
+    actual=expected if passed else "BUG"
+    directory=root/"scenarios"/name/"iteration-1"; directory.mkdir(parents=True,exist_ok=True)
+    row={"schema_version":1,"source_revision":rev,"scenario":name,"iteration":1,"expected_outcome":expected,"actual_outcome":actual,"start_time_ns":start,"end_time_ns":time.time_ns(),"detection_latency_ms":None,"recovery_latency_ms":None,"convergence_latency_ms":None,"guardian_before":None,"guardian_after":None,"incidents_before":0,"incidents_after":0,"host_mutation_performed":False,"protected_effect_blocked":name!="scoped-break-glass","manual_intervention_required":name=="scoped-break-glass","pass":passed,"failure_reason":None if passed else "required hostile VM marker missing"}
+    (directory/"summary.json").write_text(json.dumps(row,indent=2,sort_keys=True)+"\n"); rows.append(row)
+passed=bool(rows) and all(r["pass"] for r in rows)
+counts={}
+for row in rows: counts[row["actual_outcome"]]=counts.get(row["actual_outcome"],0)+1
+summary={"schema_version":1,"profile":"torture-prevention","source_revision":rev,"status":"passed" if passed else "failed","exit_code":0 if passed else 1,"duration_seconds":round((time.time_ns()-start)/1e9,3),"scenario_count":len(rows),"outcomes":counts,"scenarios":rows}
+(root/"summary.json").write_text(json.dumps(summary,indent=2,sort_keys=True)+"\n")
+raise SystemExit(0 if passed else 1)
+PY
