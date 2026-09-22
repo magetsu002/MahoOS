@@ -635,11 +635,11 @@ scenario_update_guardian_restart() {
 import hashlib, json, pathlib, sys, tempfile, time
 root=pathlib.Path(sys.argv[1]); marker=pathlib.Path(sys.argv[2]); done=pathlib.Path(sys.argv[3])
 sys.path.insert(0,str(root/"lib"))
-from maho_update_state import UpdateState, create_transaction, transition_transaction
+from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id
 from maho_update_transaction import build_execution_plan, execute_update, verify_fixture_activation
 cache=pathlib.Path(tempfile.mkdtemp(prefix="maho-update-guardian-"))
 payload=cache/"maho-os-2-any.pkg.tar.zst"; payload.write_bytes(b"payload")
-tx=create_transaction(transaction_id="upd-torture-guardian",source_revision="f"*40,packages=[{"name":"maho-os","installed_version":"1","candidate_version":"2","repository":"maho","download_size":7,"installed_size":7,"roles":["maho-runtime"]}],activation_requirements=["restart"],recovery_generation_id="g3-1234567890abcdef12345678")
+tx=create_transaction(transaction_id=new_transaction_id(entropy="aabbccddeeff"),source_revision="f"*40,packages=[{"name":"maho-os","installed_version":"1","candidate_version":"2","repository":"maho","download_size":7,"installed_size":7,"roles":["maho-runtime"]}],activation_requirements=["restart"],recovery_generation_id="g3-1234567890abcdef12345678")
 tx=transition_transaction(tx,UpdateState.STAGED); tx=transition_transaction(tx,UpdateState.PREPARED); tx=transition_transaction(tx,UpdateState.MAINTENANCE_READY)
 manifest={"schema_version":1,"transaction_id":tx["transaction_id"],"package_generation_id":tx["package_generation"]["id"],"payloads":[{"name":"maho-os","version":"2","path":str(payload),"sha256":hashlib.sha256(b"payload").hexdigest(),"size":7,"signature_status":"verified-by-pacman"}],"verification":"pacman-signature-policy-and-sha256"}
 rels={"maho_runtime":{"package":"maho-os","version":"2","immutable_release_required":True},"primary_kernel":{"package":"linux-cachyos","version":"7.2"},"primary_headers":{"package":"linux-cachyos-headers","version":"7.2"},"fallback_kernel":{"package":"linux-cachyos-lts","version":"6.18"},"fallback_headers":{"package":"linux-cachyos-lts-headers","version":"6.18"},"nvidia_dkms":{"status":"planned","packages":["nvidia-dkms"]},"boot_artifacts":["/boot/intel-ucode.img","/boot/vmlinuz-linux-cachyos","/boot/initramfs-linux-cachyos.img","/boot/vmlinuz-linux-cachyos-lts","/boot/initramfs-linux-cachyos-lts.img"]}
