@@ -218,9 +218,7 @@ scenario_journal_flood() {
   local directory="$1" iteration="$2" old flood begin
   begin="$(date +%s%N)"
   (
-    for n in $(seq 1 2500); do
-      u systemd-cat -t maho-torture-flood echo "benign observation $n" >/dev/null 2>&1 || exit
-    done
+    u bash -c 'for n in $(seq 1 2500); do printf "benign observation %s\n" "$n"; done | systemd-cat -t maho-torture-flood'
   ) & flood=$!
   old="$(unit_main_pid maho-notify.service)"
   torture_kill_pid "$old" kill
