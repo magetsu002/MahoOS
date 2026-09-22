@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN_DIR="$HOME/.local/bin"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+APP_DIR="$DATA_HOME/applications"
+WRAPPER="$BIN_DIR/vesktop-guard"
+DESKTOP="$APP_DIR/vesktop.desktop"
+MARKER="# managed-by: maho-vesktop-install v1"
+
+render_wrapper() {
+    cat <<'EOF'
+#!/usr/bin/env bash
+# managed-by: maho-vesktop-install v1
+set -euo pipefail
+RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime/current"
+exec "$RUNTIME/bin/maho-vesktop-guard" "$@"
+EOF
+}
+
+render_desktop() {
+    cat <<EOF
+[Desktop Entry]
+# managed-by: maho-vesktop-install v1
+Name=Vesktop
+Exec=$WRAPPER %U
+Terminal=false
+Type=Application
+Icon=vesktop
+StartupWMClass=vesktop
+GenericName=Internet Messenger
+Categories=Network;
+Keywords=discord;vencord;electron;chat;
+MimeType=x-scheme-handler/discord;
+Comment=Vesktop is a custom Discord desktop app
+EOF
+}
+
+managed_wrapper() {
+    [ -f "$WRAPPER" ] && grep -Fqx "$MARKER" "$WRAPPER"
+}
+
+legacy_live_guard() {
+    [ -f "$WRAPPER" ] && cmp -s "$WRAPPER" "$ROOT/bin/maho-vesktop-guard"
+}
+
+managed_desktop() {
+    [ -f "$DESKTOP" ] && grep -Fqx "$MARKER" "$DESKTOP"
+}
+
+legacy_desktop() {
+    [ -f "$DESKTOP" ] &&
+        grep -Fqx "Exec=$WRAPPER %U" "$DESKTOP" &&
+        grep -Fqx 'MimeType=x-scheme-handler/discord;' "$DESKTOP"
+}
+
+atomic_render() {
+    local target="$1" mode="$2" renderer="$3" tmp
+    mkdir -p "$(dirname -- "$target")"
+    tmp="$(dirname -- "$target")/.maho-vesktop-$$.$RANDOM"
+    "$renderer" >"$tmp"
+    chmod "$mode" "$tmp"
+    mv -Tf -- "$tmp" "$target"
+}
+
+install_runtime() {
+    [ -r "$ROOT/bin/maho-vesktop-guard" ] || {
+        echo "maho-vesktop-install: guard source missing" >&2
+        return 1
+    }
+    [ -r "$ROOT/lib/maho_vesktop_patch.py" ] || {
+        echo "maho-vesktop-install: patcher source missing" >&2
+        return 1
+    }
+    if [ -e "$WRAPPER" ] && ! managed_wrapper && ! legacy_live_guard; then
+        echo "maho-vesktop-install: refusing unmanaged $WRAPPER" >&2
+        return 1
+    fi
+    if [ -e "$DESKTOP" ] && ! managed_desktop && ! legacy_desktop; then
+        echo "maho-vesktop-install: refusing unmanaged $DESKTOP" >&2
+        return 1
+    fi
+
+    atomic_render "$WRAPPER" 0755 render_wrapper
+    atomic_render "$DESKTOP" 0644 render_desktop
+    if command -v xdg-mime >/dev/null 2>&1; then
+        xdg-mime default vesktop.desktop x-scheme-handler/discord
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
+    fi
+    echo "PASS  Vesktop canonical launcher installed"
+}
+
+status() {
+    local failed=0
+    managed_wrapper || { echo "FAIL  Vesktop launcher is not Maho-managed"; failed=1; }
+    managed_desktop || { echo "FAIL  Vesktop desktop override is not Maho-managed"; failed=1; }
+    if command -v xdg-mime >/dev/null 2>&1; then
+        [ "$(xdg-mime query default x-scheme-handler/discord 2>/dev/null || true)" = vesktop.desktop ] ||
+            { echo "FAIL  Discord URI handler is not vesktop.desktop"; failed=1; }
+    fi
+    [ -r "$ROOT/bin/maho-vesktop-guard" ] ||
+        { echo "FAIL  runtime Vesktop guard missing"; failed=1; }
+    [ -r "$ROOT/lib/maho_vesktop_patch.py" ] ||
+        { echo "FAIL  runtime Vesktop patcher missing"; failed=1; }
+    [ "$failed" -eq 0 ] && echo "PASS  Vesktop canonical wiring"
+    return "$failed"
+}
+
+uninstall_runtime() {
+    managed_wrapper && rm -f -- "$WRAPPER" || true
+    managed_desktop && rm -f -- "$DESKTOP" || true
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
+    fi
+    echo "PASS  Maho Vesktop wiring removed"
+}
+
+case "${1:-}" in
+    install) install_runtime ;;
+    status) status ;;
+    uninstall) uninstall_runtime ;;
+    *)
+        echo "usage: maho-vesktop-install {install|status|uninstall}" >&2
+        exit 2
+        ;;
+esac

@@ -1,0 +1,464 @@
+#!/usr/bin/env bash
+set -u
+
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SELF_DIR/.." && pwd)"
+PATCHER="${MAHO_VESKTOP_PATCHER:-$ROOT/lib/maho_vesktop_patch.py}"
+
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/maho"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/maho/vesktop-runtime"
+SOURCE_ASAR="${MAHO_VESKTOP_SOURCE_ASAR:-/usr/lib/vesktop/app.asar}"
+PATCHED_ASAR="$DATA_DIR/app.asar"
+MANIFEST="$DATA_DIR/manifest"
+LOCK="$RUNTIME_DIR/maho-vesktop-profile.lock"
+SOCKET="$RUNTIME_DIR/maho-vesktop-control.sock"
+OWNER="$RUNTIME_DIR/maho-vesktop-owner"
+LOG="$STATE_DIR/vesktop-launch.log"
+BASELINE="$STATE_DIR/vesktop-reliability-baseline"
+
+mkdir -p "$STATE_DIR" "$DATA_DIR"
+chmod 0700 "$STATE_DIR" "$DATA_DIR" 2>/dev/null || true
+
+rotate_log() {
+    [ -f "$LOG" ] || return 0
+    local size
+    size="$(stat -c %s "$LOG" 2>/dev/null || echo 0)"
+    if [ "$size" -gt 262144 ]; then
+        mv -f "$LOG" "$LOG.1" 2>/dev/null || true
+    fi
+}
+
+log_event() {
+    rotate_log
+    printf '%s %s\n' "$(date -Ins)" "$*" >>"$LOG"
+    chmod 0600 "$LOG" 2>/dev/null || true
+}
+
+fatal() {
+    log_event "result=fail detail=$1"
+    printf 'vesktop-guard: %s\n' "$1" >&2
+    return 1
+}
+
+import_session_env() {
+    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$RUNTIME_DIR/bus}"
+    command -v systemctl >/dev/null 2>&1 || return 0
+    while IFS='=' read -r key value; do
+        case "$key" in
+            HYPRLAND_INSTANCE_SIGNATURE|WAYLAND_DISPLAY|DISPLAY|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE)
+                export "$key=$value"
+                ;;
+        esac
+    done < <(systemctl --user show-environment 2>/dev/null)
+}
+profile_owner_pids() {
+    local proc pid cmd
+    for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ -r "$proc/cmdline" ] || continue
+        cmd="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$cmd" in
+            *"$SOURCE_ASAR"*|*"$PATCHED_ASAR"*)
+                case "$cmd" in
+                    *" --type="*) continue ;;
+                esac
+                printf '%s\n' "$pid"
+                ;;
+        esac
+    done
+}
+
+mapped_window_exists() {
+    command -v hyprctl >/dev/null 2>&1 || return 1
+    hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if any(str(w.get("class", "")).lower() == "vesktop" for w in rows) else 1)
+' 2>/dev/null
+}
+
+focus_mapped_window() {
+    mapped_window_exists || return 1
+    hyprctl dispatch focuswindow 'class:^(vesktop)$' >/dev/null 2>&1 || return 1
+}
+
+socket_request() {
+    local action="$1" url="${2:-}"
+    [ -S "$SOCKET" ] || return 1
+    python3 - "$SOCKET" "$action" "$url" <<'PY_SOCKET'
+import json
+import socket
+import sys
+
+path, action, url = sys.argv[1:4]
+request = {"action": action}
+if url:
+    request["url"] = url[:4096]
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.settimeout(1.2)
+try:
+    sock.connect(path)
+    sock.sendall((json.dumps(request, separators=(",", ":")) + "\n").encode())
+    sock.shutdown(socket.SHUT_WR)
+    chunks = []
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        if sum(map(len, chunks)) > 65536:
+            raise RuntimeError("oversized response")
+    response = json.loads(b"".join(chunks).decode() or "{}")
+    if response.get("ok") is not True:
+        raise RuntimeError("control request rejected")
+    pid = response.get("pid")
+    if isinstance(pid, int):
+        print(pid)
+except Exception:
+    raise SystemExit(1)
+finally:
+    sock.close()
+PY_SOCKET
+}
+
+wait_for_socket() {
+    local _
+    for _ in $(seq 1 40); do
+        [ -S "$SOCKET" ] && return 0
+        sleep 0.05
+    done
+    return 1
+}
+
+discord_url_from_args() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            discord://*) printf '%s\n' "$arg"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+activate_existing() {
+    import_session_env
+    local url="" owner_pid=""
+    url="$(discord_url_from_args "$@" 2>/dev/null || true)"
+    if [ -S "$SOCKET" ]; then
+        owner_pid="$(socket_request activate "$url" 2>/dev/null || true)"
+        if [ -n "$owner_pid" ]; then
+            log_event "action=activate route=control started_new=no owner_pid=$owner_pid"
+            return 0
+        fi
+    fi
+    if focus_mapped_window; then
+        log_event "action=activate route=hyprland-fallback started_new=no"
+        return 0
+    fi
+    return 1
+}
+
+source_sha256() {
+    sha256sum "$SOURCE_ASAR" 2>/dev/null | awk '{print $1}'
+}
+
+runtime_current() {
+    [ -r "$SOURCE_ASAR" ] || return 1
+    [ -r "$PATCHED_ASAR" ] || return 1
+    [ -r "$MANIFEST" ] || return 1
+    local expected
+    expected="$(source_sha256)"
+    [ -n "$expected" ] || return 1
+    grep -Fxq "source_sha256=$expected" "$MANIFEST"
+}
+
+refresh_runtime() {
+    [ -r "$SOURCE_ASAR" ] || return 1
+    [ -r "$PATCHER" ] || {
+        printf 'vesktop-guard: patcher missing: %s\n' "$PATCHER" >&2
+        return 1
+    }
+    for tool in python3 node npx sha256sum; do
+        command -v "$tool" >/dev/null 2>&1 || {
+            printf 'vesktop-guard: required tool missing: %s\n' "$tool" >&2
+            return 1
+        }
+    done
+
+    local tmp tree source_sha runtime_sha package
+    tmp="$(mktemp -d "$RUNTIME_DIR/maho-vesktop-build.XXXXXX")" || return 1
+    tree="$tmp/tree"
+    if ! npx --yes @electron/asar@4.3.0 extract "$SOURCE_ASAR" "$tree" >/dev/null; then
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! python3 "$PATCHER" "$tree/dist/js/main.js" "$tmp/main.js" >/dev/null; then
+        rm -rf "$tmp"
+        return 1
+    fi
+    mv "$tmp/main.js" "$tree/dist/js/main.js"
+    if ! node --check "$tree/dist/js/main.js" >/dev/null; then
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! npx --yes @electron/asar@4.3.0 pack "$tree" "$tmp/app.asar" >/dev/null; then
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    source_sha="$(source_sha256)"
+    runtime_sha="$(sha256sum "$tmp/app.asar" | awk '{print $1}')"
+    package="$(pacman -Q vesktop-bin 2>/dev/null || true)"
+    install -m 0600 "$tmp/app.asar" "$DATA_DIR/.app.asar.$$.tmp"
+    mv -f "$DATA_DIR/.app.asar.$$.tmp" "$PATCHED_ASAR"
+    {
+        printf 'source=%s\n' "$SOURCE_ASAR"
+        printf 'source_sha256=%s\n' "$source_sha"
+        printf 'runtime_sha256=%s\n' "$runtime_sha"
+        printf 'package=%s\n' "$package"
+        printf 'generated=%s\n' "$(date -Ins)"
+    } >"$DATA_DIR/.manifest.$$.tmp"
+    chmod 0600 "$DATA_DIR/.manifest.$$.tmp"
+    mv -f "$DATA_DIR/.manifest.$$.tmp" "$MANIFEST"
+    rm -rf "$tmp"
+    log_event "action=refresh-runtime source_sha256=$source_sha runtime_sha256=$runtime_sha"
+    return 0
+}
+
+load_electron_flags() {
+    local file line
+    ELECTRON_FLAGS=()
+    for file in         "${XDG_CONFIG_HOME:-$HOME/.config}/electron-flags.conf"         "${XDG_CONFIG_HOME:-$HOME/.config}/electron43-flags.conf"         "${XDG_CONFIG_HOME:-$HOME/.config}/vesktop-flags.conf"         "${XDG_CONFIG_HOME:-$HOME/.config}/vesktop/vesktop-flags.conf"
+    do
+        [ -f "$file" ] || continue
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                ''|[[:space:]]*'#'*) continue ;;
+            esac
+            read -r -a line_flags <<<"$line"
+            ELECTRON_FLAGS+=("${line_flags[@]}")
+        done <"$file"
+    done
+}
+
+launch_owner() {
+    import_session_env
+    command -v flock >/dev/null 2>&1 || fatal "flock is unavailable" || return 1
+
+    exec 9>"$LOCK"
+    if ! flock -n 9; then
+        wait_for_socket || true
+        if activate_existing "$@"; then
+            return 0
+        fi
+        fatal "profile owner exists but could not be activated; refusing a second profile owner"
+        return 75
+    fi
+
+    local existing_count
+    existing_count="$(profile_owner_pids | awk 'NF {n++} END {print n+0}')"
+    if [ "$existing_count" -gt 0 ]; then
+        if activate_existing "$@"; then
+            flock -u 9
+            return 0
+        fi
+        flock -u 9
+        fatal "an unmanaged Vesktop profile owner is already running; refusing to contend with it"
+        return 76
+    fi
+    rm -f "$SOCKET"
+    if ! runtime_current; then
+        log_event "action=launch runtime=stale refresh=begin"
+        refresh_runtime || {
+            flock -u 9
+            fatal "could not build the bounded Vesktop runtime"
+            return 77
+        }
+    fi
+
+    local start_ticks
+    start_ticks="$(awk '{print $22}' "/proc/$$/stat" 2>/dev/null || true)"
+    {
+        printf 'pid=%s\n' "$$"
+        printf 'start_ticks=%s\n' "$start_ticks"
+        printf 'runtime=%s\n' "$PATCHED_ASAR"
+        printf 'profile=%s\n' "$HOME/.config/vesktop/sessionData"
+    } >"$OWNER"
+    chmod 0600 "$OWNER" 2>/dev/null || true
+
+    export ELECTRON_IS_DEV=0
+    export ELECTRON_FORCE_IS_PACKAGED=true
+    export ELECTRON_DISABLE_SECURITY_WARNINGS=true
+    export NODE_ENV=production
+    export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+    export LD_LIBRARY_PATH="/usr/lib/vesktop/lib:${LD_LIBRARY_PATH:-}"
+    export ELECTRON_OZONE_PLATFORM_HINT="${ELECTRON_OZONE_PLATFORM_HINT:-auto}"
+    export CHROME_DESKTOP=vesktop.desktop
+    export MAHO_VESKTOP_CONTROL_SOCKET="$SOCKET"
+
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        KDE) export ELECTRON_TRASH=kioclient5 ;;
+        GNOME) export ELECTRON_TRASH=gio ;;
+        XFCE) export ELECTRON_TRASH=gvfs-trash ;;
+    esac
+
+    load_electron_flags
+    local -a sandbox=()
+    if [ "${EUID:-$(id -u)}" -eq 0 ] && [ "${ELECTRON_RUN_AS_NODE:-}" != 1 ]; then
+        sandbox=(--no-sandbox)
+    fi
+
+    log_event "action=launch route=canonical started_new=yes owner_pid=$$ arg_count=$#"
+    cd /usr/lib/vesktop || return 1
+    exec /usr/bin/electron43 "${ELECTRON_FLAGS[@]}" "${sandbox[@]}" "$PATCHED_ASAR" "$@"
+}
+
+indexeddb_lock_holders() {
+    local target="$HOME/.config/vesktop/sessionData/IndexedDB/https_discord.com_0.indexeddb.leveldb/LOCK"
+    local pid fd link
+    [ -e "$target" ] || return 0
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        [ -d "/proc/$pid/fd" ] || continue
+        for fd in /proc/"$pid"/fd/*; do
+            link="$(readlink "$fd" 2>/dev/null || true)"
+            if [ "$link" = "$target" ]; then
+                printf '%s\n' "$pid"
+                break
+            fi
+        done
+    done < <(profile_owner_pids)
+}
+
+doctor() {
+    import_session_env
+    local failed=0 count pids holders holder_count ping_pid since
+    pids="$(profile_owner_pids | paste -sd, -)"
+    count="$(profile_owner_pids | awk 'NF {n++} END {print n+0}')"
+    if [ "$count" -eq 1 ]; then
+        printf 'PASS  one Vesktop profile owner  PID %s\n' "$pids"
+    elif [ "$count" -eq 0 ]; then
+        echo 'INFO  Vesktop profile owner       not running'
+    else
+        printf 'FAIL  duplicate Vesktop owners   PIDs %s\n' "$pids"
+        failed=1
+    fi
+
+    if runtime_current; then
+        echo 'PASS  bounded runtime             matches installed Vesktop'
+    else
+        echo 'FAIL  bounded runtime             missing or stale'
+        failed=1
+    fi
+
+    if grep -Fqx "Exec=$HOME/.local/bin/vesktop-guard %U" "$HOME/.local/share/applications/vesktop.desktop" 2>/dev/null; then
+        echo 'PASS  canonical desktop launcher  user override uses vesktop-guard'
+    else
+        echo 'FAIL  canonical desktop launcher  user override inconsistent'
+        failed=1
+    fi
+    if [ "$(xdg-mime query default x-scheme-handler/discord 2>/dev/null || true)" = vesktop.desktop ]; then
+        echo 'PASS  discord URI handler         vesktop.desktop'
+    else
+        echo 'FAIL  discord URI handler         not canonical'
+        failed=1
+    fi
+
+    if [ -w "$HOME/.config/vesktop/sessionData" ]; then
+        echo 'PASS  session profile             writable by user'
+    else
+        echo 'FAIL  session profile             not writable by user'
+        failed=1
+    fi
+
+    if busctl --user --no-pager list 2>/dev/null | grep -q 'org.freedesktop.secrets'; then
+        echo 'PASS  secret service              available'
+    else
+        echo 'INFO  secret service              unavailable on current bus'
+    fi
+
+    exec 8>"$LOCK"
+    if flock -n 8; then
+        flock -u 8
+        if [ "$count" -eq 0 ]; then
+            echo 'PASS  profile lock                free while Vesktop is stopped'
+        else
+            echo 'FAIL  profile lock                owner process is not holding Maho lock'
+            failed=1
+        fi
+    else
+        ping_pid="$(socket_request ping 2>/dev/null || true)"
+        if [ -n "$ping_pid" ]; then
+            printf 'PASS  launch authority            lock + control socket owner PID %s\n' "$ping_pid"
+        else
+            echo 'FAIL  launch authority            lock busy but control socket unhealthy'
+            failed=1
+        fi
+    fi
+
+    holders="$(indexeddb_lock_holders | paste -sd, -)"
+    holder_count="$(indexeddb_lock_holders | awk 'NF {n++} END {print n+0}')"
+    if [ "$holder_count" -le 1 ]; then
+        printf 'PASS  IndexedDB lock              %s holder(s)%s\n' "$holder_count" "${holders:+: $holders}"
+    else
+        printf 'FAIL  IndexedDB lock contention   PIDs %s\n' "$holders"
+        failed=1
+    fi
+
+    since="$(cat "$BASELINE" 2>/dev/null || true)"
+    if [ -n "$since" ]; then
+        if journalctl --user --since "$since" --no-pager 2>/dev/null | grep -Eq 'Could not open the quota database|Failed to open LevelDB database.*vesktop/sessionData'; then
+            echo 'FAIL  Chromium storage health      new quota/LevelDB errors since baseline'
+            failed=1
+        else
+            echo 'PASS  Chromium storage health      no new quota/LevelDB errors since baseline'
+        fi
+    else
+        echo 'INFO  Chromium storage health      reliability baseline not marked'
+    fi
+
+    [ "$failed" -eq 0 ] && echo 'PASS  doctor                       no blocking Vesktop reliability problems'
+    return "$failed"
+}
+mark_baseline() {
+    date -Ins >"$BASELINE"
+    chmod 0600 "$BASELINE" 2>/dev/null || true
+    printf 'baseline=%s\n' "$(cat "$BASELINE")"
+}
+
+status() {
+    local pids
+    pids="$(profile_owner_pids | paste -sd, -)"
+    if [ -n "$pids" ]; then
+        printf 'running pids=%s\n' "$pids"
+    else
+        echo 'stopped'
+    fi
+}
+
+case "${1:-}" in
+    --doctor|doctor)
+        doctor
+        ;;
+    --refresh-runtime|refresh-runtime)
+        import_session_env
+        refresh_runtime
+        ;;
+    --mark-baseline|mark-baseline)
+        mark_baseline
+        ;;
+    --status|status)
+        status
+        ;;
+    --logs|logs)
+        tail -n "${2:-100}" "$LOG" 2>/dev/null || true
+        ;;
+    *)
+        launch_owner "$@"
+        ;;
+esac
