@@ -241,13 +241,17 @@ scenario_journal_flood() {
 }
 
 install_second_runtime() {
-  local next=/var/tmp/maho-src-next
+  local tag="${1:-second}" next=/var/tmp/maho-src-next revision
   rm -rf "$next"; cp -a "$SRC" "$next"
-  python3 - "$next/share/maho/release.json" <<'PY'
+  revision="$(printf '%s' "$tag" | sha256sum | awk '{print $1}' | cut -c1-40)"
+  python3 - "$next/share/maho/release.json" "$revision" "$tag" <<'PY_INNER'
 import json, pathlib, sys
-p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); d["source_revision"]="f"*40; p.write_text(json.dumps(d,sort_keys=True)+"\n")
-PY
-  printf '%s\n' 'torture second immutable release' >"$next/share/maho/torture-release"
+p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text())
+d["source_revision"]=sys.argv[2]
+d["torture_release_tag"]=sys.argv[3]
+p.write_text(json.dumps(d,sort_keys=True)+"\n")
+PY_INNER
+  printf '%s\n' "torture immutable release $tag" >"$next/share/maho/torture-release"
   chown -R "$UID_VM:$UID_VM" "$next"
   u bash "$next/bin/maho-setup" install
   [ -L "$HOME_VM/.local/share/maho/runtime/previous" ]
@@ -382,6 +386,256 @@ scenario_failure_storm() {
   SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
 }
 
+
+runtime_stage_campaign() {
+  local tag="$1" directory="$2" tool prepare corrupt campaign confirmation
+  install_second_runtime "$tag"
+  tool="$HOME_VM/.local/bin/maho-guardian-runtime-recovery-certify"
+  prepare="$(u "$tool" prepare)"
+  printf '%s\n' "$prepare" >"$directory/evidence/prepare.json"
+  campaign="$(printf '%s' "$prepare" | python3 -c 'import json,sys; print(json.load(sys.stdin)["campaign_id"])')"
+  confirmation="$(printf '%s' "$prepare" | python3 -c 'import json,sys; print(json.load(sys.stdin)["corruption_confirmation"])')"
+  torture_destructive_gate
+  corrupt="$(u "$tool" corrupt "$campaign" --confirm "$confirmation")"
+  printf '%s\n' "$corrupt" >"$directory/evidence/corrupt.json"
+  RUNTIME_CAMPAIGN_ID="$campaign"
+  RUNTIME_RECOVERY_CONFIRM="$(printf '%s' "$corrupt" | python3 -c 'import json,sys; print(json.load(sys.stdin)["recovery_confirmation"])')"
+  RUNTIME_INCIDENT_ID="$(printf '%s' "$corrupt" | python3 -c 'import json,sys; print(json.load(sys.stdin)["incident_id"])')"
+}
+
+runtime_active_state() {
+  local incident="$1"
+  python3 - "$HOME_VM/.local/state/maho/security/guardian/live-recovery/active/$incident.json" <<'PY_INNER'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1])
+try: d=json.loads(p.read_text())
+except Exception: print("missing"); raise SystemExit
+print(d.get("state","unknown"))
+PY_INNER
+}
+
+runtime_refresh_and_reconcile() {
+  local incident="$1" n
+  for n in $(seq 1 12); do
+    u "$HOME_VM/.local/bin/maho-security-monitor" cycle >/dev/null 2>&1 || true
+    u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" <<'PY_INNER' >/dev/null 2>&1 || true
+from pathlib import Path
+import sys
+from guardian_live_recovery import reconcile_runtime_recovery
+reconcile_runtime_recovery(Path(sys.argv[1]), db_root=Path("/var/lib/pacman/local"), runtime_root=Path(sys.argv[2]), proc_root=Path("/proc"), fs_root=Path("/"), uid=1500)
+PY_INNER
+    state="$(runtime_active_state "$incident")"
+    [ "$state" = recovered ] && return 0
+    [ "$state" = verification-failed ] && return 1
+    [ "$state" = evidence-insufficient ] && return 1
+    sleep 1
+  done
+  return 1
+}
+
+scenario_runtime_executor_death() {
+  local directory="$1" iteration="$2" mode tag begin rc state
+  case "$iteration" in
+    1) mode=before-mutation;;
+    2) mode=after-mutation;;
+    *) return 2;;
+  esac
+  tag="executor-death-$mode-$RANDOM"
+  runtime_stage_campaign "$tag" "$directory"
+  begin="$(date +%s%N)"
+  set +e
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$mode" <<'PY_INNER'
+import os, pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]; mode=sys.argv[4]
+class CrashDriver:
+    def __init__(self):
+        self.real=r.MahoSetupRollbackDriver(runtime)
+    def execute(self, proposal):
+        if mode=="before-mutation":
+            os._exit(71)
+        evidence=dict(self.real.execute(proposal))
+        pathlib.Path("/tmp/maho-runtime-mutation-complete").write_text("1\n")
+        os._exit(72)
+result=r.execute_automatic_runtime_recovery(
+    state, incident, db_root=pathlib.Path("/var/lib/pacman/local"), runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500, driver=CrashDriver())
+print(result)
+PY_INNER
+  rc=$?
+  set -e
+  [ "$rc" -eq 71 ] || [ "$rc" -eq 72 ] || { SCENARIO_REASON="fault-injected executor did not die at requested transition rc=$rc"; return 1; }
+  state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
+  [ "$state" = recovering ] || { SCENARIO_REASON="durable state was not RECOVERING after executor death: $state"; return 1; }
+  if [ "$mode" = after-mutation ]; then
+    [ -s /tmp/maho-runtime-mutation-complete ] || { SCENARIO_REASON="post-mutation death marker absent"; return 1; }
+  fi
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
+import pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
+result=r.execute_automatic_runtime_recovery(
+    state, incident, db_root=pathlib.Path("/var/lib/pacman/local"), runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500)
+assert result.get("result") in {"verifying","recovered"}, result
+PY_INNER
+  runtime_refresh_and_reconcile "$RUNTIME_INCIDENT_ID" || { SCENARIO_REASON="recovery did not converge after executor death"; return 1; }
+  SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
+  SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_runtime_bad_postcondition() {
+  local directory="$1" iteration="$2" tag state
+  tag="bad-postcondition-$RANDOM"
+  runtime_stage_campaign "$tag" "$directory"
+  set +e
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
+import pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
+class LyingDriver:
+    def execute(self, proposal):
+        return {"ok": True, "claimed_success": True, "services_verified": True}
+result=r.execute_automatic_runtime_recovery(
+    state, incident, db_root=pathlib.Path("/var/lib/pacman/local"), runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500, driver=LyingDriver())
+assert result.get("result")=="verification-failed", result
+PY_INNER
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || { SCENARIO_REASON="lying runtime driver was not rejected"; return 1; }
+  state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
+  [ "$state" = verification-failed ] || { SCENARIO_REASON="bad runtime postcondition did not remain verification-failed"; return 1; }
+  SCENARIO_ACTUAL=DETECTED_ONLY
+}
+
+scenario_runtime_guardian_dies_verifying() {
+  local directory="$1" iteration="$2" tag guardian begin state
+  tag="guardian-verifying-$RANDOM"
+  runtime_stage_campaign "$tag" "$directory"
+  begin="$(date +%s%N)"
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
+import pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
+result=r.execute_automatic_runtime_recovery(
+    state, incident, db_root=pathlib.Path("/var/lib/pacman/local"), runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500)
+assert result.get("result") in {"verifying","recovered"}, result
+PY_INNER
+  state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
+  [ "$state" = verifying ] || { SCENARIO_REASON="runtime never reached VERIFYING before Guardian fault: $state"; return 1; }
+  guardian="$(unit_main_pid maho-guardian.service)"
+  torture_kill_pid "$guardian" kill
+  wait_until 20 unit_replaced maho-guardian.service "$guardian" || { SCENARIO_REASON="Guardian did not restart during runtime VERIFYING"; return 1; }
+  runtime_refresh_and_reconcile "$RUNTIME_INCIDENT_ID" || { SCENARIO_REASON="runtime VERIFYING did not survive Guardian death"; return 1; }
+  SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
+  SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_session_bad_postcondition() {
+  local directory="$1" iteration="$2" old begin
+  begin="$(date +%s%N)"
+  old="$(unit_main_pid maho-wallpaper.service)"
+  torture_stop_user_unit maho-wallpaper.service
+  [ "$(u systemctl --user is-active maho-wallpaper.service 2>/dev/null || true)" != active ] || return 1
+  if session_units_healthy; then
+    SCENARIO_REASON="session postcondition accepted while wallpaper provider was absent"
+    return 1
+  fi
+  u systemctl --user start maho-wallpaper.service
+  wait_until 30 session_units_healthy || return 1
+  wait_until 45 wallpaper_is_canonical || return 1
+  SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
+  SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_wallpaper_bad_postcondition() {
+  local directory="$1" iteration="$2" wrong begin
+  wrong="$HOME_VM/Pictures/Wallpapers/maho-torture-wrong.png"
+  cp "$CANONICAL_WALLPAPER" "$wrong"
+  printf '\0' >>"$wrong"
+  begin="$(date +%s%N)"
+  graphical_user awww img --transition-type none "$wrong" >/dev/null
+  if wallpaper_is_canonical; then
+    SCENARIO_REASON="wallpaper semantic verifier accepted wrong visible generation"
+    return 1
+  fi
+  graphical_user awww img --transition-type none "$CANONICAL_WALLPAPER" >/dev/null
+  wait_until 20 wallpaper_is_canonical || return 1
+  SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
+  SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_network_disappearance() {
+  local directory="$1" iteration="$2" state before after restored
+  state="$HOME_VM/.local/state/maho/security/guardian/providers/security.network.json"
+  torture_destructive_gate
+  ip link add maho-torture0 type dummy
+  ip addr add 198.18.0.1/32 dev maho-torture0
+  ip link set maho-torture0 up
+  u env MAHO_SECURITY_NETWORK_INTERVAL=1 MAHO_SECURITY_WATCH_ITERATIONS=1 "$HOME_VM/.local/bin/maho-security-monitor" watch >/dev/null
+  before="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["sequence"])' "$state")"
+  ip link set maho-torture0 down
+  ip link del maho-torture0
+  u env MAHO_SECURITY_NETWORK_INTERVAL=1 MAHO_SECURITY_WATCH_ITERATIONS=1 "$HOME_VM/.local/bin/maho-security-monitor" watch >/dev/null
+  after="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["sequence"])' "$state")"
+  [ "$after" -gt "$before" ] || { SCENARIO_REASON="network provider did not reobserve interface disappearance"; return 1; }
+  ip link add maho-torture0 type dummy
+  ip addr add 198.18.0.1/32 dev maho-torture0
+  ip link set maho-torture0 up
+  u env MAHO_SECURITY_NETWORK_INTERVAL=1 MAHO_SECURITY_WATCH_ITERATIONS=1 "$HOME_VM/.local/bin/maho-security-monitor" watch >/dev/null
+  restored="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["sequence"])' "$state")"
+  [ "$restored" -gt "$after" ] || { SCENARIO_REASON="network provider did not reobserve restoration"; return 1; }
+  ip link del maho-torture0
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_update_guardian_restart() {
+  local directory="$1" iteration="$2" marker="$directory/evidence/update-installing.marker" done="$directory/evidence/update-done.json" child guardian
+  rm -f "$marker" "$done"
+  u env PYTHONPATH="$SRC/lib" python3 - "$SRC" "$marker" "$done" <<'PY_INNER' &
+import hashlib, json, pathlib, sys, tempfile, time
+root=pathlib.Path(sys.argv[1]); marker=pathlib.Path(sys.argv[2]); done=pathlib.Path(sys.argv[3])
+sys.path.insert(0,str(root/"lib"))
+from maho_update_state import UpdateState, create_transaction, transition_transaction
+from maho_update_transaction import build_execution_plan, execute_update, verify_fixture_activation
+cache=pathlib.Path(tempfile.mkdtemp(prefix="maho-update-guardian-"))
+payload=cache/"maho-os-2-any.pkg.tar.zst"; payload.write_bytes(b"payload")
+tx=create_transaction(transaction_id="upd-torture-guardian",source_revision="f"*40,packages=[{"name":"maho-os","installed_version":"1","candidate_version":"2","repository":"maho","download_size":7,"installed_size":7,"roles":["maho-runtime"]}],activation_requirements=["restart"],recovery_generation_id="g3-1234567890abcdef12345678")
+tx=transition_transaction(tx,UpdateState.STAGED); tx=transition_transaction(tx,UpdateState.PREPARED); tx=transition_transaction(tx,UpdateState.MAINTENANCE_READY)
+manifest={"schema_version":1,"transaction_id":tx["transaction_id"],"package_generation_id":tx["package_generation"]["id"],"payloads":[{"name":"maho-os","version":"2","path":str(payload),"sha256":hashlib.sha256(b"payload").hexdigest(),"size":7,"signature_status":"verified-by-pacman"}],"verification":"pacman-signature-policy-and-sha256"}
+rels={"maho_runtime":{"package":"maho-os","version":"2","immutable_release_required":True},"primary_kernel":{"package":"linux-cachyos","version":"7.2"},"primary_headers":{"package":"linux-cachyos-headers","version":"7.2"},"fallback_kernel":{"package":"linux-cachyos-lts","version":"6.18"},"fallback_headers":{"package":"linux-cachyos-lts-headers","version":"6.18"},"nvidia_dkms":{"status":"planned","packages":["nvidia-dkms"]},"boot_artifacts":["/boot/intel-ucode.img","/boot/vmlinuz-linux-cachyos","/boot/initramfs-linux-cachyos.img","/boot/vmlinuz-linux-cachyos-lts","/boot/initramfs-linux-cachyos-lts.img"]}
+plan=build_execution_plan(tx,manifest,cache,rels,execution_environment="fixture")
+class Ops:
+    fixture_safe=True
+    def prepare_recovery(self,p): return {"ok":True}
+    def install_full_upgrade(self,p): marker.write_text("INSTALLING\n"); time.sleep(4); return {"ok":True,"mutation_started":True}
+    def verify_maho_runtime(self,p): return {"ok":True}
+    def verify_kernel_matrix(self,p): return {"ok":True}
+    def build_initramfs(self,p,x): return {"ok":True}
+    def verify_boot_artifacts(self,p): return {"ok":True}
+    def finalize_install(self,p): return {"ok":True}
+    def recover(self,p,s): return {"ok":True}
+    def verify_activation(self,p): return {"ok":True}
+ops=Ops(); installed=execute_update(tx,plan,ops); healthy=verify_fixture_activation(installed.transaction,plan,ops)
+assert healthy.transaction["state"]=="HEALTHY"
+done.write_text(json.dumps({"state":"HEALTHY"})+"\n")
+PY_INNER
+  child=$!
+  wait_until 15 test -s "$marker" || { kill "$child" 2>/dev/null || true; SCENARIO_REASON="update transaction never reached INSTALLING"; return 1; }
+  guardian="$(unit_main_pid maho-guardian.service)"
+  torture_kill_pid "$guardian" kill
+  wait_until 20 unit_replaced maho-guardian.service "$guardian" || { kill "$child" 2>/dev/null || true; SCENARIO_REASON="Guardian did not restart during update"; return 1; }
+  wait "$child" || { SCENARIO_REASON="update transaction failed after Guardian restart"; return 1; }
+  python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["state"]=="HEALTHY"' "$done"
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
 torture_profile() {
   local profile="$1" iteration
   prepare_graphical_torture
@@ -400,9 +654,27 @@ torture_profile() {
       scenario_run journal-flood-reconciliation RECOVERED_AUTOMATICALLY 1 scenario_journal_flood
       ;;
     torture-runtime)
-      install_second_runtime
+      install_second_runtime "manual-runtime"
       scenario_run immutable-runtime-corruption RECOVERED_WITH_AUTHORITY 1 scenario_runtime_corruption_recovery
+      install_second_runtime "corrupt-prior"
       scenario_run corrupt-recovery-prior DETECTED_ONLY 1 scenario_corrupt_recovery_prior
+      ;;
+    torture-runtime-executor)
+      scenario_run recovery-executor-death RECOVERED_AUTOMATICALLY 1 scenario_runtime_executor_death
+      scenario_run recovery-executor-death RECOVERED_AUTOMATICALLY 2 scenario_runtime_executor_death
+      scenario_run guardian-death-during-runtime-verifying RECOVERED_AUTOMATICALLY 1 scenario_runtime_guardian_dies_verifying
+      ;;
+    torture-postconditions)
+      seed_canonical_wallpaper
+      scenario_run bad-postcondition-session RECOVERED_AUTOMATICALLY 1 scenario_session_bad_postcondition
+      scenario_run bad-postcondition-wallpaper RECOVERED_AUTOMATICALLY 1 scenario_wallpaper_bad_postcondition
+      scenario_run bad-postcondition-runtime DETECTED_ONLY 1 scenario_runtime_bad_postcondition
+      ;;
+    torture-network)
+      scenario_run isolated-network-loss RECOVERED_AUTOMATICALLY 1 scenario_network_disappearance
+      ;;
+    torture-update-compound)
+      scenario_run compound-update-guardian-restart RECOVERED_AUTOMATICALLY 1 scenario_update_guardian_restart
       ;;
     torture-update)
       scenario_run update-interruption-contracts RECOVERED_WITH_AUTHORITY 1 scenario_update_contracts
