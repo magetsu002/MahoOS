@@ -79,6 +79,7 @@ def main():
     incident_source = (ROOT / "lib/guardian_service_incident.py").read_text()
     check("delegated watcher contains no direct restart command", '"restart"' not in watcher_source and '"restart"' not in incident_source)
     check("always-on reconciliation can retire stale active latches only through bounded verification", "_reconcile_service_state(" in watcher_source and "store.arm_supersession(" in watcher_source)
+    check("service reconciliation has a bounded periodic wake even under journal load", "SERVICE_RECONCILE_SECONDS = 30.0" in watcher_source and "next_service_reconcile" in watcher_source)
     burst = b"prefix" + b' suffix"}\n{"one":1}\n{"two":2}\npartial'
     remainder, rows = _decode_chunk(b'{"zero":0,"text":"', burst)
     check("one readable journal burst drains every complete event", rows == [{"zero": 0, "text": "prefix suffix"}, {"one": 1}, {"two": 2}] and remainder == b"partial")
@@ -150,7 +151,9 @@ def main():
         store = ServiceIncidentStore(Path(tmp))
         failed = store.process(event(UNIT_FAILED), now=300.0)
         recovering = store.process(event(RESTART_SCHEDULED), now=301.0)
+        repeated = store.process(event(RESTART_SCHEDULED), now=304.0)
         check("provider receives a bounded replacement window", recovering["recover_by_epoch"] == 306.0 and store.due_verifications(305.99) == [])
+        check("duplicate recovery observation cannot extend provider deadline", repeated["recover_by_epoch"] == 306.0)
         due = store.due_verifications(306.0)
         check("missing replacement becomes due for failure verification", len(due) == 1)
         check("missing replacement cannot pass", not store.verify(due[0], snap(invocation=FAILED_A, active="failed", sub="failed")))
