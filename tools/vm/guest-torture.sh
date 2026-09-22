@@ -69,11 +69,21 @@ seed_canonical_wallpaper() {
   current="$(readlink -f "$HOME_VM/.local/share/maho/runtime/current")"
   CANONICAL_WALLPAPER="$HOME_VM/Pictures/Wallpapers/maho-torture-canonical.png"
   install -d -o "$UID_VM" -g "$UID_VM" "$HOME_VM/Pictures/Wallpapers"
+  [ -s "$current/config/quickshell/maho-shell/maho-guardian-rotor.png" ] || {
+    echo "FAIL  canonical torture wallpaper source missing" >&2
+    return 1
+  }
   install -o "$UID_VM" -g "$UID_VM" -m 0644 "$current/config/quickshell/maho-shell/maho-guardian-rotor.png" "$CANONICAL_WALLPAPER"
-  graphical_user awww img --transition-type none "$CANONICAL_WALLPAPER"
-  wait_until 20 wallpaper_is_canonical
-  wait_until 30 test -s "$HOME_VM/.local/state/maho/wallpaper/current.json"
-  wait_until 60 test -s "$HOME_VM/.cache/maho/theme/active.json"
+  wait_until 20 user_unit_active maho-awww-daemon.service || return 1
+  wait_until 20 graphical_user awww query || return 1
+  if ! graphical_user awww img --transition-type none "$CANONICAL_WALLPAPER"; then
+    echo "FAIL  canonical torture wallpaper could not be applied" >&2
+    u systemctl --user status maho-awww-daemon.service --no-pager || true
+    return 1
+  fi
+  wait_until 20 wallpaper_is_canonical || return 1
+  wait_until 30 test -s "$HOME_VM/.local/state/maho/wallpaper/current.json" || return 1
+  wait_until 60 test -s "$HOME_VM/.cache/maho/theme/active.json" || return 1
 }
 
 scenario_compositor_kill() {
