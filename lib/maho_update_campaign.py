@@ -212,6 +212,14 @@ def _runtime_identity(user: str) -> dict[str, Any]:
     return verification.as_dict()
 
 
+def _runtime_identity_matches(observed: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
+    """Compare an identity across its durable JSON serialization boundary."""
+
+    return json.dumps(dict(observed), sort_keys=True, separators=(",", ":")) == json.dumps(
+        dict(expected), sort_keys=True, separators=(",", ":")
+    )
+
+
 def _pacman_query(name: str) -> str:
     completed = subprocess.run(("pacman", "-Q", name), text=True, capture_output=True, check=False)
     if completed.returncode != 0:
@@ -612,7 +620,7 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
     host = SystemPreparationOps(machine_id=machine_id)
     if host.home_identity() != journal["home_identity"]:
         raise RuntimeError("/home identity drifted after preparation")
-    if _runtime_identity(journal["user"]) != journal["runtime_identity"]:
+    if not _runtime_identity_matches(_runtime_identity(journal["user"]), journal["runtime_identity"]):
         raise RuntimeError("Maho runtime identity drifted after preparation")
     l3_journal = read_l3_journal(Path(journal["l3_prepared"]["journal_path"]))
     if l3_journal["phase"] != "prepared":
@@ -837,7 +845,7 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
         raise RuntimeError("exact candidate activation confirmation token is required")
     if SystemPreparationOps(machine_id=machine_id).home_identity() != journal["home_identity"]:
         raise RuntimeError("/home identity drifted before activation")
-    if _runtime_identity(journal["user"]) != journal["runtime_identity"]:
+    if not _runtime_identity_matches(_runtime_identity(journal["user"]), journal["runtime_identity"]):
         raise RuntimeError("Maho runtime identity drifted before activation")
     if read_l3_journal(Path(journal["l3_prepared"]["journal_path"]))["phase"] != "prepared":
         raise RuntimeError("M3B recovery transaction is no longer prepared")
