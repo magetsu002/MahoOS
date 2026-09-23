@@ -908,6 +908,70 @@ torture_reboot_profile() {
 }
 
 
+scenario_full_root_destruction() {
+  local directory="$1" iteration="$2" work pin events evidence_pid rc before after
+  torture_destructive_gate
+  grep -qw bpf /sys/kernel/security/lsm || { SCENARIO_REASON="BPF LSM is not active in the full-system torture guest"; return 1; }
+
+  work=/var/tmp/maho-root-destruction
+  pin=/sys/fs/bpf/maho-root-torture
+  events="$directory/evidence/root-destruction-events.jsonl"
+  rm -rf "$work"
+  mkdir -p "$work"
+  clang -O2 -g -target bpf -D__TARGET_ARCH_x86 -I"/usr/include/$(gcc -dumpmachine)" -I"$SRC/bpf"     -c "$SRC/bpf/maho_prevention.bpf.c" -o "$work/maho_prevention.bpf.o"
+  gcc -O2 "$SRC/src/maho_prevention_loader.c" -o "$work/loader" $(pkg-config --cflags --libs libbpf)
+  gcc -O2 "$SRC/src/maho_prevention_evidence.c" -o "$work/evidence" $(pkg-config --cflags --libs libbpf)
+
+  mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf
+  rm -rf "$pin" 2>/dev/null || true
+  "$work/loader" load "$work/maho_prevention.bpf.o" "$pin"     "1:1:/usr"     "1:1:/etc"     "1:1:/boot"     "1:1:/var/lib/pacman"     "1:1:$HOME_VM/.local/share/maho/runtime"
+
+  : >"$events"
+  "$work/evidence" "$pin/maps/prevention_events" "$events" "$(cat /proc/sys/kernel/random/boot_id)" &
+  evidence_pid=$!
+
+  mkdir -p /var/tmp/maho-root-unprotected
+  printf '%s\n' doomed >/var/tmp/maho-root-unprotected/proof
+  /usr/bin/sha256sum /usr/bin/bash /etc/passwd /boot/vmlinuz-linux-cachyos >"$directory/evidence/protected-before.sha256"
+
+  set +e
+  /usr/bin/timeout 30 /usr/bin/rm -rf --one-file-system --no-preserve-root /
+  rc=$?
+  set -e
+  /usr/bin/sleep 1
+  kill "$evidence_pid" 2>/dev/null || true
+  wait "$evidence_pid" 2>/dev/null || true
+
+  [ ! -e /var/tmp/maho-root-unprotected/proof ] || {
+    SCENARIO_REASON="rm-style root attack did not mutate the deliberately unprotected root fixture"
+    return 1
+  }
+  [ -x /usr/bin/bash ] || { SCENARIO_REASON="protected /usr executable was destroyed"; return 1; }
+  [ -s /etc/passwd ] || { SCENARIO_REASON="protected /etc state was destroyed"; return 1; }
+  [ -s /boot/vmlinuz-linux-cachyos ] || { SCENARIO_REASON="protected /boot kernel was destroyed"; return 1; }
+  [ -d /var/lib/pacman/local ] || { SCENARIO_REASON="protected package authority was destroyed"; return 1; }
+  [ -L "$HOME_VM/.local/share/maho/runtime/current" ] || { SCENARIO_REASON="protected Maho runtime pointer was destroyed"; return 1; }
+
+  /usr/bin/sha256sum /usr/bin/bash /etc/passwd /boot/vmlinuz-linux-cachyos >"$directory/evidence/protected-after.sha256"
+  /usr/bin/cmp -s "$directory/evidence/protected-before.sha256" "$directory/evidence/protected-after.sha256" || {
+    SCENARIO_REASON="protected root hashes changed during rm-style attack"
+    return 1
+  }
+  [ -s "$events" ] || { SCENARIO_REASON="Prevention Boundary emitted no denial evidence during root attack"; return 1; }
+  /usr/bin/python3 - "$events" <<'PY_INNER'
+import json, pathlib, sys
+rows=[json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+assert rows, "no prevention events"
+assert any(row.get("result")=="prevented" and row.get("host_mutation_performed") is False for row in rows), rows[:3]
+PY_INNER
+
+  printf 'rm_exit=%s\n' "$rc" >"$directory/evidence/root-destruction-result.txt"
+  printf 'protected_usr=yes\nprotected_etc=yes\nprotected_boot=yes\nprotected_pacman=yes\nunprotected_fixture_deleted=yes\n' >>"$directory/evidence/root-destruction-result.txt"
+  SCENARIO_BLOCKED=true
+  SCENARIO_HOST_MUTATION=true
+  SCENARIO_ACTUAL=PREVENTED
+}
+
 torture_profile() {
   local profile="$1" iteration
   prepare_graphical_torture
@@ -965,6 +1029,9 @@ torture_profile() {
       for iteration in $(seq 1 5); do scenario_run compound-session-guardian RECOVERED_AUTOMATICALLY "$iteration" scenario_compound_session_guardian; done
       scenario_run compound-session-wallpaper-clipboard RECOVERED_AUTOMATICALLY 1 scenario_compound_session_dependencies
       scenario_run bounded-ui-failure-storm RECOVERED_AUTOMATICALLY 1 scenario_failure_storm
+      ;;
+    torture-root-destruction)
+      scenario_run full-disposable-root-destruction PREVENTED 1 scenario_full_root_destruction
       ;;
     *) return 2;;
   esac

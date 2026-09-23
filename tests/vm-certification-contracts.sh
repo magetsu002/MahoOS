@@ -69,6 +69,8 @@ require "$TORTURE" 'torture-update-compound' 'update plus Guardian profile missi
 require "$TORTURE" 'torture-prevention' 'top-level torture prevention profile missing'
 require "$TORTURE" 'torture-storage' 'top-level torture storage profile missing'
 require "$TORTURE" 'torture-compound' 'top-level compound profile missing'
+require "$TORTURE" 'torture-root-destruction' 'full disposable-root destruction profile missing'
+require "$RUNNER" 'lsm=landlock,lockdown,yama,integrity,bpf' 'root destruction profile does not activate BPF LSM'
 reject "$RUNNER" '-net user' 'VM runner unexpectedly enables user-mode networking'
 reject "$RUNNER" '-netdev' 'VM runner unexpectedly enables a network backend'
 reject "$RUNNER" '/dev/nvme' 'VM runner reaches physical NVMe devices'
