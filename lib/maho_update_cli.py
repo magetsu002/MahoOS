@@ -67,8 +67,8 @@ def failed_closed_status(reason: str) -> dict[str, Any]:
     }
 
 
-def _runtime_source_revision() -> str | None:
-    root = Path(os.environ.get("MAHO_ROOT", ""))
+def _runtime_source_revision(maho_root: Path | None = None) -> str | None:
+    root = Path(os.environ.get("MAHO_ROOT", "")) if maho_root is None else Path(maho_root)
     path = root / "share/maho/runtime-source-revision"
     try:
         value = path.read_text(encoding="utf-8").strip()
@@ -77,18 +77,21 @@ def _runtime_source_revision() -> str | None:
     return value if re.fullmatch(r"[0-9a-f]{40}", value) else None
 
 
-def _attach_normal_authority(status: dict[str, Any]) -> dict[str, Any]:
-    revision = _runtime_source_revision()
+def _attach_normal_authority(
+    status: dict[str, Any], *, maho_root: Path | None = None,
+    authority_path: Path = DEFAULT_AUTHORITY_PATH,
+) -> dict[str, Any]:
+    revision = _runtime_source_revision(maho_root)
     status["normal_execution_certified"] = False
     status["normal_authority_state"] = "absent"
     status["normal_authority_id"] = None
     status["normal_certified_profile"] = None
     status["normal_certified_effects"] = []
     status["normal_certified_activation_requirements"] = []
-    if revision is None or not DEFAULT_AUTHORITY_PATH.exists():
+    if revision is None or not authority_path.exists():
         return status
     try:
-        authority = load_normal_execution_authority(source_revision=revision)
+        authority = load_normal_execution_authority(source_revision=revision, path=authority_path)
     except ValueError:
         status["normal_authority_state"] = "stale-or-invalid"
         return status
@@ -129,21 +132,31 @@ def _presentation_status(status: dict[str, Any]) -> str:
     return str(status.get("status") or "Unknown")
 
 
-def status_payload(root: Path) -> dict[str, Any]:
+def status_payload(
+    root: Path, *, maho_root: Path | None = None,
+    authority_path: Path = DEFAULT_AUTHORITY_PATH,
+) -> dict[str, Any]:
     try:
         transaction = current_transaction(root)
         history = load_history(root)
         if transaction is None:
-            status = _attach_normal_authority(unavailable_status(root))
+            status = _attach_normal_authority(
+                unavailable_status(root), maho_root=maho_root, authority_path=authority_path,
+            )
             status["presentation_status"] = _presentation_status(status)
             return status
         status = product_status(transaction, history=history)
         status["history_count"] = len(history)
-        status = _attach_normal_authority(status)
+        status = _attach_normal_authority(
+            status, maho_root=maho_root, authority_path=authority_path,
+        )
         status["presentation_status"] = _presentation_status(status)
         return status
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-        status = _attach_normal_authority(failed_closed_status("authoritative_update_state_unreadable"))
+        status = _attach_normal_authority(
+            failed_closed_status("authoritative_update_state_unreadable"),
+            maho_root=maho_root, authority_path=authority_path,
+        )
         status["presentation_status"] = _presentation_status(status)
         return status
 
