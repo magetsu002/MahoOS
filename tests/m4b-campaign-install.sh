@@ -58,6 +58,9 @@ grep -Fq 'preflight_only' "$ROOT/lib/maho_update_normal_campaign.py" || fail "no
 grep -Fq 'config/platform/maho-pacman.conf' "$INSTALLER" || fail "canonical Pacman authority missing from root campaign payload"
 grep -Fq 'lib/maho_update_normal_campaign.py' "$INSTALLER" || fail "normal campaign module missing from root campaign payload"
 pass "campaign binds native update to M3B and normal certification to root-owned authority"
+grep -Fq 'probe_native_readiness' "$CAMPAIGN" || fail "isolated M4B readiness probe missing"
+grep -Fq 'm4b_primary_generation_unavailable' "$CAMPAIGN" || fail "M4B readiness primary generation gate missing"
+pass "M4B readiness can prove exact repository payloads before recovery state exists"
 python - "$PLATFORM" "$CAMPAIGN" <<'PY'
 import json,sys
 from pathlib import Path
@@ -69,7 +72,22 @@ assert p['update']['automatic_reboot'] is False
 assert p['update']['pacman_config'] == '/etc/maho/pacman.conf'
 assert p['update']['required_repositories'] == ['core','extra','multilib','cachyos']
 s=Path(sys.argv[2]).read_text()
+probe=s.index('def probe_native_readiness')
 start=s.index('def prepare_native_campaign')
+probe_block=s[probe:start]
+assert 'IsolatedPacmanDiscovery(' in probe_block
+assert 'stage_transaction(' in probe_block
+assert 'seed_campaign(' not in probe_block
+assert 'prepare_l3_campaign(' not in probe_block
+assert 'publish_transaction(' not in probe_block
+assert 'NativeBtrfsOps(' not in probe_block
+assert '_write_json_atomic(' not in probe_block
+assert 'shutil.rmtree(work, ignore_errors=True)' in probe_block
+assert '"mutation_started": False' in probe_block
+assert '"transaction_published": False' in probe_block
+assert '"recovery_state_created": False' in probe_block
+assert '"activation_authority_issued": False' in probe_block
+assert 'sub.add_parser("probe-m4b")' in s
 assert s.index('stage_transaction(', start) < s.index('seed_campaign(', start)
 execute=s.index('def execute_native_campaign')
 approve=s.index('def approve_native_admission')
