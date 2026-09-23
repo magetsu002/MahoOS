@@ -1,9 +1,9 @@
 # MahoOS V1 full-system torture report
 
-- Mission start: `8ce0f3eb2791e052f764b8633a41d3946acf97ca`
-- Certified campaign source: `649bff02262ebd68899972617e152d8b2a057a3b`
-- Ending source before this report commit: `649bff02262ebd68899972617e152d8b2a057a3b`
-- Campaign evidence: `/home/magetsu/.local/state/maho/certification/vm-torture/20260923T122456Z-649bff02262ebd68899972617e152d8b2a057a3b`
+- Mission start: `3ec29441bf33c77af47249fc6273cba5f79c504a`
+- Certified campaign source: `dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8`
+- Ending source before this report commit: `dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8`
+- Campaign evidence: `/home/magetsu/.local/state/maho/certification/vm-torture/20260923T173853Z-dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8`
 - Verdict: **PASS**
 - Distinct scenarios: 35
 - Iterations: 66
@@ -11,33 +11,9 @@
 
 ## Source commits
 
-- `649bff02262ebd68899972617e152d8b2a057a3b` Document final torture harness fixes
-- `267180578543fe928ce2a264368f783b6614ffe5` Merge remote-tracking branch 'origin/main' into feat/full-system-torture-vm
-- `29d76db7ab487d075189e00d0dd87e6a45ec490f` Assert real update recovery result correctly
-- `933606883e3faec9b7e911965e67dfc5af0d5322` Fix durable update torture journals
-- `63c41899ff6b46cdb99c1e24d7ce2114fd142e2b` Merge remote-tracking branch 'origin/main' into feat/full-system-torture-vm
-- `5d311d43a937f8a0839884509338138855a8b474` Complete update interruption torture coverage
-- `fefb647950f1a0637293142460bf7cce8eea00e0` test(vm): add full disposable root destruction
-- `51fe12a2a262cc4721b64b0a97d78cbf4b3e1169` test(vm): isolate Guardian verifying fault cut point
-- `502378f3d9054c283cc978b01b3670d0bb5c482e` test(vm): make recovery power-cycle assertions phase-aware
-- `4c37846add2be6df59a2ad6ac2f8a75589b3b0d4` test(vm): use valid transaction identity in update compound case
-- `a4d62afdace104772aa020a0119665136c3b0a7d` test(vm): add persistent recovery power-cycle coverage
-- `4c89c1c71f245dd5a1dca1a3561668ee72484b08` test(vm): recognize verifying as durable post-mutation state
-- `de25e188dc842dbcdcf23f56099e83a05ac118ae` test(vm): preserve torture result after executor fault
-- `a466d346cf64c1c2b24136ee1b44131672a144e7` test(vm): isolate runtime interruption phases
-- `195925d08bf508bd5df83750a9335af3f73e657c` test(vm): establish Guardian stream continuity before recovery faults
-- `17466332b7db2cc43caaaf921ccedae7e61a7c80` test(vm): extend live torture coverage
-- `0c8ecff86e64dcbc1d1984088ee6afd4fae5291f` docs(vm): publish V1 full-system torture evidence
-- `441fa99281dd9fc020029f827339336468aacd3f` docs(vm): keep incomplete torture coverage explicit
-- `2b6be176ba4955ab9baec4fbf5c1449a62e7baf2` fix(vm): verify wallpaper JSON from provider stream
-- `7472bdce17df314996ee81ebdc9177abbaed031c` fix(vm): await wallpaper provider before session torture
-- `5b443846855b857c1e63468dd0f47d7ddb028397` test(vm): stream journal flood through one producer
-- `ee8c20a360f813f3dce160c24e7ea480b3340a29` fix(vm): start installed Guardian authorities in torture guest
-- `80264d641dc599abca5c267070f2462e0cfa0461` test(vm): preserve graphical setup diagnostics
-- `cc01021f4524bbc30bad595d184211e3a5d064de` fix(vm): identify dedicated home disk by virtio topology
-- `5f3851fcfb1b7e0e03a50d5fa8113384449a4829` fix(vm): allow only read-only QEMU auxiliary media
-- `cc14f1dd5fedd50685e1e434e9b9d17cb9df2f36` fix(vm): source torture guest logic before staging
-- `c09ec0a6ba3f9cf1dbd8a59fec8cc02c19780398` test(vm): add fail-closed full-system torture harness
+- `dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8` fix(guardian): serialize automatic runtime recovery
+- `0bb3754c0c110e6929b9f5e26cde817731728e29` fix(vm): support primary checkout source cleanup
+- `a905ac54d6d197a324e74ba8917857be37670d04` update: resume transient package staging failures
 ## Outcomes
 
 - PREVENTED: 4
@@ -165,10 +141,10 @@
 
 ## Performance
 
-- detection_latency_ms: samples=24 min=281ms median=325ms p95=5629ms max=5878ms
-- recovery_latency_ms: samples=50 min=581ms median=7926ms p95=18409ms max=46633ms
-- convergence_latency_ms: samples=50 min=581ms median=7926ms p95=18409ms max=46633ms
-- worst outlier: bounded-ui-failure-storm iteration 1 at 46633ms
+- detection_latency_ms: samples=24 min=281ms median=336ms p95=5582ms max=5688ms
+- recovery_latency_ms: samples=50 min=579ms median=8225ms p95=19775ms max=47734ms
+- convergence_latency_ms: samples=50 min=579ms median=8225ms p95=19775ms max=47734ms
+- worst outlier: bounded-ui-failure-storm iteration 1 at 47734ms
 
 ## Required coverage not yet demonstrated
 
