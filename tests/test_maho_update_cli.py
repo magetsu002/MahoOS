@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_update_receipts import record_receipt  # noqa: E402
-from maho_update_cli import _presentation_status  # noqa: E402
+from maho_update_cli import _presentation_status, status_payload  # noqa: E402
+from maho_update_normal_authority import issue_normal_execution_authority, publish_normal_execution_authority  # noqa: E402
 from maho_update_state import UpdateState, create_transaction, publish_transaction, transition_transaction  # noqa: E402
 
 NOW = datetime(2026, 9, 12, 8, 0, tzinfo=timezone.utc)
@@ -64,6 +65,36 @@ def main() -> None:
         check("CLI renders human-readable current receipt", receipt.returncode == 0 and "Maho Update receipt" in receipt.stdout and "maho-os: 1 -> 2" in receipt.stdout)
         history = run(root, "history", "--json")
         check("CLI exposes durable receipt history", len(json.loads(history.stdout)) == 1)
+
+        maho_root = root / "runtime-current"
+        revision = "a" * 40
+        (maho_root / "share/maho").mkdir(parents=True)
+        (maho_root / "share/maho/runtime-source-revision").write_text(revision + "\n", encoding="utf-8")
+        authority_path = root / "normal-execution-authority.json"
+        authority = issue_normal_execution_authority(
+            source_revision=revision,
+            transaction_id="upd-20260912T080000Z-123456789abc",
+            package_generation_id="pkg-" + "b" * 64,
+            graph_id="art-" + "c" * 64,
+            packages=[{
+                "name": "fixture", "installed_version": "1", "candidate_version": "2",
+                "sha256": "d" * 64,
+            }],
+            effects=["ordinary-files-in-place"],
+            activation_requirements=[],
+            verification={"ok": True},
+            candidate_root_identity="candidate-root",
+            base_root_identity="base-root",
+            now=NOW,
+        )
+        publish_normal_execution_authority(authority, path=authority_path)
+        direct = status_payload(root, maho_root=maho_root, authority_path=authority_path)
+        check(
+            "direct status accepts explicit immutable runtime authority context",
+            direct["normal_execution_certified"] is True
+            and direct["normal_authority_state"] == "current"
+            and direct["normal_authority_id"] == authority["authority_id"],
+        )
 
         (root / "current").write_text("../../escape\n")
         malformed = json.loads(run(root, "status", "--json").stdout)
