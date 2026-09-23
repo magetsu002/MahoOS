@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import json
 import shutil
 import tempfile
 import sys
@@ -23,6 +24,7 @@ from maho_update_native import (  # noqa: E402
     sha256_file,
     update_confirmation,
 )
+from maho_update_campaign import _runtime_identity_matches  # noqa: E402
 
 TX1 = "upd-20260912T100000Z-abcdef123456"
 TX2 = "upd-20260912T100001Z-fedcba654321"
@@ -112,6 +114,24 @@ def seed_fixture(ops: FixtureBtrfs) -> tuple[dict[str, str], dict[str, bytes]]:
 
 
 def main() -> None:
+    runtime_identity = {
+        "verified": True,
+        "path": "/home/test/.local/share/maho/runtime/releases/abc",
+        "content_sha256": "a" * 64,
+        "observed_content_sha256": "a" * 64,
+        "source_revision": "b" * 40,
+        "reasons": (),
+    }
+    durable_identity = json.loads(json.dumps(runtime_identity))
+    check(
+        "runtime identity survives durable JSON tuple/list normalization",
+        _runtime_identity_matches(runtime_identity, durable_identity),
+    )
+    drifted_identity = {**durable_identity, "source_revision": "c" * 40}
+    check(
+        "runtime identity comparison still rejects security-relevant drift",
+        not _runtime_identity_matches(runtime_identity, drifted_identity),
+    )
     check("candidate name is transaction-bound", candidate_name(TX1) == "@maho-update-candidate-abcdef123456")
     check("admission base name is transaction-bound", admission_base_name(TX1) == "@maho-update-admission-base-abcdef123456")
     check("backup name is transaction-bound", backup_name(TX1) == "@maho-update-backup-abcdef123456")
