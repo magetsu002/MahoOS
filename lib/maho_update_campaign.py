@@ -63,6 +63,7 @@ _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
 _SHA40 = re.compile(r"[0-9a-f]{40}")
 _STATE_ROOT = Path("/var/lib/maho/update")
 _AUR_CACHE_ROOT = Path("/var/cache/maho/update-aur")
+_M4B_READINESS_ROOT = Path("/var/cache/maho/update-m4b-readiness")
 
 
 def _root() -> Path:
@@ -319,6 +320,120 @@ def _plan_from_dict(value: Mapping[str, Any]) -> ExecutionPlan:
         activation_requirements=tuple(value["activation_requirements"]),
         execution_environment=str(value["execution_environment"]),
     )
+
+
+def probe_native_readiness() -> dict[str, Any]:
+    """Prove a coherent real M4B generation without creating recovery/update authority.
+
+    The probe synchronizes only an isolated Pacman database, stages and verifies
+    the exact package payloads in an isolated cache, then removes that temporary
+    cache. It never publishes an update transaction, creates an M3B snapshot,
+    creates a Btrfs candidate, touches /boot, or grants mutation authority.
+    """
+    _require_root()
+    root = _root()
+    source_revision = _source_revision(root)
+    policy = _platform(root)
+    repo = _repo_contract(policy)
+    user = _campaign_user()
+    runtime = _runtime_identity(user)
+
+    now = datetime.now(timezone.utc)
+    entropy = secrets.token_hex(6)
+    transaction_id = new_transaction_id(now=now, entropy=entropy)
+    work = _M4B_READINESS_ROOT / transaction_id
+    discovery_root = work / "discovery"
+    cache = work / "staging"
+    try:
+        discovery = IsolatedPacmanDiscovery(
+            discovery_root,
+            config_path=repo["config_path"],
+            required_repositories=repo["repositories"],
+        )
+        discovered = discover_updates(
+            discovery,
+            source_revision=source_revision,
+            recovery_generation_id=None,
+            now=now,
+            entropy=entropy,
+        )
+        transaction = discovered.transaction
+        if transaction["transaction_id"] != transaction_id:
+            raise RuntimeError("m4b_readiness_transaction_identity_drifted")
+
+        names = {item["name"] for item in transaction["package_generation"]["packages"]}
+        if "linux-cachyos" not in names or "restart" not in transaction["activation"]["requirements"]:
+            raise RuntimeError("m4b_primary_generation_unavailable")
+
+        staging = IsolatedPacmanStaging(
+            discovery.db,
+            cache,
+            config_path=repo["config_path"],
+        )
+        staged = stage_transaction(transaction, staging, now=now)
+        if staged.transaction["state"] != UpdateState.STAGED.value or staged.manifest is None:
+            blockers = staged.transaction.get("blockers") or []
+            suffix = ":" + ",".join(str(item) for item in blockers) if blockers else ""
+            raise RuntimeError("m4b_exact_payload_staging_failed" + suffix)
+
+        relationships, expected_versions = _relationships(staged.transaction, runtime)
+        if expected_versions["linux-cachyos"] != expected_versions["linux-cachyos-headers"]:
+            raise RuntimeError("m4b_primary_kernel_headers_incoherent")
+        if expected_versions["linux-cachyos-lts"] != expected_versions["linux-cachyos-lts-headers"]:
+            raise RuntimeError("m4b_fallback_kernel_headers_incoherent")
+
+        repo = {**repo, "sync_db_sha256": discovery.sync_database_hashes()}
+        packages = [
+            {
+                "name": item["name"],
+                "installed_version": item["installed_version"],
+                "candidate_version": item["candidate_version"],
+                "repository": item["repository"],
+                "roles": list(item["roles"]),
+            }
+            for item in staged.transaction["package_generation"]["packages"]
+        ]
+        payloads = [
+            {
+                "name": item["name"],
+                "version": item["version"],
+                "sha256": item["sha256"],
+                "size": item["size"],
+                "signature_status": item["signature_status"],
+                "effect_classification": item["effects"]["classification"],
+                "file_count": item["effects"]["file_count"],
+                "files_sha256": item["effects"]["files_sha256"],
+            }
+            for item in staged.manifest["payloads"]
+        ]
+        return {
+            "schema_version": 1,
+            "phase": "readiness-proven",
+            "source_revision": source_revision,
+            "transaction_id": transaction_id,
+            "package_generation_id": staged.transaction["package_generation"]["id"],
+            "candidate_count": discovered.candidate_count,
+            "package_repo": repo,
+            "packages": packages,
+            "payloads": payloads,
+            "effects": staged.manifest["effects"],
+            "relationships": relationships,
+            "expected_versions": expected_versions,
+            "primary_kernel": {
+                "from": next(
+                    item["installed_version"] for item in packages
+                    if item["name"] == "linux-cachyos"
+                ),
+                "to": expected_versions["linux-cachyos"],
+            },
+            "mutation_started": False,
+            "transaction_published": False,
+            "recovery_state_created": False,
+            "activation_authority_issued": False,
+            "temporary_cache_removed": True,
+        }
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def prepare_native_campaign() -> dict[str, Any]:
@@ -978,6 +1093,7 @@ def apply_aur_campaign(
 def main() -> None:
     parser = argparse.ArgumentParser(prog="maho-update-campaign")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("probe-m4b")
     sub.add_parser("prepare")
     execute = sub.add_parser("execute")
     execute.add_argument("transaction_id")
@@ -1002,7 +1118,9 @@ def main() -> None:
     aur.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
     try:
-        if args.command == "prepare":
+        if args.command == "probe-m4b":
+            payload = probe_native_readiness()
+        elif args.command == "prepare":
             payload = prepare_native_campaign()
         elif args.command == "execute":
             payload = execute_native_campaign(args.transaction_id, args.confirm)
