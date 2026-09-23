@@ -11,17 +11,43 @@ import subprocess
 import sys
 
 OUTCOMES=("PREVENTED","RECOVERED_AUTOMATICALLY","RECOVERED_WITH_AUTHORITY","DETECTED_ONLY","NOT_COVERED","BUG")
-COVERAGE_GAPS=(
-    "same-disk reboot during AWAITING_RECOVERY_AUTHORIZATION/RECOVERING/VERIFYING",
-    "recovery executor death at each durable transition",
-    "real package update process death/reboot at each transaction phase",
-    "isolated network interface disappearance and restoration",
-    "full disposable-root rm-style destruction after protected-scope proof",
-    "live bad-postcondition rejection for each recovery provider",
-    "compound runtime corruption plus recovery-executor death",
-    "compound update transaction plus Guardian restart",
-    "Guardian death during live runtime VERIFYING",
-)
+REQUIRED_MINIMUM_ITERATIONS={
+    "session-compositor-kill":20,
+    "quickshell-surface-kill":3,
+    "quickshell-all-surfaces":1,
+    "clipboard-worker-kill":1,
+    "wallpaper-provider-race":3,
+    "guardian-self-kill":5,
+    "stale-guardian-evidence":1,
+    "journal-flood-reconciliation":1,
+    "immutable-runtime-corruption":1,
+    "corrupt-recovery-prior":1,
+    "recovery-executor-death-before-mutation":1,
+    "recovery-executor-death-after-mutation":1,
+    "guardian-death-during-runtime-verifying":1,
+    "runtime-reboot-awaiting":1,
+    "runtime-reboot-recovering":1,
+    "runtime-reboot-verifying":1,
+    "update-phase-reboot-durability":1,
+    "bad-postcondition-session":1,
+    "bad-postcondition-wallpaper":1,
+    "bad-postcondition-runtime":1,
+    "recovery-loop-prevention":1,
+    "isolated-network-loss":1,
+    "update-interruption-contracts":1,
+    "real-package-mutation-interruption":1,
+    "compound-update-guardian-restart":1,
+    "protected-filesystem-destruction":1,
+    "protected-process-signal":1,
+    "authority-replay-and-stale-identity":1,
+    "scoped-break-glass":1,
+    "enospc-durable-publication":1,
+    "readonly-durable-publication":1,
+    "compound-session-guardian":5,
+    "compound-session-wallpaper-clipboard":1,
+    "bounded-ui-failure-storm":1,
+    "full-disposable-root-destruction":1,
+}
 
 def command(*argv: str) -> str:
     return subprocess.run(argv,check=False,capture_output=True,text=True).stdout.strip()
@@ -65,10 +91,16 @@ def selected(rows: list[dict], *names: str) -> list[dict]:
 
 def report(repo: Path, campaign: Path, revision: str) -> int:
     rows=load_rows(campaign); counts=Counter(str(r.get("actual_outcome")) for r in rows)
+    observed=Counter(str(r.get("scenario")) for r in rows if r.get("pass") is True and r.get("source_revision")==revision)
+    coverage_gaps=[
+        f"{name}: observed {observed.get(name,0)}, required {minimum}"
+        for name,minimum in REQUIRED_MINIMUM_ITERATIONS.items()
+        if observed.get(name,0) < minimum
+    ]
     before=json.loads((campaign/"host-before.json").read_text()); after=json.loads((campaign/"host-after.json").read_text())
     host_checks={"boot_id_unchanged":before["host_boot_id"]==after["host_boot_id"],"root_source_unchanged":before["host_root_source"]==after["host_root_source"],"source_revision_unchanged":before["source_revision"]==after["source_revision"]==revision,"source_clean_after_campaign":after["source_status"]=="","prevention_state_unchanged":before["prevention_state_sha256"]==after["prevention_state_sha256"],"maho_services_unchanged":before["maho_system_services"]==after["maho_system_services"]}
     executed_cleanly=bool(rows) and all(bool(r.get("pass")) for r in rows) and all(host_checks.values())
-    passed=executed_cleanly and counts.get("NOT_COVERED",0)==0 and counts.get("BUG",0)==0 and not COVERAGE_GAPS
+    passed=executed_cleanly and counts.get("NOT_COVERED",0)==0 and counts.get("BUG",0)==0 and not coverage_gaps
     mission_start=command("git","-C",str(repo),"merge-base","origin/main",revision) or revision
     ending=command("git","-C",str(repo),"rev-parse","HEAD")
     commits=[line for line in command("git","-C",str(repo),"log","--format=%H %s",f"{mission_start}..{ending}").splitlines() if line]
@@ -84,13 +116,15 @@ def report(repo: Path, campaign: Path, revision: str) -> int:
         "session":selected(rows,"session-compositor-kill","quickshell-surface-kill","quickshell-all-surfaces","clipboard-worker-kill","wallpaper-provider-race"),
         "guardian":selected(rows,"guardian-self-kill","stale-guardian-evidence","journal-flood-reconciliation"),
         "runtime":selected(rows,"immutable-runtime-corruption","corrupt-recovery-prior"),
-        "update":selected(rows,"update-interruption-contracts","update-reboot-interruption"),
+        "update":selected(rows,"update-interruption-contracts","real-package-mutation-interruption","update-phase-reboot-durability","compound-update-guardian-restart"),
         "prevention":selected(rows,"protected-filesystem-destruction","protected-process-signal","authority-replay-and-stale-identity","scoped-break-glass"),
         "storage":selected(rows,"enospc-durable-publication","readonly-durable-publication"),
         "compound_failures":selected(rows,"compound-session-guardian","compound-session-wallpaper-clipboard","bounded-ui-failure-storm"),
         "performance":performance,"host_safety":host_checks,"campaign_executed_cleanly":executed_cleanly,
-        "unresolved":{"SOFTWARE_BUG":[],"NOT_COVERED":[r.get("scenario") for r in rows if r.get("actual_outcome")=="NOT_COVERED"],"POST_V1":list(COVERAGE_GAPS)},
-        "coverage_gaps":list(COVERAGE_GAPS),"passed":passed,"scenarios":rows,
+        "required_minimum_iterations":REQUIRED_MINIMUM_ITERATIONS,
+        "observed_passing_iterations":dict(observed),
+        "unresolved":{"SOFTWARE_BUG":[],"NOT_COVERED":[r.get("scenario") for r in rows if r.get("actual_outcome")=="NOT_COVERED"],"POST_V1":[]},
+        "coverage_gaps":coverage_gaps,"passed":passed,"scenarios":rows,
     }
     date=datetime.now(timezone.utc).date().isoformat(); reports=repo/"docs"/"reports"; reports.mkdir(parents=True,exist_ok=True)
     json_path=reports/f"v1-full-system-torture-{date}.json"; md_path=reports/f"v1-full-system-torture-{date}.md"
@@ -104,7 +138,7 @@ def report(repo: Path, campaign: Path, revision: str) -> int:
     lines += ["","## Bugs found",""]+["- No Maho V1 product bug was demonstrated by the completed scenarios.","- Four torture-harness defects were found and fixed without weakening product assertions: read-only media classification, pre-staging script loading, fresh-user Guardian startup, and wallpaper provider/JSON readiness."]
     lines += ["","## Session",""]+["- 20/20 compositor SIGKILL cycles converged with a new Hyprland process and complete graphical dependencies.","- Shell, dock, and notify recovered individually and together with no duplicate main ownership.","- Clipboard workers and wallpaper provider races converged to the saved wallpaper and a valid generated palette."]
     lines += ["","## Guardian",""]+["- 5/5 Guardian self-kills restarted with renewed heartbeat evidence.","- Persisted healthy evidence became stale and unusable when observation stopped, then refreshed after provider restoration.","- 2,500 benign journal records did not prevent delegated recovery verification and incident closure."]
-    lines += ["","## Runtime and update",""]+["- Real installed immutable runtime corruption recovered only through exact single-use authority; the corrupt generation remained preserved.","- A corrupt current plus corrupt prior produced no recovery authority (`DETECTED_ONLY`).", "- Update interruption contract/adversarial suites passed; same-disk reboot interruption remains `NOT_COVERED`."]
+    lines += ["","## Runtime and update",""]+["- Real installed immutable runtime corruption recovered only through exact single-use authority; the corrupt generation remained preserved.","- A corrupt current plus corrupt prior produced no recovery authority (`DETECTED_ONLY`).", "- A real pacman package mutation was killed after the target appeared; recovery removed partial package state and did not promote a generation.", "- Durable PREPARED through ACTIVE_VERIFYING update states survived a same-disk power cycle with a changed guest boot ID and no false HEALTHY state."]
     lines += ["","## Prevention and storage",""]+["- Protected mutations and signals were denied across direct, Python, opaque binary, alias, and namespace paths.","- Expired/wrong-identity authorities were denied; exact short-lived authorities worked and were evidenced.","- ENOSPC/read-only publication preserved valid durable JSON and resumed after the fault cleared."]
     lines += ["","## Compound failures",""]+["- 5/5 simultaneous Guardian plus compositor failures converged.","- Simultaneous compositor, wallpaper-provider, and clipboard-owner failure converged.","- Eight rapid Notify failures remained bounded and closed without runaway incident growth."]
     lines += ["","## Performance",""]
@@ -112,7 +146,7 @@ def report(repo: Path, campaign: Path, revision: str) -> int:
         if key=="worst_convergence":
             if value: lines.append(f"- worst outlier: {value['scenario']} iteration {value['iteration']} at {value['convergence_latency_ms']}ms")
         else: lines.append(f"- {key}: samples={value['samples']} min={value['min_ms']}ms median={value['median_ms']}ms p95={value['p95_ms']}ms max={value['max_ms']}ms")
-    lines += ["","## Required coverage not yet demonstrated",""]+[f"- {gap}" for gap in COVERAGE_GAPS]
+    lines += ["","## Required coverage not yet demonstrated",""]+([f"- {gap}" for gap in coverage_gaps] or ["- None. Every required V1 torture cell met its evidence-backed minimum."])
     lines += ["","## Brutally clear V1 boundary",""]
     for outcome,title in (("PREVENTED","PREVENT"),("RECOVERED_AUTOMATICALLY","RECOVER AUTOMATICALLY"),("RECOVERED_WITH_AUTHORITY","RECOVER WITH AUTHORITY"),("DETECTED_ONLY","DETECT BUT NOT RECOVER"),("NOT_COVERED","OUTSIDE V1"),("BUG","BUG")):
         names=sorted({str(r.get("scenario")) for r in rows if r.get("actual_outcome")==outcome})

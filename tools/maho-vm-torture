@@ -11,7 +11,7 @@ CAMPAIGN="${MAHO_TORTURE_EVIDENCE:-${XDG_STATE_HOME:-$HOME/.local/state}/maho/ce
 mkdir -p "$CAMPAIGN/profiles"
 python3 "$ROOT/tools/vm/torture-report.py" snapshot --repo "$ROOT" --output "$CAMPAIGN/host-before.json"
 
-profiles=(torture-session torture-guardian torture-runtime torture-runtime-executor torture-runtime-executor-after torture-runtime-guardian-verifying torture-reboot-awaiting torture-reboot-recovering torture-reboot-verifying torture-postconditions torture-network torture-update torture-update-compound torture-prevention torture-storage torture-compound torture-root-destruction)
+profiles=(torture-session torture-guardian torture-runtime torture-runtime-executor torture-runtime-executor-after torture-runtime-guardian-verifying torture-reboot-awaiting torture-reboot-recovering torture-reboot-verifying torture-reboot-update-phases torture-postconditions torture-network torture-update torture-update-compound torture-prevention torture-storage torture-compound torture-root-destruction)
 overall=0
 for profile in "${profiles[@]}"; do
   echo "RUN   Maho full-system profile $profile"

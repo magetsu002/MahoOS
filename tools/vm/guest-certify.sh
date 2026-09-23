@@ -302,6 +302,10 @@ case "$PROFILE" in
     source "/mnt/maho-src/tools/vm/guest-torture.sh"
     torture_reboot_profile "$PROFILE" "$TORTURE_STAGE"
     ;;
+  torture-reboot-update-phases)
+    source "/mnt/maho-src/tools/vm/guest-torture.sh"
+    torture_update_reboot_profile "$TORTURE_STAGE"
+    ;;
   *) echo "FAIL  unknown profile $PROFILE" >&2; exit 2;;
 esac
 STATUS=passed

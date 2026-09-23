@@ -2,6 +2,9 @@
 
 source "/mnt/maho-src/tools/vm/torture-lib.sh"
 
+# Report vocabulary deliberately retains NOT_COVERED even when the required
+# V1 matrix has no such rows, so future unsupported cells fail visibly.
+TORTURE_OUTCOMES="PREVENTED RECOVERED_AUTOMATICALLY RECOVERED_WITH_AUTHORITY DETECTED_ONLY NOT_COVERED BUG"
 TORTURE_ITERATIONS="$(cmdv maho.vm.torture_iterations || true)"
 [[ "$TORTURE_ITERATIONS" =~ ^[0-9]+$ ]] || TORTURE_ITERATIONS=20
 
@@ -302,9 +305,148 @@ scenario_update_contracts() {
   SCENARIO_ACTUAL=RECOVERED_WITH_AUTHORITY
 }
 
-scenario_update_reboot_gap() {
-  SCENARIO_REASON="persistent same-disk reboot interruption is not implemented by the V1 full-system harness"
-  SCENARIO_ACTUAL=NOT_COVERED
+scenario_real_package_mutation_interruption() {
+  local directory="$1" iteration="$2" build package journal
+  build="$HOME_VM/.cache/maho/torture-real-package"
+  journal=/var/tmp/maho-real-update-transaction.json
+  rm -rf "$build" "$journal"
+  install -d -o "$UID_VM" -g "$UID_VM" "$build"
+  cat >"$build/PKGBUILD" <<'EOF_PKG'
+pkgname=maho-torture-update
+pkgver=1.0
+pkgrel=1
+pkgdesc='Disposable Maho full-system update interruption fixture'
+arch=('any')
+license=('custom')
+options=('!strip')
+package() {
+  install -d "$pkgdir/usr/share/maho-torture-update"
+  dd if=/dev/zero of="$pkgdir/usr/share/maho-torture-update/payload.bin" bs=1M count=256 status=none
+  printf '%s\n' 'real package mutation fixture' >"$pkgdir/usr/share/maho-torture-update/marker"
+}
+EOF_PKG
+  chown "$UID_VM:$UID_VM" "$build/PKGBUILD"
+  u bash -lc "cd '$build' && makepkg --force --noconfirm --nodeps >/dev/null"
+  package="$(find "$build" -maxdepth 1 -type f -name 'maho-torture-update-*.pkg.tar.*' | head -1)"
+  [ -s "$package" ] || { SCENARIO_REASON="failed to build real pacman torture package"; return 1; }
+
+  PYTHONPATH="$SRC/lib" python3 - "$SRC" "$package" "$journal" "$directory/evidence/real-package-interruption.json" <<'PY_INNER'
+import hashlib, json, os, pathlib, shutil, signal, subprocess, sys, time
+root=pathlib.Path(sys.argv[1])
+package=pathlib.Path(sys.argv[2])
+journal=pathlib.Path(sys.argv[3])
+evidence_path=pathlib.Path(sys.argv[4])
+sys.path.insert(0,str(root/"lib"))
+from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id, write_transaction
+from maho_update_transaction import build_execution_plan, execute_update
+
+target=pathlib.Path("/usr/share/maho-torture-update/payload.bin")
+pkgname="maho-torture-update"
+version="1.0-1"
+cache=package.parent
+tx=create_transaction(
+    transaction_id=new_transaction_id(entropy="c0ffee123456"),
+    source_revision="f"*40,
+    packages=[{"name":pkgname,"installed_version":"absent","candidate_version":version,
+               "repository":"fixture","download_size":package.stat().st_size,
+               "installed_size":256*1024*1024,"roles":["fixture"]}],
+    activation_requirements=[],
+    recovery_generation_id="g3-1234567890abcdef12345678")
+for state in (UpdateState.STAGED,UpdateState.PREPARED,UpdateState.MAINTENANCE_READY):
+    tx=transition_transaction(tx,state)
+write_transaction(journal,tx)
+manifest={"schema_version":1,"transaction_id":tx["transaction_id"],
+          "package_generation_id":tx["package_generation"]["id"],
+          "payloads":[{"name":pkgname,"version":version,"path":str(package),
+                       "sha256":hashlib.sha256(package.read_bytes()).hexdigest(),
+                       "size":package.stat().st_size,"signature_status":"verified-by-pacman"}],
+          "verification":"pacman-signature-policy-and-sha256"}
+rels={"maho_runtime":{"package":pkgname,"version":version,"immutable_release_required":True},
+      "primary_kernel":{"package":"linux-cachyos","version":"7.2"},
+      "primary_headers":{"package":"linux-cachyos-headers","version":"7.2"},
+      "fallback_kernel":{"package":"linux-cachyos-lts","version":"6.18"},
+      "fallback_headers":{"package":"linux-cachyos-lts-headers","version":"6.18"},
+      "nvidia_dkms":{"status":"not-installed","packages":[]},
+      "boot_artifacts":["/boot/intel-ucode.img","/boot/vmlinuz-linux-cachyos",
+                        "/boot/initramfs-linux-cachyos.img","/boot/vmlinuz-linux-cachyos-lts",
+                        "/boot/initramfs-linux-cachyos-lts.img"]}
+plan=build_execution_plan(tx,manifest,cache,rels,execution_environment="fixture")
+proof={"target_observed":False,"pacman_killed":False,"partial_size":0}
+
+class Ops:
+    fixture_safe=True
+    def prepare_recovery(self,plan):
+        return {"ok":True,"fixture":"real-pacman"}
+    def install_full_upgrade(self,plan):
+        proc=subprocess.Popen(["/usr/bin/pacman","-U","--noconfirm","--",str(package)],
+                              stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        deadline=time.monotonic()+20
+        while time.monotonic()<deadline:
+            if target.exists():
+                proof["target_observed"]=True
+                try: proof["partial_size"]=target.stat().st_size
+                except OSError: pass
+                os.kill(proc.pid,signal.SIGKILL)
+                proc.wait(timeout=5)
+                proof["pacman_killed"]=True
+                return {"ok":False,"mutation_started":True,"exit_code":proc.returncode,
+                        "target_observed":True,"partial_size":proof["partial_size"]}
+            code=proc.poll()
+            if code is not None:
+                return {"ok":False,"mutation_started":False,"exit_code":code,
+                        "target_observed":False}
+            time.sleep(0.001)
+        proc.kill(); proc.wait(timeout=5)
+        return {"ok":False,"mutation_started":False,"reason":"mutation marker timeout"}
+    def recover(self,plan,failed_stage):
+        lock=pathlib.Path("/var/lib/pacman/db.lck")
+        if lock.exists():
+            lock.unlink()
+        installed=subprocess.run(["/usr/bin/pacman","-Q",pkgname],capture_output=True,text=True).returncode==0
+        if installed:
+            subprocess.run(["/usr/bin/pacman","-R","--noconfirm",pkgname],
+                           check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        shutil.rmtree("/usr/share/maho-torture-update",ignore_errors=True)
+        clean=(subprocess.run(["/usr/bin/pacman","-Q",pkgname],
+                             capture_output=True,text=True).returncode!=0
+               and not target.exists() and not lock.exists())
+        return {"ok":clean,"failed_stage":failed_stage,"partial_package_removed":clean}
+    def verify_maho_runtime(self,plan): return {"ok":False}
+    def verify_kernel_matrix(self,plan): return {"ok":False}
+    def build_initramfs(self,plan,preset): return {"ok":False}
+    def verify_boot_artifacts(self,plan): return {"ok":False}
+    def finalize_install(self,plan): return {"ok":False}
+    def verify_activation(self,plan): return {"ok":False}
+
+result=execute_update(tx,plan,Ops(),journal_path=journal)
+assert proof["target_observed"] and proof["pacman_killed"], proof
+assert result.mutation_started is True, result
+assert result.recovered is True, result
+assert result.transaction["state"]=="RECOVERED", result.transaction
+assert subprocess.run(["/usr/bin/pacman","-Q",pkgname],capture_output=True).returncode!=0
+assert not target.exists()
+payload={"transaction_id":tx["transaction_id"],"final_state":result.transaction["state"],
+         "mutation_started":result.mutation_started,"recovered":result.recovered,
+         "package_present_after_recovery":False,"generation_promoted":False,
+         "known_good_preserved":result.transaction["state"]=="RECOVERED",**proof}
+evidence_path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
+PY_INNER
+
+  cp "$journal" "$directory/evidence/final-update-transaction.json"
+  python3 - "$directory/evidence/real-package-interruption.json" <<'PY_INNER'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["target_observed"] is True
+assert d["pacman_killed"] is True
+assert d["mutation_started"] is True
+assert d["recovered"] is True
+assert d["final_state"]=="RECOVERED"
+assert d["package_present_after_recovery"] is False
+assert d["generation_promoted"] is False
+assert d["known_good_preserved"] is True
+PY_INNER
+  SCENARIO_HOST_MUTATION=true
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
 }
 
 scenario_enospc_atomicity() {
@@ -544,6 +686,50 @@ PY_INNER
   [ "$rc" -eq 0 ] || { SCENARIO_REASON="lying runtime driver was not rejected"; return 1; }
   state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
   [ "$state" = verification-failed ] || { SCENARIO_REASON="bad runtime postcondition did not remain verification-failed"; return 1; }
+  SCENARIO_ACTUAL=DETECTED_ONLY
+}
+
+scenario_recovery_loop_prevention() {
+  local directory="$1" iteration="$2" tag
+  tag="loop-prevention-$RANDOM"
+  runtime_stage_campaign "$tag" "$directory"
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$directory/evidence/recovery-loop-prevention.json" <<'PY_INNER'
+import json, pathlib, sys
+import guardian_live_recovery as r
+state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
+evidence=pathlib.Path(sys.argv[4])
+class LyingDriver:
+    calls=0
+    def execute(self, proposal):
+        self.calls += 1
+        return {"ok":True,"claimed_success":True,"services_verified":True}
+class WouldMutateDriver:
+    calls=0
+    def execute(self, proposal):
+        self.calls += 1
+        return {"ok":True}
+first_driver=LyingDriver()
+first=r.execute_automatic_runtime_recovery(
+    state,incident,db_root=pathlib.Path("/var/lib/pacman/local"),runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"),fs_root=pathlib.Path("/"),uid=1500,driver=first_driver)
+assert first.get("result")=="verification-failed", first
+active_path=state/"guardian/live-recovery/active"/f"{incident}.json"
+before=active_path.read_bytes()
+second_driver=WouldMutateDriver()
+second=r.execute_automatic_runtime_recovery(
+    state,incident,db_root=pathlib.Path("/var/lib/pacman/local"),runtime_root=runtime,
+    proc_root=pathlib.Path("/proc"),fs_root=pathlib.Path("/"),uid=1500,driver=second_driver)
+after=active_path.read_bytes()
+assert second.get("result")=="verification-failed" and second.get("idempotent") is True, second
+assert first_driver.calls==1
+assert second_driver.calls==0
+assert before==after
+evidence.write_text(json.dumps({
+    "incident_id":incident,"first_result":first,"second_result":second,
+    "initial_mutation_attempts":first_driver.calls,"replay_mutation_attempts":second_driver.calls,
+    "durable_state_unchanged":before==after,"loop_prevented":True,
+},indent=2,sort_keys=True)+"\n")
+PY_INNER
   SCENARIO_ACTUAL=DETECTED_ONLY
 }
 
@@ -871,6 +1057,99 @@ PY_INNER
   SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"
 }
 
+update_reboot_marker() {
+  printf '%s\n' "$HOME_VM/.local/state/maho/certification/update-reboot-torture.json"
+}
+
+stage_update_reboot_phases() {
+  local marker rootdir
+  marker="$(update_reboot_marker)"
+  rootdir="$HOME_VM/.local/state/maho/certification/update-reboot"
+  rm -rf "$rootdir"
+  install -d -o "$UID_VM" -g "$UID_VM" "$rootdir" "$(dirname "$marker")"
+  PYTHONPATH="$SRC/lib" python3 - "$rootdir" "$marker" "$REV" "$(cat /proc/sys/kernel/random/boot_id)" <<'PY_INNER'
+import json, pathlib, sys
+root=pathlib.Path(sys.argv[1]); marker=pathlib.Path(sys.argv[2]); rev=sys.argv[3]; boot=sys.argv[4]
+from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id, write_transaction
+states=[UpdateState.PREPARED,UpdateState.MAINTENANCE_READY,UpdateState.INSTALLING,
+        UpdateState.INSTALLED_PENDING_ACTIVATION,UpdateState.ACTIVE_VERIFYING]
+paths={}
+for idx,target in enumerate(states,1):
+    tx=create_transaction(
+        transaction_id=new_transaction_id(entropy=f"{idx:012x}"),
+        source_revision=rev,
+        packages=[{"name":"maho-torture-update","installed_version":"0","candidate_version":"1",
+                   "repository":"fixture","download_size":1,"installed_size":1,"roles":["fixture"]}],
+        activation_requirements=["restart"],
+        recovery_generation_id="g3-1234567890abcdef12345678")
+    for step in (UpdateState.STAGED,UpdateState.PREPARED,UpdateState.MAINTENANCE_READY,
+                 UpdateState.INSTALLING,UpdateState.INSTALLED_PENDING_ACTIVATION,UpdateState.ACTIVE_VERIFYING):
+        tx=transition_transaction(tx,step)
+        if step==target:
+            break
+    path=root/f"{target.value}.json"
+    write_transaction(path,tx)
+    paths[target.value]=str(path)
+marker.write_text(json.dumps({"schema_version":1,"stage1_boot_id":boot,"source_revision":rev,
+                              "transactions":paths},indent=2,sort_keys=True)+"\n")
+PY_INNER
+  chown -R "$UID_VM:$UID_VM" "$rootdir" "$marker"
+}
+
+scenario_update_reboot_phase_durability() {
+  local directory="$1" iteration="$2" marker old_boot new_boot
+  marker="$(update_reboot_marker)"
+  [ -s "$marker" ] || { SCENARIO_REASON="update reboot marker missing"; return 1; }
+  old_boot="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stage1_boot_id"])' "$marker")"
+  new_boot="$(cat /proc/sys/kernel/random/boot_id)"
+  [ "$old_boot" != "$new_boot" ] || { SCENARIO_REASON="update phase campaign did not cross a real guest boot"; return 1; }
+
+  PYTHONPATH="$SRC/lib" python3 - "$marker" "$directory/evidence/update-reboot-phases.json" <<'PY_INNER'
+import json, pathlib, sys
+from maho_update_state import read_transaction
+marker=json.load(open(sys.argv[1]))
+observed={}
+for expected,path in marker["transactions"].items():
+    tx=read_transaction(pathlib.Path(path))
+    observed[expected]=tx["state"]
+    assert tx["state"]==expected, (expected,tx["state"])
+out={"stage1_boot_id":marker["stage1_boot_id"],
+     "stage2_boot_id":pathlib.Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+     "states":observed,
+     "no_false_healthy":all(state!="HEALTHY" for state in observed.values())}
+assert out["no_false_healthy"]
+pathlib.Path(sys.argv[2]).write_text(json.dumps(out,indent=2,sort_keys=True)+"\n")
+PY_INNER
+  SCENARIO_MANUAL=true
+  SCENARIO_ACTUAL=DETECTED_ONLY
+}
+
+torture_update_reboot_profile() {
+  local stage="$1" directory
+  case "$stage" in
+    1)
+      prepare_graphical_torture
+      directory="$E/update-reboot-stage1"
+      mkdir -p "$directory"
+      stage_update_reboot_phases
+      cp "$(update_reboot_marker)" "$directory/marker.json"
+      sync
+      : >"$E/reboot-stage1-ready"
+      echo "PASS  staged update transaction phases for same-disk power cycle"
+      while :; do sleep 60; done
+      ;;
+    2)
+      prepare_reboot_resume_environment
+      scenario_run update-phase-reboot-durability DETECTED_ONLY 1 scenario_update_reboot_phase_durability
+      torture_profile_summary
+      ;;
+    *)
+      echo "FAIL  missing maho.vm.torture_stage for update reboot profile" >&2
+      return 2
+      ;;
+  esac
+}
+
 torture_reboot_profile() {
   local profile="$1" stage="$2" phase directory
   case "$profile" in
@@ -1009,6 +1288,7 @@ torture_profile() {
       scenario_run bad-postcondition-session RECOVERED_AUTOMATICALLY 1 scenario_session_bad_postcondition
       scenario_run bad-postcondition-wallpaper RECOVERED_AUTOMATICALLY 1 scenario_wallpaper_bad_postcondition
       scenario_run bad-postcondition-runtime DETECTED_ONLY 1 scenario_runtime_bad_postcondition
+      scenario_run recovery-loop-prevention DETECTED_ONLY 1 scenario_recovery_loop_prevention
       ;;
     torture-network)
       scenario_run isolated-network-loss RECOVERED_AUTOMATICALLY 1 scenario_network_disappearance
@@ -1018,7 +1298,7 @@ torture_profile() {
       ;;
     torture-update)
       scenario_run update-interruption-contracts RECOVERED_WITH_AUTHORITY 1 scenario_update_contracts
-      scenario_run update-reboot-interruption NOT_COVERED 1 scenario_update_reboot_gap
+      scenario_run real-package-mutation-interruption RECOVERED_AUTOMATICALLY 1 scenario_real_package_mutation_interruption
       ;;
     torture-storage)
       scenario_run enospc-durable-publication RECOVERED_AUTOMATICALLY 1 scenario_enospc_atomicity
