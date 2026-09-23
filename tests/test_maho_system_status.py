@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_behavior_preferences import defaults  # noqa: E402
+import maho_system_status as system_status  # noqa: E402
+from guardian_live_state import LivePaths  # noqa: E402
 from maho_system_status import build_system_model  # noqa: E402
 
 
@@ -77,6 +79,65 @@ def main() -> None:
     unknown_guardian = build(guardian=guardian_fixture(self_health="UNKNOWN"))
     record = next(item for item in unknown_guardian.diagnostics if item.id == "guardian.self-health")
     check("missing Guardian certainty remains UNKNOWN", record.state == "UNKNOWN")
+
+    captured: dict[str, Path] = {}
+    original_update_status = system_status.update_status
+    original_live_status = system_status.live_status
+    original_enrich_status = system_status.enrich_status
+    original_behavior_state_root = system_status.behavior_state_root
+    original_behavior_status = system_status.behavior_status
+    original_behavior_doctor = system_status.behavior_doctor
+    original_repo_root = system_status.repo_root
+    original_recovery_status = system_status.recovery_status
+    original_collect_login = system_status.collect_login_diagnostic
+    original_load_preferences = system_status.load_preferences
+    try:
+        def fake_update(root: Path, *, maho_root: Path | None = None):
+            captured["update_root"] = root
+            captured["maho_root"] = maho_root
+            return {
+                "status": "Healthy", "attention_required": False, "blockers": [],
+                "normal_execution_certified": True, "normal_authority_state": "current",
+            }
+
+        system_status.update_status = fake_update
+        system_status.live_status = lambda paths: {}
+        system_status.enrich_status = lambda value, root: {}
+        system_status.behavior_state_root = lambda: Path("/tmp/maho-behavior-test")
+        system_status.behavior_status = lambda root: {}
+        system_status.behavior_doctor = lambda repo, root: {"healthy": True}
+        system_status.repo_root = lambda: ROOT
+        system_status.recovery_status = lambda *args, **kwargs: {}
+        system_status.collect_login_diagnostic = lambda: {"state": "UNKNOWN", "failed_checks": []}
+        system_status.load_preferences = defaults
+
+        paths = LivePaths(
+            security_root=Path("/tmp/security"),
+            state_root=Path("/tmp/state"),
+            update_root=Path("/tmp/update"),
+            recovery_root=Path("/tmp/recovery"),
+            runtime_root=Path("/tmp/runtime"),
+        )
+        system_status.collect_system_model(paths)
+        check(
+            "system collector binds Update to the immutable current runtime",
+            captured == {
+                "update_root": paths.update_root,
+                "maho_root": paths.runtime_root / "current",
+            },
+        )
+    finally:
+        system_status.update_status = original_update_status
+        system_status.live_status = original_live_status
+        system_status.enrich_status = original_enrich_status
+        system_status.behavior_state_root = original_behavior_state_root
+        system_status.behavior_status = original_behavior_status
+        system_status.behavior_doctor = original_behavior_doctor
+        system_status.repo_root = original_repo_root
+        system_status.recovery_status = original_recovery_status
+        system_status.collect_login_diagnostic = original_collect_login
+        system_status.load_preferences = original_load_preferences
+
     print("ALL MAHO SYSTEM STATUS TESTS PASS")
 
 
