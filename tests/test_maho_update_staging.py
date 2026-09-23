@@ -37,6 +37,7 @@ def transaction() -> dict:
         source_revision="c" * 40,
         packages=[
             {"name": "linux-cachyos", "installed_version": "7.1", "candidate_version": "7.2", "repository": "core", "download_size": 8, "installed_size": 16, "roles": ["kernel"]},
+            {"name": "linux-firmware", "installed_version": "1", "candidate_version": "2", "repository": "core", "download_size": 8, "installed_size": 0, "roles": []},
             {"name": "maho-os", "installed_version": "4.0", "candidate_version": "4.1", "repository": "maho", "download_size": 8, "installed_size": 16, "roles": ["maho-runtime"]},
         ],
         activation_requirements=["restart"], recovery_generation_id=None, now=NOW,
@@ -53,7 +54,7 @@ class FakePacman:
 
     def __call__(self, command) -> CommandResult:
         if "--print" in command:
-            rows = [("core", "linux-cachyos", "7.2"), ("maho", "maho-os", "4.1")]
+            rows = [("core", "linux-cachyos", "7.2"), ("core", "linux-firmware", "2"), ("maho", "maho-os", "4.1")]
             if self.extra_dependency:
                 rows.append(("extra", "new-dependency", "1"))
             return CommandResult(0, "".join(f"{repo}\t{name}\t{version}\n" for repo, name, version in rows if name != self.missing))
@@ -62,6 +63,7 @@ class FakePacman:
                 return CommandResult(1, "", "network unavailable")
             self.cache.mkdir(parents=True, exist_ok=True)
             (self.cache / "linux-cachyos-7.2-x86_64.pkg.tar.zst").write_bytes(b"kernel-payload")
+            (self.cache / "linux-firmware-2-any.pkg.tar.zst").write_bytes(b"meta-payload")
             if not self.incomplete:
                 (self.cache / "maho-os-4.1-any.pkg.tar.zst").write_bytes(b"maho-payload")
             return CommandResult(0, "")
@@ -70,11 +72,15 @@ class FakePacman:
             if "--list" in command:
                 if filename.startswith("linux-cachyos-"):
                     return CommandResult(0, "linux-cachyos /usr/lib/modules/7.2/kernel/test.ko.zst\nlinux-cachyos /usr/lib/initcpio/install/linux\n")
+                if filename.startswith("linux-firmware-"):
+                    return CommandResult(0, "")
                 if filename.startswith("maho-os-"):
                     return CommandResult(0, "maho-os /usr/lib/maho/current\nmaho-os /usr/bin/maho-session\n")
                 return CommandResult(1, "")
             if filename.startswith("linux-cachyos-"):
                 return CommandResult(0, "Name : linux-cachyos\nVersion : 7.2\n")
+            if filename.startswith("linux-firmware-"):
+                return CommandResult(0, "Name : linux-firmware\nVersion : 2\n")
             if filename.startswith("maho-os-"):
                 return CommandResult(0, "Name : maho-os\nVersion : 4.1\n")
             return CommandResult(1, "")
@@ -103,7 +109,8 @@ def main() -> None:
         check("repository provenance is independent from effects", payloads["linux-cachyos"]["provenance"]["kind"] == "repository" and payloads["maho-os"]["provenance"]["kind"] == "repository")
         check("exact kernel artifact is boot-critical", payloads["linux-cachyos"]["effects"]["classification"] == "boot-critical")
         check("non-boot Maho artifact remains normal", payloads["maho-os"]["effects"]["classification"] == "normal")
-        check("manifest aggregates exact effects", result.manifest["effects"]["boot_critical_packages"] == ["linux-cachyos"] and result.manifest["effects"]["normal_packages"] == ["maho-os"])
+        check("zero-file package is exact metadata-only evidence", payloads["linux-firmware"]["effects"]["file_count"] == 0 and payloads["linux-firmware"]["effects"]["effects"] == ["metadata-only"])
+        check("manifest aggregates exact effects", result.manifest["effects"]["boot_critical_packages"] == ["linux-cachyos"] and result.manifest["effects"]["normal_packages"] == ["linux-firmware", "maho-os"])
         check("exact effects replace preliminary activation guess", result.transaction["activation"]["requirements"] == ["explicit-reboot", "initramfs-or-boot-refresh", "maho-runtime-release"])
         check("STAGED manifest binds the package generation", result.manifest["package_generation_id"] == transaction()["package_generation"]["id"])
         check("bounded cleanup removes stale isolated cache payload", str(stale) in result.cleanup_removed and not stale.exists())

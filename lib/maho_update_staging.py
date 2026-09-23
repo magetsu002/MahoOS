@@ -221,7 +221,7 @@ def _parse_file_info(output: str) -> tuple[str, str]:
     return name, version
 
 
-def _parse_file_list(output: str, expected_name: str) -> list[str]:
+def _parse_file_list(output: str, expected_name: str, *, allow_empty: bool = False) -> list[str]:
     files: list[str] = []
     for line in output.splitlines():
         if not line.strip():
@@ -230,7 +230,7 @@ def _parse_file_list(output: str, expected_name: str) -> list[str]:
         if separator != " " or name != expected_name or not path.startswith("/"):
             raise ValueError("package file inventory is ambiguous")
         files.append(path.strip())
-    if not files:
+    if not files and not allow_empty:
         raise ValueError("package file inventory is empty")
     return files
 
@@ -254,7 +254,11 @@ def validate_manifest(manifest: Mapping[str, Any], transaction: Mapping[str, Any
     payloads = data.get("payloads")
     if not isinstance(payloads, list):
         raise ValueError("staging payload manifest is invalid")
-    expected = {(item["name"], item["candidate_version"]) for item in transaction["package_generation"]["packages"]}
+    expected_packages = {
+        (item["name"], item["candidate_version"]): item
+        for item in transaction["package_generation"]["packages"]
+    }
+    expected = set(expected_packages)
     observed: set[tuple[str, str]] = set()
     for payload in payloads:
         if not isinstance(payload, Mapping):
@@ -282,7 +286,14 @@ def validate_manifest(manifest: Mapping[str, Any], transaction: Mapping[str, Any
                 raise ValueError("staging payload effect analysis is invalid")
             if not isinstance(effects.get("files_sha256"), str) or _DIGEST.fullmatch(effects["files_sha256"]) is None:
                 raise ValueError("staging payload file inventory digest is invalid")
-            if not isinstance(effects.get("file_count"), int) or effects["file_count"] < 1:
+            file_count = effects.get("file_count")
+            package = expected_packages[identity]
+            zero_file = (
+                file_count == 0
+                and package.get("installed_size") == 0
+                and "metadata-only" in effects.get("effects", [])
+            )
+            if not isinstance(file_count, int) or file_count < 0 or (file_count == 0 and not zero_file):
                 raise ValueError("staging payload file inventory count is invalid")
         observed.add(identity)
     if observed != expected:
@@ -415,15 +426,19 @@ def stage_transaction(
         if listed.returncode != 0:
             failed = transition_transaction(current, UpdateState.FAILED_RECOVERABLE, reason="exact package file inventory is unavailable", now=now)
             return StagingResult(failed, None, requirement, free, resumed, ())
-        files = _parse_file_list(listed.stdout, identity[0])
         package = package_by_name[identity[0]]
+        zero_file_allowed = package["installed_size"] == 0
+        files = _parse_file_list(listed.stdout, identity[0], allow_empty=zero_file_allowed)
         seen.add(identity)
         payloads.append({
             "name": identity[0], "version": identity[1], "path": str(path.resolve()),
             "sha256": _sha256(path), "size": path.stat().st_size,
             "signature_status": "verified-by-pacman",
             "provenance": repository_provenance(package["repository"]),
-            "effects": classify_artifact(package_name=identity[0], roles=package["roles"], files=files),
+            "effects": classify_artifact(
+                package_name=identity[0], roles=package["roles"], files=files,
+                allow_empty=zero_file_allowed,
+            ),
         })
     if seen != expected:
         failed = transition_transaction(current, UpdateState.FAILED_RECOVERABLE, reason="staging completed without every exact payload", now=now)

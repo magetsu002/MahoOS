@@ -138,9 +138,12 @@ def preliminary_boot_critical(roles: Sequence[str]) -> bool:
     return bool(set(roles) & BOOT_CRITICAL_ROLES)
 
 
-def classify_artifact(*, package_name: str, roles: Sequence[str], files: Iterable[str]) -> dict[str, Any]:
+def classify_artifact(
+    *, package_name: str, roles: Sequence[str], files: Iterable[str],
+    allow_empty: bool = False,
+) -> dict[str, Any]:
     paths = sorted({_normalise_package_path(item) for item in files})
-    if not paths:
+    if not paths and not allow_empty:
         raise ValueError("exact artifact file inventory is required")
     effects: set[str] = set()
     evidence: dict[str, list[str]] = {}
@@ -152,6 +155,9 @@ def classify_artifact(*, package_name: str, roles: Sequence[str], files: Iterabl
             bucket.append(path)
 
     role_set = set(roles)
+    if not paths:
+        effects.add("metadata-only")
+        evidence["zero-file-package"] = [package_name]
     if "maho-runtime" in role_set:
         effects.add("maho-runtime")
         evidence["maho-runtime-role"] = ["maho-runtime"]
