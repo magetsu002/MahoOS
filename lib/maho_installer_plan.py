@@ -128,10 +128,11 @@ def disk_identity_sha256(disk: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical(_identity_material(disk))).hexdigest()
 
 
-def destructive_confirmation(identity_sha256: str) -> str:
-    if re.fullmatch(r"[0-9a-f]{64}", identity_sha256) is None:
-        raise ValueError("disk identity digest is invalid")
-    return f"ERASE-MAHO:{identity_sha256}"
+def destructive_confirmation(plan_id: str) -> str:
+    match = re.fullmatch(r"install-plan-([0-9a-f]{64})", plan_id)
+    if match is None:
+        raise ValueError("install plan identity is invalid")
+    return f"ERASE-MAHO:{match.group(1)}"
 
 
 def build_install_plan(raw_disk: Mapping[str, Any], *, source_revision: str) -> dict[str, Any]:
@@ -150,29 +151,58 @@ def build_install_plan(raw_disk: Mapping[str, Any], *, source_revision: str) -> 
 
     identity = disk_identity_sha256(disk)
     ready = not blockers
-    return {
+    layout = {
+        "partition_table": "gpt",
+        "esp": {
+            "filesystem": "vfat",
+            "mountpoint": "/boot",
+            "size_policy": "resolved-at-execution-before-mutation",
+        },
+        "root": {
+            "filesystem": "btrfs",
+            "mountpoint": "/",
+            "size_policy": "remaining-space",
+            "subvolumes": ["@", "@home", "@snapshots", "@var_log"],
+        },
+    }
+    material = {
         "schema_version": 1,
         "kind": "maho-installer-plan",
         "source_revision": source_revision,
         "target": dict(disk) | {"identity_sha256": identity},
-        "layout_contract": {
-            "partition_table": "gpt",
-            "esp": {
-                "filesystem": "vfat",
-                "mountpoint": "/boot",
-                "size_policy": "resolved-at-execution-before-mutation",
-            },
-            "root": {
-                "filesystem": "btrfs",
-                "mountpoint": "/",
-                "size_policy": "remaining-space",
-                "subvolumes": ["@", "@home", "@snapshots", "@var_log"],
-            },
-        },
+        "layout_contract": layout,
         "stages": list(INSTALLER_STAGES),
         "blockers": blockers,
+    }
+    plan_id = "install-plan-" + hashlib.sha256(_canonical(material)).hexdigest()
+    return material | {
+        "plan_id": plan_id,
         "ready_for_destructive_confirmation": ready,
-        "destructive_confirmation": destructive_confirmation(identity) if ready else None,
+        "destructive_confirmation": destructive_confirmation(plan_id) if ready else None,
+        "execution_authority": "none",
+        "mutation_performed": False,
+    }
+
+
+def validate_destructive_confirmation(
+    plan: Mapping[str, Any], current_disk: Mapping[str, Any], *,
+    source_revision: str, confirmation: str,
+) -> dict[str, Any]:
+    rebuilt = build_install_plan(current_disk, source_revision=source_revision)
+    expected_plan = _text(plan.get("plan_id"))
+    if not expected_plan or rebuilt["plan_id"] != expected_plan:
+        raise ValueError("install plan identity drifted")
+    expected_confirmation = rebuilt.get("destructive_confirmation")
+    if expected_confirmation is None or confirmation != expected_confirmation:
+        raise ValueError("destructive confirmation does not match the exact install plan")
+    if not rebuilt["ready_for_destructive_confirmation"]:
+        raise ValueError("install plan is blocked")
+    return {
+        "schema_version": 1,
+        "plan_id": rebuilt["plan_id"],
+        "target_identity_sha256": rebuilt["target"]["identity_sha256"],
+        "source_revision": source_revision,
+        "confirmation_valid": True,
         "execution_authority": "none",
         "mutation_performed": False,
     }
