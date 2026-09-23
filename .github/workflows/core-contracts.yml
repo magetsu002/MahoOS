@@ -129,6 +129,9 @@ jobs:
             tests/test_guardian_security_recovery.py \
             tests/test_guardian_reliability.py \
             tests/test_guardian_completion_status.py \
+            lib/maho_installer_plan.py \
+            tests/test_maho_installer_plan.py \
+            bin/maho-installer \
             config/quickshell/maho-shell/state.py \
             config/quickshell/maho-notify/state.py
 
@@ -259,6 +262,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/shell-contracts.sh
+
+      - name: Blank-disk installer planning contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/test_maho_installer_plan.py
 
   setup-lifecycle:
     runs-on: ubuntu-latest
