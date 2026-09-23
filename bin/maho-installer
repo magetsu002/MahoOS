@@ -10,7 +10,7 @@ import sys
 ROOT = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.parent)
 sys.path.insert(0, str(ROOT / "lib"))
 
-from maho_installer_plan import build_install_plan, probe_disk  # noqa: E402
+from maho_installer_plan import build_install_plan, probe_disk, runtime_source_revision  # noqa: E402
 
 
 def parser() -> argparse.ArgumentParser:
@@ -21,7 +21,6 @@ def parser() -> argparse.ArgumentParser:
     sub = command.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan", help="inspect one exact whole disk and emit a non-mutating install plan")
     plan.add_argument("device")
-    plan.add_argument("--source-revision", required=True)
     plan.add_argument("--json", action="store_true")
     return command
 
@@ -33,7 +32,7 @@ def main() -> None:
     try:
         payload = build_install_plan(
             probe_disk(args.device),
-            source_revision=args.source_revision,
+            source_revision=runtime_source_revision(ROOT),
         )
     except (OSError, ValueError, RuntimeError) as exc:
         raise SystemExit(f"maho-installer: {exc}") from exc
