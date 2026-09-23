@@ -14,6 +14,7 @@ from maho_installer_plan import (  # noqa: E402
     build_install_plan,
     disk_from_lsblk_payload,
     probe_disk,
+    runtime_source_revision,
     validate_destructive_confirmation,
 )
 
@@ -123,6 +124,17 @@ def main() -> None:
     check("unstable physical identity is blocked", "target_identity_not_stable" in build_install_plan(weak, source_revision=REV)["blockers"])
 
     rejected("invalid source revision is rejected", lambda: build_install_plan(disk(), source_revision="main"))
+
+    source_root = ROOT / ".tmp-installer-source-fixture"
+    try:
+        (source_root / "share/maho").mkdir(parents=True, exist_ok=True)
+        (source_root / "share/maho/runtime-source-revision").write_text(REV + "\n", encoding="utf-8")
+        check("runtime source revision is read from immutable metadata", runtime_source_revision(source_root) == REV)
+        (source_root / "share/maho/runtime-source-revision").write_text("main\n", encoding="utf-8")
+        rejected("non-SHA runtime source metadata is rejected", lambda: runtime_source_revision(source_root))
+    finally:
+        import shutil
+        shutil.rmtree(source_root, ignore_errors=True)
     rejected("invalid disk path is rejected", lambda: build_install_plan(disk() | {"path": "/"}, source_revision=REV))
 
     payload = {"blockdevices": [disk()]}
