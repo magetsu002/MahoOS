@@ -18,12 +18,20 @@ cmdv() {
 }
 PROFILE="$(cmdv maho.vm.profile || true)"; [ -n "$PROFILE" ] || PROFILE=smoke
 REV="$(cmdv maho.vm.source_revision || true)"
+TORTURE_STAGE="$(cmdv maho.vm.torture_stage || true)"
 [[ "$REV" =~ ^[0-9a-f]{40}$ ]] || REV=0000000000000000000000000000000000000000
 mkdir -p "$E"
-exec > >(tee "$E/guest.log") 2>&1
+if [ -n "$TORTURE_STAGE" ]; then
+  exec > >(tee "$E/guest-stage${TORTURE_STAGE}.log") 2>&1
+else
+  exec > >(tee "$E/guest.log") 2>&1
+fi
 
 finish() {
   rc=$?; trap - EXIT
+  if [[ "$PROFILE" == torture-* ]] && [ -r "$E/summary.json" ]; then
+    exit "$rc"
+  fi
   python3 - "$E/summary.json" "$PROFILE" "$REV" "$STATUS" "$rc" "$START_NS" <<'PY'
 import json,pathlib,sys,time
 p,profile,rev,status,rc,start=sys.argv[1:]
@@ -286,6 +294,18 @@ case "$PROFILE" in
   resilience) adversarial_profile;;
   session) session_profile;;
   performance-4g|performance-8g) performance_profile;;
+  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound|torture-root-destruction)
+    source "/mnt/maho-src/tools/vm/guest-torture.sh"
+    torture_profile "$PROFILE"
+    ;;
+  torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying)
+    source "/mnt/maho-src/tools/vm/guest-torture.sh"
+    torture_reboot_profile "$PROFILE" "$TORTURE_STAGE"
+    ;;
+  torture-reboot-update-phases)
+    source "/mnt/maho-src/tools/vm/guest-torture.sh"
+    torture_update_reboot_profile "$TORTURE_STAGE"
+    ;;
   *) echo "FAIL  unknown profile $PROFILE" >&2; exit 2;;
 esac
 STATUS=passed

@@ -60,7 +60,7 @@ Type=oneshot
 ExecStart=/usr/bin/bash /mnt/maho-src/tools/vm/guest-certify.sh
 ExecStartPost=-/usr/bin/systemctl --no-block poweroff
 ExecStopPost=-/usr/bin/systemctl --no-block poweroff
-TimeoutStartSec=12min
+TimeoutStartSec=45min
 UNIT
 
     cat > "$newroot/etc/systemd/system/maho-vm-certify.target" <<'UNIT'
