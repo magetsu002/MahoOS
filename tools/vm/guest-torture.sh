@@ -623,7 +623,7 @@ scenario_runtime_executor_death() {
     *) return 2;;
   esac
   tag="executor-death-$mode-$RANDOM"
-  runtime_stage_campaign "$tag" "$directory"
+  runtime_stage_campaign "$tag" "$directory" yes
   begin="$(date +%s%N)"
   rc=0
   u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$mode" <<'PY_INNER' || rc=$?
@@ -650,7 +650,7 @@ PY_INNER
   if [ "$mode" = before-mutation ]; then
     [ "$state" = recovering ] || { SCENARIO_REASON="durable state was not RECOVERING after pre-mutation executor death: $state"; return 1; }
   else
-    [ "$state" = verifying ] || { SCENARIO_REASON="durable state was not VERIFYING after post-mutation executor death: $state"; return 1; }
+    [ "$state" = recovering ] || { SCENARIO_REASON="durable state was not RECOVERING after post-mutation executor death: $state"; return 1; }
     [ -s /tmp/maho-runtime-mutation-complete ] || { SCENARIO_REASON="post-mutation death marker absent"; return 1; }
   fi
   if ! u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
@@ -667,6 +667,7 @@ PY_INNER
     SCENARIO_REASON="automatic recovery refused to resume after executor death"
     return 1
   fi
+  u systemctl --user start maho-guardian.service
   runtime_refresh_and_reconcile "$RUNTIME_INCIDENT_ID" || { SCENARIO_REASON="recovery did not converge after executor death"; return 1; }
   SCENARIO_CONVERGENCE_MS=$((($(date +%s%N) - begin) / 1000000))
   SCENARIO_RECOVERY_MS="$SCENARIO_CONVERGENCE_MS"

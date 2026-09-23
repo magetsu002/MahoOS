@@ -61,7 +61,7 @@ isolation() {
 }
 
 prepare_source() {
-  rm -rf "$SRC"; mkdir -p "$SRC"; cp -a /mnt/maho-src/. "$SRC/"; rm -f "$SRC/.git"
+  rm -rf "$SRC"; mkdir -p "$SRC"; cp -a /mnt/maho-src/. "$SRC/"; rm -rf "$SRC/.git"
   mkdir -p "$SRC/share/maho"
   python3 - "$SRC/share/maho/release.json" "$REV" <<'PY'
 import json,pathlib,sys

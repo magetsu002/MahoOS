@@ -1,7 +1,7 @@
 {
   "bugs_found": [],
   "campaign": {
-    "evidence_path": "/home/magetsu/.local/state/maho/certification/vm-torture/20260923T122456Z-649bff02262ebd68899972617e152d8b2a057a3b",
+    "evidence_path": "/home/magetsu/.local/state/maho/certification/vm-torture/20260923T173853Z-dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
     "total_destructive_injections": 66,
     "total_iterations": 66,
     "total_scenarios": 35
@@ -10,9 +10,9 @@
   "compound_failures": [
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 46633,
+      "convergence_latency_ms": 47734,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168461338392135,
+      "end_time_ns": 1790187361313289661,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -32,17 +32,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 46633,
+      "recovery_latency_ms": 47734,
       "scenario": "bounded-ui-failure-storm",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168414685559972
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187313564701592
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 9131,
+      "convergence_latency_ms": 9680,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168367683138761,
+      "end_time_ns": 1790187266137886728,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -62,17 +62,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9131,
+      "recovery_latency_ms": 9680,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168358442829723
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187256335120248
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8379,
+      "convergence_latency_ms": 8176,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168376750744302,
+      "end_time_ns": 1790187275035786479,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -92,17 +92,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8379,
+      "recovery_latency_ms": 8176,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168368257655191
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187266765817267
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8280,
+      "convergence_latency_ms": 8941,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168385788232778,
+      "end_time_ns": 1790187284714869013,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -122,17 +122,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8280,
+      "recovery_latency_ms": 8941,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168377376147062
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187275637191074
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8049,
+      "convergence_latency_ms": 9169,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168394544565457,
+      "end_time_ns": 1790187294668298823,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -152,17 +152,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8049,
+      "recovery_latency_ms": 9169,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168386399901337
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187285371286806
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 9186,
+      "convergence_latency_ms": 8142,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168404410376236,
+      "end_time_ns": 1790187303555198752,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -182,17 +182,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9186,
+      "recovery_latency_ms": 8142,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168395118480888
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187295291230195
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8516,
+      "convergence_latency_ms": 8672,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168413912188063,
+      "end_time_ns": 1790187312978538292,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -212,21 +212,21 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8516,
+      "recovery_latency_ms": 8672,
       "scenario": "compound-session-wallpaper-clipboard",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168405172546835
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187304150832806
     }
   ],
   "coverage_gaps": [],
-  "generated_at": "2026-09-23T13:03:54.442084+00:00",
+  "generated_at": "2026-09-23T18:18:48.771387+00:00",
   "guardian": [
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2262,
+      "convergence_latency_ms": 2257,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166690151983080,
+      "end_time_ns": 1790185550369993506,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -246,17 +246,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2262,
+      "recovery_latency_ms": 2257,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166687809634849
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185548034347054
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2347,
+      "convergence_latency_ms": 2585,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166693142256043,
+      "end_time_ns": 1790185553722731613,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -276,17 +276,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2347,
+      "recovery_latency_ms": 2585,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166690711528262
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185551038671288
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2363,
+      "convergence_latency_ms": 2659,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166696153036466,
+      "end_time_ns": 1790185557090527847,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -306,17 +306,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2363,
+      "recovery_latency_ms": 2659,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166693708584959
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185554337931538
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2526,
+      "convergence_latency_ms": 2515,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166699262253409,
+      "end_time_ns": 1790185560255143340,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -336,17 +336,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2526,
+      "recovery_latency_ms": 2515,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166696652450881
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185557653726993
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2371,
+      "convergence_latency_ms": 2271,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166702253961653,
+      "end_time_ns": 1790185563103266017,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -366,17 +366,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2371,
+      "recovery_latency_ms": 2271,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166699795716287
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185560758865333
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5681,
+      "convergence_latency_ms": 5641,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166712809150276,
+      "end_time_ns": 1790185573889003211,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -396,17 +396,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5681,
+      "recovery_latency_ms": 5641,
       "scenario": "journal-flood-reconciliation",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166707113111221
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185568227631364
     },
     {
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166706554730598,
+      "end_time_ns": 1790185567715600328,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -429,8 +429,8 @@
       "recovery_latency_ms": null,
       "scenario": "stale-guardian-evidence",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166702649670617
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185563677072571
     }
   ],
   "harness_defects_fixed": [
@@ -498,31 +498,31 @@
   "passed": true,
   "performance": {
     "convergence_latency_ms": {
-      "max_ms": 46633,
-      "median_ms": 7926,
-      "min_ms": 581,
-      "p95_ms": 18409,
+      "max_ms": 47734,
+      "median_ms": 8225,
+      "min_ms": 579,
+      "p95_ms": 19775,
       "samples": 50
     },
     "detection_latency_ms": {
-      "max_ms": 5878,
-      "median_ms": 325,
+      "max_ms": 5688,
+      "median_ms": 336,
       "min_ms": 281,
-      "p95_ms": 5629,
+      "p95_ms": 5582,
       "samples": 24
     },
     "recovery_latency_ms": {
-      "max_ms": 46633,
-      "median_ms": 7926,
-      "min_ms": 581,
-      "p95_ms": 18409,
+      "max_ms": 47734,
+      "median_ms": 8225,
+      "min_ms": 579,
+      "p95_ms": 19775,
       "samples": 50
     },
     "worst_convergence": {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 46633,
+      "convergence_latency_ms": 47734,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168461338392135,
+      "end_time_ns": 1790187361313289661,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -542,11 +542,11 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 46633,
+      "recovery_latency_ms": 47734,
       "scenario": "bounded-ui-failure-storm",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168414685559972
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187313564701592
     }
   },
   "prevention": [
@@ -554,7 +554,7 @@
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472371983,
+      "end_time_ns": 1790187080072622643,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": null,
@@ -569,14 +569,14 @@
       "recovery_latency_ms": null,
       "scenario": "authority-replay-and-stale-identity",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472142983,
+      "end_time_ns": 1790187080072416217,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": null,
@@ -591,14 +591,14 @@
       "recovery_latency_ms": null,
       "scenario": "protected-filesystem-destruction",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472255417,
+      "end_time_ns": 1790187080072536147,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": null,
@@ -613,14 +613,14 @@
       "recovery_latency_ms": null,
       "scenario": "protected-process-signal",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "RECOVERED_WITH_AUTHORITY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472453185,
+      "end_time_ns": 1790187080072699442,
       "expected_outcome": "RECOVERED_WITH_AUTHORITY",
       "failure_reason": null,
       "guardian_after": null,
@@ -635,8 +635,8 @@
       "recovery_latency_ms": null,
       "scenario": "scoped-break-glass",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     }
   ],
   "required_minimum_iterations": {
@@ -681,7 +681,7 @@
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166841104225682,
+      "end_time_ns": 1790185708053593347,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -704,14 +704,14 @@
       "recovery_latency_ms": null,
       "scenario": "corrupt-recovery-prior",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166839916344068
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185706898502788
     },
     {
       "actual_outcome": "RECOVERED_WITH_AUTHORITY",
-      "convergence_latency_ms": 9103,
-      "detection_latency_ms": 2745,
-      "end_time_ns": 1790166828387490746,
+      "convergence_latency_ms": 9433,
+      "detection_latency_ms": 2934,
+      "end_time_ns": 1790185695209019070,
       "expected_outcome": "RECOVERED_WITH_AUTHORITY",
       "failure_reason": null,
       "guardian_after": {
@@ -731,19 +731,19 @@
       "manual_intervention_required": true,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9103,
+      "recovery_latency_ms": 9433,
       "scenario": "immutable-runtime-corruption",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166819269618742
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185685759547385
     }
   ],
   "scenarios": [
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 46633,
+      "convergence_latency_ms": 47734,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168461338392135,
+      "end_time_ns": 1790187361313289661,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -763,17 +763,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 46633,
+      "recovery_latency_ms": 47734,
       "scenario": "bounded-ui-failure-storm",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168414685559972
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187313564701592
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 9131,
+      "convergence_latency_ms": 9680,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168367683138761,
+      "end_time_ns": 1790187266137886728,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -793,17 +793,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9131,
+      "recovery_latency_ms": 9680,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168358442829723
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187256335120248
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8379,
+      "convergence_latency_ms": 8176,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168376750744302,
+      "end_time_ns": 1790187275035786479,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -823,17 +823,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8379,
+      "recovery_latency_ms": 8176,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168368257655191
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187266765817267
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8280,
+      "convergence_latency_ms": 8941,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168385788232778,
+      "end_time_ns": 1790187284714869013,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -853,17 +853,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8280,
+      "recovery_latency_ms": 8941,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168377376147062
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187275637191074
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8049,
+      "convergence_latency_ms": 9169,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168394544565457,
+      "end_time_ns": 1790187294668298823,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -883,17 +883,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8049,
+      "recovery_latency_ms": 9169,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168386399901337
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187285371286806
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 9186,
+      "convergence_latency_ms": 8142,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168404410376236,
+      "end_time_ns": 1790187303555198752,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -913,17 +913,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9186,
+      "recovery_latency_ms": 8142,
       "scenario": "compound-session-guardian",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168395118480888
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187295291230195
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8516,
+      "convergence_latency_ms": 8672,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168413912188063,
+      "end_time_ns": 1790187312978538292,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -943,17 +943,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8516,
+      "recovery_latency_ms": 8672,
       "scenario": "compound-session-wallpaper-clipboard",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168405172546835
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187304150832806
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2262,
+      "convergence_latency_ms": 2257,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166690151983080,
+      "end_time_ns": 1790185550369993506,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -973,17 +973,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2262,
+      "recovery_latency_ms": 2257,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166687809634849
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185548034347054
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2347,
+      "convergence_latency_ms": 2585,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166693142256043,
+      "end_time_ns": 1790185553722731613,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1003,17 +1003,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2347,
+      "recovery_latency_ms": 2585,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166690711528262
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185551038671288
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2363,
+      "convergence_latency_ms": 2659,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166696153036466,
+      "end_time_ns": 1790185557090527847,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1033,17 +1033,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2363,
+      "recovery_latency_ms": 2659,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166693708584959
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185554337931538
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2526,
+      "convergence_latency_ms": 2515,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166699262253409,
+      "end_time_ns": 1790185560255143340,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1063,17 +1063,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2526,
+      "recovery_latency_ms": 2515,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166696652450881
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185557653726993
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 2371,
+      "convergence_latency_ms": 2271,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166702253961653,
+      "end_time_ns": 1790185563103266017,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1093,17 +1093,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 2371,
+      "recovery_latency_ms": 2271,
       "scenario": "guardian-self-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166699795716287
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185560758865333
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5681,
+      "convergence_latency_ms": 5641,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166712809150276,
+      "end_time_ns": 1790185573889003211,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1123,17 +1123,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5681,
+      "recovery_latency_ms": 5641,
       "scenario": "journal-flood-reconciliation",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166707113111221
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185568227631364
     },
     {
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166706554730598,
+      "end_time_ns": 1790185567715600328,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1156,14 +1156,14 @@
       "recovery_latency_ms": null,
       "scenario": "stale-guardian-evidence",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166702649670617
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185563677072571
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167980781802233,
+      "end_time_ns": 1790186887184410232,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1186,14 +1186,14 @@
       "recovery_latency_ms": null,
       "scenario": "isolated-network-loss",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167948880203344
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186854971929841
     },
     {
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167852723718703,
+      "end_time_ns": 1790186759943108810,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1277,7 +1277,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:50:51.378Z",
+            "opened_at": "2026-09-23T18:05:58.881Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -1285,7 +1285,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:50:51.378Z",
+            "updated_at": "2026-09-23T18:05:58.881Z",
             "version": 1
           }
         ],
@@ -1306,14 +1306,14 @@
       "recovery_latency_ms": null,
       "scenario": "bad-postcondition-runtime",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167817259523529
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186725721387401
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 1517,
+      "convergence_latency_ms": 1516,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167815488344734,
+      "end_time_ns": 1790186724017925677,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1333,17 +1333,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 1517,
+      "recovery_latency_ms": 1516,
       "scenario": "bad-postcondition-session",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167813955649956
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186722483558774
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 581,
+      "convergence_latency_ms": 579,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167816690392973,
+      "end_time_ns": 1790186725173928696,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1363,17 +1363,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 581,
+      "recovery_latency_ms": 579,
       "scenario": "bad-postcondition-wallpaper",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167816085108657
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186724572810888
     },
     {
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167866766271738,
+      "end_time_ns": 1790186774348774078,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1457,7 +1457,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:50:51.378Z",
+            "opened_at": "2026-09-23T18:05:58.881Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -1465,7 +1465,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:50:51.378Z",
+            "updated_at": "2026-09-23T18:05:58.881Z",
             "version": 1
           }
         ],
@@ -1552,7 +1552,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:50:51.378Z",
+            "opened_at": "2026-09-23T18:05:58.881Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -1560,7 +1560,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:50:51.378Z",
+            "updated_at": "2026-09-23T18:05:58.881Z",
             "version": 1
           }
         ],
@@ -1576,14 +1576,14 @@
       "recovery_latency_ms": null,
       "scenario": "recovery-loop-prevention",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167853351869657
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186760665527458
     },
     {
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472371983,
+      "end_time_ns": 1790187080072622643,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": null,
@@ -1598,14 +1598,14 @@
       "recovery_latency_ms": null,
       "scenario": "authority-replay-and-stale-identity",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472142983,
+      "end_time_ns": 1790187080072416217,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": null,
@@ -1620,14 +1620,14 @@
       "recovery_latency_ms": null,
       "scenario": "protected-filesystem-destruction",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472255417,
+      "end_time_ns": 1790187080072536147,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": null,
@@ -1642,14 +1642,14 @@
       "recovery_latency_ms": null,
       "scenario": "protected-process-signal",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "RECOVERED_WITH_AUTHORITY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168181472453185,
+      "end_time_ns": 1790187080072699442,
       "expected_outcome": "RECOVERED_WITH_AUTHORITY",
       "failure_reason": null,
       "guardian_after": null,
@@ -1664,14 +1664,14 @@
       "recovery_latency_ms": null,
       "scenario": "scoped-break-glass",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168170618693461
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187068468999131
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 19661,
+      "convergence_latency_ms": 19775,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167358193168032,
+      "end_time_ns": 1790186254959038418,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1760,7 +1760,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:42:07.312Z",
+            "opened_at": "2026-09-23T17:57:03.020Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -1768,7 +1768,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:42:07.312Z",
+            "updated_at": "2026-09-23T17:57:03.020Z",
             "version": 1
           }
         ],
@@ -1781,17 +1781,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 19661,
+      "recovery_latency_ms": 19775,
       "scenario": "runtime-reboot-awaiting",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167338341385488
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186235011156708
     },
     {
       "actual_outcome": "DETECTED_ONLY",
-      "convergence_latency_ms": 18409,
+      "convergence_latency_ms": 21615,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167492787974156,
+      "end_time_ns": 1790186395603129351,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -1875,7 +1875,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:44:22.943Z",
+            "opened_at": "2026-09-23T17:59:22.902Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -1883,7 +1883,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:44:22.943Z",
+            "updated_at": "2026-09-23T17:59:22.902Z",
             "version": 1
           }
         ],
@@ -1970,7 +1970,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:44:22.943Z",
+            "opened_at": "2026-09-23T17:59:22.902Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -1978,7 +1978,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:44:22.943Z",
+            "updated_at": "2026-09-23T17:59:22.902Z",
             "version": 1
           }
         ],
@@ -1991,17 +1991,17 @@
       "manual_intervention_required": true,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 18409,
+      "recovery_latency_ms": 21615,
       "scenario": "runtime-reboot-recovering",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167474191877638
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186373787116246
     },
     {
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167727527946717,
+      "end_time_ns": 1790186636735004963,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2024,14 +2024,14 @@
       "recovery_latency_ms": null,
       "scenario": "update-phase-reboot-durability",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167727335094068
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186636571520545
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 20168,
+      "convergence_latency_ms": 19880,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167642643316046,
+      "end_time_ns": 1790186548237219765,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2120,7 +2120,7 @@
                 "verified": false
               }
             },
-            "opened_at": "2026-09-23T12:46:47.053Z",
+            "opened_at": "2026-09-23T18:01:53.316Z",
             "resolved_at": null,
             "source_kind": "security-incident",
             "status": "active",
@@ -2128,7 +2128,7 @@
               "id": "maho-runtime",
               "type": "runtime"
             },
-            "updated_at": "2026-09-23T12:46:47.053Z",
+            "updated_at": "2026-09-23T18:01:53.316Z",
             "version": 1
           }
         ],
@@ -2141,17 +2141,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 20168,
+      "recovery_latency_ms": 19880,
       "scenario": "runtime-reboot-verifying",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167622278301693
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186528139243552
     },
     {
       "actual_outcome": "PREVENTED",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168630753249969,
+      "end_time_ns": 1790187525708673978,
       "expected_outcome": "PREVENTED",
       "failure_reason": null,
       "guardian_after": {
@@ -2174,14 +2174,14 @@
       "recovery_latency_ms": null,
       "scenario": "full-disposable-root-destruction",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168547765682792
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187442224914514
     },
     {
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166841104225682,
+      "end_time_ns": 1790185708053593347,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2204,14 +2204,14 @@
       "recovery_latency_ms": null,
       "scenario": "corrupt-recovery-prior",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166839916344068
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185706898502788
     },
     {
       "actual_outcome": "RECOVERED_WITH_AUTHORITY",
-      "convergence_latency_ms": 9103,
-      "detection_latency_ms": 2745,
-      "end_time_ns": 1790166828387490746,
+      "convergence_latency_ms": 9433,
+      "detection_latency_ms": 2934,
+      "end_time_ns": 1790185695209019070,
       "expected_outcome": "RECOVERED_WITH_AUTHORITY",
       "failure_reason": null,
       "guardian_after": {
@@ -2231,17 +2231,17 @@
       "manual_intervention_required": true,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9103,
+      "recovery_latency_ms": 9433,
       "scenario": "immutable-runtime-corruption",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166819269618742
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185685759547385
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 12820,
+      "convergence_latency_ms": 13574,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166962056171364,
+      "end_time_ns": 1790185838828394081,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2261,17 +2261,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 12820,
+      "recovery_latency_ms": 13574,
       "scenario": "recovery-executor-death-before-mutation",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166916860457502
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185788091972553
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 12464,
+      "convergence_latency_ms": 13341,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167083985085834,
+      "end_time_ns": 1790185968215608079,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2291,17 +2291,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 12464,
+      "recovery_latency_ms": 13341,
       "scenario": "recovery-executor-death-after-mutation",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167037809267831
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185918379651233
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 14814,
+      "convergence_latency_ms": 15841,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167217883802342,
+      "end_time_ns": 1790186098770814173,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2321,17 +2321,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 14814,
+      "recovery_latency_ms": 15841,
       "scenario": "guardian-death-during-runtime-verifying",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167169235977598
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186046058335980
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 4790,
+      "convergence_latency_ms": 4898,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166583389482058,
+      "end_time_ns": 1790185433592019442,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2351,17 +2351,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 4790,
+      "recovery_latency_ms": 4898,
       "scenario": "clipboard-worker-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166578515975173
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185428571409044
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 6094,
+      "convergence_latency_ms": 6117,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166577764427249,
+      "end_time_ns": 1790185428080725364,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2381,17 +2381,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 6094,
+      "recovery_latency_ms": 6117,
       "scenario": "quickshell-all-surfaces",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166571647951642
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185421949862721
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5878,
-      "detection_latency_ms": 5878,
-      "end_time_ns": 1790166558468321352,
+      "convergence_latency_ms": 5642,
+      "detection_latency_ms": 5642,
+      "end_time_ns": 1790185408831062708,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2411,17 +2411,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5878,
+      "recovery_latency_ms": 5642,
       "scenario": "quickshell-surface-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166552497682231
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185403094605451
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5629,
-      "detection_latency_ms": 5629,
-      "end_time_ns": 1790166564737292856,
+      "convergence_latency_ms": 5688,
+      "detection_latency_ms": 5688,
+      "end_time_ns": 1790185415337687722,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2441,17 +2441,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5629,
+      "recovery_latency_ms": 5688,
       "scenario": "quickshell-surface-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166559028133299
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185409555357489
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5659,
-      "detection_latency_ms": 5659,
-      "end_time_ns": 1790166571009719410,
+      "convergence_latency_ms": 5582,
+      "detection_latency_ms": 5582,
+      "end_time_ns": 1790185421496360723,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2471,17 +2471,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5659,
+      "recovery_latency_ms": 5582,
       "scenario": "quickshell-surface-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166565276195241
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185415832430334
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8308,
-      "detection_latency_ms": 307,
-      "end_time_ns": 1790166385590515287,
+      "convergence_latency_ms": 8979,
+      "detection_latency_ms": 322,
+      "end_time_ns": 1790185226517112391,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2501,17 +2501,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8308,
+      "recovery_latency_ms": 8979,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166377244174749
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185217503716904
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7624,
-      "detection_latency_ms": 326,
-      "end_time_ns": 1790166462505140067,
+      "convergence_latency_ms": 7912,
+      "detection_latency_ms": 369,
+      "end_time_ns": 1790185306539464845,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2531,17 +2531,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7624,
+      "recovery_latency_ms": 7912,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166454845804832
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185298600272117
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7957,
-      "detection_latency_ms": 322,
-      "end_time_ns": 1790166471079108291,
+      "convergence_latency_ms": 9238,
+      "detection_latency_ms": 368,
+      "end_time_ns": 1790185316427421425,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2561,17 +2561,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7957,
+      "recovery_latency_ms": 9238,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166463088656165
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185307155061969
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8202,
-      "detection_latency_ms": 300,
-      "end_time_ns": 1790166479898219432,
+      "convergence_latency_ms": 8092,
+      "detection_latency_ms": 301,
+      "end_time_ns": 1790185325183352106,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2591,17 +2591,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8202,
+      "recovery_latency_ms": 8092,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166471659485044
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185317050408924
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 11541,
-      "detection_latency_ms": 324,
-      "end_time_ns": 1790166492089142670,
+      "convergence_latency_ms": 12507,
+      "detection_latency_ms": 303,
+      "end_time_ns": 1790185338446711309,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2621,17 +2621,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 11541,
+      "recovery_latency_ms": 12507,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166480514004173
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185325906965368
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8318,
-      "detection_latency_ms": 325,
-      "end_time_ns": 1790166501009070992,
+      "convergence_latency_ms": 8047,
+      "detection_latency_ms": 316,
+      "end_time_ns": 1790185347143894314,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2651,17 +2651,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8318,
+      "recovery_latency_ms": 8047,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166492658371681
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185339059599487
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8663,
-      "detection_latency_ms": 351,
-      "end_time_ns": 1790166510282181406,
+      "convergence_latency_ms": 8198,
+      "detection_latency_ms": 353,
+      "end_time_ns": 1790185356047613178,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2681,17 +2681,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8663,
+      "recovery_latency_ms": 8198,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166501589926330
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185347814082260
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8141,
-      "detection_latency_ms": 342,
-      "end_time_ns": 1790166519125382617,
+      "convergence_latency_ms": 8315,
+      "detection_latency_ms": 331,
+      "end_time_ns": 1790185365028690665,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2711,17 +2711,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8141,
+      "recovery_latency_ms": 8315,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166510951885256
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185356675005742
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7256,
-      "detection_latency_ms": 283,
-      "end_time_ns": 1790166527220801230,
+      "convergence_latency_ms": 9101,
+      "detection_latency_ms": 311,
+      "end_time_ns": 1790185374973284686,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2741,17 +2741,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7256,
+      "recovery_latency_ms": 9101,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166519922603662
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185365830676474
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7756,
-      "detection_latency_ms": 305,
-      "end_time_ns": 1790166535539285829,
+      "convergence_latency_ms": 8462,
+      "detection_latency_ms": 388,
+      "end_time_ns": 1790185384141410535,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2771,17 +2771,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7756,
+      "recovery_latency_ms": 8462,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166527750561555
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185375638530936
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7754,
-      "detection_latency_ms": 328,
-      "end_time_ns": 1790166543871635916,
+      "convergence_latency_ms": 8178,
+      "detection_latency_ms": 336,
+      "end_time_ns": 1790185392930419344,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2801,17 +2801,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7754,
+      "recovery_latency_ms": 8178,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166536084282094
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185384716432385
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8101,
-      "detection_latency_ms": 328,
-      "end_time_ns": 1790166394341749056,
+      "convergence_latency_ms": 8626,
+      "detection_latency_ms": 373,
+      "end_time_ns": 1790185235785098898,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2831,17 +2831,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8101,
+      "recovery_latency_ms": 8626,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166386208535729
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185227121900722
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7446,
-      "detection_latency_ms": 317,
-      "end_time_ns": 1790166551873196100,
+      "convergence_latency_ms": 8822,
+      "detection_latency_ms": 281,
+      "end_time_ns": 1790185402435813569,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2861,17 +2861,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7446,
+      "recovery_latency_ms": 8822,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166544398840236
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185393572630467
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8471,
-      "detection_latency_ms": 395,
-      "end_time_ns": 1790166403393314866,
+      "convergence_latency_ms": 8153,
+      "detection_latency_ms": 355,
+      "end_time_ns": 1790185244622263008,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2891,17 +2891,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8471,
+      "recovery_latency_ms": 8153,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166394891927411
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185236432579098
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7687,
-      "detection_latency_ms": 336,
-      "end_time_ns": 1790166411874034548,
+      "convergence_latency_ms": 8225,
+      "detection_latency_ms": 296,
+      "end_time_ns": 1790185253462457855,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2921,17 +2921,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7687,
+      "recovery_latency_ms": 8225,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166404142518014
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185245199596380
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7849,
-      "detection_latency_ms": 281,
-      "end_time_ns": 1790166420282120275,
+      "convergence_latency_ms": 8315,
+      "detection_latency_ms": 313,
+      "end_time_ns": 1790185262442602166,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2951,17 +2951,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7849,
+      "recovery_latency_ms": 8315,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166412398045068
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185254093346934
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7926,
-      "detection_latency_ms": 297,
-      "end_time_ns": 1790166428771174931,
+      "convergence_latency_ms": 8374,
+      "detection_latency_ms": 380,
+      "end_time_ns": 1790185271602273913,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -2981,17 +2981,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7926,
+      "recovery_latency_ms": 8374,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166420815697770
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185263186109063
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8370,
-      "detection_latency_ms": 342,
-      "end_time_ns": 1790166437689847027,
+      "convergence_latency_ms": 8234,
+      "detection_latency_ms": 337,
+      "end_time_ns": 1790185280522832306,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3011,17 +3011,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8370,
+      "recovery_latency_ms": 8234,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166429288287985
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185272247332484
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7813,
-      "detection_latency_ms": 283,
-      "end_time_ns": 1790166446060514375,
+      "convergence_latency_ms": 8307,
+      "detection_latency_ms": 306,
+      "end_time_ns": 1790185289506241590,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3041,17 +3041,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7813,
+      "recovery_latency_ms": 8307,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166438219404806
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185281164786012
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7679,
-      "detection_latency_ms": 283,
-      "end_time_ns": 1790166454299444109,
+      "convergence_latency_ms": 7845,
+      "detection_latency_ms": 298,
+      "end_time_ns": 1790185297946979038,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3071,17 +3071,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7679,
+      "recovery_latency_ms": 7845,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166446584378844
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185290063318384
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 6780,
+      "convergence_latency_ms": 6942,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166590884300116,
+      "end_time_ns": 1790185441147870061,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3101,17 +3101,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 6780,
+      "recovery_latency_ms": 6942,
       "scenario": "wallpaper-provider-race",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166583926452233
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185434075919174
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 6929,
+      "convergence_latency_ms": 7052,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166598455810355,
+      "end_time_ns": 1790185448851219606,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3131,17 +3131,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 6929,
+      "recovery_latency_ms": 7052,
       "scenario": "wallpaper-provider-race",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166591391635622
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185441658663791
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 9101,
+      "convergence_latency_ms": 9450,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166608214493406,
+      "end_time_ns": 1790185459052566695,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3161,17 +3161,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9101,
+      "recovery_latency_ms": 9450,
       "scenario": "wallpaper-provider-race",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166598934651772
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185449371360397
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168266803959171,
+      "end_time_ns": 1790187161216579061,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3194,14 +3194,14 @@
       "recovery_latency_ms": null,
       "scenario": "enospc-durable-publication",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168265803961064
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187160161990016
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168268369985531,
+      "end_time_ns": 1790187162811730042,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3224,14 +3224,14 @@
       "recovery_latency_ms": null,
       "scenario": "readonly-durable-publication",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168267295350122
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187161697408695
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168076183979088,
+      "end_time_ns": 1790186981441237847,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3254,14 +3254,14 @@
       "recovery_latency_ms": null,
       "scenario": "real-package-mutation-interruption",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168064321114752
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186969432932597
     },
     {
       "actual_outcome": "RECOVERED_WITH_AUTHORITY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168063738684695,
+      "end_time_ns": 1790186968975143662,
       "expected_outcome": "RECOVERED_WITH_AUTHORITY",
       "failure_reason": null,
       "guardian_after": {
@@ -3284,14 +3284,14 @@
       "recovery_latency_ms": null,
       "scenario": "update-interruption-contracts",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168061242358673
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186966416752347
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168167266610474,
+      "end_time_ns": 1790187064817246241,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3314,17 +3314,17 @@
       "recovery_latency_ms": null,
       "scenario": "compound-update-guardian-restart",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168162908582986
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187060450936704
     }
   ],
   "schema_version": 1,
   "session": [
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 4790,
+      "convergence_latency_ms": 4898,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166583389482058,
+      "end_time_ns": 1790185433592019442,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3344,17 +3344,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 4790,
+      "recovery_latency_ms": 4898,
       "scenario": "clipboard-worker-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166578515975173
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185428571409044
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 6094,
+      "convergence_latency_ms": 6117,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166577764427249,
+      "end_time_ns": 1790185428080725364,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3374,17 +3374,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 6094,
+      "recovery_latency_ms": 6117,
       "scenario": "quickshell-all-surfaces",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166571647951642
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185421949862721
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5878,
-      "detection_latency_ms": 5878,
-      "end_time_ns": 1790166558468321352,
+      "convergence_latency_ms": 5642,
+      "detection_latency_ms": 5642,
+      "end_time_ns": 1790185408831062708,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3404,17 +3404,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5878,
+      "recovery_latency_ms": 5642,
       "scenario": "quickshell-surface-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166552497682231
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185403094605451
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5629,
-      "detection_latency_ms": 5629,
-      "end_time_ns": 1790166564737292856,
+      "convergence_latency_ms": 5688,
+      "detection_latency_ms": 5688,
+      "end_time_ns": 1790185415337687722,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3434,17 +3434,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5629,
+      "recovery_latency_ms": 5688,
       "scenario": "quickshell-surface-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166559028133299
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185409555357489
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 5659,
-      "detection_latency_ms": 5659,
-      "end_time_ns": 1790166571009719410,
+      "convergence_latency_ms": 5582,
+      "detection_latency_ms": 5582,
+      "end_time_ns": 1790185421496360723,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3464,17 +3464,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 5659,
+      "recovery_latency_ms": 5582,
       "scenario": "quickshell-surface-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166565276195241
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185415832430334
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8308,
-      "detection_latency_ms": 307,
-      "end_time_ns": 1790166385590515287,
+      "convergence_latency_ms": 8979,
+      "detection_latency_ms": 322,
+      "end_time_ns": 1790185226517112391,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3494,17 +3494,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8308,
+      "recovery_latency_ms": 8979,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166377244174749
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185217503716904
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7624,
-      "detection_latency_ms": 326,
-      "end_time_ns": 1790166462505140067,
+      "convergence_latency_ms": 7912,
+      "detection_latency_ms": 369,
+      "end_time_ns": 1790185306539464845,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3524,17 +3524,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7624,
+      "recovery_latency_ms": 7912,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166454845804832
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185298600272117
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7957,
-      "detection_latency_ms": 322,
-      "end_time_ns": 1790166471079108291,
+      "convergence_latency_ms": 9238,
+      "detection_latency_ms": 368,
+      "end_time_ns": 1790185316427421425,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3554,17 +3554,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7957,
+      "recovery_latency_ms": 9238,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166463088656165
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185307155061969
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8202,
-      "detection_latency_ms": 300,
-      "end_time_ns": 1790166479898219432,
+      "convergence_latency_ms": 8092,
+      "detection_latency_ms": 301,
+      "end_time_ns": 1790185325183352106,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3584,17 +3584,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8202,
+      "recovery_latency_ms": 8092,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166471659485044
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185317050408924
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 11541,
-      "detection_latency_ms": 324,
-      "end_time_ns": 1790166492089142670,
+      "convergence_latency_ms": 12507,
+      "detection_latency_ms": 303,
+      "end_time_ns": 1790185338446711309,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3614,17 +3614,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 11541,
+      "recovery_latency_ms": 12507,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166480514004173
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185325906965368
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8318,
-      "detection_latency_ms": 325,
-      "end_time_ns": 1790166501009070992,
+      "convergence_latency_ms": 8047,
+      "detection_latency_ms": 316,
+      "end_time_ns": 1790185347143894314,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3644,17 +3644,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8318,
+      "recovery_latency_ms": 8047,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166492658371681
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185339059599487
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8663,
-      "detection_latency_ms": 351,
-      "end_time_ns": 1790166510282181406,
+      "convergence_latency_ms": 8198,
+      "detection_latency_ms": 353,
+      "end_time_ns": 1790185356047613178,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3674,17 +3674,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8663,
+      "recovery_latency_ms": 8198,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166501589926330
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185347814082260
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8141,
-      "detection_latency_ms": 342,
-      "end_time_ns": 1790166519125382617,
+      "convergence_latency_ms": 8315,
+      "detection_latency_ms": 331,
+      "end_time_ns": 1790185365028690665,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3704,17 +3704,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8141,
+      "recovery_latency_ms": 8315,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166510951885256
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185356675005742
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7256,
-      "detection_latency_ms": 283,
-      "end_time_ns": 1790166527220801230,
+      "convergence_latency_ms": 9101,
+      "detection_latency_ms": 311,
+      "end_time_ns": 1790185374973284686,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3734,17 +3734,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7256,
+      "recovery_latency_ms": 9101,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166519922603662
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185365830676474
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7756,
-      "detection_latency_ms": 305,
-      "end_time_ns": 1790166535539285829,
+      "convergence_latency_ms": 8462,
+      "detection_latency_ms": 388,
+      "end_time_ns": 1790185384141410535,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3764,17 +3764,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7756,
+      "recovery_latency_ms": 8462,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166527750561555
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185375638530936
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7754,
-      "detection_latency_ms": 328,
-      "end_time_ns": 1790166543871635916,
+      "convergence_latency_ms": 8178,
+      "detection_latency_ms": 336,
+      "end_time_ns": 1790185392930419344,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3794,17 +3794,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7754,
+      "recovery_latency_ms": 8178,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166536084282094
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185384716432385
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8101,
-      "detection_latency_ms": 328,
-      "end_time_ns": 1790166394341749056,
+      "convergence_latency_ms": 8626,
+      "detection_latency_ms": 373,
+      "end_time_ns": 1790185235785098898,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3824,17 +3824,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8101,
+      "recovery_latency_ms": 8626,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166386208535729
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185227121900722
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7446,
-      "detection_latency_ms": 317,
-      "end_time_ns": 1790166551873196100,
+      "convergence_latency_ms": 8822,
+      "detection_latency_ms": 281,
+      "end_time_ns": 1790185402435813569,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3854,17 +3854,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7446,
+      "recovery_latency_ms": 8822,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166544398840236
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185393572630467
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8471,
-      "detection_latency_ms": 395,
-      "end_time_ns": 1790166403393314866,
+      "convergence_latency_ms": 8153,
+      "detection_latency_ms": 355,
+      "end_time_ns": 1790185244622263008,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3884,17 +3884,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8471,
+      "recovery_latency_ms": 8153,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166394891927411
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185236432579098
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7687,
-      "detection_latency_ms": 336,
-      "end_time_ns": 1790166411874034548,
+      "convergence_latency_ms": 8225,
+      "detection_latency_ms": 296,
+      "end_time_ns": 1790185253462457855,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3914,17 +3914,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7687,
+      "recovery_latency_ms": 8225,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166404142518014
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185245199596380
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7849,
-      "detection_latency_ms": 281,
-      "end_time_ns": 1790166420282120275,
+      "convergence_latency_ms": 8315,
+      "detection_latency_ms": 313,
+      "end_time_ns": 1790185262442602166,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3944,17 +3944,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7849,
+      "recovery_latency_ms": 8315,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166412398045068
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185254093346934
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7926,
-      "detection_latency_ms": 297,
-      "end_time_ns": 1790166428771174931,
+      "convergence_latency_ms": 8374,
+      "detection_latency_ms": 380,
+      "end_time_ns": 1790185271602273913,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -3974,17 +3974,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7926,
+      "recovery_latency_ms": 8374,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166420815697770
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185263186109063
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 8370,
-      "detection_latency_ms": 342,
-      "end_time_ns": 1790166437689847027,
+      "convergence_latency_ms": 8234,
+      "detection_latency_ms": 337,
+      "end_time_ns": 1790185280522832306,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4004,17 +4004,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 8370,
+      "recovery_latency_ms": 8234,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166429288287985
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185272247332484
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7813,
-      "detection_latency_ms": 283,
-      "end_time_ns": 1790166446060514375,
+      "convergence_latency_ms": 8307,
+      "detection_latency_ms": 306,
+      "end_time_ns": 1790185289506241590,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4034,17 +4034,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7813,
+      "recovery_latency_ms": 8307,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166438219404806
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185281164786012
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 7679,
-      "detection_latency_ms": 283,
-      "end_time_ns": 1790166454299444109,
+      "convergence_latency_ms": 7845,
+      "detection_latency_ms": 298,
+      "end_time_ns": 1790185297946979038,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4064,17 +4064,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 7679,
+      "recovery_latency_ms": 7845,
       "scenario": "session-compositor-kill",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166446584378844
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185290063318384
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 6780,
+      "convergence_latency_ms": 6942,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166590884300116,
+      "end_time_ns": 1790185441147870061,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4094,17 +4094,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 6780,
+      "recovery_latency_ms": 6942,
       "scenario": "wallpaper-provider-race",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166583926452233
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185434075919174
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 6929,
+      "convergence_latency_ms": 7052,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166598455810355,
+      "end_time_ns": 1790185448851219606,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4124,17 +4124,17 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 6929,
+      "recovery_latency_ms": 7052,
       "scenario": "wallpaper-provider-race",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166591391635622
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185441658663791
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
-      "convergence_latency_ms": 9101,
+      "convergence_latency_ms": 9450,
       "detection_latency_ms": null,
-      "end_time_ns": 1790166608214493406,
+      "end_time_ns": 1790185459052566695,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4154,53 +4154,29 @@
       "manual_intervention_required": false,
       "pass": true,
       "protected_effect_blocked": false,
-      "recovery_latency_ms": 9101,
+      "recovery_latency_ms": 9450,
       "scenario": "wallpaper-provider-race",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790166598934651772
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790185449371360397
     }
   ],
   "source": {
-    "campaign_sha": "649bff02262ebd68899972617e152d8b2a057a3b",
+    "campaign_sha": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
     "commits_added": [
-      "649bff02262ebd68899972617e152d8b2a057a3b Document final torture harness fixes",
-      "267180578543fe928ce2a264368f783b6614ffe5 Merge remote-tracking branch 'origin/main' into feat/full-system-torture-vm",
-      "29d76db7ab487d075189e00d0dd87e6a45ec490f Assert real update recovery result correctly",
-      "933606883e3faec9b7e911965e67dfc5af0d5322 Fix durable update torture journals",
-      "63c41899ff6b46cdb99c1e24d7ce2114fd142e2b Merge remote-tracking branch 'origin/main' into feat/full-system-torture-vm",
-      "5d311d43a937f8a0839884509338138855a8b474 Complete update interruption torture coverage",
-      "fefb647950f1a0637293142460bf7cce8eea00e0 test(vm): add full disposable root destruction",
-      "51fe12a2a262cc4721b64b0a97d78cbf4b3e1169 test(vm): isolate Guardian verifying fault cut point",
-      "502378f3d9054c283cc978b01b3670d0bb5c482e test(vm): make recovery power-cycle assertions phase-aware",
-      "4c37846add2be6df59a2ad6ac2f8a75589b3b0d4 test(vm): use valid transaction identity in update compound case",
-      "a4d62afdace104772aa020a0119665136c3b0a7d test(vm): add persistent recovery power-cycle coverage",
-      "4c89c1c71f245dd5a1dca1a3561668ee72484b08 test(vm): recognize verifying as durable post-mutation state",
-      "de25e188dc842dbcdcf23f56099e83a05ac118ae test(vm): preserve torture result after executor fault",
-      "a466d346cf64c1c2b24136ee1b44131672a144e7 test(vm): isolate runtime interruption phases",
-      "195925d08bf508bd5df83750a9335af3f73e657c test(vm): establish Guardian stream continuity before recovery faults",
-      "17466332b7db2cc43caaaf921ccedae7e61a7c80 test(vm): extend live torture coverage",
-      "0c8ecff86e64dcbc1d1984088ee6afd4fae5291f docs(vm): publish V1 full-system torture evidence",
-      "441fa99281dd9fc020029f827339336468aacd3f docs(vm): keep incomplete torture coverage explicit",
-      "2b6be176ba4955ab9baec4fbf5c1449a62e7baf2 fix(vm): verify wallpaper JSON from provider stream",
-      "7472bdce17df314996ee81ebdc9177abbaed031c fix(vm): await wallpaper provider before session torture",
-      "5b443846855b857c1e63468dd0f47d7ddb028397 test(vm): stream journal flood through one producer",
-      "ee8c20a360f813f3dce160c24e7ea480b3340a29 fix(vm): start installed Guardian authorities in torture guest",
-      "80264d641dc599abca5c267070f2462e0cfa0461 test(vm): preserve graphical setup diagnostics",
-      "cc01021f4524bbc30bad595d184211e3a5d064de fix(vm): identify dedicated home disk by virtio topology",
-      "5f3851fcfb1b7e0e03a50d5fa8113384449a4829 fix(vm): allow only read-only QEMU auxiliary media",
-      "cc14f1dd5fedd50685e1e434e9b9d17cb9df2f36 fix(vm): source torture guest logic before staging",
-      "c09ec0a6ba3f9cf1dbd8a59fec8cc02c19780398 test(vm): add fail-closed full-system torture harness"
+      "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8 fix(guardian): serialize automatic runtime recovery",
+      "0bb3754c0c110e6929b9f5e26cde817731728e29 fix(vm): support primary checkout source cleanup",
+      "a905ac54d6d197a324e74ba8917857be37670d04 update: resume transient package staging failures"
     ],
-    "ending_sha_before_report_commit": "649bff02262ebd68899972617e152d8b2a057a3b",
-    "mission_starting_sha": "8ce0f3eb2791e052f764b8633a41d3946acf97ca"
+    "ending_sha_before_report_commit": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+    "mission_starting_sha": "3ec29441bf33c77af47249fc6273cba5f79c504a"
   },
   "storage": [
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168266803959171,
+      "end_time_ns": 1790187161216579061,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4223,14 +4199,14 @@
       "recovery_latency_ms": null,
       "scenario": "enospc-durable-publication",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168265803961064
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187160161990016
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168268369985531,
+      "end_time_ns": 1790187162811730042,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4253,8 +4229,8 @@
       "recovery_latency_ms": null,
       "scenario": "readonly-durable-publication",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168267295350122
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187161697408695
     }
   ],
   "unresolved": {
@@ -4267,7 +4243,7 @@
       "actual_outcome": "DETECTED_ONLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790167727527946717,
+      "end_time_ns": 1790186636735004963,
       "expected_outcome": "DETECTED_ONLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4290,14 +4266,14 @@
       "recovery_latency_ms": null,
       "scenario": "update-phase-reboot-durability",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790167727335094068
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186636571520545
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168076183979088,
+      "end_time_ns": 1790186981441237847,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4320,14 +4296,14 @@
       "recovery_latency_ms": null,
       "scenario": "real-package-mutation-interruption",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168064321114752
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186969432932597
     },
     {
       "actual_outcome": "RECOVERED_WITH_AUTHORITY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168063738684695,
+      "end_time_ns": 1790186968975143662,
       "expected_outcome": "RECOVERED_WITH_AUTHORITY",
       "failure_reason": null,
       "guardian_after": {
@@ -4350,14 +4326,14 @@
       "recovery_latency_ms": null,
       "scenario": "update-interruption-contracts",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168061242358673
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790186966416752347
     },
     {
       "actual_outcome": "RECOVERED_AUTOMATICALLY",
       "convergence_latency_ms": null,
       "detection_latency_ms": null,
-      "end_time_ns": 1790168167266610474,
+      "end_time_ns": 1790187064817246241,
       "expected_outcome": "RECOVERED_AUTOMATICALLY",
       "failure_reason": null,
       "guardian_after": {
@@ -4380,8 +4356,8 @@
       "recovery_latency_ms": null,
       "scenario": "compound-update-guardian-restart",
       "schema_version": 1,
-      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
-      "start_time_ns": 1790168162908582986
+      "source_revision": "dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+      "start_time_ns": 1790187060450936704
     }
   ]
 }

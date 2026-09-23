@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+import fcntl
 import hashlib
 import json
 import os
@@ -1011,6 +1012,28 @@ def _claim_automatic_operation(
     return True, payload
 
 
+def _try_lock_automatic_operation(state_root: Path, operation_id: str):
+    """Own one runtime mutation without delaying a concurrent reconciler."""
+
+    stream = _automatic_operation_path(state_root, operation_id).open("rb")
+    try:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        stream.close()
+        return None
+    return stream
+
+
+def _automatic_operation_in_progress(active: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "result": "recovering",
+        "verified": False,
+        "incident_id": active.get("incident_id"),
+        "operation_id": active.get("operation_id"),
+        "in_progress": True,
+    }
+
+
 def _notification_marker(state_root: Path, incident_id: str, phase: str) -> Path:
     return _root(state_root) / "notifications" / f"{incident_id}--{phase}.json"
 
@@ -1198,7 +1221,7 @@ def _runtime_pair_position(
     }
 
 
-def _resume_automatic_runtime_recovery(
+def _resume_automatic_runtime_recovery_locked(
     state_root: Path,
     incident_id: str,
     *,
@@ -1302,6 +1325,40 @@ def _resume_automatic_runtime_recovery(
         "incident_id": incident_id,
         "receipt_id": receipt["receipt_id"],
     }
+
+
+def _resume_automatic_runtime_recovery(
+    state_root: Path,
+    incident_id: str,
+    *,
+    runtime_root: Path,
+    proc_root: Path = Path("/proc"),
+    driver: RuntimeRollbackDriver | None = None,
+) -> dict[str, Any]:
+    active = _read(_active_path(state_root, incident_id))
+    if active is None or active.get("state") != "recovering" or active.get("automatic_authority") is not True:
+        return {"result": "refused", "reason": "automatic-recovery-not-resumable"}
+    operation_id = str(active.get("operation_id") or "")
+    try:
+        operation_lock = _try_lock_automatic_operation(state_root, operation_id)
+    except OSError:
+        return _automatic_failure(
+            state_root,
+            active,
+            reason="automatic-operation-claim-invalid",
+        )
+    if operation_lock is None:
+        return _automatic_operation_in_progress(active)
+    try:
+        return _resume_automatic_runtime_recovery_locked(
+            state_root,
+            incident_id,
+            runtime_root=runtime_root,
+            proc_root=proc_root,
+            driver=driver,
+        )
+    finally:
+        operation_lock.close()
 
 
 def execute_automatic_runtime_recovery(
@@ -1454,22 +1511,59 @@ def execute_automatic_runtime_recovery(
         "verified": False,
         "exposure": decision.get("exposure"),
     }
-    _atomic_private(_active_path(state_root, incident_id), recovering)
-    _history(state_root, "recovering", recovering)
-    _notify_once(
-        state_root,
-        incident_id,
-        "started",
-        title="Maho Guardian",
-        body="System damage detected. Recovering trusted runtime.",
-    )
-    return _resume_automatic_runtime_recovery(
-        state_root,
-        incident_id,
-        runtime_root=runtime_root,
-        proc_root=proc_root,
-        driver=driver,
-    )
+    try:
+        operation_lock = _try_lock_automatic_operation(state_root, operation_id)
+    except OSError:
+        return _automatic_failure(
+            state_root,
+            recovering,
+            reason="automatic-operation-claim-invalid",
+        )
+    if operation_lock is None:
+        return _automatic_operation_in_progress(recovering)
+    try:
+        current = _read(_active_path(state_root, incident_id))
+        if (
+            current is not None
+            and current.get("operation_id") == operation_id
+            and current.get("automatic_authority") is True
+        ):
+            if current.get("state") == "recovering":
+                return _resume_automatic_runtime_recovery_locked(
+                    state_root,
+                    incident_id,
+                    runtime_root=runtime_root,
+                    proc_root=proc_root,
+                    driver=driver,
+                )
+            if current.get("state") in {
+                "verifying", "recovered", "verification-failed", "evidence-insufficient",
+            }:
+                return {
+                    "result": current.get("state"),
+                    "verified": current.get("state") == "recovered",
+                    "incident_id": incident_id,
+                    "receipt_id": current.get("receipt_id"),
+                    "idempotent": True,
+                }
+        _atomic_private(_active_path(state_root, incident_id), recovering)
+        _history(state_root, "recovering", recovering)
+        _notify_once(
+            state_root,
+            incident_id,
+            "started",
+            title="Maho Guardian",
+            body="System damage detected. Recovering trusted runtime.",
+        )
+        return _resume_automatic_runtime_recovery_locked(
+            state_root,
+            incident_id,
+            runtime_root=runtime_root,
+            proc_root=proc_root,
+            driver=driver,
+        )
+    finally:
+        operation_lock.close()
 
 
 def verify_automatic_runtime_recovery(

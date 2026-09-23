@@ -22,6 +22,7 @@ LIVE_DB = Path("/var/lib/pacman")
 LIVE_CACHE = Path("/var/cache/pacman/pkg")
 _PACKAGE = re.compile(r"[a-zA-Z0-9@._+:-]+")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+MAX_DOWNLOAD_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -397,12 +398,20 @@ def stage_transaction(
         )
         return StagingResult(blocked, None, requirement, free, resumed, ())
 
-    downloaded = backend.run(backend.download_command(targets))
-    if downloaded.returncode != 0:
+    downloaded = None
+    download_attempts = 0
+    for download_attempts in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        downloaded = backend.run(backend.download_command(targets))
+        if downloaded.returncode == 0:
+            break
+    if downloaded is None or downloaded.returncode != 0:
         failed = transition_transaction(
             current, UpdateState.FAILED_RECOVERABLE,
             reason="isolated package download or Pacman signature verification failed",
-            evidence={"exit_code": downloaded.returncode}, now=now,
+            evidence={
+                "exit_code": None if downloaded is None else downloaded.returncode,
+                "download_attempts": download_attempts,
+            }, now=now,
         )
         return StagingResult(failed, None, requirement, free, resumed, ())
 

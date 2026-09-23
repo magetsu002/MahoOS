@@ -7,6 +7,7 @@ from pathlib import Path
 from statistics import median
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 
@@ -269,6 +270,21 @@ class CrashOnceDriver:
         raise RuntimeError("simulated coordinator interruption")
 
 
+class BlockingRotatingRecoveryDriver:
+    def __init__(self, runtime: dict) -> None:
+        self.real = RotatingRecoveryDriver(runtime)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.calls = 0
+
+    def execute(self, proposal: dict) -> dict:
+        self.calls += 1
+        self.entered.set()
+        if not self.release.wait(timeout=5):
+            raise RuntimeError("concurrent recovery test did not release driver")
+        return self.real.execute(proposal)
+
+
 def main() -> None:
     timings: list[dict[str, float]] = []
 
@@ -528,6 +544,61 @@ def main() -> None:
             completed = finish_verification(ctx)
             check("interrupted operation can finish verified", completed["result"] == "recovered")
         finally:
+            make_tree_writable(base)
+
+    with tempfile.TemporaryDirectory(prefix="maho-auto-concurrent-") as raw:
+        base = Path(raw)
+        blocking = None
+        worker = None
+        try:
+            ctx = fixture(base)
+            provider_observation(ctx["state"])
+            proposal = plan(ctx)
+            blocking = BlockingRotatingRecoveryDriver(ctx["runtime"])
+            outcome: dict = {}
+
+            def execute_first() -> None:
+                try:
+                    outcome["result"] = auto_execute(ctx, proposal, blocking)
+                except BaseException as exc:  # surfaced in the parent assertion
+                    outcome["error"] = exc
+
+            worker = threading.Thread(target=execute_first, daemon=True)
+            worker.start()
+            check("first coordinator reaches the in-flight mutation boundary", blocking.entered.wait(timeout=5))
+            duplicate_driver = RotatingRecoveryDriver(ctx["runtime"])
+            duplicate = recovery.execute_automatic_runtime_recovery(
+                ctx["state"],
+                ctx["incident_id"],
+                db_root=ctx["db"],
+                runtime_root=ctx["runtime"]["root"],
+                proc_root=ctx["proc"],
+                fs_root=ctx["fs"],
+                uid=ctx["uid"],
+                driver=duplicate_driver,
+            )
+            check(
+                "concurrent coordinator observes RECOVERING without a second mutation",
+                duplicate["result"] == "recovering"
+                and duplicate.get("in_progress") is True
+                and duplicate_driver.calls == 0,
+            )
+            blocking.release.set()
+            worker.join(timeout=5)
+            check(
+                "single mutation owner advances the operation to VERIFYING",
+                not worker.is_alive()
+                and "error" not in outcome
+                and outcome.get("result", {}).get("result") == "verifying"
+                and blocking.calls == 1,
+            )
+            completed = finish_verification(ctx)
+            check("concurrent recovery still reaches verified result", completed["result"] == "recovered")
+        finally:
+            if blocking is not None:
+                blocking.release.set()
+            if worker is not None:
+                worker.join(timeout=5)
             make_tree_writable(base)
 
     keys = (
