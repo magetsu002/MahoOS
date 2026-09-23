@@ -308,7 +308,7 @@ scenario_update_contracts() {
 scenario_real_package_mutation_interruption() {
   local directory="$1" iteration="$2" build package journal
   build="$HOME_VM/.cache/maho/torture-real-package"
-  journal=/var/tmp/maho-real-update-transaction.json
+  journal=/var/tmp/maho-real-update
   rm -rf "$build" "$journal"
   install -d -o "$UID_VM" -g "$UID_VM" "$build"
   cat >"$build/PKGBUILD" <<'EOF_PKG'
@@ -337,7 +337,7 @@ package=pathlib.Path(sys.argv[2])
 journal=pathlib.Path(sys.argv[3])
 evidence_path=pathlib.Path(sys.argv[4])
 sys.path.insert(0,str(root/"lib"))
-from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id, write_transaction
+from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id, transaction_path, write_transaction
 from maho_update_transaction import build_execution_plan, execute_update
 
 target=pathlib.Path("/usr/share/maho-torture-update/payload.bin")
@@ -354,6 +354,7 @@ tx=create_transaction(
     recovery_generation_id="g3-1234567890abcdef12345678")
 for state in (UpdateState.STAGED,UpdateState.PREPARED,UpdateState.MAINTENANCE_READY):
     tx=transition_transaction(tx,state)
+journal=transaction_path(journal,tx["transaction_id"])
 write_transaction(journal,tx)
 manifest={"schema_version":1,"transaction_id":tx["transaction_id"],
           "package_generation_id":tx["package_generation"]["id"],
@@ -428,11 +429,18 @@ assert not target.exists()
 payload={"transaction_id":tx["transaction_id"],"final_state":result.transaction["state"],
          "mutation_started":result.mutation_started,"recovered":result.recovered,
          "package_present_after_recovery":False,"generation_promoted":False,
-         "known_good_preserved":result.transaction["state"]=="RECOVERED",**proof}
+         "known_good_preserved":result.transaction["state"]=="RECOVERED",
+         "journal_path":str(journal),**proof}
 evidence_path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
 PY_INNER
+  [ "$?" -eq 0 ] || { SCENARIO_REASON="real package mutation driver failed"; return 1; }
 
+  journal="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["journal_path"])' "$directory/evidence/real-package-interruption.json")" || {
+    SCENARIO_REASON="real package interruption evidence did not identify its transaction journal"
+    return 1
+  }
   cp "$journal" "$directory/evidence/final-update-transaction.json"
+  [ "$?" -eq 0 ] || { SCENARIO_REASON="final update transaction journal was not preserved"; return 1; }
   python3 - "$directory/evidence/real-package-interruption.json" <<'PY_INNER'
 import json,sys
 d=json.load(open(sys.argv[1]))
@@ -445,6 +453,7 @@ assert d["package_present_after_recovery"] is False
 assert d["generation_promoted"] is False
 assert d["known_good_preserved"] is True
 PY_INNER
+  [ "$?" -eq 0 ] || { SCENARIO_REASON="real package interruption postconditions failed"; return 1; }
   SCENARIO_HOST_MUTATION=true
   SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
 }
@@ -1070,7 +1079,7 @@ stage_update_reboot_phases() {
   PYTHONPATH="$SRC/lib" python3 - "$rootdir" "$marker" "$REV" "$(cat /proc/sys/kernel/random/boot_id)" <<'PY_INNER'
 import json, pathlib, sys
 root=pathlib.Path(sys.argv[1]); marker=pathlib.Path(sys.argv[2]); rev=sys.argv[3]; boot=sys.argv[4]
-from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id, write_transaction
+from maho_update_state import UpdateState, create_transaction, transition_transaction, new_transaction_id, transaction_path, write_transaction
 states=[UpdateState.PREPARED,UpdateState.MAINTENANCE_READY,UpdateState.INSTALLING,
         UpdateState.INSTALLED_PENDING_ACTIVATION,UpdateState.ACTIVE_VERIFYING]
 paths={}
@@ -1087,7 +1096,7 @@ for idx,target in enumerate(states,1):
         tx=transition_transaction(tx,step)
         if step==target:
             break
-    path=root/f"{target.value}.json"
+    path=transaction_path(root,tx["transaction_id"])
     write_transaction(path,tx)
     paths[target.value]=str(path)
 marker.write_text(json.dumps({"schema_version":1,"stage1_boot_id":boot,"source_revision":rev,
