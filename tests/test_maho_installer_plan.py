@@ -14,6 +14,7 @@ from maho_installer_plan import (  # noqa: E402
     build_install_plan,
     disk_from_lsblk_payload,
     probe_disk,
+    validate_destructive_confirmation,
 )
 
 REV = "a" * 40
@@ -65,7 +66,7 @@ def main() -> None:
     check("exact disk plan is deterministic", first == second)
     check("clean whole disk reaches destructive-confirmation gate", first["ready_for_destructive_confirmation"] is True and not first["blockers"])
     check("plan never grants mutation authority", first["execution_authority"] == "none" and first["mutation_performed"] is False)
-    check("confirmation is bound to the full disk identity", first["destructive_confirmation"] == "ERASE-MAHO:" + first["target"]["identity_sha256"])
+    check("confirmation is bound to the full plan identity", first["destructive_confirmation"] == "ERASE-MAHO:" + first["plan_id"].removeprefix("install-plan-"))
     check("installer assembles the existing recovery stack", tuple(first["stages"]) == INSTALLER_STAGES and "guardian-recovery" in first["stages"] and "generation-authorities" in first["stages"])
     check("storage contract preserves Maho Btrfs generation shape", first["layout_contract"]["root"]["subvolumes"] == ["@", "@home", "@snapshots", "@var_log"])
 
@@ -73,6 +74,35 @@ def main() -> None:
     changed["serial"] = "MAHO-INSTALLER-0002"
     changed_plan = build_install_plan(changed, source_revision=REV)
     check("disk identity drift invalidates the old confirmation", changed_plan["destructive_confirmation"] != first["destructive_confirmation"])
+
+    gate = validate_destructive_confirmation(
+        first, disk(), source_revision=REV, confirmation=first["destructive_confirmation"],
+    )
+    check(
+        "exact confirmation validates without granting execution authority",
+        gate["confirmation_valid"] is True
+        and gate["target_identity_sha256"] == first["target"]["identity_sha256"]
+        and gate["execution_authority"] == "none"
+        and gate["mutation_performed"] is False,
+    )
+    rejected(
+        "confirmation cannot be replayed onto another disk identity",
+        lambda: validate_destructive_confirmation(
+            first, changed, source_revision=REV, confirmation=first["destructive_confirmation"],
+        ),
+    )
+    rejected(
+        "confirmation cannot be replayed across source revisions",
+        lambda: validate_destructive_confirmation(
+            first, disk(), source_revision="b" * 40, confirmation=first["destructive_confirmation"],
+        ),
+    )
+    rejected(
+        "wrong confirmation is rejected",
+        lambda: validate_destructive_confirmation(
+            first, disk(), source_revision=REV, confirmation="ERASE-MAHO:" + "0" * 64,
+        ),
+    )
 
     mounted = disk()
     mounted["children"][0]["mountpoints"] = ["/mnt/existing"]
