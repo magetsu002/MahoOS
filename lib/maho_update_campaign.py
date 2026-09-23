@@ -655,6 +655,7 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
     success = False
     try:
         candidate = btrfs.create_candidate()
+        btrfs.mount_normal_candidate_runtime()
         manifest = json.loads(Path(journal["manifest_path"]).read_text(encoding="utf-8"))
         plan = build_execution_plan(
             ready,
@@ -680,7 +681,10 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
         # Persist every in-flight/recovery state on the still-running root.
         # The candidate receives authority only after the full offline install
         # reaches INSTALLED_PENDING_ACTIVATION.
-        execution = execute_update(ready, plan, ops, journal_path=tx_path)
+        try:
+            execution = execute_update(ready, plan, ops, journal_path=tx_path)
+        finally:
+            btrfs.unmount_normal_candidate_runtime()
         if execution.transaction["state"] != UpdateState.INSTALLED_PENDING_ACTIVATION.value:
             publish_transaction(_STATE_ROOT, execution.transaction)
             if candidate is not None and execution.transaction["state"] == UpdateState.FAILED_RECOVERABLE.value:
