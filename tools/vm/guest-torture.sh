@@ -414,8 +414,12 @@ ensure_guardian_service_event_continuity() {
 }
 
 runtime_stage_campaign() {
-  local tag="$1" directory="$2" tool prepare corrupt campaign confirmation
+  local tag="$1" directory="$2" quiesce_guardian="${3:-no}" tool prepare corrupt campaign confirmation
   ensure_guardian_service_event_continuity || return 1
+  if [ "$quiesce_guardian" = yes ]; then
+    u systemctl --user stop maho-guardian.service
+    [ "$(u systemctl --user is-active maho-guardian.service 2>/dev/null || true)" != active ] || return 1
+  fi
   install_second_runtime "$tag"
   tool="$HOME_VM/.local/bin/maho-guardian-runtime-recovery-certify"
   prepare="$(u "$tool" prepare)"
@@ -546,7 +550,7 @@ PY_INNER
 scenario_runtime_guardian_dies_verifying() {
   local directory="$1" iteration="$2" tag guardian begin state
   tag="guardian-verifying-$RANDOM"
-  runtime_stage_campaign "$tag" "$directory"
+  runtime_stage_campaign "$tag" "$directory" yes
   begin="$(date +%s%N)"
   u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
 import pathlib, sys
@@ -559,7 +563,25 @@ assert result.get("result") in {"verifying","recovered"}, result
 PY_INNER
   state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
   [ "$state" = verifying ] || { SCENARIO_REASON="runtime never reached VERIFYING before Guardian fault: $state"; return 1; }
-  guardian="$(unit_main_pid maho-guardian.service)"
+
+  u systemctl --user start maho-guardian.service
+  guardian=""
+  for _ in $(seq 1 400); do
+    guardian="$(u systemctl --user show maho-guardian.service -p MainPID --value 2>/dev/null || true)"
+    if [[ "$guardian" =~ ^[0-9]+$ ]] && [ "$guardian" -gt 1 ]; then
+      break
+    fi
+    sleep 0.01
+  done
+  [[ "$guardian" =~ ^[0-9]+$ ]] && [ "$guardian" -gt 1 ] || {
+    SCENARIO_REASON="Guardian never obtained a live PID at VERIFYING cut point"
+    return 1
+  }
+  state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
+  [ "$state" = verifying ] || {
+    SCENARIO_REASON="Guardian reconciled runtime before injected death could occur: $state"
+    return 1
+  }
   torture_kill_pid "$guardian" kill
   wait_until 20 unit_replaced maho-guardian.service "$guardian" || { SCENARIO_REASON="Guardian did not restart during runtime VERIFYING"; return 1; }
   runtime_refresh_and_reconcile "$RUNTIME_INCIDENT_ID" || { SCENARIO_REASON="runtime VERIFYING did not survive Guardian death"; return 1; }
