@@ -128,6 +128,17 @@ def disk_identity_sha256(disk: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical(_identity_material(disk))).hexdigest()
 
 
+def runtime_source_revision(root: Path) -> str:
+    path = root / "share/maho/runtime-source-revision"
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ValueError("installer source revision is unavailable") from exc
+    if _SHA40.fullmatch(value) is None:
+        raise ValueError("installer source revision is invalid")
+    return value
+
+
 def destructive_confirmation(plan_id: str) -> str:
     match = re.fullmatch(r"install-plan-([0-9a-f]{64})", plan_id)
     if match is None:
