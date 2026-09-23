@@ -45,10 +45,12 @@ def transaction() -> dict:
 
 
 class FakePacman:
-    def __init__(self, cache: Path, *, missing: str | None = None, download_error: bool = False, incomplete: bool = False, extra_dependency: bool = False) -> None:
+    def __init__(self, cache: Path, *, missing: str | None = None, download_error: bool = False, download_failures: int = 0, incomplete: bool = False, extra_dependency: bool = False) -> None:
         self.cache = cache
         self.missing = missing
         self.download_error = download_error
+        self.download_failures = download_failures
+        self.download_attempts = 0
         self.incomplete = incomplete
         self.extra_dependency = extra_dependency
 
@@ -59,7 +61,8 @@ class FakePacman:
                 rows.append(("extra", "new-dependency", "1"))
             return CommandResult(0, "".join(f"{repo}\t{name}\t{version}\n" for repo, name, version in rows if name != self.missing))
         if "--downloadonly" in command:
-            if self.download_error:
+            self.download_attempts += 1
+            if self.download_error or self.download_attempts <= self.download_failures:
                 return CommandResult(1, "", "network unavailable")
             self.cache.mkdir(parents=True, exist_ok=True)
             (self.cache / "linux-cachyos-7.2-x86_64.pkg.tar.zst").write_bytes(b"kernel-payload")
@@ -134,8 +137,16 @@ def main() -> None:
         check("new dependency after discovery blocks solver drift", result.transaction["state"] == "BLOCKED" and "package_solver_drift:new-dependency" in result.transaction["blockers"])
 
     with tempfile.TemporaryDirectory(prefix="maho-update-staging-net-") as temporary:
-        result = stage_transaction(transaction(), backend(Path(temporary), download_error=True), available_bytes=1024**3, now=NOW)
-        check("network/download failure is bounded and recoverable", result.transaction["state"] == "FAILED_RECOVERABLE")
+        staging = backend(Path(temporary), download_error=True)
+        result = stage_transaction(transaction(), staging, available_bytes=1024**3, now=NOW)
+        downloads = [command for command in staging.commands if "--downloadonly" in command]
+        check("network/download failure is bounded and recoverable", result.transaction["state"] == "FAILED_RECOVERABLE" and len(downloads) == 3)
+
+    with tempfile.TemporaryDirectory(prefix="maho-update-staging-resume-") as temporary:
+        staging = backend(Path(temporary), download_failures=1)
+        result = stage_transaction(transaction(), staging, available_bytes=1024**3, now=NOW)
+        downloads = [command for command in staging.commands if "--downloadonly" in command]
+        check("transient download failure resumes the exact isolated payload set", result.transaction["state"] == "STAGED" and len(downloads) == 2)
 
     with tempfile.TemporaryDirectory(prefix="maho-update-staging-partial-") as temporary:
         result = stage_transaction(transaction(), backend(Path(temporary), incomplete=True), available_bytes=1024**3, now=NOW)
