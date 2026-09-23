@@ -1,0 +1,4387 @@
+{
+  "bugs_found": [],
+  "campaign": {
+    "evidence_path": "/home/magetsu/.local/state/maho/certification/vm-torture/20260923T122456Z-649bff02262ebd68899972617e152d8b2a057a3b",
+    "total_destructive_injections": 66,
+    "total_iterations": 66,
+    "total_scenarios": 35
+  },
+  "campaign_executed_cleanly": true,
+  "compound_failures": [
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 46633,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168461338392135,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 46633,
+      "scenario": "bounded-ui-failure-storm",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168414685559972
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 9131,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168367683138761,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9131,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168358442829723
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8379,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168376750744302,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8379,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168368257655191
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8280,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168385788232778,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8280,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168377376147062
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8049,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168394544565457,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 4,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8049,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168386399901337
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 9186,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168404410376236,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 5,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9186,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168395118480888
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8516,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168413912188063,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8516,
+      "scenario": "compound-session-wallpaper-clipboard",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168405172546835
+    }
+  ],
+  "coverage_gaps": [],
+  "generated_at": "2026-09-23T13:03:54.442084+00:00",
+  "guardian": [
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2262,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166690151983080,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2262,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166687809634849
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2347,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166693142256043,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2347,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166690711528262
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2363,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166696153036466,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2363,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166693708584959
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2526,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166699262253409,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 4,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2526,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166696652450881
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2371,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166702253961653,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 5,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2371,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166699795716287
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5681,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166712809150276,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5681,
+      "scenario": "journal-flood-reconciliation",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166707113111221
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166706554730598,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "stale-guardian-evidence",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166702649670617
+    }
+  ],
+  "harness_defects_fixed": [
+    "fail-closed predicate initially rejected read-only QEMU optical media",
+    "guest torture logic was sourced before staging",
+    "fresh-user manager required explicit startup of newly installed Guardian units",
+    "wallpaper provider readiness and JSON stream verification were assumed instead of observed",
+    "durable update-phase journals initially violated the immutable transaction filename binding",
+    "real package interruption initially masked the guest assertion failure while collecting scenario evidence"
+  ],
+  "host_safety": {
+    "boot_id_unchanged": true,
+    "maho_services_unchanged": true,
+    "prevention_state_unchanged": true,
+    "root_source_unchanged": true,
+    "source_clean_after_campaign": true,
+    "source_revision_unchanged": true
+  },
+  "kind": "maho-v1-full-system-torture-report",
+  "observed_passing_iterations": {
+    "authority-replay-and-stale-identity": 1,
+    "bad-postcondition-runtime": 1,
+    "bad-postcondition-session": 1,
+    "bad-postcondition-wallpaper": 1,
+    "bounded-ui-failure-storm": 1,
+    "clipboard-worker-kill": 1,
+    "compound-session-guardian": 5,
+    "compound-session-wallpaper-clipboard": 1,
+    "compound-update-guardian-restart": 1,
+    "corrupt-recovery-prior": 1,
+    "enospc-durable-publication": 1,
+    "full-disposable-root-destruction": 1,
+    "guardian-death-during-runtime-verifying": 1,
+    "guardian-self-kill": 5,
+    "immutable-runtime-corruption": 1,
+    "isolated-network-loss": 1,
+    "journal-flood-reconciliation": 1,
+    "protected-filesystem-destruction": 1,
+    "protected-process-signal": 1,
+    "quickshell-all-surfaces": 1,
+    "quickshell-surface-kill": 3,
+    "readonly-durable-publication": 1,
+    "real-package-mutation-interruption": 1,
+    "recovery-executor-death-after-mutation": 1,
+    "recovery-executor-death-before-mutation": 1,
+    "recovery-loop-prevention": 1,
+    "runtime-reboot-awaiting": 1,
+    "runtime-reboot-recovering": 1,
+    "runtime-reboot-verifying": 1,
+    "scoped-break-glass": 1,
+    "session-compositor-kill": 20,
+    "stale-guardian-evidence": 1,
+    "update-interruption-contracts": 1,
+    "update-phase-reboot-durability": 1,
+    "wallpaper-provider-race": 3
+  },
+  "outcomes": {
+    "BUG": 0,
+    "DETECTED_ONLY": 6,
+    "NOT_COVERED": 0,
+    "PREVENTED": 4,
+    "RECOVERED_AUTOMATICALLY": 53,
+    "RECOVERED_WITH_AUTHORITY": 3
+  },
+  "passed": true,
+  "performance": {
+    "convergence_latency_ms": {
+      "max_ms": 46633,
+      "median_ms": 7926,
+      "min_ms": 581,
+      "p95_ms": 18409,
+      "samples": 50
+    },
+    "detection_latency_ms": {
+      "max_ms": 5878,
+      "median_ms": 325,
+      "min_ms": 281,
+      "p95_ms": 5629,
+      "samples": 24
+    },
+    "recovery_latency_ms": {
+      "max_ms": 46633,
+      "median_ms": 7926,
+      "min_ms": 581,
+      "p95_ms": 18409,
+      "samples": 50
+    },
+    "worst_convergence": {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 46633,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168461338392135,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 46633,
+      "scenario": "bounded-ui-failure-storm",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168414685559972
+    }
+  },
+  "prevention": [
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472371983,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "authority-replay-and-stale-identity",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472142983,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "protected-filesystem-destruction",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472255417,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "protected-process-signal",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "RECOVERED_WITH_AUTHORITY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472453185,
+      "expected_outcome": "RECOVERED_WITH_AUTHORITY",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "scoped-break-glass",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    }
+  ],
+  "required_minimum_iterations": {
+    "authority-replay-and-stale-identity": 1,
+    "bad-postcondition-runtime": 1,
+    "bad-postcondition-session": 1,
+    "bad-postcondition-wallpaper": 1,
+    "bounded-ui-failure-storm": 1,
+    "clipboard-worker-kill": 1,
+    "compound-session-guardian": 5,
+    "compound-session-wallpaper-clipboard": 1,
+    "compound-update-guardian-restart": 1,
+    "corrupt-recovery-prior": 1,
+    "enospc-durable-publication": 1,
+    "full-disposable-root-destruction": 1,
+    "guardian-death-during-runtime-verifying": 1,
+    "guardian-self-kill": 5,
+    "immutable-runtime-corruption": 1,
+    "isolated-network-loss": 1,
+    "journal-flood-reconciliation": 1,
+    "protected-filesystem-destruction": 1,
+    "protected-process-signal": 1,
+    "quickshell-all-surfaces": 1,
+    "quickshell-surface-kill": 3,
+    "readonly-durable-publication": 1,
+    "real-package-mutation-interruption": 1,
+    "recovery-executor-death-after-mutation": 1,
+    "recovery-executor-death-before-mutation": 1,
+    "recovery-loop-prevention": 1,
+    "runtime-reboot-awaiting": 1,
+    "runtime-reboot-recovering": 1,
+    "runtime-reboot-verifying": 1,
+    "scoped-break-glass": 1,
+    "session-compositor-kill": 20,
+    "stale-guardian-evidence": 1,
+    "update-interruption-contracts": 1,
+    "update-phase-reboot-durability": 1,
+    "wallpaper-provider-race": 3
+  },
+  "runtime": [
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166841104225682,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "corrupt-recovery-prior",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166839916344068
+    },
+    {
+      "actual_outcome": "RECOVERED_WITH_AUTHORITY",
+      "convergence_latency_ms": 9103,
+      "detection_latency_ms": 2745,
+      "end_time_ns": 1790166828387490746,
+      "expected_outcome": "RECOVERED_WITH_AUTHORITY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9103,
+      "scenario": "immutable-runtime-corruption",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166819269618742
+    }
+  ],
+  "scenarios": [
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 46633,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168461338392135,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 46633,
+      "scenario": "bounded-ui-failure-storm",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168414685559972
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 9131,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168367683138761,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9131,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168358442829723
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8379,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168376750744302,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8379,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168368257655191
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8280,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168385788232778,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8280,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168377376147062
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8049,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168394544565457,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 4,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8049,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168386399901337
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 9186,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168404410376236,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 5,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9186,
+      "scenario": "compound-session-guardian",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168395118480888
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8516,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168413912188063,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8516,
+      "scenario": "compound-session-wallpaper-clipboard",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168405172546835
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2262,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166690151983080,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2262,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166687809634849
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2347,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166693142256043,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2347,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166690711528262
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2363,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166696153036466,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2363,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166693708584959
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2526,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166699262253409,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 4,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2526,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166696652450881
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 2371,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166702253961653,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 5,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 2371,
+      "scenario": "guardian-self-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166699795716287
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5681,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166712809150276,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5681,
+      "scenario": "journal-flood-reconciliation",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166707113111221
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166706554730598,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "stale-guardian-evidence",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166702649670617
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167980781802233,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "isolated-network-loss",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167948880203344
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167852723718703,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:50:51.378Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:50:51.378Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 1,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "bad-postcondition-runtime",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167817259523529
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 1517,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167815488344734,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 1517,
+      "scenario": "bad-postcondition-session",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167813955649956
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 581,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167816690392973,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 581,
+      "scenario": "bad-postcondition-wallpaper",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167816085108657
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167866766271738,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:50:51.378Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:50:51.378Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:50:51.378Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:50:51.378Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 1,
+      "incidents_before": 1,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "recovery-loop-prevention",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167853351869657
+    },
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472371983,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "authority-replay-and-stale-identity",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472142983,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "protected-filesystem-destruction",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472255417,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "protected-process-signal",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "RECOVERED_WITH_AUTHORITY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168181472453185,
+      "expected_outcome": "RECOVERED_WITH_AUTHORITY",
+      "failure_reason": null,
+      "guardian_after": null,
+      "guardian_before": null,
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "scoped-break-glass",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168170618693461
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 19661,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167358193168032,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:42:07.312Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:42:07.312Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 1,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 19661,
+      "scenario": "runtime-reboot-awaiting",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167338341385488
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": 18409,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167492787974156,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:44:22.943Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:44:22.943Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:44:22.943Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:44:22.943Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 1,
+      "incidents_before": 1,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 18409,
+      "scenario": "runtime-reboot-recovering",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167474191877638
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167727527946717,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "update-phase-reboot-durability",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167727335094068
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 20168,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167642643316046,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 1,
+        "active_incidents": [
+          {
+            "decision": {
+              "catastrophic": {
+                "automatic_host_mutation_allowed": true,
+                "automatic_recovery_allowed": true,
+                "catastrophic": false,
+                "catastrophic_reasons": [],
+                "evidence_preservation_required": false,
+                "fail_closed": false,
+                "guardian_authority_degraded": false,
+                "host_mutation_performed": false,
+                "label": "not-catastrophic",
+                "lifecycle": "detected",
+                "prevented": false,
+                "recovery_handoff": [],
+                "safe_actions": [
+                  "diagnose-only"
+                ],
+                "severity": 0,
+                "terminal_state": "unresolved",
+                "trusted_boundaries": [],
+                "unknown_boundaries": [],
+                "unsafe_actions": [],
+                "untrusted_boundaries": []
+              },
+              "execution_mode": "diagnose",
+              "mutating_recovery_allowed": false,
+              "reason": "Guardian L2 permits non-automatic recovery; recovery authority selected diagnose-only (automatic).",
+              "recovery": {
+                "action": "diagnose-only",
+                "automatic_allowed": true,
+                "preserves_personal_files": true,
+                "provider": null,
+                "reason": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+                "recovery_mode": null,
+                "requires_confirmation": false,
+                "scope": "diagnostic",
+                "surface": "incident",
+                "target": null
+              },
+              "severity": {
+                "automatic_recovery_allowed": false,
+                "label": "component",
+                "level": 2,
+                "reason": "Persistent high-confidence degradation warrants bounded L2 attention.",
+                "recovery_handoff_required": false,
+                "suppressed": false
+              }
+            },
+            "explanation": {
+              "incident": "runtime:maho-runtime risk=high confidence=confirmed",
+              "recovery": "The failure domain is unknown, so Maho must not guess at a mutating recovery action.",
+              "severity": "Persistent high-confidence degradation warrants bounded L2 attention."
+            },
+            "incident_id": "inc-runtime-d1e7d1b634cb24ab",
+            "kind": "guardian-assessment",
+            "normalized": {
+              "context": {
+                "expected_transition": false,
+                "maintenance": false
+              },
+              "incident": {
+                "correlated_failures": 0,
+                "evidence_confidence": "confirmed",
+                "impact": "degraded",
+                "occurrence_count": 1,
+                "ownership": "maho",
+                "persistent": true,
+                "resolved": false,
+                "scope": "component"
+              },
+              "recovery": {
+                "certified_path": false,
+                "confidence": "none",
+                "previous_failures": 0,
+                "verified": false
+              }
+            },
+            "opened_at": "2026-09-23T12:46:47.053Z",
+            "resolved_at": null,
+            "source_kind": "security-incident",
+            "status": "active",
+            "subject": {
+              "id": "maho-runtime",
+              "type": "runtime"
+            },
+            "updated_at": "2026-09-23T12:46:47.053Z",
+            "version": 1
+          }
+        ],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 1,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 20168,
+      "scenario": "runtime-reboot-verifying",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167622278301693
+    },
+    {
+      "actual_outcome": "PREVENTED",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168630753249969,
+      "expected_outcome": "PREVENTED",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": true,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": true,
+      "recovery_latency_ms": null,
+      "scenario": "full-disposable-root-destruction",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168547765682792
+    },
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166841104225682,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "corrupt-recovery-prior",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166839916344068
+    },
+    {
+      "actual_outcome": "RECOVERED_WITH_AUTHORITY",
+      "convergence_latency_ms": 9103,
+      "detection_latency_ms": 2745,
+      "end_time_ns": 1790166828387490746,
+      "expected_outcome": "RECOVERED_WITH_AUTHORITY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9103,
+      "scenario": "immutable-runtime-corruption",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166819269618742
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 12820,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166962056171364,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 12820,
+      "scenario": "recovery-executor-death-before-mutation",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166916860457502
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 12464,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167083985085834,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 12464,
+      "scenario": "recovery-executor-death-after-mutation",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167037809267831
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 14814,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167217883802342,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 14814,
+      "scenario": "guardian-death-during-runtime-verifying",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167169235977598
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 4790,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166583389482058,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 4790,
+      "scenario": "clipboard-worker-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166578515975173
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 6094,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166577764427249,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 6094,
+      "scenario": "quickshell-all-surfaces",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166571647951642
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5878,
+      "detection_latency_ms": 5878,
+      "end_time_ns": 1790166558468321352,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5878,
+      "scenario": "quickshell-surface-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166552497682231
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5629,
+      "detection_latency_ms": 5629,
+      "end_time_ns": 1790166564737292856,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5629,
+      "scenario": "quickshell-surface-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166559028133299
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5659,
+      "detection_latency_ms": 5659,
+      "end_time_ns": 1790166571009719410,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5659,
+      "scenario": "quickshell-surface-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166565276195241
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8308,
+      "detection_latency_ms": 307,
+      "end_time_ns": 1790166385590515287,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8308,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166377244174749
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7624,
+      "detection_latency_ms": 326,
+      "end_time_ns": 1790166462505140067,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 10,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7624,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166454845804832
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7957,
+      "detection_latency_ms": 322,
+      "end_time_ns": 1790166471079108291,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 11,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7957,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166463088656165
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8202,
+      "detection_latency_ms": 300,
+      "end_time_ns": 1790166479898219432,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 12,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8202,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166471659485044
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 11541,
+      "detection_latency_ms": 324,
+      "end_time_ns": 1790166492089142670,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 13,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 11541,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166480514004173
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8318,
+      "detection_latency_ms": 325,
+      "end_time_ns": 1790166501009070992,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 14,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8318,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166492658371681
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8663,
+      "detection_latency_ms": 351,
+      "end_time_ns": 1790166510282181406,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 15,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8663,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166501589926330
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8141,
+      "detection_latency_ms": 342,
+      "end_time_ns": 1790166519125382617,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 16,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8141,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166510951885256
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7256,
+      "detection_latency_ms": 283,
+      "end_time_ns": 1790166527220801230,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 17,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7256,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166519922603662
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7756,
+      "detection_latency_ms": 305,
+      "end_time_ns": 1790166535539285829,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 18,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7756,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166527750561555
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7754,
+      "detection_latency_ms": 328,
+      "end_time_ns": 1790166543871635916,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 19,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7754,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166536084282094
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8101,
+      "detection_latency_ms": 328,
+      "end_time_ns": 1790166394341749056,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8101,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166386208535729
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7446,
+      "detection_latency_ms": 317,
+      "end_time_ns": 1790166551873196100,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 20,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7446,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166544398840236
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8471,
+      "detection_latency_ms": 395,
+      "end_time_ns": 1790166403393314866,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8471,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166394891927411
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7687,
+      "detection_latency_ms": 336,
+      "end_time_ns": 1790166411874034548,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 4,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7687,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166404142518014
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7849,
+      "detection_latency_ms": 281,
+      "end_time_ns": 1790166420282120275,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 5,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7849,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166412398045068
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7926,
+      "detection_latency_ms": 297,
+      "end_time_ns": 1790166428771174931,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 6,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7926,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166420815697770
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8370,
+      "detection_latency_ms": 342,
+      "end_time_ns": 1790166437689847027,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 7,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8370,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166429288287985
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7813,
+      "detection_latency_ms": 283,
+      "end_time_ns": 1790166446060514375,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 8,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7813,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166438219404806
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7679,
+      "detection_latency_ms": 283,
+      "end_time_ns": 1790166454299444109,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 9,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7679,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166446584378844
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 6780,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166590884300116,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 6780,
+      "scenario": "wallpaper-provider-race",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166583926452233
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 6929,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166598455810355,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 6929,
+      "scenario": "wallpaper-provider-race",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166591391635622
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 9101,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166608214493406,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9101,
+      "scenario": "wallpaper-provider-race",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166598934651772
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168266803959171,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "enospc-durable-publication",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168265803961064
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168268369985531,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "readonly-durable-publication",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168267295350122
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168076183979088,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": true,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "real-package-mutation-interruption",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168064321114752
+    },
+    {
+      "actual_outcome": "RECOVERED_WITH_AUTHORITY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168063738684695,
+      "expected_outcome": "RECOVERED_WITH_AUTHORITY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "update-interruption-contracts",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168061242358673
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168167266610474,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "compound-update-guardian-restart",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168162908582986
+    }
+  ],
+  "schema_version": 1,
+  "session": [
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 4790,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166583389482058,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 4790,
+      "scenario": "clipboard-worker-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166578515975173
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 6094,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166577764427249,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 6094,
+      "scenario": "quickshell-all-surfaces",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166571647951642
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5878,
+      "detection_latency_ms": 5878,
+      "end_time_ns": 1790166558468321352,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5878,
+      "scenario": "quickshell-surface-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166552497682231
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5629,
+      "detection_latency_ms": 5629,
+      "end_time_ns": 1790166564737292856,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5629,
+      "scenario": "quickshell-surface-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166559028133299
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 5659,
+      "detection_latency_ms": 5659,
+      "end_time_ns": 1790166571009719410,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 5659,
+      "scenario": "quickshell-surface-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166565276195241
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8308,
+      "detection_latency_ms": 307,
+      "end_time_ns": 1790166385590515287,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8308,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166377244174749
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7624,
+      "detection_latency_ms": 326,
+      "end_time_ns": 1790166462505140067,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 10,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7624,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166454845804832
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7957,
+      "detection_latency_ms": 322,
+      "end_time_ns": 1790166471079108291,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 11,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7957,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166463088656165
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8202,
+      "detection_latency_ms": 300,
+      "end_time_ns": 1790166479898219432,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 12,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8202,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166471659485044
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 11541,
+      "detection_latency_ms": 324,
+      "end_time_ns": 1790166492089142670,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 13,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 11541,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166480514004173
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8318,
+      "detection_latency_ms": 325,
+      "end_time_ns": 1790166501009070992,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 14,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8318,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166492658371681
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8663,
+      "detection_latency_ms": 351,
+      "end_time_ns": 1790166510282181406,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 15,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8663,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166501589926330
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8141,
+      "detection_latency_ms": 342,
+      "end_time_ns": 1790166519125382617,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 16,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8141,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166510951885256
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7256,
+      "detection_latency_ms": 283,
+      "end_time_ns": 1790166527220801230,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 17,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7256,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166519922603662
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7756,
+      "detection_latency_ms": 305,
+      "end_time_ns": 1790166535539285829,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 18,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7756,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166527750561555
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7754,
+      "detection_latency_ms": 328,
+      "end_time_ns": 1790166543871635916,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 19,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7754,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166536084282094
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8101,
+      "detection_latency_ms": 328,
+      "end_time_ns": 1790166394341749056,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8101,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166386208535729
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7446,
+      "detection_latency_ms": 317,
+      "end_time_ns": 1790166551873196100,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 20,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7446,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166544398840236
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8471,
+      "detection_latency_ms": 395,
+      "end_time_ns": 1790166403393314866,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8471,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166394891927411
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7687,
+      "detection_latency_ms": 336,
+      "end_time_ns": 1790166411874034548,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 4,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7687,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166404142518014
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7849,
+      "detection_latency_ms": 281,
+      "end_time_ns": 1790166420282120275,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 5,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7849,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166412398045068
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7926,
+      "detection_latency_ms": 297,
+      "end_time_ns": 1790166428771174931,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 6,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7926,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166420815697770
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 8370,
+      "detection_latency_ms": 342,
+      "end_time_ns": 1790166437689847027,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 7,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 8370,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166429288287985
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7813,
+      "detection_latency_ms": 283,
+      "end_time_ns": 1790166446060514375,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 8,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7813,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166438219404806
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 7679,
+      "detection_latency_ms": 283,
+      "end_time_ns": 1790166454299444109,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 9,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 7679,
+      "scenario": "session-compositor-kill",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166446584378844
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 6780,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166590884300116,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 6780,
+      "scenario": "wallpaper-provider-race",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166583926452233
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 6929,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166598455810355,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 2,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 6929,
+      "scenario": "wallpaper-provider-race",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166591391635622
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": 9101,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790166608214493406,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 3,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": 9101,
+      "scenario": "wallpaper-provider-race",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790166598934651772
+    }
+  ],
+  "source": {
+    "campaign_sha": "649bff02262ebd68899972617e152d8b2a057a3b",
+    "commits_added": [
+      "649bff02262ebd68899972617e152d8b2a057a3b Document final torture harness fixes",
+      "267180578543fe928ce2a264368f783b6614ffe5 Merge remote-tracking branch 'origin/main' into feat/full-system-torture-vm",
+      "29d76db7ab487d075189e00d0dd87e6a45ec490f Assert real update recovery result correctly",
+      "933606883e3faec9b7e911965e67dfc5af0d5322 Fix durable update torture journals",
+      "63c41899ff6b46cdb99c1e24d7ce2114fd142e2b Merge remote-tracking branch 'origin/main' into feat/full-system-torture-vm",
+      "5d311d43a937f8a0839884509338138855a8b474 Complete update interruption torture coverage",
+      "fefb647950f1a0637293142460bf7cce8eea00e0 test(vm): add full disposable root destruction",
+      "51fe12a2a262cc4721b64b0a97d78cbf4b3e1169 test(vm): isolate Guardian verifying fault cut point",
+      "502378f3d9054c283cc978b01b3670d0bb5c482e test(vm): make recovery power-cycle assertions phase-aware",
+      "4c37846add2be6df59a2ad6ac2f8a75589b3b0d4 test(vm): use valid transaction identity in update compound case",
+      "a4d62afdace104772aa020a0119665136c3b0a7d test(vm): add persistent recovery power-cycle coverage",
+      "4c89c1c71f245dd5a1dca1a3561668ee72484b08 test(vm): recognize verifying as durable post-mutation state",
+      "de25e188dc842dbcdcf23f56099e83a05ac118ae test(vm): preserve torture result after executor fault",
+      "a466d346cf64c1c2b24136ee1b44131672a144e7 test(vm): isolate runtime interruption phases",
+      "195925d08bf508bd5df83750a9335af3f73e657c test(vm): establish Guardian stream continuity before recovery faults",
+      "17466332b7db2cc43caaaf921ccedae7e61a7c80 test(vm): extend live torture coverage",
+      "0c8ecff86e64dcbc1d1984088ee6afd4fae5291f docs(vm): publish V1 full-system torture evidence",
+      "441fa99281dd9fc020029f827339336468aacd3f docs(vm): keep incomplete torture coverage explicit",
+      "2b6be176ba4955ab9baec4fbf5c1449a62e7baf2 fix(vm): verify wallpaper JSON from provider stream",
+      "7472bdce17df314996ee81ebdc9177abbaed031c fix(vm): await wallpaper provider before session torture",
+      "5b443846855b857c1e63468dd0f47d7ddb028397 test(vm): stream journal flood through one producer",
+      "ee8c20a360f813f3dce160c24e7ea480b3340a29 fix(vm): start installed Guardian authorities in torture guest",
+      "80264d641dc599abca5c267070f2462e0cfa0461 test(vm): preserve graphical setup diagnostics",
+      "cc01021f4524bbc30bad595d184211e3a5d064de fix(vm): identify dedicated home disk by virtio topology",
+      "5f3851fcfb1b7e0e03a50d5fa8113384449a4829 fix(vm): allow only read-only QEMU auxiliary media",
+      "cc14f1dd5fedd50685e1e434e9b9d17cb9df2f36 fix(vm): source torture guest logic before staging",
+      "c09ec0a6ba3f9cf1dbd8a59fec8cc02c19780398 test(vm): add fail-closed full-system torture harness"
+    ],
+    "ending_sha_before_report_commit": "649bff02262ebd68899972617e152d8b2a057a3b",
+    "mission_starting_sha": "8ce0f3eb2791e052f764b8633a41d3946acf97ca"
+  },
+  "storage": [
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168266803959171,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "enospc-durable-publication",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168265803961064
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168268369985531,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "readonly-durable-publication",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168267295350122
+    }
+  ],
+  "unresolved": {
+    "NOT_COVERED": [],
+    "POST_V1": [],
+    "SOFTWARE_BUG": []
+  },
+  "update": [
+    {
+      "actual_outcome": "DETECTED_ONLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790167727527946717,
+      "expected_outcome": "DETECTED_ONLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "update-phase-reboot-durability",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790167727335094068
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168076183979088,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": true,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "real-package-mutation-interruption",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168064321114752
+    },
+    {
+      "actual_outcome": "RECOVERED_WITH_AUTHORITY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168063738684695,
+      "expected_outcome": "RECOVERED_WITH_AUTHORITY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": true,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "update-interruption-contracts",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168061242358673
+    },
+    {
+      "actual_outcome": "RECOVERED_AUTOMATICALLY",
+      "convergence_latency_ms": null,
+      "detection_latency_ms": null,
+      "end_time_ns": 1790168167266610474,
+      "expected_outcome": "RECOVERED_AUTOMATICALLY",
+      "failure_reason": null,
+      "guardian_after": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "guardian_before": {
+        "active_incident_count": 0,
+        "active_incidents": [],
+        "guardian_unit": "active"
+      },
+      "host_mutation_performed": false,
+      "incidents_after": 0,
+      "incidents_before": 0,
+      "iteration": 1,
+      "manual_intervention_required": false,
+      "pass": true,
+      "protected_effect_blocked": false,
+      "recovery_latency_ms": null,
+      "scenario": "compound-update-guardian-restart",
+      "schema_version": 1,
+      "source_revision": "649bff02262ebd68899972617e152d8b2a057a3b",
+      "start_time_ns": 1790168162908582986
+    }
+  ]
+}
