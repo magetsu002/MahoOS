@@ -104,7 +104,7 @@ package() {
     "$pkgdir/usr/lib/maho/share/maho/release.json"
   install -Dm755 "$source_root/packaging/arch/maho-install" \
     "$pkgdir/usr/bin/maho-install"
-  install -Dm755 "$source_root/bin/maho-installer" \
+  install -Dm755 "$source_root/packaging/arch/maho-installer-wrapper" \
     "$pkgdir/usr/bin/maho-installer"
   install -Dm755 "$source_root/packaging/arch/maho-files-wrapper" \
     "$pkgdir/usr/bin/maho-files"
