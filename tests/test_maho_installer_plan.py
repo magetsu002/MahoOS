@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib"))
+
+from maho_installer_plan import (  # noqa: E402
+    INSTALLER_STAGES,
+    build_install_plan,
+    disk_from_lsblk_payload,
+    probe_disk,
+)
+
+REV = "a" * 40
+
+
+def check(name: str, condition: bool) -> None:
+    if not condition:
+        raise AssertionError(name)
+    print("PASS", name)
+
+
+def disk() -> dict:
+    return {
+        "path": "/dev/nvme9n1",
+        "type": "disk",
+        "size": 2_000_398_934_016,
+        "ro": 0,
+        "rm": 0,
+        "model": "Maho Fixture NVMe",
+        "serial": "MAHO-INSTALLER-0001",
+        "wwn": "eui.0011223344556677",
+        "tran": "nvme",
+        "log-sec": 512,
+        "phy-sec": 4096,
+        "maj:min": "259:99",
+        "mountpoints": [None],
+        "children": [
+            {
+                "path": "/dev/nvme9n1p1",
+                "type": "part",
+                "mountpoints": [None],
+            }
+        ],
+    }
+
+
+def rejected(label: str, function) -> None:
+    try:
+        function()
+    except (ValueError, RuntimeError):
+        print("PASS", label)
+        return
+    raise AssertionError(label)
+
+
+def main() -> None:
+    first = build_install_plan(disk(), source_revision=REV)
+    second = build_install_plan(copy.deepcopy(disk()), source_revision=REV)
+    check("exact disk plan is deterministic", first == second)
+    check("clean whole disk reaches destructive-confirmation gate", first["ready_for_destructive_confirmation"] is True and not first["blockers"])
+    check("plan never grants mutation authority", first["execution_authority"] == "none" and first["mutation_performed"] is False)
+    check("confirmation is bound to the full disk identity", first["destructive_confirmation"] == "ERASE-MAHO:" + first["target"]["identity_sha256"])
+    check("installer assembles the existing recovery stack", tuple(first["stages"]) == INSTALLER_STAGES and "guardian-recovery" in first["stages"] and "generation-authorities" in first["stages"])
+    check("storage contract preserves Maho Btrfs generation shape", first["layout_contract"]["root"]["subvolumes"] == ["@", "@home", "@snapshots", "@var_log"])
+
+    changed = disk()
+    changed["serial"] = "MAHO-INSTALLER-0002"
+    changed_plan = build_install_plan(changed, source_revision=REV)
+    check("disk identity drift invalidates the old confirmation", changed_plan["destructive_confirmation"] != first["destructive_confirmation"])
+
+    mounted = disk()
+    mounted["children"][0]["mountpoints"] = ["/mnt/existing"]
+    mounted_plan = build_install_plan(mounted, source_revision=REV)
+    check("mounted target is blocked before confirmation", mounted_plan["blockers"] == ["target_or_child_mounted"] and mounted_plan["destructive_confirmation"] is None)
+
+    partition = disk()
+    partition["type"] = "part"
+    check("partition target cannot masquerade as whole disk", "target_not_whole_disk" in build_install_plan(partition, source_revision=REV)["blockers"])
+
+    readonly = disk()
+    readonly["ro"] = 1
+    check("read-only disk is blocked", "target_read_only" in build_install_plan(readonly, source_revision=REV)["blockers"])
+
+    weak = disk()
+    weak["serial"] = ""
+    weak["wwn"] = ""
+    check("unstable physical identity is blocked", "target_identity_not_stable" in build_install_plan(weak, source_revision=REV)["blockers"])
+
+    rejected("invalid source revision is rejected", lambda: build_install_plan(disk(), source_revision="main"))
+    rejected("invalid disk path is rejected", lambda: build_install_plan(disk() | {"path": "/"}, source_revision=REV))
+
+    payload = {"blockdevices": [disk()]}
+    parsed = disk_from_lsblk_payload(payload, expected_path="/dev/nvme9n1")
+    check("lsblk parser binds one exact target path", parsed["serial"] == "MAHO-INSTALLER-0001")
+    rejected("lsblk path drift is rejected", lambda: disk_from_lsblk_payload(payload, expected_path="/dev/nvme0n1"))
+
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = __import__("json").dumps(payload)
+
+    commands = []
+    def fake_run(command, **kwargs):
+        commands.append(tuple(command))
+        return Result()
+
+    observed = probe_disk("/dev/nvme9n1", run=fake_run)
+    check("live probe uses read-only lsblk against exact device", observed["path"] == "/dev/nvme9n1" and commands and commands[0][-1] == "/dev/nvme9n1")
+    check("live probe never invokes a mutating tool", commands[0][0] == "lsblk")
+
+    print("ALL MAHO INSTALLER PLAN CONTRACTS PASS")
+
+
+if __name__ == "__main__":
+    main()
