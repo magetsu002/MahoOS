@@ -422,12 +422,12 @@ class Ops:
 result=execute_update(tx,plan,Ops(),journal_path=journal)
 assert proof["target_observed"] and proof["pacman_killed"], proof
 assert result.mutation_started is True, result
-assert result.recovered is True, result
+assert result.recovery_attempted is True, result
 assert result.transaction["state"]=="RECOVERED", result.transaction
 assert subprocess.run(["/usr/bin/pacman","-Q",pkgname],capture_output=True).returncode!=0
 assert not target.exists()
 payload={"transaction_id":tx["transaction_id"],"final_state":result.transaction["state"],
-         "mutation_started":result.mutation_started,"recovered":result.recovered,
+         "mutation_started":result.mutation_started,"recovered":result.transaction["state"]=="RECOVERED",
          "package_present_after_recovery":False,"generation_promoted":False,
          "known_good_preserved":result.transaction["state"]=="RECOVERED",
          "journal_path":str(journal),**proof}
