@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.parent)
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_installer_plan import build_install_plan, probe_disk  # noqa: E402
