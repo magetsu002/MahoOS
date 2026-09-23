@@ -416,7 +416,11 @@ def collect_system_model(paths: LivePaths | None = None) -> SystemModel:
             return fallback
 
     guardian = collect("guardian", lambda: enrich_status(live_status(paths), paths.security_root), {})
-    update = collect("update", lambda: update_status(paths.update_root), {"status": "Unknown", "attention_required": True})
+    update = collect(
+        "update",
+        lambda: update_status(paths.update_root, maho_root=paths.runtime_root / "current"),
+        {"status": "Unknown", "attention_required": True},
+    )
     adaptive_root = behavior_state_root()
     behavior = collect("behavior", lambda: behavior_status(adaptive_root) or {}, {})
     adaptive_doctor = collect("behavior-doctor", lambda: behavior_doctor(repo_root(), adaptive_root), {"healthy": False})
