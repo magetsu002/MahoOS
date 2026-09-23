@@ -83,7 +83,8 @@ jobs:
             tests/glass-contracts.sh \
             tests/session-contracts.sh \
             tests/shell-contracts.sh \
-            tests/qemu-secure-boot-certification.sh
+            tests/qemu-secure-boot-certification.sh \
+            packaging/arch/maho-installer-wrapper
 
       - name: Python syntax
         shell: bash
