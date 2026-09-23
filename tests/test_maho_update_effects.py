@@ -27,6 +27,10 @@ def main():
     check('preliminary DKMS role is boot-critical', preliminary_boot_critical(['dkms']))
     ordinary=classify_artifact(package_name='brave-bin',roles=[],files=['/usr/bin/brave','/usr/share/applications/brave.desktop'])
     check('ordinary app artifact is normal', ordinary['classification']=='normal')
+    rejected('empty artifact inventory fails closed by default', lambda: classify_artifact(package_name='meta',roles=[],files=[]))
+    metadata=classify_artifact(package_name='meta',roles=[],files=[],allow_empty=True)
+    check('explicit zero-file package remains complete metadata-only evidence',
+          metadata['classification']=='normal' and metadata['file_count']==0 and metadata['effects']==['metadata-only'])
     service=classify_artifact(package_name='demo',roles=[],files=['/usr/lib/systemd/system/demo.service','/usr/bin/demo'])
     check('service file derives service restart requirement', service['activation_requirements']==['affected-system-service-restart'])
     sudoers=classify_artifact(package_name='demo',roles=[],files=['/etc/sudoers.d/demo','/usr/bin/demo'])
