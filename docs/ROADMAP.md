@@ -1,52 +1,36 @@
 # Roadmap
 
-MahoOS V1 is focused on turning the current desktop into a complete system that
-can be installed, updated, admitted, recovered, and tested as one product.
+MahoOS is still pre-V1. The priority now is proving that the system can update,
+recover, reboot, and return to a known healthy state on real hardware.
 
-## Proven foundations
+## Working now
 
-- complete Hyprland/Quickshell desktop surfaces and immutable Maho runtime releases
-- Guardian observation, containment, incident history, and bounded service recovery
-- M3B full-generation Btrfs restore mechanics with `/home` preservation
-- R1 independent recovery-kernel execution
-- R2 independently trusted SystemGeneration + KernelGeneration selection
-- R3 native kernel-only rollback on hardware with exact postboot proof
-- dependency-light Guardian Recovery TUI with plan-bound authorization requests
-- candidate-first Native Admission V1 with exact mutation-graph promotion authority
-- revocation-to-recovery planning for kernel-only, full-generation, or external recovery
+The desktop is usable as a daily environment.
 
-These claims are scoped. R3 certifies recovery mechanics, not a hostile boot chain;
-Secure Boot/signing hardening remains separate. Native Admission is now bound into
-the production M4B candidate promotion path with exact activation authority and
-promotion-time drift revalidation, but hardware acceptance remains pending.
+Service recovery, system-generation recovery, kernel recovery, update
+candidates, and destructive VM failure testing are already implemented.
+
+The latest full-system torture campaign completed without a required scenario
+ending in a known bug.
+
+## Current focus
+
+The production kernel update path is going through physical certification.
+
+A real update has already reached the offline candidate and initramfs stages.
+The remaining work is to complete the candidate, approve it, activate it,
+reboot into the new Primary kernel, and verify the result after boot.
 
 ## Before V1
 
-- complete M4B + Native Admission hardware certification against a genuine newer coherent Primary kernel generation
-- extend the now-wired Guardian Recovery TUI beyond R3 into every native recovery mode without weakening independent recovery authority
-- finish unified recovery history/status surfaces and product-facing recovery receipts
-- follow isolated signed-boot/QEMU certification with separately authorized physical key provisioning and hardware certification
-- finish Arch/CachyOS packaging, installation flow, and ArchISO image
-- extend deterministic build checks from recovery evidence generation into initramfs/update payload assembly where toolchains permit reproducible output
-- expand interruption, power-loss, stale-evidence, and hostile-input regression campaigns
-- broaden hardware, NVIDIA, suspend/resume, multi-monitor, and failure testing
-- finish release packaging, documentation, and final acceptance
+MahoOS still needs a finished installer and ISO, physical signed-boot
+certification, broader hardware testing, release packaging, and final
+documentation cleanup.
 
-## Active physical certification
-
-A genuine newer coherent Primary kernel generation is now available and M4B
-hardware certification is active rather than externally blocked. Isolated
-discovery and staging have succeeded, and real offline candidate execution has
-reached initramfs generation. The remaining proof is exact candidate completion,
-Native Admission, activation arming, an explicit normal Primary reboot, and
-postboot HEALTHY verification with generation publication.
-
-Do not manufacture this proof with partial upgrades, same-version reinstalls,
-hidden driver migration, relaxed package authority, or any bypass of the
-candidate-first recovery and verification path.
+V1 should be something that can be installed, updated, recovered, and trusted
+without depending on the original development machine.
 
 ## After V1
 
-Planned work after the first stable release includes broader personalization,
-Maho Themes, more recovery providers, deeper Guardian diagnosis, and additional
-hardware coverage.
+Later work can expand personalization, themes, recovery coverage, and support
+for more hardware.
