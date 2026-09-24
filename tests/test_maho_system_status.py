@@ -56,7 +56,7 @@ def main() -> None:
     model = build()
     check("operational health and trust remain independent", model.summary.operational_health == "HEALTHY" and model.summary.trust == "UNRESOLVED")
     check("Guardian health remains distinct", model.summary.guardian_health == "HEALTHY")
-    check("recovery history does not promote current trust", model.summary.recovery == "Ready" and model.summary.trust == "UNRESOLVED")
+    check("recovery history does not promote current trust", model.summary.recovery == "Runtime certified" and model.summary.trust == "UNRESOLVED")
     check("missing boot trust receives review attention", model.summary.attention == "REVIEW")
     check("doctor records use the bounded schema", all(set(item.__dict__) == {"id", "subsystem", "state", "summary", "reason", "evidence_refs", "recommended_action", "attention"} for item in model.diagnostics))
     check("doctor record identities are unique", len({item.id for item in model.diagnostics}) == len(model.diagnostics))

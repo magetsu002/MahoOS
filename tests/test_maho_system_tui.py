@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import sys
@@ -12,7 +13,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_behavior_preferences import SPECS, defaults, load_preferences  # noqa: E402
 from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
-from maho_system_tui import PAGES, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
+from maho_system_tui import PAGES, _update_lifecycle, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
 
 
 def check(name: str, condition: bool) -> None:
@@ -106,10 +107,23 @@ def fixture(preferences=None, *, active: bool = False, severity_level: int = 1, 
     )
 
 
+def rebuild(model, *, guardian=None, update=None, behavior=None, recovery=None, collection_errors=()):
+    return build_system_model(
+        guardian=guardian if guardian is not None else model.guardian,
+        update=update if update is not None else model.update,
+        behavior=behavior if behavior is not None else model.behavior,
+        adaptive_doctor=model.behavior_doctor,
+        recovery=recovery if recovery is not None else model.recovery,
+        preferences=model.preferences,
+        collection_errors=collection_errors,
+        login=model.login,
+    )
+
+
 def main() -> None:
     model = fixture()
     check("L0 renders as L0 Normal", fixture(severity_level=0).summary.severity == "L0 Normal")
-    for width, height in ((160, 50), (120, 35), (100, 30), (80, 24)):
+    for width, height in ((160, 45), (120, 35), (100, 30), (80, 24)):
         for page in PAGES:
             screen = render(model, width=width, height=height, page=page)
             check(
@@ -118,6 +132,132 @@ def main() -> None:
                 and all(len(line) <= width for line in screen.splitlines())
                 and "\x1b[" not in screen,
             )
+    too_small = render(model, width=59, height=17)
+    check("too-small terminal screen remains available", "Terminal too small" in too_small and len(too_small.splitlines()) == 17)
+
+    severity_labels = {0: "normal", 1: "minor", 2: "moderate", 3: "serious", 4: "critical"}
+    for level, label in severity_labels.items():
+        guardian = deepcopy(model.guardian)
+        guardian["world_state"]["guardian"]["severity"] = {"level": level, "label": label}
+        variant = rebuild(model, guardian=guardian)
+        check(f"Guardian L{level} fixture renders exact severity", f"L{level} {label.title()}" in render(variant, page="Guardian", height=35))
+
+    guardian_degraded = deepcopy(model.guardian)
+    guardian_degraded["world_state"]["guardian"]["self_health"] = {
+        "state": "DEGRADED", "missing_providers": [], "stale_providers": ["security.runtime"],
+    }
+    degraded_model = rebuild(model, guardian=guardian_degraded)
+    check("Guardian degraded fixture remains degraded", "Degraded" in render(degraded_model, page="Guardian", height=35))
+    check("stale Guardian provider is visible in trust chain", "Stale" in render(degraded_model, page="Trust", height=35))
+
+    trusted_base = fixture(severity_level=0, incident=False)
+    trusted_guardian = deepcopy(trusted_base.guardian)
+    trusted_recovery = deepcopy(trusted_base.recovery)
+    trusted_guardian["system"]["current_system_generation"] = "sys-gen-fixture"
+    trusted_guardian["system"]["current_kernel_generation"] = "kernel-gen-fixture"
+    trusted_guardian["boot"].update({
+        "signed_boot_authority": "VERIFIED",
+        "boot_authority_id": "boot-authority-fixture",
+        "boot_generation_id": "boot-gen-fixture",
+        "trust_reason": "durable Signed Boot postboot proof verified",
+    })
+    trusted_guardian["evidence_freshness"]["boot.authority"] = {"freshness": "current", "health": "healthy"}
+    trusted_guardian["world_state"]["guardian"]["trust"] = {"state": "VERIFIED", "reasons": ["exact current authority verified"]}
+    trusted_recovery["current_generation_trust"] = "VERIFIED"
+    verified_model = rebuild(trusted_base, guardian=trusted_guardian, recovery=trusted_recovery)
+    verified_trust = render(verified_model, page="Trust", height=35)
+    check("verified trust chain has no upstream break", "Overall trust          Verified" in verified_trust and "TRUST BREAK" not in verified_trust)
+
+    stale_guardian = deepcopy(trusted_guardian)
+    stale_guardian["evidence_freshness"]["boot.authority"] = {"freshness": "stale", "health": "healthy"}
+    stale_guardian["world_state"]["guardian"]["trust"] = {"state": "UNKNOWN", "reasons": ["boot authority evidence stale"]}
+    stale_model = rebuild(trusted_base, guardian=stale_guardian, recovery=trusted_recovery)
+    check("stale trust fixture cannot render verified chain", "Boot authority         Stale" in render(stale_model, page="Trust", height=35) and "TRUST BREAK" in render(stale_model, page="Trust", height=35))
+
+    untrusted_guardian = deepcopy(trusted_guardian)
+    untrusted_recovery = deepcopy(trusted_recovery)
+    untrusted_guardian["boot"]["signed_boot_authority"] = "UNTRUSTED"
+    untrusted_guardian["world_state"]["guardian"]["trust"] = {"state": "UNTRUSTED", "reasons": ["authority revoked"]}
+    untrusted_recovery["current_generation_trust"] = "UNTRUSTED"
+    untrusted_model = rebuild(trusted_base, guardian=untrusted_guardian, recovery=untrusted_recovery)
+    check("untrusted trust fixture is explicit", "Untrusted" in render(untrusted_model, page="Trust", height=35))
+
+    lifecycle_fields = (
+        ("discovered_time", "2026-01-01T00:00:01Z"),
+        ("staged_time", "2026-01-01T00:00:02Z"),
+        ("prepared_time", "2026-01-01T00:00:03Z"),
+        ("installation_time", "2026-01-01T00:00:04Z"),
+        ("native_update_execution_certified", True),
+        ("activation_time", "2026-01-01T00:00:05Z"),
+        ("verification_time", "2026-01-01T00:00:06Z"),
+    )
+    lifecycle_labels = ("DISCOVER", "STAGE", "PREPARE", "CANDIDATE", "ADMISSION", "ACTIVATE", "VERIFY")
+    for completed in range(8):
+        receipt = {}
+        for key, value in lifecycle_fields[:completed]:
+            receipt[key] = value
+        lifecycle = dict(_update_lifecycle(receipt))
+        if completed < len(lifecycle_labels):
+            check(f"update lifecycle stage {lifecycle_labels[completed]} becomes current", lifecycle[lifecycle_labels[completed]] == "●")
+        check(f"update lifecycle preserves {completed} completed stages", sum(symbol == "✓" for symbol in lifecycle.values()) == completed)
+
+    rejected_update = deepcopy(model.update)
+    rejected_update["blockers"] = ["admission_rejected"]
+    rejected_update["receipt"]["native_update_execution_certified"] = False
+    check("Admission rejection remains visible", "BLOCKERS" in render(rebuild(model, update=rejected_update), page="Updates", height=35))
+    pending_activation = deepcopy(model.update)
+    pending_activation["receipt"]["installation_time"] = "2026-01-01T00:00:40Z"
+    pending_activation["receipt"]["native_update_execution_certified"] = True
+    pending_activation["presentation_status"] = "Installed pending activation"
+    check("installed candidate waits at ACTIVATE", dict(_update_lifecycle(pending_activation["receipt"]))["ACTIVATE"] == "●")
+    postboot = deepcopy(pending_activation)
+    postboot["receipt"]["activation_time"] = "2026-01-01T00:00:50Z"
+    check("postboot activation waits at VERIFY", dict(_update_lifecycle(postboot["receipt"]))["VERIFY"] == "●")
+    healthy_update = deepcopy(postboot)
+    healthy_update["receipt"]["verification_time"] = "2026-01-01T00:01:00Z"
+    check("healthy update lifecycle completes every stage", all(symbol == "✓" for _, symbol in _update_lifecycle(healthy_update["receipt"])))
+
+    for workload_name, label in (("compile", "Compiling"), ("rendering", "Rendering")):
+        behavior = deepcopy(model.behavior)
+        behavior["situation"]["workload"][workload_name] = True
+        behavior["active_executable_posture"] = {"maintenance": "deferred"}
+        behavior_page = render(rebuild(model, behavior=behavior), page="Behavior", height=35)
+        check(f"Behavior {workload_name} fixture is contextual", label in behavior_page and "Current adaptation" not in behavior_page)
+    battery_behavior = deepcopy(model.behavior)
+    battery_behavior["situation"]["power"] = {"ac_online": False, "battery_present": True, "percentage": 14, "severity_band": "LOW"}
+    check("Behavior battery conservation fixture is visible", "Battery LOW" in render(rebuild(model, behavior=battery_behavior), page="Behavior", height=35))
+    thermal_behavior = deepcopy(model.behavior)
+    thermal_behavior["situation"]["thermal"] = {"level": "hot", "maximum_millidegree_c": 88000}
+    check("Behavior thermal adaptation fixture is visible", "Thermal Hot" in render(rebuild(model, behavior=thermal_behavior), page="Behavior", height=35))
+    blocked_behavior = deepcopy(model.behavior)
+    blocked_behavior["blocked"] = {"reason": "maintenance critical section"}
+    check("Behavior blocked proposal is visible", "Blocked proposal" in render(rebuild(model, behavior=blocked_behavior), page="Behavior", height=35))
+
+    idle_recovery_base = fixture(incident=False)
+    no_recovery = deepcopy(idle_recovery_base.recovery)
+    no_recovery.update({"recovery_modes": [], "last_verified_runtime_recovery": None, "last_verified_recovery": None})
+    check("Recovery none-certified fixture is explicit", "Not certified" in render(rebuild(idle_recovery_base, recovery=no_recovery), page="Recovery", height=35))
+    native_recovery = deepcopy(trusted_recovery)
+    native_recovery["recovery_modes"] = ["NATIVE"]
+    native_recovery["last_verified_recovery"] = {
+        "valid": True, "campaign_id": "native-fixture",
+        "system_generation_id": "sys-known-good", "kernel_generation_id": "kernel-known-good",
+    }
+    native_page = render(rebuild(trusted_base, guardian=trusted_guardian, recovery=native_recovery), page="Recovery", height=35)
+    check("Recovery native generation fixture exposes known-good state", "Native certified" in native_page and "native-fixture" in native_page)
+    recovering_guardian = deepcopy(model.guardian)
+    recovering_guardian["runtime_recovery"]["state"] = "recovering"
+    check("Recovery active fixture renders Recovering", "Recovering" in render(rebuild(model, guardian=recovering_guardian), page="Recovery", height=35))
+    invalid_recovery = deepcopy(model.recovery)
+    invalid_recovery["invalid_unified_history_records"] = 2
+    invalid_recovery["unified_history_count"] = 3
+    check("Recovery invalid history fixture requests review", "2 invalid" in render(rebuild(model, recovery=invalid_recovery), page="Recovery", height=35) and "Integrity requires review" in render(rebuild(model, recovery=invalid_recovery), page="Recovery", height=35))
+
+    collector_failure = rebuild(model, collection_errors=("guardian collector failed",))
+    check("collector failure never becomes healthy evidence", any(item.id.startswith("collection.") and item.state == "UNKNOWN" and item.attention for item in collector_failure.diagnostics))
+    color_page = render(model, width=120, height=35, page="Overview", color=True)
+    check("color rendering does not regex-color status prose", "\x1b[32mHealthy" not in color_page)
+
     check("Behavior idle summary renders Normal", model.summary.behavior == "Normal")
     check("recovery summary describes capability, not generic readiness", fixture(incident=False).summary.recovery == "Runtime certified")
     grouped = attention_groups(model)
@@ -133,7 +273,7 @@ def main() -> None:
     update_page = render(model, page="Updates", height=35)
     check("Update page renders PREPARED stale authority semantically", "Waiting for certification" in update_page)
     check("Update page exposes lifecycle and untouched live root", all(value in update_page for value in ("DISCOVER", "STAGE", "PREPARE", "CANDIDATE", "ADMISSION", "ACTIVATE", "VERIFY", "Still active and untouched")))
-    check("Update page promotes kernels and activation requirements", "Kernel changes" in update_page and "linux-cachyos" in update_page and "Reboot" in update_page)
+    check("Update page promotes kernels and activation requirements", "KERNEL CHANGES" in update_page and "linux-cachyos" in update_page and "reboot" in update_page)
     check("Update package viewport follows selected identity", "linux-cachyos" in render(model, page="Updates", row=1, height=35))
     check("Recovery page explains unresolved generation authority", "Awaiting generation trust" in render(model, page="Recovery", height=35))
     guardian_active = render(model, page="Guardian", height=35)

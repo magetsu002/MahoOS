@@ -12,10 +12,7 @@ from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from maho_behavior_preferences import SPECS, write_preference
 from maho_system_status import DiagnosticRecord, SystemModel, collect_system_model
-from maho_tui import (
-    box, bounded_lines, clip, colorize_line, columns, field_rows, paint,
-    read_key, short_id,
-)
+from maho_tui import box, bounded_lines, clip, paint, read_key, short_id
 
 
 PAGES = (
@@ -483,55 +480,53 @@ def _updates(model: SystemModel, state: UIState, width: int) -> list[str]:
     changes = _package_changes(model)
     kernel_names = receipt.get("kernel_changes") if isinstance(receipt.get("kernel_changes"), list) else []
     lifecycle = _update_lifecycle(receipt)
+    package_generation = short_id(str(receipt.get("package_generation_id")), 24) if receipt.get("package_generation_id") else "none"
+    recovery_generation = short_id(str(receipt.get("recovery_generation")), 24) if receipt.get("recovery_generation") else "none"
+    requirements = receipt.get("activation_requirements") if isinstance(receipt.get("activation_requirements"), list) else []
+    reboot = "yes" if "explicit-reboot" in requirements else "not explicit"
     rows = [
         f"{len(changes)} packages · {len(kernel_names)} kernels",
-        f"Package generation   {short_id(str(receipt.get('package_generation_id')), 44) if receipt.get('package_generation_id') else 'Not established'}",
-        f"Recovery generation  {short_id(str(receipt.get('recovery_generation')), 44) if receipt.get('recovery_generation') else 'Not prepared'}",
-        "",
+        f"Generations   package {package_generation} · recovery {recovery_generation}",
         " → ".join(label for label, _ in lifecycle),
         "   ".join(f"{symbol:^{max(5, len(label))}}" for label, symbol in lifecycle),
-        "",
-        f"Current state         {str(update.get('presentation_status') or update.get('status') or 'Unknown')}",
-        f"Execution authority   {'Certified' if receipt.get('native_update_execution_certified') is True else 'Waiting for certification'}",
-        f"Recovery prepared     {'Yes' if receipt.get('native_l3_certified') is True and receipt.get('recovery_generation') else 'No'}",
-        f"Activation required   {'Yes' if receipt.get('activation_required') is True else 'No'}",
+        f"State         {str(update.get('presentation_status') or update.get('status') or 'Unknown')}",
+        f"Authority     {'Certified' if receipt.get('native_update_execution_certified') is True else 'Waiting for certification'} · recovery {'prepared' if receipt.get('native_l3_certified') is True and receipt.get('recovery_generation') else 'not prepared'}",
+        (
+            "Current root  Activation occurred; verification determines completion."
+            if receipt.get("activation_time")
+            else "Current root  Still active and untouched by candidate activation."
+        ),
+        f"Activation    {'required' if receipt.get('activation_required') is True else 'not required'} · reboot {reboot}",
     ]
-    if receipt.get("activation_time"):
-        rows.append("Current system        Activation occurred; verification determines completion.")
-    else:
-        rows.append("Current system        Still active and untouched by candidate activation.")
-    requirements = receipt.get("activation_requirements") if isinstance(receipt.get("activation_requirements"), list) else []
-    if receipt.get("activation_required") is True:
-        reboot = "Yes" if "explicit-reboot" in requirements else "Not explicitly required"
-        rows.append(f"Reboot                {reboot} after successful activation")
     blockers = update.get("blockers") if isinstance(update.get("blockers"), list) else []
     if blockers:
-        rows += ["", "BLOCKERS", *[f"• {item}" for item in blockers[:4]]]
-    result = box("Update lifecycle", rows, width)
+        rows.append(f"BLOCKERS      {len(blockers)} · {str(blockers[0])}")
 
     package_by_name = {str(item.get("name")): item for item in changes}
-    kernel_rows = []
-    for name in kernel_names:
-        item = package_by_name.get(str(name), {})
-        if item:
-            kernel_rows.append(f"{name}  {item.get('from', '?')} → {item.get('to', '?')}")
-        else:
-            kernel_rows.append(str(name))
-    if kernel_rows:
-        result += [""] + box("Kernel changes", kernel_rows, width)
+    rows.append("KERNEL CHANGES")
+    if kernel_names:
+        for name in kernel_names[:2]:
+            item = package_by_name.get(str(name), {})
+            rows.append(
+                f"  {name}  {item.get('from', '?')} → {item.get('to', '?')}"
+                if item else f"  {name}"
+            )
+        if len(kernel_names) > 2:
+            rows.append(f"  … {len(kernel_names) - 2} more kernel changes")
+    else:
+        rows.append("  None")
 
+    rows.append("PACKAGE CHANGES")
     if changes:
-        capacity = 6 if width >= 90 else 4
+        capacity = 5 if width >= 90 else 3
         start, end, selected = viewport_bounds(len(changes), state.row_index, capacity, state.row_offset)
-        package_rows = []
         for index, item in enumerate(changes[start:end], start):
             cursor = ">" if index == selected else " "
-            package_rows.append(f"{cursor} {item.get('name')}  {item.get('from')} → {item.get('to')}")
-        package_rows.append(f"Showing {start + 1}-{end} of {len(changes)} · use ↑↓/PgUp/PgDn")
+            rows.append(f"{cursor} {item.get('name')}  {item.get('from')} → {item.get('to')}")
+        rows.append(f"  Showing {start + 1}-{end} of {len(changes)} · ↑↓/PgUp/PgDn")
     else:
-        package_rows = ["No package changes in the current receipt."]
-    result += [""] + box("Package changes", package_rows, width)
-    return result
+        rows.append("  No package changes in the current receipt.")
+    return box("Updates", rows, width)
 
 
 def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
@@ -567,6 +562,7 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
     posture = _obj(model.behavior.get("active_executable_posture"))
     leases = _list(model.behavior.get("leases"))
     proposals = _list(model.behavior.get("proposals"))
+    blocked = model.behavior.get("blocked")
     adaptation = []
     if posture:
         for key, value in sorted(posture.items()):
@@ -586,6 +582,9 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
             "Why                No adaptation required.",
             "Lease              None",
         ]
+    if blocked:
+        blocked_reason = blocked.get("reason") if isinstance(blocked, Mapping) else blocked
+        adaptation.append(f"Blocked proposal   {blocked_reason or 'Blocked by current certified constraints'}")
 
     prefs = []
     selected = min(max(state.row_index, 0), len(SPECS) - 1)
@@ -745,9 +744,13 @@ def _raw(
 
 def _help(width: int) -> list[str]:
     return box("Help", [
-        "[Left/Right or Tab] Sections", "[Up/Down] Select rows", "[Enter] Inspect or toggle a Behavior preference",
-        "[Esc] Close detail/evidence", "[D] Doctor", "[E] Evidence", "[L] Logs / Evidence", "[?] Help", "[Q] Quit",
-        "", "This interface presents existing authority. It does not create trust, select recovery, or execute mutation.",
+        "[Left/Right or Tab] Sections   [1-8] Direct section",
+        "[Up/Down] Select   [PgUp/PgDn] Move viewport   [Home/End] First/last",
+        "[Enter] Inspect or toggle a Behavior preference   [F] Evidence filter",
+        "[R] Refresh now   [E] Structured evidence   [D] Doctor   [L] Evidence",
+        "[Esc] Close detail/evidence   [?] Help   [Q] Quit",
+        "",
+        "This interface presents existing authority. It does not create trust, select recovery, or execute mutation.",
     ], width)
 
 
@@ -824,7 +827,7 @@ def compose(
         lines.append("")
     lines = lines[: height - len(footer)] + footer
     if color:
-        lines = [colorize_line(line) for line in lines]
+        # Color only explicit UI tokens. Never infer semantics by matching prose.
         active = f"› {state.page_index + 1} {page}"
         lines = [line.replace(active, paint(active, "active", True)) for line in lines]
     return "\n".join(lines) + "\n"
