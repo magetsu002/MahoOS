@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import fcntl
 import json
+import os
 import shutil
 import tempfile
 import sys
@@ -24,6 +26,7 @@ from maho_update_native import (  # noqa: E402
     sha256_file,
     update_confirmation,
 )
+import maho_update_campaign as campaign  # noqa: E402
 from maho_update_campaign import _runtime_identity_matches  # noqa: E402
 
 TX1 = "upd-20260912T100000Z-abcdef123456"
@@ -88,6 +91,48 @@ class FixtureBtrfs(NativeBtrfsOps):
             marker.unlink()
 
 
+class UnmountRetryProbe(NativeBtrfsOps):
+    UNMOUNT_RETRY_DELAY_SECONDS = 0
+
+    def __init__(self) -> None:
+        super().__init__(TX1, run_root="/tmp/maho-unmount-retry-fixture")
+        self.unmount_attempts = 0
+
+    def _run(self, command, *, check=False):
+        argv = tuple(command)
+        if argv[:2] == ("mountpoint", "-q"):
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if argv and argv[0] == "umount":
+            self.unmount_attempts += 1
+            return SimpleNamespace(
+                returncode=0 if self.unmount_attempts == 3 else 32,
+                stdout="",
+                stderr="target is busy",
+            )
+        raise AssertionError(argv)
+
+
+class CleanupOrderProbe(NativeBtrfsOps):
+    def __init__(self, base: Path) -> None:
+        super().__init__(TX1, run_root=base / "run")
+        self.events: list[str] = []
+
+    def require_root(self) -> None:
+        return None
+
+    def unmount_normal_candidate_runtime(self) -> None:
+        self.events.append("runtime")
+
+    def _unmount(self, path: Path) -> None:
+        self.events.append("root" if path == self.offline_root else f"unmount:{path}")
+
+    def root_identity(self) -> RootIdentity:
+        return RootIdentity(FSUUID, "/@", "/dev/test[/@]", "/dev/test", CURRENT_UUID)
+
+    def _mount_top(self, identity: RootIdentity, *, read_only: bool = False) -> None:
+        self.events.append("top")
+
+
 def seed_fixture(ops: FixtureBtrfs) -> tuple[dict[str, str], dict[str, bytes]]:
     current = ops.top / "@"
     candidate = ops.top / ops.candidate
@@ -114,6 +159,41 @@ def seed_fixture(ops: FixtureBtrfs) -> tuple[dict[str, str], dict[str, bytes]]:
 
 
 def main() -> None:
+    original_lock_path = campaign._CAMPAIGN_LOCK_PATH
+    original_require_root = campaign._require_root
+    with tempfile.TemporaryDirectory(prefix="maho-campaign-mutex-") as temporary:
+        campaign._CAMPAIGN_LOCK_PATH = Path(temporary) / "campaign.lock"
+        campaign._require_root = lambda: None
+        try:
+            with campaign._campaign_mutex():
+                contender = os.open(campaign._CAMPAIGN_LOCK_PATH, os.O_RDWR)
+                try:
+                    try:
+                        fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        check("root campaign mutex rejects a concurrent process", True)
+                    else:
+                        raise AssertionError("concurrent root campaign acquired the process mutex")
+                finally:
+                    os.close(contender)
+            with campaign._campaign_mutex():
+                check("root campaign mutex releases after the owner exits", True)
+        finally:
+            campaign._CAMPAIGN_LOCK_PATH = original_lock_path
+            campaign._require_root = original_require_root
+
+    unmount = UnmountRetryProbe()
+    unmount._unmount(Path("/fixture-candidate"))
+    check("candidate cleanup retries transient busy unmounts within a bound", unmount.unmount_attempts == 3)
+
+    with tempfile.TemporaryDirectory(prefix="maho-cleanup-order-") as temporary:
+        cleanup = CleanupOrderProbe(Path(temporary))
+        result = cleanup.cleanup_candidate(CANDIDATE_UUID)
+        check(
+            "candidate recovery tears down runtime mounts before the root",
+            result["ok"] is True and cleanup.events[:2] == ["runtime", "root"],
+        )
+
     runtime_identity = {
         "verified": True,
         "path": "/home/test/.local/share/maho/runtime/releases/abc",

@@ -81,7 +81,7 @@ class OfflineRootUpdateOps:
     fixture_safe = False
     production_safe = True
     PACMAN = "/usr/bin/pacman"
-    ARCH_CHROOT = "/usr/bin/arch-chroot"
+    CHROOT = "/usr/bin/chroot"
 
     def __init__(self, offline_root: str | os.PathLike[str], cache_root: str | os.PathLike[str], *, runner=None) -> None:
         root = Path(offline_root)
@@ -124,7 +124,7 @@ class OfflineRootUpdateOps:
     def initramfs_command(self, preset: str) -> tuple[str, ...]:
         if preset not in {"linux-cachyos", "linux-cachyos-lts"}:
             raise ValueError("initramfs preset is outside the Primary/Fallback matrix")
-        return (self.ARCH_CHROOT, str(self.root), "/usr/bin/mkinitcpio", "-p", preset)
+        return (self.CHROOT, str(self.root), "/usr/bin/mkinitcpio", "-p", preset)
 
     def _allowed(self, command: Sequence[str], plan: ExecutionPlan) -> bool:
         argv = tuple(command)
