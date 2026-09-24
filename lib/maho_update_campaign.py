@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager, nullcontext
+import fcntl
 import hashlib
 from datetime import datetime, timezone
 import json
@@ -64,6 +66,7 @@ _SHA40 = re.compile(r"[0-9a-f]{40}")
 _STATE_ROOT = Path("/var/lib/maho/update")
 _AUR_CACHE_ROOT = Path("/var/cache/maho/update-aur")
 _M4B_READINESS_ROOT = Path("/var/cache/maho/update-m4b-readiness")
+_CAMPAIGN_LOCK_PATH = Path("/run/lock/maho-update-campaign.lock")
 
 
 def _root() -> Path:
@@ -98,6 +101,25 @@ def _platform(root: Path) -> dict[str, Any]:
 def _require_root() -> None:
     if os.geteuid() != 0:
         raise PermissionError("M4B native certification requires root")
+
+
+@contextmanager
+def _campaign_mutex():
+    """Serialize every root campaign operation across process boundaries."""
+    _require_root()
+    flags = os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(_CAMPAIGN_LOCK_PATH, flags, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("update_campaign_busy") from exc
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def _repo_contract(policy: Mapping[str, Any]) -> dict[str, Any]:
@@ -1130,28 +1152,30 @@ def main() -> None:
     aur.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
     try:
-        if args.command == "probe-m4b":
-            payload = probe_native_readiness()
-        elif args.command == "prepare":
-            payload = prepare_native_campaign()
-        elif args.command == "execute":
-            payload = execute_native_campaign(args.transaction_id, args.confirm)
-        elif args.command == "approve-admission":
-            payload = approve_native_admission(args.transaction_id, args.confirm)
-        elif args.command == "activate":
-            payload = arm_native_activation(args.transaction_id, args.confirm)
-        elif args.command == "verify":
-            payload = verify_native_activation(args.transaction_id)
-        elif args.command == "certify-normal":
-            payload = certify_normal_update(
-                args.package, args.confirm, preflight_only=args.preflight_only,
-            )
-        elif args.command == "apply-aur":
-            payload = apply_aur_campaign(
-                args.receipt, args.confirm, preflight_only=args.preflight_only,
-            )
-        else:
-            payload = status_native_campaign(args.transaction_id)
+        lock_context = nullcontext() if args.command == "status" else _campaign_mutex()
+        with lock_context:
+            if args.command == "probe-m4b":
+                payload = probe_native_readiness()
+            elif args.command == "prepare":
+                payload = prepare_native_campaign()
+            elif args.command == "execute":
+                payload = execute_native_campaign(args.transaction_id, args.confirm)
+            elif args.command == "approve-admission":
+                payload = approve_native_admission(args.transaction_id, args.confirm)
+            elif args.command == "activate":
+                payload = arm_native_activation(args.transaction_id, args.confirm)
+            elif args.command == "verify":
+                payload = verify_native_activation(args.transaction_id)
+            elif args.command == "certify-normal":
+                payload = certify_normal_update(
+                    args.package, args.confirm, preflight_only=args.preflight_only,
+                )
+            elif args.command == "apply-aur":
+                payload = apply_aur_campaign(
+                    args.receipt, args.confirm, preflight_only=args.preflight_only,
+                )
+            else:
+                payload = status_native_campaign(args.transaction_id)
     except (RuntimeError, ValueError, LookupError, PermissionError) as exc:
         payload = {
             "phase": "blocked",

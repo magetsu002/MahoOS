@@ -166,6 +166,7 @@ def main() -> None:
         check("concrete offline executor remains behind production gate", concrete_blocked.transaction["state"] == "BLOCKED" and offline.commands == [])
         fixture_escape = execute_update(transaction, fixture_plan, offline, now=NOW)
         check("fixture label cannot unlock concrete system executor", fixture_escape.transaction["state"] == "BLOCKED" and fixture_escape.transaction["blockers"] == ["fixture_executor_not_isolated"] and offline.commands == [])
+        check("candidate initramfs uses the universally available coreutils chroot", offline.initramfs_command("linux-cachyos")[:2] == ("/usr/bin/chroot", str(offline_root)))
         rejected("concrete executor can never target live root", lambda: OfflineRootUpdateOps("/", cache))
         rejected("concrete executor rejects live Pacman cache", lambda: OfflineRootUpdateOps(offline_root, "/var/cache/pacman/pkg"))
         try:

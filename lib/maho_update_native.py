@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import time
 from typing import Any, Mapping, Sequence
 
 from maho_runtime_release import verify_release
@@ -98,6 +99,9 @@ class RootIdentity:
 class NativeBtrfsOps:
     """Strict native host operations for one candidate-root transaction."""
 
+    UNMOUNT_ATTEMPTS = 5
+    UNMOUNT_RETRY_DELAY_SECONDS = 0.2
+
     def __init__(
         self, transaction_id: str, *,
         run_root: str | os.PathLike[str] = "/run/maho-update-m4b",
@@ -171,8 +175,25 @@ class NativeBtrfsOps:
         self._run(("mount", "-t", "btrfs", "-o", options, identity.device, str(self.top)), check=True)
 
     def _unmount(self, path: Path) -> None:
-        if self._run(("mountpoint", "-q", str(path))).returncode == 0:
-            self._run(("umount", str(path)), check=True)
+        if self._run(("mountpoint", "-q", str(path))).returncode != 0:
+            return
+        command = ("umount", str(path))
+        result = None
+        for attempt in range(self.UNMOUNT_ATTEMPTS):
+            result = self._run(command)
+            if result.returncode == 0:
+                return
+            # Another teardown path may have completed the unmount after our
+            # failed attempt. Treat an already-gone mount as success rather
+            # than turning harmless convergence into a recovery failure.
+            if self._run(("mountpoint", "-q", str(path))).returncode != 0:
+                return
+            if attempt + 1 < self.UNMOUNT_ATTEMPTS:
+                time.sleep(self.UNMOUNT_RETRY_DELAY_SECONDS)
+        assert result is not None
+        raise RuntimeError(
+            f"command failed ({result.returncode}): {' '.join(command)}: {result.stderr.strip()}"
+        )
 
     def close(self) -> None:
         self.unmount_normal_candidate_runtime()
@@ -342,6 +363,10 @@ class NativeBtrfsOps:
 
     def cleanup_candidate(self, expected_uuid: str) -> dict[str, Any]:
         self.require_root()
+        # Recovery can be entered while the offline candidate still owns its
+        # minimal /dev, /proc, /sys, and /run mounts. Tear those down before
+        # attempting to unmount/delete the candidate root itself.
+        self.unmount_normal_candidate_runtime()
         self._unmount(self.offline_root)
         identity = self.root_identity()
         self._mount_top(identity)

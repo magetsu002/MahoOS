@@ -104,6 +104,7 @@ assert s.index('cleanup_admission_base(', verify) > verify
 assert 'admission-review' in s and 'admission-rejected' in s
 assert 'package_repo_set_mismatch' in s
 assert '"phase": "blocked"' in s
+assert 'with lock_context:' in s and '_campaign_mutex()' in s
 PY
 pass "production M4B certification remains false and package authority is pinned before hardware proof"
 if grep -En '(^|[[:space:];|&])(reboot|shutdown|poweroff|efibootmgr)([[:space:];|&]|$)' "$INSTALLER" "$WRAPPER" "$CAMPAIGN" >/dev/null; then fail "M4B campaign contains reboot or firmware mutation command"; fi
