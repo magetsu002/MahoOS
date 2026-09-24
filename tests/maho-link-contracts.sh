@@ -176,11 +176,11 @@ case "$*" in
     ;;
   "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan auto")
     cat <<'SCAN'
-*:Ashraf4G:91:WPA2:5180
+*:MahoTestWiFi:91:WPA2:5180
 :Guest\:Lab:61:WPA2:2412
 :OpenCafe:44:--:2412
 :CorpNet:80:WPA2 802.1X:5180
-:Ashraf4G:52:WPA2:2412
+:MahoTestWiFi:52:WPA2:2412
 SCAN
     ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
@@ -221,14 +221,14 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert data["available"] is True
 assert data["enabled"] is True
 assert data["device"] == "wlan0"
-assert data["current"]["ssid"] == "Ashraf4G"
+assert data["current"]["ssid"] == "MahoTestWiFi"
 assert data["current"]["signal"] == 91
 assert data["current"]["quality"] == "Excellent"
 assert data["current"]["band"] == "5 GHz"
 assert data["current"]["ipv4"] == "192.168.1.50/24"
 assert data["current"]["gateway"] == "192.168.1.1"
 rows = {row["ssid"]: row for row in data["networks"]}
-assert "Ashraf4G" not in rows
+assert "MahoTestWiFi" not in rows
 assert rows["Guest:Lab"]["signal"] == 61
 assert rows["OpenCafe"]["secured"] is False
 assert rows["CorpNet"]["enterprise"] is True

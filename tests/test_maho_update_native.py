@@ -239,7 +239,7 @@ def main() -> None:
             cache,
             transaction={},
             expected_versions={"linux-cachyos": "7.2-1", "linux-cachyos-headers": "7.2-1"},
-            runtime_user="magetsu",
+            runtime_user="tester",
             runtime_identity={},
             recovery_seed={},
             recovery_journal_path=base / "recovery.json",

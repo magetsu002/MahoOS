@@ -18,7 +18,7 @@ mkdir -p \
     "$PROC/321/fd" \
     "$HOME_FAKE/.ssh"
 
-printf 'magetsu ALL=(ALL:ALL) ALL\n' > "$FS/etc/sudoers.d/maho-test"
+printf 'tester ALL=(ALL:ALL) ALL\n' > "$FS/etc/sudoers.d/maho-test"
 printf '[Trigger]\nOperation = Install\n' > "$FS/etc/pacman.d/hooks/test.hook"
 printf 'ssh-ed25519 AAAATEST maho\n' > "$HOME_FAKE/.ssh/authorized_keys"
 printf '#!/bin/sh\n' > "$FS/usr/bin/alpha"
@@ -40,7 +40,7 @@ print(json.loads(sys.argv[1])['state_sha256'])
 PY
 )"
 [ "$H1" = "$H2" ] || fail "unchanged privilege inventory was unstable"
-printf 'magetsu ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$FS/etc/sudoers.d/maho-test"
+printf 'tester ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$FS/etc/sudoers.d/maho-test"
 THREE="$(python "$ENGINE" privilege --fs-root "$FS" --home "$HOME_FAKE")"
 H3="$(python - "$THREE" <<'PY'
 import json,sys

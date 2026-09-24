@@ -157,14 +157,14 @@ chmod +x "$HOME/.local/bin/maho-files"
 cat >"$HOME/.local/bin/maho-lock" <<'EOF_LOCK'
 #!/usr/bin/env bash
 # managed-by: maho-lock-install v1
-exec "/home/magetsu/.local/share/maho-lock/current/bin/maho-lock" "$@"
+exec "/home/tester/.local/share/maho-lock/current/bin/maho-lock" "$@"
 EOF_LOCK
 chmod +x "$HOME/.local/bin/maho-lock"
 cat >"$HOME/.local/bin/maho-power" <<'EOF_POWER'
 #!/usr/bin/env bash
 # managed-by: maho-power-install v1
-export MAHO_ROOT="/home/magetsu/.local/share/maho-power/current"
-exec "/home/magetsu/.local/share/maho-power/current/bin/maho-power" "$@"
+export MAHO_ROOT="/home/tester/.local/share/maho-power/current"
+exec "/home/tester/.local/share/maho-power/current/bin/maho-power" "$@"
 EOF_POWER
 chmod +x "$HOME/.local/bin/maho-power"
 cat >"$HOME/.local/bin/maho-clipboard" <<'EOF_CLIPBOARD'
