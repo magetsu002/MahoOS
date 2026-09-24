@@ -57,7 +57,10 @@ final release hardening are also unfinished.
 
 ## Learn more
 
-[Desktop](docs/DESKTOP.md)  
-[Recovery](docs/RECOVERY.md)  
-[Architecture](docs/ARCHITECTURE.md)  
+[Desktop](docs/DESKTOP.md)
+
+[Recovery](docs/RECOVERY.md)
+
+[Architecture](docs/ARCHITECTURE.md)
+
 [Roadmap](docs/ROADMAP.md)
