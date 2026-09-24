@@ -86,7 +86,7 @@ def main() -> None:
     trust_group = next(group for group in grouped if group.title == "Physical trust certification incomplete")
     check("attention grouping preserves underlying diagnostics", set(trust_group.diagnostic_ids) == {"trust.current-generation", "trust.signed-boot", "provider.boot.authority"})
     overview = render(model)
-    check("overview keeps health, Guardian, runtime, and trust distinct", all(value in overview for value in ("Healthy", "Verified", "Unresolved")))
+    check("overview keeps system, Guardian, and trust distinct", all(value in overview for value in ("SYSTEM", "GUARDIAN", "TRUST", "Healthy", "Unresolved")))
     check("overview groups repeated trust symptoms", "Physical trust" in overview and "certification incomplete" in overview and "UNKNOWN" not in overview)
     trust_page = render(model, page="Trust", height=35)
     check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
@@ -97,6 +97,7 @@ def main() -> None:
     optional = [item for item in model.diagnostics if item.id in {"provider.environment.power", "provider.environment.thermal"}]
     check("optional telemetry absence does not request attention", len(optional) == 2 and all(not item.attention and "Not available" in item.reason for item in optional))
     doctor = render(model, page="Doctor", height=40)
+    check("Doctor defaults to attention-focused checks", "Doctor · Attention" in doctor and "PASS" not in doctor)
     check("Doctor translates known trust reasons", "Not established" in doctor and "Awaiting certification" in doctor and "UNKNOWN" not in doctor)
     ambiguous = DiagnosticRecord("fixture.ambiguous", "Fixture", "UNKNOWN", "Ambiguous evidence", "No exact reason is available.", (), "Inspect evidence.", False)
     check("genuinely ambiguous evidence remains Unknown", diagnostic_state_label(ambiguous) == "Unknown")
@@ -121,7 +122,11 @@ def main() -> None:
     chosen = model.diagnostics[6].id
     reordered = replace(model, diagnostics=tuple(reversed(model.diagnostics)))
     restored = restore_selection(reordered, "Doctor", chosen, 6)
-    check("refresh preserves diagnostic selection by stable identity", reordered.diagnostics[restored].id == chosen)
+    doctor_view = [
+        item for item in reordered.diagnostics
+        if item.attention or (item.state != "PASS" and item.id not in {"provider.environment.power", "provider.environment.thermal"})
+    ]
+    check("refresh preserves diagnostic selection by stable identity", doctor_view[restored].id == chosen)
 
     output = io.StringIO()
     interactive(model, stdin=io.StringIO("right\nq\n"), stdout=output, width=80, height=24, color=False)

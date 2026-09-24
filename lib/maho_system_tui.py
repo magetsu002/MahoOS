@@ -36,6 +36,7 @@ class UIState:
     show_help: bool = False
     row_offset: int = 0
     detail_offset: int = 0
+    doctor_all: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,9 +84,21 @@ def viewport_bounds(count: int, selected: int, capacity: int, offset: int = 0) -
     return start, min(count, start + capacity), selected
 
 
-def _row_identity(model: SystemModel, page: str, row: int) -> str | None:
-    if page == "Doctor" and model.diagnostics:
-        return model.diagnostics[min(max(row, 0), len(model.diagnostics) - 1)].id
+def _doctor_items(model: SystemModel, show_all: bool = False) -> list[DiagnosticRecord]:
+    if show_all:
+        return list(model.diagnostics)
+    optional = {"provider.environment.power", "provider.environment.thermal"}
+    return [
+        item for item in model.diagnostics
+        if item.attention or (item.state != "PASS" and item.id not in optional)
+    ]
+
+
+def _row_identity(model: SystemModel, page: str, row: int, state: UIState | None = None) -> str | None:
+    if page == "Doctor":
+        rows = _doctor_items(model, bool(state and state.doctor_all))
+        if rows:
+            return rows[min(max(row, 0), len(rows) - 1)].id
     if page == "Behavior" and SPECS:
         return SPECS[min(max(row, 0), len(SPECS) - 1)].key
     if page == "Logs / Evidence" and model.events:
@@ -94,18 +107,18 @@ def _row_identity(model: SystemModel, page: str, row: int) -> str | None:
     return None
 
 
-def restore_selection(model: SystemModel, page: str, identity: str | None, previous: int) -> int:
-    if identity is None:
-        return min(max(previous, 0), max(0, _row_count(model, page) - 1))
+def restore_selection(
+    model: SystemModel, page: str, identity: str | None, previous: int, state: UIState | None = None,
+) -> int:
     if page == "Doctor":
-        ids = [item.id for item in model.diagnostics]
+        ids = [item.id for item in _doctor_items(model, bool(state and state.doctor_all))]
     elif page == "Behavior":
         ids = [spec.key for spec in SPECS]
     elif page == "Logs / Evidence":
         ids = ["|".join((event.source, event.at or "", event.reference or "", event.label)) for event in model.events]
     else:
         ids = []
-    if identity in ids:
+    if identity is not None and identity in ids:
         return ids.index(identity)
     return min(max(previous, 0), max(0, len(ids) - 1))
 
@@ -118,68 +131,94 @@ def _list(value: Any) -> Sequence[Mapping[str, Any]]:
     return tuple(item for item in value if isinstance(item, Mapping)) if isinstance(value, list) else ()
 
 
-def _status_rows(model: SystemModel, width: int) -> list[str]:
-    s = model.summary
-    runtime = _obj(_obj(model.guardian.get("system")).get("maho_runtime"))
-    rows: list[str] = []
-    for label, value in (
-        ("System health", _human_state(s.operational_health)),
-        ("Guardian", _human_state(s.guardian_health)),
-        ("Runtime", "Verified" if runtime.get("verified") is True else "Unverified"),
-        ("Trust", _human_state(s.trust)), ("Severity", _human_state(s.severity)),
-        ("Updates", s.updates), ("Recovery", s.recovery),
-        ("Behavior", s.behavior), ("Attention", s.attention),
-    ):
-        rows.extend(field_rows(label, value, width - 4))
-    return rows
+def _system_guidance(state: str) -> str:
+    return {
+        "HEALTHY": "You can continue using this machine normally.",
+        "DEGRADED": "The machine is usable, but one or more system guarantees need review.",
+        "FAILED": "Normal use should pause until the failing system condition is resolved.",
+        "UNKNOWN": "Maho does not have enough current evidence to judge normal operation.",
+    }.get(str(state).upper(), "Review current system evidence.")
 
 
 def _overview(model: SystemModel, width: int) -> list[str]:
+    summary = model.summary
+    trust_state = _human_state(summary.trust)
+    guardian_state = _human_state(summary.guardian_health)
+    trust_text = {
+        "Verified": "Current boot and generation trust are established.",
+        "Unresolved": "Physical boot/generation certification is incomplete.",
+        "Untrusted": "Current system trust has been explicitly lost.",
+    }.get(trust_state, "Current trust evidence is incomplete.")
+    guardian_text = (
+        "All required current observers are responding."
+        if str(summary.guardian_health).upper() == "HEALTHY"
+        else "Guardian judgment is incomplete; inspect Guardian for missing or stale providers."
+    )
+    receipt = _obj(model.update.get("receipt"))
+    changes = receipt.get("package_changes") if isinstance(receipt.get("package_changes"), list) else []
+    kernels = receipt.get("kernel_changes") if isinstance(receipt.get("kernel_changes"), list) else []
+    activity = str(model.update.get("presentation_status") or model.update.get("status") or "Idle")
+    if changes or kernels:
+        activity += f" · {len(changes)} packages · {len(kernels)} kernels"
+    if receipt.get("activation_time"):
+        live_text = "Activation occurred; post-activation verification determines completion."
+    else:
+        live_text = "Activation has not occurred; the current live system remains active."
     groups = attention_groups(model)
-    attention_rows = []
-    for group in groups[:4]:
-        attention_rows.append(f"{group.state:<22} {group.title}")
-        attention_rows.append(f"        {group.reason}")
-    if not attention_rows:
-        attention_rows = ["No user attention is currently requested."]
-    if width >= 86:
-        left = box("Status", _status_rows(model, (width - 2) // 2), (width - 2) // 2)
-        right_width = width - 2 - (width - 2) // 2
-        right = box("Attention", attention_rows, right_width)
-        return columns(left, right, width)
-    return box("Status", _status_rows(model, width), width) + [""] + box("Attention", attention_rows, width)
+    rows = [
+        f"SYSTEM      {_human_state(summary.operational_health)}",
+        _system_guidance(summary.operational_health),
+        "",
+        f"TRUST       {trust_state}",
+        trust_text,
+        "",
+        f"GUARDIAN    {guardian_state} · {summary.severity}",
+        guardian_text,
+        "",
+        f"ACTIVITY    {activity}",
+        live_text,
+        "",
+        f"NEEDS ATTENTION    {len(groups)} root issue{'s' if len(groups) != 1 else ''}",
+    ]
+    if groups:
+        rows.extend(f"• {group.title} — {group.state}" for group in groups[:4])
+    else:
+        rows.append("No user attention is currently requested.")
+    return box("System overview", rows, width)
 
 
-def _doctor_rows(model: SystemModel, selected: int, width: int, offset: int = 0) -> list[str]:
-    if not model.diagnostics:
-        return ["No diagnostic records are available."]
+def _doctor_rows(model: SystemModel, state: UIState, width: int) -> list[str]:
+    items = _doctor_items(model, state.doctor_all)
+    if not items:
+        return ["No checks require review. Press [A] to show all checks."]
     capacity = 10 if width >= 90 else 7
-    start, end, selected = viewport_bounds(len(model.diagnostics), selected, capacity, offset)
+    start, end, selected = viewport_bounds(len(items), state.row_index, capacity, state.row_offset)
     rows = []
-    for index, item in enumerate(model.diagnostics[start:end], start):
+    for index, item in enumerate(items[start:end], start):
         cursor = ">" if index == selected else " "
-        display_state = diagnostic_state_label(item)
-        rows.append(f"{cursor} {display_state:<22} {item.subsystem:<10} {item.summary}")
+        rows.append(f"{cursor} {diagnostic_state_label(item):<22} {item.subsystem:<14} {item.summary}")
     return rows
 
+
 def _doctor(model: SystemModel, state: UIState, width: int) -> list[str]:
-    if not model.diagnostics:
-        return box("Doctor", ["No diagnostic records are available."], width)
-    selected = min(max(state.row_index, 0), len(model.diagnostics) - 1)
-    item = model.diagnostics[selected]
-    rows = box("Doctor", _doctor_rows(model, selected, width, state.row_offset), width)
+    items = _doctor_items(model, state.doctor_all)
+    mode = "All checks" if state.doctor_all else "Attention"
+    if not items:
+        return box(f"Doctor · {mode}", ["No checks require review.", "Press [A] to show all checks."], width)
+    selected = min(max(state.row_index, 0), len(items) - 1)
+    item = items[selected]
+    rows = box(f"Doctor · {mode}", _doctor_rows(model, state, width), width)
     if state.show_detail:
-        display_state = diagnostic_state_label(item, detail=True)
         detail = [
-            f"State      {display_state}", f"Reason     {item.reason}",
-            f"Impact     {'User attention requested' if item.attention else 'No user action requested'}",
-            f"Action     {item.recommended_action}",
+            f"State               {diagnostic_state_label(item, detail=True)}",
+            f"What happened       {item.summary}",
+            f"Why it matters      {item.reason}",
+            f"Recommended action  {item.recommended_action}",
+            f"Evidence            {', '.join(item.evidence_refs) or 'No exact reference supplied'}",
         ]
-        if state.show_evidence:
-            detail.append("Evidence   " + ", ".join(item.evidence_refs))
-        rows += [""] + box(item.summary, detail, width)
+        rows += [""] + box("Selected check", detail, width)
     else:
-        rows += ["", "Press [Enter] for explanation or [E] for evidence references."]
+        rows += ["", "[Enter] Explain selected check   [A] Attention/All"]
     return rows
 
 
@@ -441,7 +480,9 @@ def _footer(page: str, state: UIState) -> str:
         return "[↑↓/PgUp/PgDn] Scroll evidence  [Esc/E] Back  [R] Refresh  [?] Help  [Q] Quit"
     if page == "Behavior":
         return "[↑↓] Preference  [Enter] Toggle  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
-    if page in {"Doctor", "Logs / Evidence"}:
+    if page == "Doctor":
+        return "[↑↓] Select  [Enter] Explain  [A] Attention/All  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
+    if page == "Logs / Evidence":
         return "[↑↓] Select  [Enter] Inspect  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     return "[←→/Tab] Sections  [1-8] Jump  [E] Evidence  [R] Refresh  [D] Doctor  [L] Evidence  [?] Help  [Q] Quit"
 
@@ -497,8 +538,8 @@ def render(
     return compose(model, UIState(PAGES.index(normalized), row, detail, evidence), width=width, height=height, color=color)
 
 
-def _row_count(model: SystemModel, page: str) -> int:
-    if page == "Doctor": return len(model.diagnostics)
+def _row_count(model: SystemModel, page: str, state: UIState | None = None) -> int:
+    if page == "Doctor": return len(_doctor_items(model, bool(state and state.doctor_all)))
     if page == "Behavior": return len(SPECS)
     if page == "Logs / Evidence": return len(model.events)
     return 1
@@ -524,11 +565,11 @@ def interactive(
     def refresh() -> None:
         nonlocal model, last_refresh, dirty
         page_name = PAGES[state.page_index]
-        identity = _row_identity(model, page_name, state.row_index)
+        identity = _row_identity(model, page_name, state.row_index, state)
         previous = state.row_index
         model = model_provider()
-        state.row_index = restore_selection(model, page_name, identity, previous)
-        count = _row_count(model, page_name)
+        state.row_index = restore_selection(model, page_name, identity, previous, state)
+        count = _row_count(model, page_name, state)
         state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
         last_refresh = time.monotonic()
         dirty = True
@@ -598,6 +639,12 @@ def interactive(
                 state.page_index = PAGES.index("Logs / Evidence"); state.row_index = state.row_offset = 0; continue
             if key == "e":
                 state.show_evidence = not state.show_evidence; state.detail_offset = 0; continue
+            if key == "a" and PAGES[state.page_index] == "Doctor":
+                identity = _row_identity(model, "Doctor", state.row_index, state)
+                state.doctor_all = not state.doctor_all
+                state.row_index = restore_selection(model, "Doctor", identity, state.row_index, state)
+                state.row_offset = 0
+                continue
             if state.show_evidence:
                 if key in {"up", "k"}: state.detail_offset = max(0, state.detail_offset - 1)
                 elif key in {"down", "j"}: state.detail_offset += 1
@@ -606,7 +653,7 @@ def interactive(
                 elif key == "home": state.detail_offset = 0
                 continue
             page_name = PAGES[state.page_index]
-            count = _row_count(model, page_name)
+            count = _row_count(model, page_name, state)
             if key in {"up", "k"}: state.row_index = max(0, state.row_index - 1)
             elif key in {"down", "j"}: state.row_index = min(max(0, count - 1), state.row_index + 1)
             elif key == "page-up": state.row_index = max(0, state.row_index - 8)
