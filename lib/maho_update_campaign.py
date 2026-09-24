@@ -676,8 +676,6 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
     candidate: dict[str, Any] | None = None
     success = False
     try:
-        candidate = btrfs.create_candidate()
-        btrfs.mount_normal_candidate_runtime()
         manifest = json.loads(Path(journal["manifest_path"]).read_text(encoding="utf-8"))
         plan = build_execution_plan(
             ready,
@@ -686,6 +684,9 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
             journal["relationships"],
             execution_environment="production",
         )
+        candidate = btrfs.create_candidate()
+        candidate = {**candidate, "boot_seed": btrfs.seed_private_boot(plan.boot_artifacts)}
+        btrfs.mount_normal_candidate_runtime()
         candidate_state_root = btrfs.offline_root / "var/lib/maho/update"
         ops = NativeCandidateUpdateOps(
             btrfs.offline_root,

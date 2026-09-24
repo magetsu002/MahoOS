@@ -94,10 +94,11 @@ approve=s.index('def approve_native_admission')
 activate=s.index('def arm_native_activation')
 verify=s.index('def verify_native_activation')
 execute_block=s[execute:approve]
+private_boot_seed=execute_block.index('btrfs.seed_private_boot(plan.boot_artifacts)')
 runtime_mount=execute_block.index('btrfs.mount_normal_candidate_runtime()')
 package_execution=execute_block.index('execute_update(')
 runtime_unmount=execute_block.index('btrfs.unmount_normal_candidate_runtime()')
-assert runtime_mount < package_execution < runtime_unmount
+assert private_boot_seed < runtime_mount < package_execution < runtime_unmount
 assert s.index('evaluate_production_candidate(', execute) < approve
 assert s.index('verify_activation_authority(', activate) < s.index('btrfs.arm_activation(', activate)
 assert s.index('cleanup_admission_base(', verify) > verify
