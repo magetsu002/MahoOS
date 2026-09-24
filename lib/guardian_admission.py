@@ -312,22 +312,113 @@ class AdmissionDecision:
 def evaluate_admission(
     graph: MutationGraph, *, known_safe_graph_ids: Iterable[ArtifactID] = (),
 ) -> AdmissionDecision:
+    return _evaluate_effect_rows(
+        transaction_id=graph.transaction_id,
+        graph_id=graph.graph_id,
+        inspection_complete=graph.inspection_complete,
+        effects=((item.kind, item.declared) for item in graph.effects),
+        known_safe_graph_ids=known_safe_graph_ids,
+    )
+
+
+def _evaluate_effect_rows(
+    *, transaction_id: TransactionID, graph_id: ArtifactID,
+    inspection_complete: bool, effects: Iterable[tuple[EffectKind, bool]],
+    known_safe_graph_ids: Iterable[ArtifactID] = (),
+) -> AdmissionDecision:
     known = {ArtifactID(str(item)) for item in known_safe_graph_ids}
-    if not graph.inspection_complete:
-        return AdmissionDecision(AdmissionOutcome.REJECT, ("candidate_inspection_incomplete",), graph.transaction_id, graph.graph_id, False)
-    if not graph.effects:
-        return AdmissionDecision(AdmissionOutcome.REJECT, ("candidate_has_no_observed_mutation",), graph.transaction_id, graph.graph_id, False)
-    if graph.graph_id in known:
-        return AdmissionDecision(AdmissionOutcome.ALLOW, ("exact_known_safe_transition",), graph.transaction_id, graph.graph_id, True)
-    undeclared_boundary = [item for item in graph.effects if item.kind in SECURITY_BOUNDARY_EFFECTS and not item.declared]
+    rows = tuple(effects)
+    if not inspection_complete:
+        return AdmissionDecision(AdmissionOutcome.REJECT, ("candidate_inspection_incomplete",), transaction_id, graph_id, False)
+    if not rows:
+        return AdmissionDecision(AdmissionOutcome.REJECT, ("candidate_has_no_observed_mutation",), transaction_id, graph_id, False)
+    if graph_id in known:
+        return AdmissionDecision(AdmissionOutcome.ALLOW, ("exact_known_safe_transition",), transaction_id, graph_id, True)
+    undeclared_boundary = [kind for kind, declared in rows if kind in SECURITY_BOUNDARY_EFFECTS and not declared]
     if undeclared_boundary:
-        reasons = tuple(sorted({f"undeclared_{item.kind.value.lower()}" for item in undeclared_boundary}))
-        return AdmissionDecision(AdmissionOutcome.REJECT, reasons, graph.transaction_id, graph.graph_id, False)
-    declared_boundary = [item for item in graph.effects if item.kind in SECURITY_BOUNDARY_EFFECTS]
-    undeclared_files = [item for item in graph.effects if not item.declared]
+        reasons = tuple(sorted({f"undeclared_{kind.value.lower()}" for kind in undeclared_boundary}))
+        return AdmissionDecision(AdmissionOutcome.REJECT, reasons, transaction_id, graph_id, False)
+    declared_boundary = [kind for kind, _ in rows if kind in SECURITY_BOUNDARY_EFFECTS]
+    undeclared_files = [kind for kind, declared in rows if not declared]
     if declared_boundary:
-        reasons = tuple(sorted({f"review_{item.kind.value.lower()}" for item in declared_boundary}))
-        return AdmissionDecision(AdmissionOutcome.REVIEW, reasons, graph.transaction_id, graph.graph_id, False)
+        reasons = tuple(sorted({f"review_{kind.value.lower()}" for kind in declared_boundary}))
+        return AdmissionDecision(AdmissionOutcome.REVIEW, reasons, transaction_id, graph_id, False)
     if undeclared_files:
-        return AdmissionDecision(AdmissionOutcome.REVIEW, ("declared_transaction_scope_exceeded",), graph.transaction_id, graph.graph_id, False)
-    return AdmissionDecision(AdmissionOutcome.ALLOW, ("bounded_declared_transition",), graph.transaction_id, graph.graph_id, True)
+        return AdmissionDecision(AdmissionOutcome.REVIEW, ("declared_transaction_scope_exceeded",), transaction_id, graph_id, False)
+    return AdmissionDecision(AdmissionOutcome.ALLOW, ("bounded_declared_transition",), transaction_id, graph_id, True)
+
+
+def evaluate_serialized_admission(
+    value: Mapping[str, Any], *, known_safe_graph_ids: Iterable[ArtifactID] = (),
+) -> AdmissionDecision:
+    """Validate and evaluate a persisted canonical graph without rescanning roots."""
+    required = {"schema_version", "transaction_id", "effects", "inspection_complete", "graph_id"}
+    if set(value) != required or value.get("schema_version") != 2:
+        raise ValueError("serialized mutation graph schema invalid")
+    try:
+        transaction_id = TransactionID(str(value["transaction_id"]))
+        graph_id = ArtifactID(str(value["graph_id"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("serialized mutation graph identity invalid") from exc
+    effects = value.get("effects")
+    complete = value.get("inspection_complete")
+    if not isinstance(effects, list) or not isinstance(complete, bool):
+        raise ValueError("serialized mutation graph content invalid")
+    material = {
+        "schema_version": 2,
+        "transaction_id": str(transaction_id),
+        "effects": effects,
+        "inspection_complete": complete,
+    }
+    if ArtifactID.from_content(canonical_bytes(material)) != graph_id:
+        raise ValueError("serialized mutation graph digest mismatch")
+    rows: list[tuple[EffectKind, bool]] = []
+    effect_fields = {
+        "kind", "operation", "subject", "declared", "owner_before", "owner_after", "before", "after",
+    }
+    observation_fields = {
+        "sha256", "mode", "package_owner", "file_type", "link_target", "uid", "gid",
+        "xattrs_sha256", "security_capability",
+    }
+    for effect in effects:
+        if not isinstance(effect, Mapping) or set(effect) != effect_fields:
+            raise ValueError("serialized mutation effect invalid")
+        try:
+            kind = EffectKind(str(effect["kind"]))
+        except ValueError as exc:
+            raise ValueError("serialized mutation effect kind invalid") from exc
+        if (
+            effect.get("operation") not in {"ADD", "REMOVE", "CHANGE"}
+            or not isinstance(effect.get("subject"), str)
+            or not str(effect["subject"]).startswith("/")
+            or ".." in str(effect["subject"]).split("/")
+            or not isinstance(effect.get("declared"), bool)
+            or not all(effect.get(name) is None or isinstance(effect.get(name), str) for name in ("owner_before", "owner_after"))
+        ):
+            raise ValueError("serialized mutation effect content invalid")
+        for side in ("before", "after"):
+            observation = effect.get(side)
+            if observation is None:
+                continue
+            if not isinstance(observation, Mapping) or set(observation) != observation_fields:
+                raise ValueError("serialized file observation invalid")
+            try:
+                FileObservation(
+                    sha256=str(observation["sha256"]), mode=int(observation["mode"]),
+                    package_owner=(str(observation["package_owner"]) if observation["package_owner"] is not None else None),
+                    file_type=str(observation["file_type"]),
+                    link_target=(str(observation["link_target"]) if observation["link_target"] is not None else None),
+                    uid=int(observation["uid"]), gid=int(observation["gid"]),
+                    xattrs_sha256=(str(observation["xattrs_sha256"]) if observation["xattrs_sha256"] is not None else None),
+                    security_capability=(str(observation["security_capability"]) if observation["security_capability"] is not None else None),
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("serialized file observation content invalid") from exc
+        rows.append((kind, bool(effect["declared"])))
+    return _evaluate_effect_rows(
+        transaction_id=transaction_id,
+        graph_id=graph_id,
+        inspection_complete=complete,
+        effects=rows,
+        known_safe_graph_ids=known_safe_graph_ids,
+    )

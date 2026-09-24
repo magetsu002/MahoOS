@@ -35,6 +35,7 @@ TX2 = "upd-20260912T100001Z-fedcba654321"
 CURRENT_UUID = "11111111-1111-1111-1111-111111111111"
 CANDIDATE_UUID = "22222222-2222-2222-2222-222222222222"
 FSUUID = "33333333-3333-3333-3333-333333333333"
+ADMISSION_BASE_UUID = "44444444-4444-4444-4444-444444444444"
 MACHINE = "a" * 32
 
 
@@ -307,6 +308,34 @@ def main() -> None:
         base = Path(temporary)
         ops = FixtureBtrfs(TX1, base)
         expected, old = seed_fixture(ops)
+        admission_base = ops.top / ops.admission_base
+        admission_base.mkdir()
+        (admission_base / ".uuid").write_text(ADMISSION_BASE_UUID)
+        (admission_base / ".ro").touch()
+        paths = ops.admission_roots(CANDIDATE_UUID, ADMISSION_BASE_UUID)
+        check(
+            "Admission roots verify exact UUIDs and both immutable subvolumes",
+            paths["candidate_uuid"] == CANDIDATE_UUID
+            and paths["base_uuid"] == ADMISSION_BASE_UUID
+            and paths["candidate_read_only"] is True
+            and paths["base_read_only"] is True,
+        )
+        (ops.top / ops.candidate / ".ro").unlink()
+        try:
+            ops.admission_roots(CANDIDATE_UUID, ADMISSION_BASE_UUID)
+        except RuntimeError as exc:
+            check("writable Admission candidate is rejected", "candidate UUID drifted" in str(exc))
+        else:
+            raise AssertionError("writable Admission candidate accepted")
+        (ops.top / ops.candidate / ".ro").touch()
+        (admission_base / ".ro").unlink()
+        try:
+            ops.admission_roots(CANDIDATE_UUID, ADMISSION_BASE_UUID)
+        except RuntimeError as exc:
+            check("writable Admission base is rejected", "base identity drifted" in str(exc))
+        else:
+            raise AssertionError("writable Admission base accepted")
+        (admission_base / ".ro").touch()
         result = ops.arm_activation(machine_id=MACHINE, expected_candidate_uuid=CANDIDATE_UUID, expected_boot_hashes=expected)
         check("activation swaps exact candidate into /@", (ops.top / "@/.uuid").read_text().strip() == CANDIDATE_UUID)
         check("activation preserves exact previous root", (ops.top / backup_name(TX1) / ".uuid").read_text().strip() == CURRENT_UUID)
@@ -323,13 +352,10 @@ def main() -> None:
             raise AssertionError("activation replay unexpectedly succeeded")
         frozen_previous = ops.freeze_previous_root(backup_name(TX1), CURRENT_UUID, CANDIDATE_UUID)
         check("postboot finalization freezes exact previous root", frozen_previous["read_only"] is True and (ops.top / backup_name(TX1) / ".ro").exists())
-        admission_base = ops.top / admission_base_name(TX1)
-        admission_base.mkdir()
-        (admission_base / ".uuid").write_text(FSUUID)
-        (admission_base / ".ro").touch()
+        # The exact Admission base remains parked until postboot verification.
         rejected_cleanup = ops.cleanup_admission_base(CANDIDATE_UUID)
         check("Admission base cleanup rejects UUID drift", rejected_cleanup["ok"] is False and admission_base.exists())
-        cleanup = ops.cleanup_admission_base(FSUUID)
+        cleanup = ops.cleanup_admission_base(ADMISSION_BASE_UUID)
         check("verified postboot lifecycle retires exact Admission base", cleanup["ok"] is True and not admission_base.exists())
         try:
             ops.freeze_previous_root(backup_name(TX1), CANDIDATE_UUID, CANDIDATE_UUID)

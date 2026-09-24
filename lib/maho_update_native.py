@@ -374,7 +374,7 @@ class NativeBtrfsOps:
         self._fsync_path(private_boot)
         return {"ok": True, "sha256": hashes, "size": sizes}
 
-    def admission_roots(self, expected_candidate_uuid: str, expected_base_uuid: str) -> dict[str, str]:
+    def admission_roots(self, expected_candidate_uuid: str, expected_base_uuid: str) -> dict[str, Any]:
         self.require_root()
         self._unmount(self.offline_root)
         identity = self.root_identity()
@@ -383,11 +383,22 @@ class NativeBtrfsOps:
         base = self.top / self.admission_base
         if not candidate.exists() or not base.exists():
             raise RuntimeError("admission candidate/base topology is incomplete")
-        if self._show_uuid(candidate) != expected_candidate_uuid:
+        candidate_uuid = self._show_uuid(candidate)
+        base_uuid = self._show_uuid(base)
+        candidate_read_only = self._read_only(candidate)
+        base_read_only = self._read_only(base)
+        if candidate_uuid != expected_candidate_uuid or not candidate_read_only:
             raise RuntimeError("admission candidate UUID drifted")
-        if self._show_uuid(base) != expected_base_uuid or not self._read_only(base):
+        if base_uuid != expected_base_uuid or not base_read_only:
             raise RuntimeError("admission base identity drifted")
-        return {"base_root": str(base), "candidate_root": str(candidate)}
+        return {
+            "base_root": str(base),
+            "candidate_root": str(candidate),
+            "candidate_uuid": candidate_uuid,
+            "base_uuid": base_uuid,
+            "candidate_read_only": candidate_read_only,
+            "base_read_only": base_read_only,
+        }
 
     def freeze_normal_candidate(self, expected_uuid: str) -> dict[str, Any]:
         """Freeze a non-boot candidate for stable Guardian admission."""
