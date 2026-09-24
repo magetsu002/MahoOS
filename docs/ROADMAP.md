@@ -32,12 +32,18 @@ promotion-time drift revalidation, but hardware acceptance remains pending.
 - broaden hardware, NVIDIA, suspend/resume, multi-monitor, and failure testing
 - finish release packaging, documentation, and final acceptance
 
-## Blocked by external availability
+## Active physical certification
 
-M4B hardware certification remains blocked until CachyOS publishes a real newer
-coherent Primary kernel generation. Do not manufacture this proof with partial
-upgrades, same-version reinstalls, hidden driver migration, or relaxed package
-authority.
+A genuine newer coherent Primary kernel generation is now available and M4B
+hardware certification is active rather than externally blocked. Isolated
+discovery and staging have succeeded, and real offline candidate execution has
+reached initramfs generation. The remaining proof is exact candidate completion,
+Native Admission, activation arming, an explicit normal Primary reboot, and
+postboot HEALTHY verification with generation publication.
+
+Do not manufacture this proof with partial upgrades, same-version reinstalls,
+hidden driver migration, relaxed package authority, or any bypass of the
+candidate-first recovery and verification path.
 
 ## After V1
 
