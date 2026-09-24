@@ -127,7 +127,7 @@ def physical_transaction() -> dict:
 
 def physical_boundary_roots(
     base: Path, *, extra_boot: bool = False, extra_kernel: bool = False,
-    extra_override: bool = False,
+    extra_source: bool = False, extra_override: bool = False,
 ) -> CandidateRoots:
     before = base / "base"
     candidate = base / "candidate"
@@ -144,7 +144,7 @@ def physical_boundary_roots(
         ],
         "linux-headers": [f"/usr/lib/modules/{old_release}/build/header.h"],
         "jdk-openjdk": ["/usr/lib/jvm/java-26-openjdk/bin/java"],
-        "brave-bin": ["/usr/bin/brave", "/usr/src/debug/brave-bin/old.debug"],
+        "brave-bin": ["/usr/bin/brave", "/usr/src/debug/brave-bin/"],
         "java-runtime-common": ["/usr/lib/jvm/default", "/usr/lib/jvm/default-runtime"],
         "stable-owner": ["/usr/bin/stable-owned"],
     }
@@ -176,7 +176,7 @@ def physical_boundary_roots(
     write_symlink(before, "/usr/lib/jvm/default", "java-26-openjdk")
     write_symlink(before, "/usr/lib/jvm/default-runtime", "java-26-openjdk")
     write_file(before, "/usr/bin/brave", b"brave-1", 0o755)
-    write_file(before, "/usr/src/debug/brave-bin/old.debug", b"debug")
+    (before / "usr/src/debug/brave-bin").mkdir()
     write_file(before, "/usr/bin/stable-owned", b"stable", 0o755)
     write_file(before, f"/var/lib/dkms/nvidia/580.178.04/{old_release}/x86_64/module/nvidia.ko.zst", b"old-dkms")
     write_symlink(before, f"/var/lib/dkms/nvidia/kernel-{old_release}-x86_64", f"580.178.04/{old_release}/x86_64")
@@ -200,6 +200,8 @@ def physical_boundary_roots(
         write_file(candidate, "/boot/rogue.efi", b"rogue")
     if extra_kernel:
         write_file(candidate, "/usr/lib/modules/evil-release/rogue.ko", b"rogue")
+    if extra_source:
+        (candidate / "usr/src/debug/not-in-transaction").mkdir(parents=True)
 
     return CandidateRoots.create(
         transaction_id=guardian_transaction_id(TX),
@@ -431,6 +433,17 @@ def main() -> None:
               rogue_module.decision.outcome is AdmissionOutcome.REJECT
               and any(effect.subject == "/usr/lib/modules/evil-release/rogue.ko" and not effect.declared
                       for effect in rogue_module.inspection.graph.effects))
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-source-") as td:
+        rogue_source = evaluate_production_candidate(
+            physical_boundary_roots(Path(td), extra_source=True),
+            physical_transaction(), SimpleNamespace(boot_artifacts=()),
+        )
+        check("unrelated source-tree output remains REJECT",
+              rogue_source.decision.outcome is AdmissionOutcome.REJECT
+              and any(effect.subject == "/usr/src/debug/not-in-transaction" and not effect.declared
+                      and effect.kind.value == "KERNEL_MODULE"
+                      for effect in rogue_source.inspection.graph.effects))
 
     with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-owner-") as td:
         rogue_owner = evaluate_production_candidate(
