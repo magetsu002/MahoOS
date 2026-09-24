@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 from pathlib import Path
 import sys
 import tempfile
@@ -9,9 +10,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from maho_behavior_preferences import defaults, load_preferences  # noqa: E402
+from maho_behavior_preferences import SPECS, defaults, load_preferences  # noqa: E402
 from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
-from maho_system_tui import PAGES, attention_groups, diagnostic_state_label, interactive, render  # noqa: E402
+from maho_system_tui import PAGES, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
 
 
 def check(name: str, condition: bool) -> None:
@@ -104,18 +105,33 @@ def main() -> None:
     active = render(fixture(active=True), page="Behavior", height=35)
     check("Behavior page shows real certified activity", "Gaming" in active and "Notifications" in active and "suspended" in active)
     behavior_page = render(model, page="Behavior", height=40)
-    check("Behavior preferences are grouped for humans", "FOCUS" in behavior_page and "POWER" in behavior_page and "THERMALS" in behavior_page)
+    group_indexes = {group: next(i for i, spec in enumerate(SPECS) if spec.group == group) for group in {"Focus", "Power", "Thermals"}}
+    check("Behavior preference groups remain reachable", all(group in render(model, page="Behavior", row=group_indexes[group], height=30) for group in group_indexes))
     check("Behavior exposes granular work preferences", "sustained builds" in behavior_page and "rendering/encoding" in behavior_page)
     check("Behavior explains the selected preference", "Selected:" in behavior_page)
     check("Recovery page preserves authority boundary", "inspection-only" in render(model, page="Recovery", height=35))
     recovery_page = render(model, page="Recovery", height=35)
     check("Recovery uses None yet for absent native history", "Last native" in recovery_page and "None yet" in recovery_page and "Unavailable" not in recovery_page)
-    check("Evidence view is bounded structured data", "Raw structured evidence (bounded)" in render(model, page="Guardian", evidence=True, height=30))
+    evidence_page = render(model, page="Guardian", evidence=True, height=30)
+    check("Evidence view is scrollable structured data", "Raw structured evidence" in evidence_page and "lines below" in evidence_page)
     check("render is deterministic", render(model, page="Overview") == render(model, page="Overview"))
+    for count, selected, capacity, offset in ((20, 0, 5, 10), (20, 19, 5, 0), (3, 2, 8, 0)):
+        start, end, normalized = viewport_bounds(count, selected, capacity, offset)
+        check(f"viewport keeps row {selected} reachable", start <= normalized < end)
+    chosen = model.diagnostics[6].id
+    reordered = replace(model, diagnostics=tuple(reversed(model.diagnostics)))
+    restored = restore_selection(reordered, "Doctor", chosen, 6)
+    check("refresh preserves diagnostic selection by stable identity", reordered.diagnostics[restored].id == chosen)
 
     output = io.StringIO()
     interactive(model, stdin=io.StringIO("right\nq\n"), stdout=output, width=80, height=24, color=False)
     check("keyboard navigation redraws without mutation", output.getvalue().count("Maho System") == 2)
+    refresh_calls = [0]
+    def refresh_provider():
+        refresh_calls[0] += 1
+        return model
+    interactive(model, stdin=io.StringIO("r\nq\n"), stdout=io.StringIO(), width=80, height=24, color=False, model_provider=refresh_provider)
+    check("R forces immediate model refresh", refresh_calls[0] == 1)
 
     with tempfile.TemporaryDirectory(prefix="maho-system-tui-") as temporary:
         path = Path(temporary) / "behavior.json"

@@ -174,14 +174,19 @@ def read_key(stdin: TextIO, timeout: float | None = None) -> str:
             return "q"
         if first == b"\x1b":
             sequence = bytearray(first)
-            while len(sequence) < 3:
+            while len(sequence) < 6:
                 ready, _, _ = select.select([fd], [], [], 0.04)
                 if not ready:
                     break
                 sequence.extend(os.read(fd, 1))
+                if sequence[-1:] in {b"~", b"A", b"B", b"C", b"D", b"F", b"H", b"Z"}:
+                    break
             return {
                 b"\x1b[A": "up", b"\x1b[B": "down", b"\x1b[C": "right",
                 b"\x1b[D": "left", b"\x1b[Z": "shift-tab",
+                b"\x1b[5~": "page-up", b"\x1b[6~": "page-down",
+                b"\x1b[H": "home", b"\x1b[1~": "home",
+                b"\x1b[F": "end", b"\x1b[4~": "end",
             }.get(bytes(sequence), "escape")
         if first == b"\t":
             return "tab"

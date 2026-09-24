@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 import sys
+import time
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from maho_behavior_preferences import SPECS, write_preference
@@ -21,6 +22,7 @@ PAGES = (
     "Overview", "Doctor", "Guardian", "Trust", "Updates", "Behavior",
     "Recovery", "Logs / Evidence",
 )
+NAV_SHORT = ("Overview", "Doctor", "Guardian", "Trust", "Updates", "Behavior", "Recovery", "Evidence")
 MIN_WIDTH = 60
 MIN_HEIGHT = 18
 
@@ -32,6 +34,8 @@ class UIState:
     show_detail: bool = False
     show_evidence: bool = False
     show_help: bool = False
+    row_offset: int = 0
+    detail_offset: int = 0
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,49 @@ def attention_groups(model: SystemModel) -> tuple[AttentionGroup, ...]:
             item.summary, diagnostic_state_label(item), item.reason, (item.id,),
         ))
     return tuple(groups)
+
+
+def viewport_bounds(count: int, selected: int, capacity: int, offset: int = 0) -> tuple[int, int, int]:
+    """Return a stable window that always keeps the selected row reachable."""
+    if count <= 0:
+        return 0, 0, 0
+    capacity = max(1, capacity)
+    selected = min(max(selected, 0), count - 1)
+    max_start = max(0, count - capacity)
+    start = min(max(offset, 0), max_start)
+    if selected < start:
+        start = selected
+    elif selected >= start + capacity:
+        start = selected - capacity + 1
+    start = min(max(start, 0), max_start)
+    return start, min(count, start + capacity), selected
+
+
+def _row_identity(model: SystemModel, page: str, row: int) -> str | None:
+    if page == "Doctor" and model.diagnostics:
+        return model.diagnostics[min(max(row, 0), len(model.diagnostics) - 1)].id
+    if page == "Behavior" and SPECS:
+        return SPECS[min(max(row, 0), len(SPECS) - 1)].key
+    if page == "Logs / Evidence" and model.events:
+        event = model.events[min(max(row, 0), len(model.events) - 1)]
+        return "|".join((event.source, event.at or "", event.reference or "", event.label))
+    return None
+
+
+def restore_selection(model: SystemModel, page: str, identity: str | None, previous: int) -> int:
+    if identity is None:
+        return min(max(previous, 0), max(0, _row_count(model, page) - 1))
+    if page == "Doctor":
+        ids = [item.id for item in model.diagnostics]
+    elif page == "Behavior":
+        ids = [spec.key for spec in SPECS]
+    elif page == "Logs / Evidence":
+        ids = ["|".join((event.source, event.at or "", event.reference or "", event.label)) for event in model.events]
+    else:
+        ids = []
+    if identity in ids:
+        return ids.index(identity)
+    return min(max(previous, 0), max(0, len(ids) - 1))
 
 
 def _obj(value: Any) -> Mapping[str, Any]:
@@ -103,26 +150,24 @@ def _overview(model: SystemModel, width: int) -> list[str]:
     return box("Status", _status_rows(model, width), width) + [""] + box("Attention", attention_rows, width)
 
 
-def _doctor_rows(model: SystemModel, selected: int, width: int) -> list[str]:
+def _doctor_rows(model: SystemModel, selected: int, width: int, offset: int = 0) -> list[str]:
     if not model.diagnostics:
         return ["No diagnostic records are available."]
-    selected = min(max(selected, 0), len(model.diagnostics) - 1)
-    visible = 10 if width >= 90 else 7
-    start = max(0, min(selected - visible // 2, len(model.diagnostics) - visible))
+    capacity = 10 if width >= 90 else 7
+    start, end, selected = viewport_bounds(len(model.diagnostics), selected, capacity, offset)
     rows = []
-    for index, item in enumerate(model.diagnostics[start:start + visible], start):
+    for index, item in enumerate(model.diagnostics[start:end], start):
         cursor = ">" if index == selected else " "
         display_state = diagnostic_state_label(item)
         rows.append(f"{cursor} {display_state:<22} {item.subsystem:<10} {item.summary}")
     return rows
-
 
 def _doctor(model: SystemModel, state: UIState, width: int) -> list[str]:
     if not model.diagnostics:
         return box("Doctor", ["No diagnostic records are available."], width)
     selected = min(max(state.row_index, 0), len(model.diagnostics) - 1)
     item = model.diagnostics[selected]
-    rows = box("Doctor", _doctor_rows(model, selected, width), width)
+    rows = box("Doctor", _doctor_rows(model, selected, width, state.row_offset), width)
     if state.show_detail:
         display_state = diagnostic_state_label(item, detail=True)
         detail = [
@@ -286,16 +331,12 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
     current.append("Returns to normal automatically after the condition and cooldown clear.")
     prefs = []
     selected = min(max(state.row_index, 0), len(SPECS) - 1)
-    last_group = None
-    for index, spec in enumerate(SPECS):
-        if spec.group != last_group:
-            if prefs:
-                prefs.append("")
-            prefs.append(spec.group.upper())
-            last_group = spec.group
+    capacity = 7 if width >= 90 else 5
+    start, end, selected = viewport_bounds(len(SPECS), selected, capacity, state.row_offset)
+    for index, spec in enumerate(SPECS[start:end], start):
         cursor = ">" if index == selected else " "
         mark = "ON " if model.preferences.enabled(spec.key) else "OFF"
-        prefs.append(f"{cursor} [{mark}] {spec.label}")
+        prefs.append(f"{cursor} [{mark}] {spec.group}: {spec.label}")
     selected_spec = SPECS[selected]
     prefs += [
         "",
@@ -333,10 +374,9 @@ def _logs(model: SystemModel, state: UIState, width: int) -> list[str]:
     if not model.events:
         return box("Recent events", ["No structured recent events are available."], width)
     selected = min(max(state.row_index, 0), len(model.events) - 1)
-    visible = 12
-    start = max(0, min(selected - visible // 2, len(model.events) - visible))
+    start, end, selected = viewport_bounds(len(model.events), selected, 12, state.row_offset)
     rows = []
-    for index, event in enumerate(model.events[start:start + visible], start):
+    for index, event in enumerate(model.events[start:end], start):
         cursor = ">" if index == selected else " "
         at = (event.at or "historical").replace("T", " ")[:19]
         rows.append(f"{cursor} {at:<19} {event.source:<9} {event.state:<10} {event.label}")
@@ -346,15 +386,23 @@ def _logs(model: SystemModel, state: UIState, width: int) -> list[str]:
     return box("Recent events", rows, width)
 
 
-def _raw(model: SystemModel, page: str, width: int) -> list[str]:
+def _raw(model: SystemModel, page: str, width: int, offset: int = 0, capacity: int = 20) -> list[str]:
     value: Any = {
         "Guardian": model.guardian, "Trust": _obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust", {}),
         "Updates": model.update, "Behavior": model.behavior, "Recovery": model.recovery,
-        "Logs / Evidence": model.as_dict(include_evidence=False),
-    }.get(page, model.as_dict(include_evidence=False))
+        "Logs / Evidence": model.as_dict(include_evidence=True),
+    }.get(page, model.as_dict(include_evidence=True))
     encoded = json.dumps(value, indent=2, sort_keys=True, default=str).splitlines()
-    return box("Raw structured evidence (bounded)", encoded[:80], width)
-
+    # Reserve box borders plus room for above/below scroll markers so the
+    # compositor never hides the navigation state.
+    capacity = max(1, capacity - 4)
+    start = min(max(offset, 0), max(0, len(encoded) - capacity))
+    window = encoded[start:start + capacity]
+    if start:
+        window.insert(0, f"… {start} lines above")
+    if start + capacity < len(encoded):
+        window.append(f"… {len(encoded) - start - capacity} lines below")
+    return box("Raw structured evidence", window, width)
 
 def _help(width: int) -> list[str]:
     return box("Help", [
@@ -364,12 +412,12 @@ def _help(width: int) -> list[str]:
     ], width)
 
 
-def _body(model: SystemModel, state: UIState, width: int) -> list[str]:
+def _body(model: SystemModel, state: UIState, width: int, height: int = 24) -> list[str]:
     if state.show_help:
         return _help(width)
     page = PAGES[state.page_index]
     if state.show_evidence:
-        return _raw(model, page, width)
+        return _raw(model, page, width, state.detail_offset, height)
     if page == "Overview": return _overview(model, width)
     if page == "Doctor": return _doctor(model, state, width)
     if page == "Guardian": return _guardian(model, width)
@@ -378,7 +426,6 @@ def _body(model: SystemModel, state: UIState, width: int) -> list[str]:
     if page == "Behavior": return _behavior(model, state, width)
     if page == "Recovery": return _recovery(model, width)
     return _logs(model, state, width)
-
 
 def _resize(width: int, height: int) -> str:
     rows = ["Maho System", "", "Terminal too small", f"Current: {width}x{height}  Required: {MIN_WIDTH}x{MIN_HEIGHT}", "Resize to continue.", "", "[Q] Quit"]
@@ -389,39 +436,55 @@ def _resize(width: int, height: int) -> str:
     return "\n".join(output) + "\n"
 
 
-def compose(model: SystemModel, state: UIState, *, width: int, height: int, color: bool) -> str:
+def _footer(page: str, state: UIState) -> str:
+    if state.show_evidence:
+        return "[↑↓/PgUp/PgDn] Scroll evidence  [Esc/E] Back  [R] Refresh  [?] Help  [Q] Quit"
+    if page == "Behavior":
+        return "[↑↓] Preference  [Enter] Toggle  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
+    if page in {"Doctor", "Logs / Evidence"}:
+        return "[↑↓] Select  [Enter] Inspect  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
+    return "[←→/Tab] Sections  [1-8] Jump  [E] Evidence  [R] Refresh  [D] Doctor  [L] Evidence  [?] Help  [Q] Quit"
+
+
+def compose(
+    model: SystemModel, state: UIState, *, width: int, height: int, color: bool,
+    freshness_seconds: int | None = None,
+) -> str:
     if width < MIN_WIDTH or height < MIN_HEIGHT:
         return _resize(width, height)
     width = min(width, 180)
     page = PAGES[state.page_index]
     title = "Maho System"
-    status = f"Health {model.summary.operational_health} | Trust {model.summary.trust}"
-    header = [clip(title + " " * max(1, width - len(title) - len(status)) + status, width), "─" * width]
-    footer_text = "[←→/Tab] Sections  [↑↓] Rows  [Enter] Inspect  [D] Doctor  [E] Evidence  [L] Logs  [?] Help  [Q] Quit"
-    footer = ["─" * width, clip(footer_text, width)]
+    human_status = f"{_human_state(model.summary.operational_health)} · Trust {_human_state(model.summary.trust)} · {model.summary.severity}"
+    if freshness_seconds is not None:
+        human_status += f" · Live · {max(0, freshness_seconds)}s ago"
+    header = [clip(title + " " * max(1, width - len(title) - len(human_status)) + human_status, width), "─" * width]
+    footer = ["─" * width, clip(_footer(page, state), width)]
     if width >= 110:
         sidebar_width = 21
         content_width = width - sidebar_width - 3
-        body = bounded_lines(_body(model, state, content_width), height - 4, content_width, "… more; open the dedicated page or enlarge the terminal")
-        side = [("› " if name == page else "  ") + name for name in PAGES]
+        body_height = height - 4
+        body = bounded_lines(_body(model, state, content_width, body_height), body_height, content_width, "… more; scroll or enlarge the terminal")
+        side = [("› " if name == page else "  ") + f"{i + 1} {name}" for i, name in enumerate(PAGES)]
         lines = header[:]
         for index, row in enumerate(body):
             left = side[index] if index < len(side) else ""
             lines.append(clip(left, sidebar_width).ljust(sidebar_width) + " │ " + clip(row, content_width))
     else:
-        nav = "  ".join(f"[{name}]" if name == page else name for name in PAGES)
+        first = max(0, min(state.page_index - 1, len(PAGES) - 3))
+        visible = range(first, min(len(PAGES), first + 3))
+        nav = "  ".join(f"[{i + 1} {NAV_SHORT[i]}]" if i == state.page_index else f"{i + 1} {NAV_SHORT[i]}" for i in visible)
         body_height = height - 6
-        body = bounded_lines(_body(model, state, width), body_height, width, "… more; use the dedicated page")
+        body = bounded_lines(_body(model, state, width, body_height), body_height, width, "… more; scroll or enlarge the terminal")
         lines = header + [clip(nav, width), ""] + body
     while len(lines) < height - len(footer):
         lines.append("")
     lines = lines[: height - len(footer)] + footer
     if color:
         lines = [colorize_line(line) for line in lines]
-        active = f"› {page}"
+        active = f"› {state.page_index + 1} {page}"
         lines = [line.replace(active, paint(active, "active", True)) for line in lines]
     return "\n".join(lines) + "\n"
-
 
 def render(
     model: SystemModel, *, width: int = 100, height: int = 30,
@@ -447,50 +510,119 @@ def interactive(
     page: str = "Overview", preference_path: Path | None = None,
     model_provider: Callable[[], SystemModel] = collect_system_model,
 ) -> int:
-    normalized = "Logs / Evidence" if page.lower() == "logs" else page.title()
+    normalized = "Logs / Evidence" if page.lower() in {"logs", "evidence", "logs / evidence"} else page.title()
     state = UIState(page_index=PAGES.index(normalized))
+    tty_output = bool(getattr(stdout, "isatty", lambda: False)())
+    tty_input = bool(getattr(stdin, "isatty", lambda: False)())
     if color is None:
-        color = bool(getattr(stdout, "isatty", lambda: False)())
-    dynamic = width is None or height is None
+        color = tty_output
     dirty = True
     last_size = None
-    while True:
-        terminal = shutil.get_terminal_size((100, 30))
-        screen_width = width or terminal.columns
-        screen_height = height or terminal.lines
-        size = (screen_width, screen_height)
-        if dirty or size != last_size:
-            stdout.write("\033[2J\033[H")
-            stdout.write(compose(model, state, width=screen_width, height=screen_height, color=bool(color)))
-            stdout.flush()
-            dirty = False
-            last_size = size
-        key = read_key(stdin, timeout=.2 if dynamic else None)
-        if key == "timeout": continue
-        if key in {"q", "quit", "exit"}: return 0
-        if screen_width < MIN_WIDTH or screen_height < MIN_HEIGHT: continue
-        dirty = True
-        if state.show_help:
-            if key in {"?", "escape", "enter", "left"}: state.show_help = False
-            continue
-        if key == "?": state.show_help = True; continue
-        if key == "escape": state.show_detail = False; state.show_evidence = False; continue
-        if key in {"right", "tab"}:
-            state.page_index = (state.page_index + 1) % len(PAGES); state.row_index = 0; state.show_detail = False; state.show_evidence = False; continue
-        if key in {"left", "shift-tab"}:
-            state.page_index = (state.page_index - 1) % len(PAGES); state.row_index = 0; state.show_detail = False; state.show_evidence = False; continue
-        if key == "d": state.page_index = PAGES.index("Doctor"); state.row_index = 0; continue
-        if key == "l": state.page_index = PAGES.index("Logs / Evidence"); state.row_index = 0; continue
-        if key == "e": state.show_evidence = not state.show_evidence; continue
+    last_refresh = time.monotonic()
+    refresh_interval = 2.0
+
+    def refresh() -> None:
+        nonlocal model, last_refresh, dirty
         page_name = PAGES[state.page_index]
+        identity = _row_identity(model, page_name, state.row_index)
+        previous = state.row_index
+        model = model_provider()
+        state.row_index = restore_selection(model, page_name, identity, previous)
         count = _row_count(model, page_name)
-        if key in {"up", "k"}: state.row_index = max(0, state.row_index - 1); continue
-        if key in {"down", "j"}: state.row_index = min(max(0, count - 1), state.row_index + 1); continue
-        if key in {"enter", " "}:
-            if page_name == "Behavior" and SPECS:
-                spec = SPECS[min(state.row_index, len(SPECS) - 1)]
-                write_preference(spec.key, not model.preferences.enabled(spec.key), preference_path)
-                model = model_provider()
-            elif page_name in {"Doctor", "Logs / Evidence"}:
-                state.show_detail = not state.show_detail
+        state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
+        last_refresh = time.monotonic()
+        dirty = True
+
+    if tty_output:
+        stdout.write("\033[?1049h\033[?25l")
+        stdout.flush()
+    try:
+        while True:
+            terminal = shutil.get_terminal_size((100, 30))
+            screen_width = width or terminal.columns
+            screen_height = height or terminal.lines
+            size = (screen_width, screen_height)
+            now = time.monotonic()
+            if now - last_refresh >= refresh_interval:
+                refresh()
+                now = time.monotonic()
+            if dirty or size != last_size:
+                if tty_output:
+                    stdout.write("\033[H")
+                freshness = int(max(0.0, now - last_refresh)) if tty_output else None
+                stdout.write(compose(model, state, width=screen_width, height=screen_height, color=bool(color), freshness_seconds=freshness))
+                stdout.flush()
+                dirty = False
+                last_size = size
+            key = read_key(stdin, timeout=.2 if tty_input else None)
+            if key == "timeout":
+                continue
+            if key in {"q", "quit", "exit"}:
+                return 0
+            if screen_width < MIN_WIDTH or screen_height < MIN_HEIGHT:
+                continue
+            dirty = True
+            if state.show_help:
+                if key in {"?", "escape", "enter", "left"}:
+                    state.show_help = False
+                continue
+            if key == "?":
+                state.show_help = True
+                continue
+            if key == "r":
+                refresh()
+                continue
+            if key == "escape":
+                state.show_detail = False
+                state.show_evidence = False
+                state.detail_offset = 0
+                continue
+            if key in {str(i) for i in range(1, 9)}:
+                state.page_index = int(key) - 1
+                state.row_index = state.row_offset = state.detail_offset = 0
+                state.show_detail = state.show_evidence = False
+                continue
+            if key in {"right", "tab"}:
+                state.page_index = (state.page_index + 1) % len(PAGES)
+                state.row_index = state.row_offset = state.detail_offset = 0
+                state.show_detail = state.show_evidence = False
+                continue
+            if key in {"left", "shift-tab"}:
+                state.page_index = (state.page_index - 1) % len(PAGES)
+                state.row_index = state.row_offset = state.detail_offset = 0
+                state.show_detail = state.show_evidence = False
+                continue
+            if key == "d":
+                state.page_index = PAGES.index("Doctor"); state.row_index = state.row_offset = 0; continue
+            if key == "l":
+                state.page_index = PAGES.index("Logs / Evidence"); state.row_index = state.row_offset = 0; continue
+            if key == "e":
+                state.show_evidence = not state.show_evidence; state.detail_offset = 0; continue
+            if state.show_evidence:
+                if key in {"up", "k"}: state.detail_offset = max(0, state.detail_offset - 1)
+                elif key in {"down", "j"}: state.detail_offset += 1
+                elif key == "page-up": state.detail_offset = max(0, state.detail_offset - 10)
+                elif key == "page-down": state.detail_offset += 10
+                elif key == "home": state.detail_offset = 0
+                continue
+            page_name = PAGES[state.page_index]
+            count = _row_count(model, page_name)
+            if key in {"up", "k"}: state.row_index = max(0, state.row_index - 1)
+            elif key in {"down", "j"}: state.row_index = min(max(0, count - 1), state.row_index + 1)
+            elif key == "page-up": state.row_index = max(0, state.row_index - 8)
+            elif key == "page-down": state.row_index = min(max(0, count - 1), state.row_index + 8)
+            elif key == "home": state.row_index = 0
+            elif key == "end": state.row_index = max(0, count - 1)
+            elif key in {"enter", " "}:
+                if page_name == "Behavior" and SPECS:
+                    spec = SPECS[min(state.row_index, len(SPECS) - 1)]
+                    write_preference(spec.key, not model.preferences.enabled(spec.key), preference_path)
+                    refresh()
+                elif page_name in {"Doctor", "Logs / Evidence"}:
+                    state.show_detail = not state.show_detail
+            state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
+    finally:
+        if tty_output:
+            stdout.write("\033[?25h\033[?1049l")
+            stdout.flush()
     return 0
