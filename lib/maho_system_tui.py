@@ -818,23 +818,15 @@ def _nav_layout(width: int, page_index: int) -> tuple[list[str], list[tuple[int,
     return rows, hitboxes
 
 
-def _tab_at(width: int, x: int, y: int) -> int | None:
+def _tab_at(width: int, page_index: int, x: int, y: int) -> int | None:
     """Resolve a 1-based terminal click to a top navigation tab."""
-    nav_rows, hitboxes = _nav_layout(width, 0)
-    del nav_rows
+    _, hitboxes = _nav_layout(width, page_index)
     nav_row = y - 3
     if nav_row < 0:
         return None
     for row, start, end, index in hitboxes:
         if row == nav_row and start <= x <= end:
             return index
-    # Active-tab brackets change only that tab's width, so recalculate against
-    # every possible active page before deciding the click missed.
-    for active in range(1, len(PAGES)):
-        _, hitboxes = _nav_layout(width, active)
-        for row, start, end, index in hitboxes:
-            if row == nav_row and start <= x <= end:
-                return index
     return None
 
 
@@ -974,7 +966,7 @@ def interactive(
                     mouse_x, mouse_y = int(x_raw), int(y_raw)
                 except (ValueError, TypeError):
                     continue
-                clicked_tab = _tab_at(min(screen_width, 180), mouse_x, mouse_y)
+                clicked_tab = _tab_at(min(screen_width, 180), state.page_index, mouse_x, mouse_y)
                 if clicked_tab is not None:
                     state.page_index = clicked_tab
                     state.row_index = state.row_offset = state.detail_offset = 0
