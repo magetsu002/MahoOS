@@ -1,142 +1,59 @@
 # Architecture
 
-MahoOS separates system observation, decisions, and mutation so that a failure in
-one layer cannot silently gain authority over another.
+MahoOS keeps reading the system separate from changing the system.
 
-## Main layers
+That separation is the main rule behind the project. A component that notices a
+problem does not automatically gain permission to repair anything it wants.
 
-### Desktop
+## Desktop
 
-Quickshell and native Qt/QML components provide the visible desktop:
-Maho Edge, Dock, Launcher, Link, Notify, Lock, Clipboard, Power, and Files.
+The visible desktop is built with Hyprland, Quickshell, and native Qt/QML
+components.
 
-Desktop components read shared system state and palette data. They do not own
-arbitrary system repair.
+Maho Edge, Link, Notify, Launcher, Files, Lock, Dock, Power, Clipboard, and the
+wallpaper system share the same visual language and system state, but they do
+not own arbitrary recovery actions.
 
-### State
+## System state
 
-Observers collect system facts without changing the machine.
+Observers collect facts such as service health, session state, connectivity,
+storage health, and security findings.
 
-Examples include service state, security findings, connectivity state, session
-state, and the active wallpaper palette.
+Guardian uses that evidence to decide whether the system is healthy, whether a
+known recovery path is available, or whether the problem needs to be left for
+the user.
 
-### Policy
+Old or incomplete evidence is not treated as proof that the system is healthy.
 
-Policy converts normalized state into a decision.
+## Recovery
 
-Policy may recommend an action, require confirmation, or refuse to act. It does
-not perform the action itself.
+Small failures stay with the component that already owns them. For example,
+systemd can restart a crashed user service while Guardian checks that the new
+process actually stays healthy.
 
-### Adapters and recovery providers
+Larger recovery actions use known providers with a clear target and a result
+that can be checked afterward. Maho does not invent repair commands for an
+unknown failure.
 
-Mutating work is performed only by a known adapter or recovery provider.
-Examples include systemd service recovery, Maho runtime rollback, system-state
-recovery, and boot recovery.
+## Updates
 
-Every supported mutation should have:
+System updates are built around a separate candidate root.
 
-1. a defined owner
-2. a bounded action
-3. a precondition
-4. a postcondition
-5. a rollback or handoff path when appropriate
+The candidate is updated and checked before it can replace the current system.
+Recovery state is prepared first, and activation is kept separate from the
+update itself.
 
-### Native admission
+Maho does not automatically reboot after preparing an update. The new system is
+verified again after boot before it is considered healthy.
 
-System candidates cross a candidate-first admission boundary before they can
-receive promotion authority. Maho inspects an isolated candidate against its
-exact base and builds a content- and metadata-bound mutation graph covering
-files, services, persistence, privilege boundaries, package hooks, boot state,
-kernel modules, package ownership collisions, and isolated listener evidence.
+## Trust
 
-The result is `ALLOW`, `REVIEW`, or `REJECT`. Only `ALLOW` can produce an exact
-transaction-, candidate-, and graph-bound promotion authority, and the
-candidate is inspected again when that authority is consumed. Incomplete,
-unisolated, ambiguous, or drifted evidence fails closed.
+Runtime state is not allowed to grant itself recovery authority.
 
-### Guardian
+Important system changes are tied to exact identities and expected effects.
+When Maho cannot prove that a change is safe or that recovery succeeded, it
+stops instead of guessing.
 
-Guardian coordinates failures across these layers.
-
-It owns incident identity, severity, recovery policy, verification, history, and
-escalation. It does not replace a recovery mechanism that already has a clear
-owner.
-
-For example, if a Maho user service crashes and systemd is configured to restart
-it, systemd performs the restart. Guardian observes the failure, correlates the
-replacement process, verifies that it remains healthy, and records the result.
-
-## Runtime layout
-
-`maho-setup` builds immutable runtime releases and switches the active release
-through a managed pointer. The previous verified runtime is kept for recovery.
-
-Mutations must be verifiable and reversible.
-
-User services are managed by systemd. Hyprland session startup and shutdown are
-owned by Maho session tooling rather than ad-hoc autostart commands.
-
-## Guardian delegated service recovery
-
-Guardian observes short-lived systemd user-service failures from structured
-journal manager events. A durable journal cursor prevents a 300-second
-reconciliation interval from missing a roughly two-second restart, while exact
-manager message IDs, unit names, boot IDs, and invocation IDs prevent ordinary
-application logs from creating incidents.
-
-`maho-notify.service` has one exact product-owned contract: systemd-user owns
-`Restart=on-failure`; Guardian owns incident identity, correlation, severity,
-stability verification, history, and escalation. Guardian does not issue a
-competing restart. Recovery is successful only when a different invocation is
-still `active/running` after the bounded verification interval.
-If systemd does not produce that replacement within the bounded provider
-window, the incident remains visible and becomes diagnosis-only; Guardian does
-not bypass start limits with another restart.
-
-## Guardian Recovery interface
-
-Guardian Recovery has a dependency-light terminal interface for recovery and
-initramfs environments. It displays the lost-trust evidence, exact selected
-SystemGeneration and KernelGeneration, smallest authorized recovery scope,
-execution progress, and verified result from Guardian-owned JSON documents.
-
-The interface cannot create repair steps or execute them. User confirmation
-produces only a plan-bound authorization request; Guardian and the certified
-recovery provider retain authority and must independently validate that request.
-Invalid, incomplete, or cross-bound evidence produces a safe refusal.
-
-### Revocation recovery
-
-Guardian maps a revoked artifact or signing authority back to exact
-transactions and every contaminated SystemGeneration and KernelGeneration
-descendant. It keeps execution, privilege, persistence, kernel, and credential
-exposure visible while selecting the newest independently trusted compatible
-state from the bounded current lineage.
-
-Kernel-only recovery is selected only when contamination is isolated to the
-kernel and exact compatibility evidence proves the current root can use a
-trusted kernel ancestor. Root contamination selects a full generation from a
-bounded Btrfs snapshot. Missing compatibility, artifact, or trusted-history
-evidence requires external recovery. The planner emits certified operation
-identities, never repair commands.
-
-## Theme data
-
-Wallpaper changes produce one canonical palette. Desktop components consume
-semantic roles from that palette instead of hard-coded wallpaper colors.
-
-The active palette is stored at:
-
-```text
-~/.cache/maho/theme/active.json
-```
-
-## Safety rules
-
-- observation does not mutate
-- policy does not mutate
-- runtime data cannot grant itself recovery authority
-- unknown targets do not inherit permissions by name or prefix
-- successful recovery requires a verified postcondition
-- repeated failure is evidence, not an automatic severity rule
-- catastrophic incidents are never repaired through guessed autonomous actions
+For deeper implementation details, see
+[Prevention Boundary](PREVENTION-BOUNDARY.md) and
+[Signed Boot Authority](SIGNED-BOOT-AUTHORITY.md).

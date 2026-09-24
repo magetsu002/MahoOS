@@ -1,80 +1,66 @@
 # MahoOS
 
-MahoOS is an Arch-based desktop operating system built around Hyprland and Quickshell.
-It provides its own shell, launcher, connectivity panel, notifications, lock screen,
-file manager, power controls, wallpaper system, and recovery tooling.
+**Linux built to recover.**
 
-MahoOS is still in development. The desktop is usable and the core recovery
-mechanics have native certification, but V1 installation, production update
-hardware certification, signed boot trust, and release hardening are not finished yet.
+MahoOS is an Arch-based desktop for people who want the control of Linux without
+having to babysit it every time something changes.
 
-## Desktop
+A bad update, broken service, driver problem, or bad configuration can turn into
+hours of manual repair. MahoOS is being built so the system can check important
+changes, keep a recovery path, and verify that recovery actually worked.
 
-The current desktop includes:
+## Why MahoOS exists
 
-- **Maho Edge** — compact system surface and control center
-- **Maho Dock** — pinned and running applications
-- **Maho Launcher** — applications, files, and commands
-- **Maho Link** — Wi-Fi and Bluetooth controls
-- **Maho Notify** — notifications, history, and Do Not Disturb
-- **Maho Lock** — secure Wayland lock screen and SDDM theme
-- **Maho Files** — native Qt/QML file manager using KDE KIO
-- **Maho Power** — lock, sleep, log out, restart, and shutdown
-- **Maho Clipboard** — clipboard history and pinning
-- **Maho Wallpaper** — wallpaper changes and palette generation
+The goal is to make daily use simple.
 
-## How it works
+You should be able to update the system, connect your devices, change your
+desktop, and get on with what you were doing without maintaining a pile of
+separate scripts and tools.
 
-MahoOS keeps observation, decisions, and system changes separate.
+When Maho knows how to recover from a problem, it can do that and check the
+result. When it does not have enough information to act safely, it stops instead
+of guessing.
 
-```text
-system state
-    ↓
-observers
-    ↓
-policy and Guardian
-    ↓
-certified recovery or system action
-    ↓
-verification
-```
+Updates are being built around a separate candidate system so a failed update
+does not have to damage the system you are currently using.
 
-Normal component crashes are left to the service manager when it already owns
-recovery. Guardian observes the incident, verifies that recovery worked, records
-the result, and only escalates when the normal recovery path cannot restore a
-healthy state.
+**Use your computer. Maho takes care of Maho.**
 
-System changes are expected to be bounded, reversible, and verified after they
-run. Unknown failures do not receive guessed repair commands.
+## The desktop
 
-## Repository layout
+MahoOS has its own shell and system controls, designed to feel like one product.
 
-```text
-apps/        Native applications
-bin/         MahoOS commands and runtime entry points
-config/      Hyprland, Quickshell, SDDM, and platform configuration
-lib/         Shared policy, recovery, security, and application logic
-systemd/     User services
-packaging/   Arch package files
-adapters/    Bounded system adapters
-tests/       Contract, regression, and policy tests
-docs/        Architecture and component documentation
-```
+**Maho Edge** gives you quick system controls and status.
 
-## Documentation
+**Maho Link** handles Wi-Fi and Bluetooth.
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Maho Shell](docs/MAHO-SHELL.md)
-- [Maho Notify](docs/MAHO-NOTIFY.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Signed boot authority](docs/SIGNED-BOOT-AUTHORITY.md)
-- [Theme engine](theme/README.md)
+**Maho Notify** handles notifications and Do Not Disturb.
 
-## V1 direction
+**Maho Launcher** opens apps, files, and commands.
 
-V1 is focused on making the current desktop installable, admission-gated,
-recoverable, and releasable as one operating system. Independent kernel recovery,
-trusted-generation selection, native kernel rollback, production candidate admission,
-revocation recovery planning, signed boot source authority, and isolated QEMU/OVMF
-Secure Boot certification now exist; production update hardware certification,
-physical key provisioning, installer/ISO work, and broader hardware acceptance remain.
+**Maho Files** is the native file manager.
+
+MahoOS also includes its own lock screen, dock, power controls, clipboard
+history, and wallpaper system. The desktop colors adapt to the active wallpaper
+so the whole system stays visually consistent without manual tweaking.
+
+## Current status
+
+MahoOS is still pre-V1.
+
+The desktop is usable. Recovery has extensive automated and VM failure testing,
+and the production kernel update path is currently going through physical
+certification.
+
+The installer and ISO are not ready yet. Physical signed-boot certification and
+final release hardening are also unfinished.
+
+## Learn more
+
+[Desktop](docs/DESKTOP.md)
+
+[Recovery](docs/RECOVERY.md)
+
+[Architecture](docs/ARCHITECTURE.md)
+
+[Roadmap](docs/ROADMAP.md)
