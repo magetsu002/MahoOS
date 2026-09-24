@@ -74,7 +74,26 @@ def fixture(preferences=None, *, active: bool = False, severity_level: int = 1, 
             "authority_state": "PREPARED", "attention_required": False, "blockers": [],
             "normal_execution_certified": False, "normal_authority_state": "stale-or-invalid",
             "presentation_status": "Waiting for certification",
-            "receipt": {"state": "PREPARED", "prepared_time": "2026-01-01T00:00:30Z", "package_changes": [{"name": "fzf", "from": "1", "to": "2"}]},
+            "receipt": {
+                "state": "PREPARED",
+                "discovered_time": "2026-01-01T00:00:10Z",
+                "staged_time": "2026-01-01T00:00:20Z",
+                "prepared_time": "2026-01-01T00:00:30Z",
+                "installation_time": None,
+                "activation_time": None,
+                "verification_time": None,
+                "native_update_execution_certified": False,
+                "native_l3_certified": True,
+                "package_generation_id": "pkg-fixture",
+                "recovery_generation": "g3-fixture",
+                "activation_required": True,
+                "activation_requirements": ["explicit-reboot"],
+                "kernel_changes": ["linux-cachyos"],
+                "package_changes": [
+                    {"name": "fzf", "from": "1", "to": "2"},
+                    {"name": "linux-cachyos", "from": "7.1", "to": "7.2"},
+                ],
+            },
         },
         behavior=behavior,
         adaptive_doctor={"healthy": True, "lease_state": "ok", "maintenance_projection_state": "active" if active else "absent"},
@@ -111,7 +130,11 @@ def main() -> None:
     check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
     check("Trust renders missing generation authority semantically", trust_page.count("Awaiting certification") >= 3)
     check("Trust makes upstream break explicit", "TRUST BREAK" in trust_page and "Maho runtime" in trust_page and "Verified" in trust_page and "Overall trust" in trust_page and "Unresolved" in trust_page)
-    check("Update page renders PREPARED stale authority semantically", "Waiting for certification" in render(model, page="Updates", height=35))
+    update_page = render(model, page="Updates", height=35)
+    check("Update page renders PREPARED stale authority semantically", "Waiting for certification" in update_page)
+    check("Update page exposes lifecycle and untouched live root", all(value in update_page for value in ("DISCOVER", "STAGE", "PREPARE", "CANDIDATE", "ADMISSION", "ACTIVATE", "VERIFY", "Still active and untouched")))
+    check("Update page promotes kernels and activation requirements", "Kernel changes" in update_page and "linux-cachyos" in update_page and "Reboot" in update_page)
+    check("Update package viewport follows selected identity", "linux-cachyos" in render(model, page="Updates", row=1, height=35))
     check("Recovery page explains unresolved generation authority", "Awaiting generation trust" in render(model, page="Recovery", height=35))
     guardian_active = render(model, page="Guardian", height=35)
     check("Guardian renders response lifecycle", all(value in guardian_active for value in ("PREVENT", "DETECT", "CONTAIN", "RECOVER", "VERIFY", "CURRENT", "Recover")))

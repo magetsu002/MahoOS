@@ -99,6 +99,11 @@ def _row_identity(model: SystemModel, page: str, row: int, state: UIState | None
         rows = _doctor_items(model, bool(state and state.doctor_all))
         if rows:
             return rows[min(max(row, 0), len(rows) - 1)].id
+    if page == "Updates":
+        changes = _package_changes(model)
+        if changes:
+            item = changes[min(max(row, 0), len(changes) - 1)]
+            return str(item.get("name") or row)
     if page == "Behavior" and SPECS:
         return SPECS[min(max(row, 0), len(SPECS) - 1)].key
     if page == "Logs / Evidence" and model.events:
@@ -112,6 +117,8 @@ def restore_selection(
 ) -> int:
     if page == "Doctor":
         ids = [item.id for item in _doctor_items(model, bool(state and state.doctor_all))]
+    elif page == "Updates":
+        ids = [str(item.get("name") or index) for index, item in enumerate(_package_changes(model))]
     elif page == "Behavior":
         ids = [spec.key for spec in SPECS]
     elif page == "Logs / Evidence":
@@ -433,23 +440,86 @@ def _trust(model: SystemModel, width: int) -> list[str]:
     return box("Trust chain", rows, width)
 
 
-def _updates(model: SystemModel, width: int) -> list[str]:
+def _package_changes(model: SystemModel) -> list[Mapping[str, Any]]:
+    receipt = _obj(model.update.get("receipt"))
+    raw = receipt.get("package_changes")
+    return [item for item in raw if isinstance(item, Mapping)] if isinstance(raw, list) else []
+
+
+def _update_lifecycle(receipt: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    completed = [
+        bool(receipt.get("discovered_time")),
+        bool(receipt.get("staged_time")),
+        bool(receipt.get("prepared_time")),
+        bool(receipt.get("installation_time")),
+        receipt.get("native_update_execution_certified") is True,
+        bool(receipt.get("activation_time")),
+        bool(receipt.get("verification_time")),
+    ]
+    current = next((index for index, done in enumerate(completed) if not done), None)
+    labels = ("DISCOVER", "STAGE", "PREPARE", "CANDIDATE", "ADMISSION", "ACTIVATE", "VERIFY")
+    result = []
+    for index, label in enumerate(labels):
+        symbol = "✓" if completed[index] else "●" if index == current else "○"
+        result.append((label, symbol))
+    return tuple(result)
+
+
+def _updates(model: SystemModel, state: UIState, width: int) -> list[str]:
     update = model.update
     receipt = _obj(update.get("receipt"))
-    rows: list[str] = []
-    receipt_state = str(receipt.get("state") or update.get("authority_state") or "Unknown")
-    for label, value in (
-        ("Current state", str(update.get("presentation_status") or update.get("status", "Unknown"))),
-        ("Transaction state", receipt_state),
-        ("Transaction", short_id(str(update.get("transaction_id")), 38) if update.get("transaction_id") else "None"),
-        ("Execution authority", "Current" if update.get("normal_execution_certified") is True else "Waiting for certification"),
-        ("Activation", "Required" if update.get("activation_pending") is True else "Not pending"),
-    ):
-        rows.extend(field_rows(label, value, width - 4))
-    changes = receipt.get("package_changes") if isinstance(receipt.get("package_changes"), list) else []
-    package_rows = [f"{row.get('name')}  {row.get('from')} → {row.get('to')}" for row in changes[:8] if isinstance(row, Mapping)]
+    changes = _package_changes(model)
+    kernel_names = receipt.get("kernel_changes") if isinstance(receipt.get("kernel_changes"), list) else []
+    lifecycle = _update_lifecycle(receipt)
+    rows = [
+        f"{len(changes)} packages · {len(kernel_names)} kernels",
+        f"Package generation   {short_id(str(receipt.get('package_generation_id')), 44) if receipt.get('package_generation_id') else 'Not established'}",
+        f"Recovery generation  {short_id(str(receipt.get('recovery_generation')), 44) if receipt.get('recovery_generation') else 'Not prepared'}",
+        "",
+        " → ".join(label for label, _ in lifecycle),
+        "   ".join(f"{symbol:^{max(5, len(label))}}" for label, symbol in lifecycle),
+        "",
+        f"Current state         {str(update.get('presentation_status') or update.get('status') or 'Unknown')}",
+        f"Execution authority   {'Certified' if receipt.get('native_update_execution_certified') is True else 'Waiting for certification'}",
+        f"Recovery prepared     {'Yes' if receipt.get('native_l3_certified') is True and receipt.get('recovery_generation') else 'No'}",
+        f"Activation required   {'Yes' if receipt.get('activation_required') is True else 'No'}",
+    ]
+    if receipt.get("activation_time"):
+        rows.append("Current system        Activation occurred; verification determines completion.")
+    else:
+        rows.append("Current system        Still active and untouched by candidate activation.")
+    requirements = receipt.get("activation_requirements") if isinstance(receipt.get("activation_requirements"), list) else []
+    if receipt.get("activation_required") is True:
+        reboot = "Yes" if "explicit-reboot" in requirements else "Not explicitly required"
+        rows.append(f"Reboot                {reboot} after successful activation")
     blockers = update.get("blockers") if isinstance(update.get("blockers"), list) else []
-    return box("Update status", rows, width) + [""] + box("Package summary", package_rows or ["No package changes in the current receipt."], width) + ([""] + box("Blockers", [str(item) for item in blockers], width) if blockers else [])
+    if blockers:
+        rows += ["", "BLOCKERS", *[f"• {item}" for item in blockers[:4]]]
+    result = box("Update lifecycle", rows, width)
+
+    package_by_name = {str(item.get("name")): item for item in changes}
+    kernel_rows = []
+    for name in kernel_names:
+        item = package_by_name.get(str(name), {})
+        if item:
+            kernel_rows.append(f"{name}  {item.get('from', '?')} → {item.get('to', '?')}")
+        else:
+            kernel_rows.append(str(name))
+    if kernel_rows:
+        result += [""] + box("Kernel changes", kernel_rows, width)
+
+    if changes:
+        capacity = 6 if width >= 90 else 4
+        start, end, selected = viewport_bounds(len(changes), state.row_index, capacity, state.row_offset)
+        package_rows = []
+        for index, item in enumerate(changes[start:end], start):
+            cursor = ">" if index == selected else " "
+            package_rows.append(f"{cursor} {item.get('name')}  {item.get('from')} → {item.get('to')}")
+        package_rows.append(f"Showing {start + 1}-{end} of {len(changes)} · use ↑↓/PgUp/PgDn")
+    else:
+        package_rows = ["No package changes in the current receipt."]
+    result += [""] + box("Package changes", package_rows, width)
+    return result
 
 
 def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
@@ -562,7 +632,7 @@ def _body(model: SystemModel, state: UIState, width: int, height: int = 24) -> l
     if page == "Doctor": return _doctor(model, state, width)
     if page == "Guardian": return _guardian(model, width)
     if page == "Trust": return _trust(model, width)
-    if page == "Updates": return _updates(model, width)
+    if page == "Updates": return _updates(model, state, width)
     if page == "Behavior": return _behavior(model, state, width)
     if page == "Recovery": return _recovery(model, width)
     return _logs(model, state, width)
@@ -579,6 +649,8 @@ def _resize(width: int, height: int) -> str:
 def _footer(page: str, state: UIState) -> str:
     if state.show_evidence:
         return "[↑↓/PgUp/PgDn] Scroll evidence  [Esc/E] Back  [R] Refresh  [?] Help  [Q] Quit"
+    if page == "Updates":
+        return "[↑↓/PgUp/PgDn] Packages  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Behavior":
         return "[↑↓] Preference  [Enter] Toggle  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Doctor":
@@ -641,6 +713,7 @@ def render(
 
 def _row_count(model: SystemModel, page: str, state: UIState | None = None) -> int:
     if page == "Doctor": return len(_doctor_items(model, bool(state and state.doctor_all)))
+    if page == "Updates": return len(_package_changes(model))
     if page == "Behavior": return len(SPECS)
     if page == "Logs / Evidence": return len(model.events)
     return 1
