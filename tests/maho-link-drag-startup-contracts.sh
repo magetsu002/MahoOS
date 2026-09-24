@@ -113,14 +113,14 @@ case "$*" in
     echo "Home Profile:11111111-2222-3333-4444-555555555555:802-11-wireless:wlan0"
     ;;
   "-t -g 802-11-wireless.ssid connection show uuid 11111111-2222-3333-4444-555555555555")
-    echo "Ashraf4G"
+    echo "MahoTestWiFi"
     ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
     echo "IP4.ADDRESS[1]:192.168.1.50/24"
     echo "IP4.GATEWAY:192.168.1.1"
     ;;
   "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan no")
-    echo "*:Ashraf4G:91:WPA2:5180"
+    echo "*:MahoTestWiFi:91:WPA2:5180"
     echo ":Guest:61:WPA2:2412"
     ;;
   *)
@@ -141,7 +141,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert data["available"] is True
 assert data["enabled"] is True
 assert data["device"] == "wlan0"
-assert data["current"]["ssid"] == "Ashraf4G"
+assert data["current"]["ssid"] == "MahoTestWiFi"
 assert data["current"]["uuid"] == "11111111-2222-3333-4444-555555555555"
 assert data["current"]["state"] == "Connected"
 assert data["current"]["signal"] == -1
@@ -157,7 +157,7 @@ python - "$TMP/networks.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
-assert data["current"]["ssid"] == "Ashraf4G"
+assert data["current"]["ssid"] == "MahoTestWiFi"
 assert data["current"]["signal"] == 91
 assert [row["ssid"] for row in data["networks"]] == ["Guest"]
 PY
