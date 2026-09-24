@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_behavior_preferences import defaults, load_preferences  # noqa: E402
 from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
-from maho_system_tui import PAGES, diagnostic_state_label, interactive, render  # noqa: E402
+from maho_system_tui import PAGES, attention_groups, diagnostic_state_label, interactive, render  # noqa: E402
 
 
 def check(name: str, condition: bool) -> None:
@@ -20,13 +20,13 @@ def check(name: str, condition: bool) -> None:
     print("PASS", name)
 
 
-def fixture(preferences=None, *, active: bool = False):
+def fixture(preferences=None, *, active: bool = False, severity_level: int = 1):
     guardian = {
         "system": {"current_system_generation": None, "current_kernel_generation": None, "maho_runtime": {"verified": True}},
         "reliability": {"state": "healthy", "counts": {"healthy": 4, "degraded": 0, "unknown": 0}},
         "world_state": {"guardian": {
             "self_health": {"state": "HEALTHY", "missing_providers": [], "stale_providers": []},
-            "severity": {"level": 1, "label": "minor"},
+            "severity": {"level": severity_level, "label": "normal" if severity_level == 0 else "minor"},
             "trust": {"state": "UNKNOWN", "reasons": ["generation authority unavailable", "Signed Boot proof missing"]},
         }},
         "active_incidents": [{"incident_id": "inc-fixture", "status": "active", "explanation": {"incident": "Low-confidence persistence drift"}}],
@@ -69,6 +69,7 @@ def fixture(preferences=None, *, active: bool = False):
 
 def main() -> None:
     model = fixture()
+    check("L0 renders as L0 Normal", fixture(severity_level=0).summary.severity == "L0 Normal")
     for width, height in ((160, 50), (120, 35), (100, 30), (80, 24)):
         for page in PAGES:
             screen = render(model, width=width, height=height, page=page)
@@ -78,9 +79,14 @@ def main() -> None:
                 and all(len(line) <= width for line in screen.splitlines())
                 and "\x1b[" not in screen,
             )
+    check("Behavior idle summary renders Normal", model.summary.behavior == "Normal")
+    check("recovery summary describes capability, not generic readiness", model.summary.recovery == "Runtime certified")
+    grouped = attention_groups(model)
+    trust_group = next(group for group in grouped if group.title == "Physical trust certification incomplete")
+    check("attention grouping preserves underlying diagnostics", set(trust_group.diagnostic_ids) == {"trust.current-generation", "trust.signed-boot", "provider.boot.authority"})
     overview = render(model)
     check("overview keeps health, Guardian, runtime, and trust distinct", all(value in overview for value in ("Healthy", "Verified", "Unresolved")))
-    check("overview translates known attention reasons", "Not established" in overview and "Awaiting certification" in overview and "UNKNOWN" not in overview)
+    check("overview groups repeated trust symptoms", "Physical trust" in overview and "certification incomplete" in overview and "UNKNOWN" not in overview)
     trust_page = render(model, page="Trust", height=35)
     check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
     check("Trust renders missing generation authority semantically", trust_page.count("Not established") >= 2)

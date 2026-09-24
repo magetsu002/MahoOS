@@ -372,21 +372,31 @@ def build_system_model(
     attention = "ACTION REQUIRED" if any(item.state in {"FAIL", "BLOCKED"} for item in attention_records) else "REVIEW" if attention_records else "NONE"
     runtime_recovery = _object(guardian.get("runtime_recovery"))
     runtime_recovery_state = str(runtime_recovery.get("state", "none")).lower()
+    recovery_modes = recovery.get("recovery_modes") if isinstance(recovery.get("recovery_modes"), list) else []
     if runtime_recovery_state in {"recovering", "verifying", "active"}:
         recovery_label = "Recovering"
-    elif runtime_recovery_state == "recovered":
-        recovery_label = "Ready"
-    elif recovery.get("last_verified_recovery") or recovery.get("last_verified_runtime_recovery"):
-        recovery_label = "Ready"
+    elif recovery_modes:
+        normalized_modes = {str(mode).upper() for mode in recovery_modes}
+        if "NATIVE" in normalized_modes and "RUNTIME" in normalized_modes:
+            recovery_label = "Native + Runtime certified"
+        elif "NATIVE" in normalized_modes:
+            recovery_label = "Native certified"
+        elif "RUNTIME" in normalized_modes:
+            recovery_label = "Runtime certified"
+        else:
+            recovery_label = ", ".join(sorted(normalized_modes)) + " certified"
     else:
-        recovery_label = "Unproven"
+        recovery_label = "Not certified"
     posture = _object(behavior_map.get("active_executable_posture"))
-    behavior_label = "None" if not posture else ", ".join(f"{key} {value}" for key, value in sorted(posture.items()))
+    behavior_label = "Normal" if not posture else ", ".join(f"{key} {value}" for key, value in sorted(posture.items()))
+    severity_label = str(severity.get("label") or "normal")
+    if severity_level == 0 and severity_label.lower() in {"none", "unknown"}:
+        severity_label = "normal"
     summary = SystemSummary(
         operational_health=operational,
         trust=trust_state,
         guardian_health=guardian_health,
-        severity=f"L{severity_level} {severity.get('label', 'none')}" if severity_level else "NONE",
+        severity=f"L{severity_level} {severity_label.title()}",
         attention=attention,
         recovery=recovery_label,
         updates=str(update.get("presentation_status") or update.get("status") or "Unknown"),

@@ -34,6 +34,35 @@ class UIState:
     show_help: bool = False
 
 
+@dataclass(frozen=True)
+class AttentionGroup:
+    title: str
+    state: str
+    reason: str
+    diagnostic_ids: tuple[str, ...]
+
+
+def attention_groups(model: SystemModel) -> tuple[AttentionGroup, ...]:
+    """Group presentation-level symptoms without altering source diagnostics."""
+    pending = [item for item in model.diagnostics if item.attention]
+    groups: list[AttentionGroup] = []
+    trust_ids = {"trust.current-generation", "trust.signed-boot", "provider.boot.authority"}
+    trust = [item for item in pending if item.id in trust_ids]
+    if trust:
+        groups.append(AttentionGroup(
+            "Physical trust certification incomplete",
+            "Untrusted" if any(item.state == "FAIL" for item in trust) else "Unresolved",
+            "Boot and current-generation authority are not fully established.",
+            tuple(item.id for item in trust),
+        ))
+        pending = [item for item in pending if item.id not in trust_ids]
+    for item in pending:
+        groups.append(AttentionGroup(
+            item.summary, diagnostic_state_label(item), item.reason, (item.id,),
+        ))
+    return tuple(groups)
+
+
 def _obj(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
@@ -59,11 +88,11 @@ def _status_rows(model: SystemModel, width: int) -> list[str]:
 
 
 def _overview(model: SystemModel, width: int) -> list[str]:
-    attention = [item for item in model.diagnostics if item.attention]
+    groups = attention_groups(model)
     attention_rows = []
-    for item in attention[:4]:
-        attention_rows.append(f"{diagnostic_state_label(item):<22} {item.summary}")
-        attention_rows.append(f"        {item.reason}")
+    for group in groups[:4]:
+        attention_rows.append(f"{group.state:<22} {group.title}")
+        attention_rows.append(f"        {group.reason}")
     if not attention_rows:
         attention_rows = ["No user attention is currently requested."]
     if width >= 86:
