@@ -309,6 +309,7 @@ preflight() {
     "$ROOT/lib/guardian_session_incident.py" "$ROOT/lib/guardian_runtime_recovery.py" \
     "$ROOT/lib/maho_trust_identity.py" "$ROOT/lib/maho_generation_v2.py" \
     "$ROOT/lib/maho_kernel_generation.py" "$ROOT/lib/guardian_offline_recovery.py" \
+    "$ROOT/lib/maho_live_generation.py" \
     "$ROOT/lib/guardian_admission.py" "$ROOT/lib/guardian_native_admission.py" \
     "$ROOT/lib/guardian_revocation.py" "$ROOT/lib/guardian_revocation_recovery.py" \
     "$ROOT/lib/guardian_trust_status.py" \

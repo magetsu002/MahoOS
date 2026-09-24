@@ -65,7 +65,7 @@
     "release_source": "signed-release-artifact"
   },
   "update": {
-    "native_execution_certified": false,
+    "native_execution_certified": true,
     "normal_execution_certified": false,
     "candidate_root_strategy": "btrfs-subvolume-swap",
     "boot_artifact_transaction_required": true,
