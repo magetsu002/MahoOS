@@ -21,7 +21,7 @@ def check(name: str, condition: bool) -> None:
     print("PASS", name)
 
 
-def fixture(preferences=None, *, active: bool = False, severity_level: int = 1):
+def fixture(preferences=None, *, active: bool = False, severity_level: int = 1, incident: bool = True):
     guardian = {
         "system": {"current_system_generation": None, "current_kernel_generation": None, "maho_runtime": {"verified": True}},
         "reliability": {"state": "healthy", "counts": {"healthy": 4, "degraded": 0, "unknown": 0}},
@@ -30,7 +30,11 @@ def fixture(preferences=None, *, active: bool = False, severity_level: int = 1):
             "severity": {"level": severity_level, "label": "normal" if severity_level == 0 else "minor"},
             "trust": {"state": "UNKNOWN", "reasons": ["generation authority unavailable", "Signed Boot proof missing"]},
         }},
-        "active_incidents": [{"incident_id": "inc-fixture", "status": "active", "explanation": {"incident": "Low-confidence persistence drift"}}],
+        "active_incidents": (
+            [{"incident_id": "inc-fixture", "status": "active", "explanation": {"incident": "Low-confidence persistence drift"}}]
+            if incident else []
+        ),
+        "prevention": {"state": "inactive-or-no-evidence", "recent": [], "prevented_count": 0},
         "boot": {"boot_generation_id": None, "boot_authority_id": None, "signed_boot_authority": "UNKNOWN", "trust_reason": "durable Signed Boot postboot proof is missing"},
         "evidence_freshness": {
             "boot.authority": {"freshness": "missing", "health": "healthy"},
@@ -38,9 +42,24 @@ def fixture(preferences=None, *, active: bool = False, severity_level: int = 1):
             "environment.thermal": {"freshness": "missing", "health": "unknown"},
             "guardian.watch": {"freshness": "current", "health": "healthy"},
         },
-        "recent_activity": [{"kind": "incident", "at": "2026-01-01T00:00:00Z", "id": "inc-fixture", "status": "active"}],
-        "containment": {"state": "none"}, "runtime_recovery": {"state": "recovered"},
-        "response": {"backend_state": "RECOVERED", "wheel_spinning": False},
+        "recent_activity": (
+            [{"kind": "incident", "at": "2026-01-01T00:00:00Z", "id": "inc-fixture", "status": "active"}]
+            if incident else []
+        ),
+        "containment": {"state": "contained" if incident else "none"},
+        "runtime_recovery": {"state": "recovering" if incident else "recovered"},
+        "response": {
+            "backend_state": "RECOVERING" if incident else "RECOVERED",
+            "wheel_spinning": incident,
+            "automatic_authority": incident,
+            "receipt_id": "recovery-receipt-fixture",
+            "stages": {
+                "prevent": {"state": "not-applicable"},
+                "contain": {"state": "complete" if incident else "not-applicable"},
+                "recover": {"state": "active" if incident else "complete"},
+                "verify": {"state": "pending" if incident else "complete"},
+            },
+        },
     }
     posture = {"notifications": "quiet", "maintenance": "suspended"} if active else {}
     behavior = {
@@ -81,7 +100,7 @@ def main() -> None:
                 and "\x1b[" not in screen,
             )
     check("Behavior idle summary renders Normal", model.summary.behavior == "Normal")
-    check("recovery summary describes capability, not generic readiness", model.summary.recovery == "Runtime certified")
+    check("recovery summary describes capability, not generic readiness", fixture(incident=False).summary.recovery == "Runtime certified")
     grouped = attention_groups(model)
     trust_group = next(group for group in grouped if group.title == "Physical trust certification incomplete")
     check("attention grouping preserves underlying diagnostics", set(trust_group.diagnostic_ids) == {"trust.current-generation", "trust.signed-boot", "provider.boot.authority"})
@@ -90,10 +109,14 @@ def main() -> None:
     check("overview groups repeated trust symptoms", "Physical trust" in overview and "certification incomplete" in overview and "UNKNOWN" not in overview)
     trust_page = render(model, page="Trust", height=35)
     check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
-    check("Trust renders missing generation authority semantically", trust_page.count("Not established") >= 2)
+    check("Trust renders missing generation authority semantically", trust_page.count("Awaiting certification") >= 3)
+    check("Trust makes upstream break explicit", "TRUST BREAK" in trust_page and "Maho runtime" in trust_page and "Verified" in trust_page and "Overall trust" in trust_page and "Unresolved" in trust_page)
     check("Update page renders PREPARED stale authority semantically", "Waiting for certification" in render(model, page="Updates", height=35))
     check("Recovery page explains unresolved generation authority", "Awaiting generation trust" in render(model, page="Recovery", height=35))
-    check("Guardian response projection remains truthful and idle", "RECOVERED" in render(model, page="Guardian", height=35) and "Idle" in render(model, page="Guardian", height=35))
+    guardian_active = render(model, page="Guardian", height=35)
+    check("Guardian renders response lifecycle", all(value in guardian_active for value in ("PREVENT", "DETECT", "CONTAIN", "RECOVER", "VERIFY", "CURRENT", "Recover")))
+    guardian_idle = render(fixture(severity_level=0, incident=False), page="Guardian", height=35)
+    check("Guardian idle view is calm L0 and does not invent prevention enforcement", "L0 Normal" in guardian_idle and "No active Guardian incident" in guardian_idle and "not active" in guardian_idle)
     optional = [item for item in model.diagnostics if item.id in {"provider.environment.power", "provider.environment.thermal"}]
     check("optional telemetry absence does not request attention", len(optional) == 2 and all(not item.attention and "Not available" in item.reason for item in optional))
     doctor = render(model, page="Doctor", height=40)

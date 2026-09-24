@@ -222,37 +222,84 @@ def _doctor(model: SystemModel, state: UIState, width: int) -> list[str]:
     return rows
 
 
+def _stage_symbol(value: Any) -> str:
+    state = str(value or "unknown").lower()
+    if state in {"complete", "completed", "contained", "recovered", "verified", "prevented", "success"}:
+        return "✓"
+    if state in {"active", "running", "recovering", "verifying", "pending", "in-progress"}:
+        return "●"
+    if state in {"failed", "failure", "blocked"}:
+        return "!"
+    if state in {"none", "not-applicable", "inactive", "idle"}:
+        return "○"
+    return "?"
+
+
 def _guardian(model: SystemModel, width: int) -> list[str]:
-    guardian = _obj(_obj(model.guardian.get("world_state")).get("guardian"))
-    severity = _obj(guardian.get("severity"))
-    health = _obj(guardian.get("self_health"))
-    trust = _obj(guardian.get("trust"))
+    world = _obj(_obj(model.guardian.get("world_state")).get("guardian"))
+    severity = _obj(world.get("severity"))
+    health = _obj(world.get("self_health"))
     incidents = _list(model.guardian.get("active_incidents"))
-    status = []
     response = _obj(model.guardian.get("response"))
-    for label, value in (
-        ("Operational state", model.summary.operational_health),
-        ("Trust", model.summary.trust),
-        ("Severity", f"L{severity.get('level', '?')} {severity.get('label', 'unknown')}"),
-        ("Guardian health", _human_state(health.get("state", "UNKNOWN"))),
-        ("Containment", str(_obj(model.guardian.get("containment")).get("state", "none"))),
-        ("Recovery", str(_obj(model.guardian.get("runtime_recovery")).get("state", "none"))),
-        ("Response", str(response.get("backend_state", "NONE"))),
-        ("Recovery activity", "Active" if response.get("wheel_spinning") is True else "Idle"),
-    ):
-        status.extend(field_rows(label, value, width - 4))
-    incident_rows = []
-    for item in incidents[:6]:
-        decision = _obj(item.get("decision"))
-        explanation = _obj(item.get("explanation"))
-        incident_rows.extend((
-            f"{short_id(str(item.get('incident_id') or 'unknown'), 32)}  {item.get('status', 'unknown')}",
-            f"  {explanation.get('incident') or decision.get('reason') or 'No explanation supplied'}",
-        ))
-    if not incident_rows:
-        incident_rows = ["No active Guardian incidents."]
-    reasoning = [str(reason) for reason in trust.get("reasons", [])[:5]] if isinstance(trust.get("reasons"), list) else []
-    return box("Guardian status", status, width) + [""] + box("Incidents", incident_rows, width) + ([""] + box("Trust reasoning", reasoning, width) if reasoning else [])
+    stages = _obj(response.get("stages"))
+    prevention = _obj(model.guardian.get("prevention"))
+    containment = _obj(model.guardian.get("containment"))
+    runtime_recovery = _obj(model.guardian.get("runtime_recovery"))
+    active = bool(incidents)
+    if active:
+        lifecycle = (
+            _stage_symbol(_obj(stages.get("prevent")).get("state")),
+            "✓",
+            _stage_symbol(_obj(stages.get("contain")).get("state") or containment.get("state")),
+            _stage_symbol(_obj(stages.get("recover")).get("state") or runtime_recovery.get("state")),
+            _stage_symbol(_obj(stages.get("verify")).get("state")),
+        )
+    else:
+        lifecycle = ("○", "○", "○", "○", "○")
+    level = severity.get("level", "?")
+    label = str(severity.get("label") or "unknown").title()
+    rows = [
+        f"Guardian    L{level} {label} · {_human_state(health.get('state'))}",
+        "",
+        "PREVENT      DETECT      CONTAIN      RECOVER      VERIFY",
+        f"   {lifecycle[0]}            {lifecycle[1]}           {lifecycle[2]}            {lifecycle[3]}           {lifecycle[4]}",
+        "",
+    ]
+    if active:
+        incident = incidents[0]
+        decision = _obj(incident.get("decision"))
+        explanation = _obj(incident.get("explanation"))
+        incident_text = explanation.get("incident") or decision.get("reason") or "Guardian incident is active."
+        current_stage = next((
+            name.title() for name in ("verify", "recover", "contain", "prevent")
+            if str(_obj(stages.get(name)).get("state", "")).lower() in {"active", "running", "pending", "recovering", "verifying", "in-progress"}
+        ), str(response.get("backend_state") or "Assessing").replace("_", " ").title())
+        rows.extend([
+            f"INCIDENT     {short_id(str(incident.get('incident_id') or 'unknown'), 34)}",
+            str(incident_text),
+            f"CURRENT      {current_stage}",
+            f"RESPONSE     {_human_state(response.get('backend_state'))}",
+            f"AUTHORITY    {'Automatic bounded response' if response.get('automatic_authority') is True else 'No automatic response authority'}",
+        ])
+    else:
+        rows.extend([
+            "IDLE         No active Guardian incident.",
+            f"PREVENTION   {str(prevention.get('state') or 'no evidence').replace('-', ' ').title()}",
+        ])
+        if str(prevention.get("state", "")).lower() in {"inactive-or-no-evidence", "inactive", "none", ""}:
+            rows.append("Production prevention enforcement is not active; the gated boundary is not implied.")
+        rows.append(f"SELF HEALTH  {_human_state(health.get('state'))}")
+        if response.get("receipt_id"):
+            rows.append(f"RECENT       {_human_state(response.get('backend_state'))} · {short_id(str(response.get('receipt_id')), 30)}")
+    operations = _list(model.guardian.get("authorized_operation_evidence"))
+    if operations:
+        latest = operations[0]
+        rows += [
+            "",
+            f"AUTHORIZED   {str(latest.get('kind') or 'operation').replace('-', ' ').title()} · {_human_state(latest.get('state'))}",
+            f"              {short_id(str(latest.get('operation_id') or 'unknown'), 42)}",
+        ]
+    return box("Guardian lifecycle", rows, width)
 
 
 def _human_state(value: Any) -> str:
@@ -310,25 +357,79 @@ def diagnostic_state_label(item: DiagnosticRecord, *, detail: bool = False) -> s
     return "Unknown"
 
 
+def _boot_authority_display(model: SystemModel) -> str:
+    boot = _obj(model.guardian.get("boot"))
+    freshness = _obj(_obj(model.guardian.get("evidence_freshness")).get("boot.authority"))
+    signed = _boot_trust_display(boot)
+    fresh = str(freshness.get("freshness") or "unknown").lower()
+    if signed == "Untrusted":
+        return "Untrusted"
+    if fresh == "stale":
+        return "Stale"
+    if signed == "Verified" and boot.get("boot_authority_id"):
+        return "Verified"
+    if fresh == "missing" or signed == "Awaiting certification":
+        return "Awaiting certification"
+    return "Unknown"
+
+
+def _generation_link(model: SystemModel, key: str) -> str:
+    system = _obj(model.guardian.get("system"))
+    current = str(model.recovery.get("current_generation_trust") or "UNRESOLVED").upper()
+    if current in {"UNTRUSTED", "REVOKED", "CONTAMINATED"}:
+        return "Untrusted"
+    if not system.get(key):
+        return "Awaiting certification"
+    if current == "VERIFIED":
+        return "Verified"
+    return "Unknown"
+
+
+def _guardian_observation_display(model: SystemModel) -> str:
+    health = _obj(_obj(_obj(model.guardian.get("world_state")).get("guardian")).get("self_health"))
+    if health.get("stale_providers"):
+        return "Stale"
+    state = str(health.get("state") or "UNKNOWN").upper()
+    if state == "HEALTHY":
+        return "Verified"
+    if state in {"FAILED", "UNTRUSTED"}:
+        return "Untrusted"
+    return "Unknown"
+
+
 def _trust(model: SystemModel, width: int) -> list[str]:
     system = _obj(model.guardian.get("system"))
     runtime = _obj(system.get("maho_runtime"))
     boot = _obj(model.guardian.get("boot"))
     world_trust = _obj(_obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust"))
-    guardian_health = _obj(_obj(_obj(model.guardian.get("world_state")).get("guardian")).get("self_health")).get("state")
-    rows = [
-        f"{'Maho runtime':<22} {'Verified' if runtime.get('verified') is True else 'Unverified'}",
-        f"{'System generation':<22} {system.get('current_system_generation') or 'Not established'}",
-        f"{'Kernel generation':<22} {system.get('current_kernel_generation') or 'Not established'}",
-        f"{'Boot trust':<22} {_boot_trust_display(boot)}",
-        f"{'Guardian observation':<22} {_human_state(guardian_health)}",
-        "",
-        f"{'Overall trust':<22} {_human_state(world_trust.get('state')) if str(world_trust.get('state')).upper() != 'UNKNOWN' else 'Unresolved'}",
-        "Historical recovery proof is shown on Recovery and never promotes current trust.",
+    overall = _human_state(world_trust.get("state"))
+    if str(world_trust.get("state") or "UNKNOWN").upper() == "UNKNOWN":
+        overall = "Unresolved"
+    links = [
+        ("Boot root", _boot_trust_display(boot)),
+        ("Boot authority", _boot_authority_display(model)),
+        ("SystemGeneration", _generation_link(model, "current_system_generation")),
+        ("KernelGeneration", _generation_link(model, "current_kernel_generation")),
+        ("Maho runtime", "Verified" if runtime.get("verified") is True else "Unknown"),
+        ("Guardian observation", _guardian_observation_display(model)),
+        ("Overall trust", overall),
     ]
-    reasons = [str(value) for value in world_trust.get("reasons", [])] if isinstance(world_trust.get("reasons"), list) else []
-    if reasons:
-        rows += [""] + reasons[:5]
+    rows: list[str] = []
+    broken = False
+    for index, (name, state) in enumerate(links):
+        rows.append(f"{name:<22} {state}")
+        if index < len(links) - 1:
+            if not broken and state != "Verified":
+                rows.append("        ↓  TRUST BREAK — upstream authority is not established")
+                broken = True
+            else:
+                rows.append("        ↓")
+    rows += [
+        "",
+        "A running component is not automatically trusted.",
+        "Verified downstream runtime evidence does not repair an upstream trust break.",
+        "Historical recovery proof never promotes current trust.",
+    ]
     return box("Trust chain", rows, width)
 
 
