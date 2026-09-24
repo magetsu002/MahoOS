@@ -527,21 +527,57 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
     workload = _obj(situation.get("workload"))
     power = _obj(situation.get("power"))
     thermal = _obj(situation.get("thermal"))
+    maintenance = _obj(situation.get("maintenance"))
+    network = _obj(situation.get("network"))
     contexts = []
     if workload.get("gaming") is True: contexts.append("Gaming")
     if workload.get("compile") is True: contexts.append("Compiling")
     if workload.get("rendering") is True: contexts.append("Rendering")
-    if str(power.get("severity_band")) in {"LOW", "CONSERVING", "CRITICAL"}: contexts.append(f"Battery {power.get('severity_band')}")
-    if str(thermal.get("level")) in {"hot", "critical"}: contexts.append(f"Thermal {str(thermal.get('level')).title()}")
+    if workload.get("interactive") is True: contexts.append("Focused interactive work")
+    if str(power.get("severity_band") or "").upper() in {"LOW", "CONSERVING", "CRITICAL"}:
+        contexts.append(f"Battery {power.get('severity_band')}")
+    if str(thermal.get("level") or "").lower() in {"hot", "critical"}:
+        contexts.append(f"Thermal {str(thermal.get('level')).title()}")
+    situation_rows = [f"Situation       {', '.join(contexts) if contexts else 'Normal'}"]
+    if power:
+        source = "AC" if power.get("ac_online") is True else "Battery"
+        percent = f" · {power.get('percentage')}%" if power.get("percentage") is not None else ""
+        situation_rows.append(f"Power           {source}{percent}")
+    if thermal and thermal.get("level"):
+        temperature = thermal.get("maximum_millidegree_c")
+        suffix = f" · {int(temperature) / 1000:.0f}°C max" if isinstance(temperature, (int, float)) else ""
+        situation_rows.append(f"Thermal         {str(thermal.get('level')).title()}{suffix}")
+    if maintenance.get("in_critical_section") is True:
+        situation_rows.append("Maintenance     Critical section active")
+    if network and network.get("connectivity") != "online":
+        situation_rows.append(f"Network         {str(network.get('connectivity') or 'unknown').title()}")
+
     posture = _obj(model.behavior.get("active_executable_posture"))
-    current = [f"Context             {', '.join(contexts) if contexts else 'Normal'}"]
-    current.extend(f"{key.replace('_', ' ').title():<19} {value}" for key, value in sorted(posture.items()))
-    if not posture:
-        current.append("Temporary changes   None")
-    current.append("Returns to normal automatically after the condition and cooldown clear.")
+    leases = _list(model.behavior.get("leases"))
+    proposals = _list(model.behavior.get("proposals"))
+    adaptation = []
+    if posture:
+        for key, value in sorted(posture.items()):
+            adaptation.append(f"{key.replace('_', ' ').title():<18} {value}")
+        reason = next((str(item.get("reason")) for item in proposals if item.get("reason")), None)
+        adaptation.append(f"Why              {reason or 'A certified current situation requires this temporary posture.'}")
+        adaptation.append(f"Lease             {'Active' if leases else 'No active lease record'}")
+        expiries = [item.get("expires_at") or item.get("expiry_at") for item in leases]
+        expiry = next((str(value) for value in expiries if value), None)
+        if expiry:
+            adaptation.append(f"Returns           {expiry}")
+        else:
+            adaptation.append("Returns           Automatically after the condition and cooldown clear.")
+    else:
+        adaptation = [
+            "Temporary changes  None",
+            "Why                No adaptation required.",
+            "Lease              None",
+        ]
+
     prefs = []
     selected = min(max(state.row_index, 0), len(SPECS) - 1)
-    capacity = 7 if width >= 90 else 5
+    capacity = 5 if width >= 90 else 3
     start, end, selected = viewport_bounds(len(SPECS), selected, capacity, state.row_offset)
     for index, spec in enumerate(SPECS[start:end], start):
         cursor = ">" if index == selected else " "
@@ -549,35 +585,45 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
         prefs.append(f"{cursor} [{mark}] {spec.group}: {spec.label}")
     selected_spec = SPECS[selected]
     prefs += [
-        "",
         f"Selected: {selected_spec.description}",
-        "",
-        "These switches restrict already-certified convenience behavior only.",
-        "Guardian, trust, recovery, and independent safety coordination cannot be disabled here.",
+        "Convenience only. Guardian/trust/recovery/safety cannot be disabled here.",
     ]
-    return box("Current automatic behavior", current, width) + [""] + box("Preferences", prefs, width)
+    rows = ["CURRENT SITUATION", *situation_rows, "CURRENT ADAPTATION", *adaptation, "PREFERENCES", *prefs]
+    return box("Behavior", rows, width)
 
 
 def _recovery(model: SystemModel, width: int) -> list[str]:
     recovery = model.recovery
     last_runtime = _obj(recovery.get("last_verified_runtime_recovery"))
     last_native = _obj(recovery.get("last_verified_recovery"))
-    rows = []
-    for label, value in (
-        ("Readiness", model.summary.recovery),
-        ("Recovery authority", _recovery_authority_display(model)),
-        ("Available scope", ", ".join(map(str, recovery.get("recovery_modes", []))) or "No verified mode"),
-        ("Last runtime", short_id(str(last_runtime.get("campaign_id")), 40) if last_runtime else "None yet"),
-        ("Last native", short_id(str(last_native.get("campaign_id")), 40) if last_native else "None yet"),
-        ("Invalid history", str(recovery.get("invalid_unified_history_records", 0))),
-    ):
-        rows.extend(field_rows(label, value, width - 4))
-    guidance = [
-        "This page is inspection-only in normal mode.",
-        "Exact plan selection, consent, and execution stay in Guardian Recovery.",
-        "Use `maho recovery` to enter the existing bounded recovery interface.",
+    guardian_recovery = _obj(model.guardian.get("runtime_recovery"))
+    modes = [str(mode).title() for mode in recovery.get("recovery_modes", [])] if isinstance(recovery.get("recovery_modes"), list) else []
+    native_campaign = short_id(str(last_native.get("campaign_id")), 28) if last_native else "None yet"
+    runtime_campaign = short_id(str(last_runtime.get("campaign_id")), 28) if last_runtime else "None yet"
+    known_system = (
+        short_id(str(last_native.get("system_generation_id")), 28)
+        if last_native.get("system_generation_id")
+        else short_id(str(last_runtime.get("system_generation_id")), 28)
+        if last_runtime.get("system_generation_id")
+        else "Not recorded"
+    )
+    rows = [
+        f"CAPABILITY   {model.summary.recovery} · modes: {', '.join(modes) if modes else 'none'}",
+        f"AUTHORITY    {_recovery_authority_display(model)} · generation trust {_human_state(recovery.get('current_generation_trust'))}",
+        "             Historical recovery evidence never establishes current authority.",
+        f"KNOWN-GOOD   System {known_system}",
+        f"             Native {native_campaign} · Runtime {runtime_campaign}",
+        f"CURRENT      {_human_state(guardian_recovery.get('state'))} · last native {native_campaign}",
+        f"HISTORY      {recovery.get('unified_history_count', 0)} records · {recovery.get('invalid_unified_history_records', 0)} invalid",
+        (
+            "             Integrity requires review."
+            if int(recovery.get("invalid_unified_history_records", 0) or 0)
+            else "             No invalid/tampered unified record is reported."
+        ),
+        "BOUNDARY     Inspection only. Execution stays in Guardian Recovery.",
+        "             This screen never creates authority or promotes history to trust.",
     ]
-    return box("Recovery readiness", rows, width) + [""] + box("Authority boundary", guidance, width)
+    return box("Recovery", rows, width)
 
 
 def _logs(model: SystemModel, state: UIState, width: int) -> list[str]:
