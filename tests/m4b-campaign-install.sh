@@ -100,7 +100,16 @@ package_execution=execute_block.index('execute_update(')
 runtime_unmount=execute_block.index('btrfs.unmount_normal_candidate_runtime()')
 assert private_boot_seed < runtime_mount < package_execution < runtime_unmount
 assert s.index('evaluate_production_candidate(', execute) < approve
-assert s.index('verify_activation_authority(', activate) < s.index('btrfs.arm_activation(', activate)
+approve_block=s[approve:activate]
+activate_block=s[activate:verify]
+assert 'evaluate_production_candidate(' not in approve_block
+assert 'inspect_candidate(' not in approve_block
+assert 'verify_frozen_activation_authority(' in activate_block
+assert 'inspect_candidate(' not in activate_block
+assert 'home_identity() != journal["home_identity"]' in activate_block
+assert '_runtime_identity_matches(' in activate_block
+assert 'read_l3_journal(' in activate_block and '["phase"] != "prepared"' in activate_block
+assert s.index('verify_frozen_activation_authority(', activate) < s.index('btrfs.arm_activation(', activate)
 assert s.index('cleanup_admission_base(', verify) > verify
 assert 'admission-review' in s and 'admission-rejected' in s
 assert 'package_repo_set_mismatch' in s

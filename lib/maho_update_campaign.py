@@ -28,10 +28,12 @@ from maho_update_discovery import IsolatedPacmanDiscovery, discover_updates
 from maho_update_external import stage_aur_artifacts, transaction_from_aur_receipt
 from maho_update_admission import (
     admission_review_confirmation,
+    approve_frozen_production_admission,
     evaluate_production_candidate,
+    freeze_admission_evidence,
     guardian_transaction_id,
-    issue_activation_authority,
-    verify_activation_authority,
+    issue_frozen_activation_authority,
+    verify_frozen_activation_authority,
 )
 from maho_adaptive_maintenance_state import MaintenanceVetoError, maintenance_gate_for_user
 from maho_update_native import (
@@ -727,11 +729,22 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
         )
         admission = evaluate_production_candidate(roots, execution.transaction, plan)
         admission_payload = admission.as_dict()
+        frozen_admission = freeze_admission_evidence(
+            admission,
+            update_transaction_id=transaction_id,
+            transaction=execution.transaction,
+            source_revision=source_revision,
+            candidate_btrfs_uuid=candidate["uuid"],
+            base_btrfs_uuid=candidate["admission_base_uuid"],
+            candidate_boot_sha256=candidate["boot_sha256"],
+            admission_payload=admission_payload,
+        )
         if admission.decision.outcome is AdmissionOutcome.REJECT:
             cleanup = btrfs.cleanup_candidate(candidate["uuid"])
             _transition_campaign(
                 path, journal, "admission-rejected", candidate=candidate, plan=plan.as_dict(),
                 transaction_state=execution.transaction["state"], admission=admission_payload,
+                frozen_admission=frozen_admission.as_dict(),
                 candidate_cleanup=cleanup,
             )
             return {
@@ -742,6 +755,7 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
             journal = _transition_campaign(
                 path, journal, "admission-review", candidate=candidate, plan=plan.as_dict(),
                 transaction_state=execution.transaction["state"], admission=admission_payload,
+                frozen_admission=frozen_admission.as_dict(),
             )
             success = True
             return {
@@ -752,10 +766,18 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
                     transaction_id, admission.inspection.graph.graph_id,
                 ),
             }
-        activation_authority = issue_activation_authority(
-            admission, update_transaction_id=transaction_id,
-            transaction=execution.transaction, source_revision=source_revision,
+        activation_authority = issue_frozen_activation_authority(
+            admission,
+            frozen_admission.as_dict(),
+            update_transaction_id=transaction_id,
+            transaction=execution.transaction,
+            source_revision=source_revision,
         )
+        admission_approval = {
+            "decision": admission.decision.as_dict(),
+            "promotion_authority": admission.promotion_authority.as_dict(),
+            "frozen_admission_evidence_id": str(frozen_admission.evidence_id),
+        }
         journal = _transition_campaign(
             path,
             journal,
@@ -764,6 +786,8 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
             plan=plan.as_dict(),
             transaction_state=execution.transaction["state"],
             admission=admission_payload,
+            admission_approval=admission_approval,
+            frozen_admission=frozen_admission.as_dict(),
             activation_authority=activation_authority.as_dict(),
         )
         success = True
@@ -810,7 +834,12 @@ def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str
         raise RuntimeError("update authority is not pending activation")
     candidate = journal.get("candidate")
     admission_payload = journal.get("admission")
-    if not isinstance(candidate, Mapping) or not isinstance(admission_payload, Mapping):
+    frozen_admission = journal.get("frozen_admission")
+    if (
+        not isinstance(candidate, Mapping)
+        or not isinstance(admission_payload, Mapping)
+        or not isinstance(frozen_admission, Mapping)
+    ):
         raise RuntimeError("Admission review evidence is incomplete")
     mutation_graph = admission_payload.get("mutation_graph")
     if not isinstance(mutation_graph, Mapping):
@@ -818,7 +847,6 @@ def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str
     graph_id = ArtifactID(str(mutation_graph.get("graph_id", "")))
     if confirmation != admission_review_confirmation(transaction_id, graph_id):
         raise RuntimeError("exact Admission graph confirmation token is required")
-    plan = _plan_from_dict(journal["plan"])
     btrfs = NativeBtrfsOps(transaction_id)
     try:
         admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
@@ -828,20 +856,24 @@ def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str
             base_root=admission_paths["base_root"],
             candidate_root=admission_paths["candidate_root"],
         )
-        admission = evaluate_production_candidate(
-            roots, transaction, plan, known_safe_graph_ids=(graph_id,),
-        )
-        if admission.decision.outcome is not AdmissionOutcome.ALLOW:
-            raise RuntimeError("reviewed Admission graph no longer reaches ALLOW")
-        authority = issue_activation_authority(
-            admission, update_transaction_id=transaction_id,
-            transaction=transaction, source_revision=source_revision,
+        admission_approval, authority = approve_frozen_production_admission(
+            frozen_admission,
+            admission_payload,
+            roots=roots,
+            reviewed_graph_id=graph_id,
+            update_transaction_id=transaction_id,
+            transaction=transaction,
+            source_revision=source_revision,
+            candidate_btrfs_uuid=admission_paths["candidate_uuid"],
+            base_btrfs_uuid=admission_paths["base_uuid"],
+            candidate_boot_sha256=candidate["boot_sha256"],
         )
     finally:
         btrfs.close()
     _transition_campaign(
         path, journal, "installed-pending-activation",
-        admission=admission.as_dict(), activation_authority=authority.as_dict(),
+        admission_approval=admission_approval,
+        activation_authority=authority.as_dict(),
     )
     return {
         "transaction_id": transaction_id,
@@ -877,9 +909,16 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
     if read_l3_journal(Path(journal["l3_prepared"]["journal_path"]))["phase"] != "prepared":
         raise RuntimeError("M3B recovery transaction is no longer prepared")
     activation_authority = journal.get("activation_authority")
-    if not isinstance(activation_authority, Mapping):
+    frozen_admission = journal.get("frozen_admission")
+    admission_payload = journal.get("admission")
+    admission_approval = journal.get("admission_approval")
+    if (
+        not isinstance(activation_authority, Mapping)
+        or not isinstance(frozen_admission, Mapping)
+        or not isinstance(admission_payload, Mapping)
+        or not isinstance(admission_approval, Mapping)
+    ):
         raise RuntimeError("Native Admission activation authority is missing")
-    plan = _plan_from_dict(journal["plan"])
     btrfs = NativeBtrfsOps(transaction_id)
     try:
         admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
@@ -889,9 +928,18 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
             base_root=admission_paths["base_root"],
             candidate_root=admission_paths["candidate_root"],
         )
-        verified_authority = verify_activation_authority(
-            activation_authority, roots=roots, update_transaction_id=transaction_id,
-            transaction=transaction, plan=plan, source_revision=source_revision,
+        verified_authority = verify_frozen_activation_authority(
+            activation_authority,
+            frozen_admission,
+            admission_payload,
+            admission_approval,
+            roots=roots,
+            update_transaction_id=transaction_id,
+            transaction=transaction,
+            source_revision=source_revision,
+            candidate_btrfs_uuid=admission_paths["candidate_uuid"],
+            base_btrfs_uuid=admission_paths["base_uuid"],
+            candidate_boot_sha256=candidate["boot_sha256"],
         )
         evidence = btrfs.arm_activation(
             machine_id=machine_id,
