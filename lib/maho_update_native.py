@@ -333,6 +333,47 @@ class NativeBtrfsOps:
             "admission_base_uuid": base_uuid,
         }
 
+    def seed_private_boot(self, artifacts: Sequence[str]) -> dict[str, Any]:
+        """Seed the candidate's private /boot from the exact live artifacts."""
+        self.require_root()
+        requested = tuple(artifacts)
+        if len(requested) != len(set(requested)) or set(requested) != set(BOOT_ARTIFACTS):
+            raise ValueError("candidate boot seed must bind the exact boot artifact set")
+        if self._run(("mountpoint", "-q", str(self.offline_root))).returncode != 0:
+            raise RuntimeError("normal candidate root is not mounted")
+        private_boot = self.offline_root / "boot"
+        if private_boot.is_symlink() or not private_boot.is_dir():
+            raise RuntimeError("candidate private boot path is unsafe")
+
+        hashes: dict[str, str] = {}
+        sizes: dict[str, int] = {}
+        for artifact in BOOT_ARTIFACTS:
+            relative = Path(artifact).relative_to("/boot")
+            live = self.boot_root / relative
+            destination = private_boot / relative
+            if live.is_symlink() or not live.is_file() or live.stat().st_size <= 0:
+                raise RuntimeError(f"live boot seed artifact is unsafe: {artifact}")
+            if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+                raise RuntimeError(f"candidate boot seed destination is unsafe: {artifact}")
+            temporary = private_boot / f".maho-seed-{self.transaction_id}-{relative.name}.tmp"
+            if temporary.exists() or temporary.is_symlink():
+                raise RuntimeError(f"candidate boot seed temporary path exists: {artifact}")
+            expected = sha256_file(live)
+            shutil.copy2(live, temporary)
+            try:
+                if sha256_file(temporary) != expected:
+                    raise RuntimeError(f"candidate boot seed hash mismatch: {artifact}")
+                os.replace(temporary, destination)
+            finally:
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
+            hashes[artifact] = expected
+            sizes[artifact] = destination.stat().st_size
+        self._fsync_path(private_boot)
+        return {"ok": True, "sha256": hashes, "size": sizes}
+
     def admission_roots(self, expected_candidate_uuid: str, expected_base_uuid: str) -> dict[str, str]:
         self.require_root()
         self._unmount(self.offline_root)

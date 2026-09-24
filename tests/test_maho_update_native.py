@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -133,6 +134,22 @@ class CleanupOrderProbe(NativeBtrfsOps):
         self.events.append("top")
 
 
+class BootSeedProbe(NativeBtrfsOps):
+    def __init__(self, base: Path) -> None:
+        super().__init__(TX1, run_root=base / "run", boot_root=base / "live-boot")
+        self.boot_root.mkdir(parents=True)
+        (self.offline_root / "boot").mkdir(parents=True)
+
+    def require_root(self) -> None:
+        return None
+
+    def _run(self, command, *, check=False):
+        argv = tuple(command)
+        if argv[:2] == ("mountpoint", "-q") and Path(argv[2]) == self.offline_root:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(argv)
+
+
 def seed_fixture(ops: FixtureBtrfs) -> tuple[dict[str, str], dict[str, bytes]]:
     current = ops.top / "@"
     candidate = ops.top / ops.candidate
@@ -193,6 +210,36 @@ def main() -> None:
             "candidate recovery tears down runtime mounts before the root",
             result["ok"] is True and cleanup.events[:2] == ["runtime", "root"],
         )
+
+    with tempfile.TemporaryDirectory(prefix="maho-private-boot-seed-") as temporary:
+        boot_seed = BootSeedProbe(Path(temporary))
+        expected: dict[str, bytes] = {}
+        for index, artifact in enumerate(BOOT_ARTIFACTS):
+            relative = Path(artifact).relative_to("/boot")
+            payload = f"live-boot-{index}".encode()
+            expected[artifact] = payload
+            (boot_seed.boot_root / relative).write_bytes(payload)
+            (boot_seed.offline_root / artifact.lstrip("/")).write_bytes(b"stale-private-boot")
+        evidence = boot_seed.seed_private_boot(BOOT_ARTIFACTS)
+        check(
+            "candidate private boot is seeded from the exact live artifact set",
+            evidence["ok"] is True
+            and all(
+                (boot_seed.offline_root / artifact.lstrip("/")).read_bytes() == payload
+                and evidence["sha256"][artifact] == hashlib.sha256(payload).hexdigest()
+                for artifact, payload in expected.items()
+            ),
+        )
+        check(
+            "candidate private boot seed leaves no temporary artifacts",
+            not list((boot_seed.offline_root / "boot").glob(".maho-seed-*.tmp")),
+        )
+        try:
+            boot_seed.seed_private_boot(BOOT_ARTIFACTS[:-1])
+        except ValueError:
+            check("candidate private boot seed rejects an incomplete artifact set", True)
+        else:
+            check("candidate private boot seed rejects an incomplete artifact set", False)
 
     runtime_identity = {
         "verified": True,
