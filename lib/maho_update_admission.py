@@ -9,6 +9,7 @@ package generation, candidate root, mutation graph, runtime evidence, and source
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import re
 from typing import Any, Iterable, Mapping
 
@@ -59,6 +60,112 @@ def _package_generation(transaction: Mapping[str, Any]) -> tuple[str, tuple[str,
     return generation_id, names
 
 
+_MODULE_PATH = re.compile(r"^/usr/lib/modules/([^/]+)(?:/|$)")
+_USR_SRC_DEBUG_PATH = re.compile(r"^/usr/src/debug/([^/]+)(?:/|$)")
+_USR_SRC_PATH = re.compile(r"^/usr/src/([^/]+)(?:/|$)")
+_SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+~-]*")
+_KNOWN_CROSS_PACKAGE_OUTPUTS: Mapping[str, tuple[str, ...]] = {
+    # Arch's JDK install hook advances java-runtime-common's selector symlinks.
+    # Keep this exact: the rest of /usr/lib/jvm remains outside the declaration.
+    "jdk-openjdk": ("/usr/lib/jvm/default", "/usr/lib/jvm/default-runtime"),
+}
+
+
+def _transaction_owned_paths(
+    ownership: Mapping[str, str],
+    package_set: set[str],
+) -> set[str]:
+    return {path for path, owner in ownership.items() if owner in package_set}
+
+
+def _bounded_security_roots(
+    ownership: Mapping[str, str],
+    package_set: set[str],
+) -> tuple[set[str], set[str]]:
+    """Derive exact generated-parent roots from package-owned descendants."""
+    module_roots: set[str] = set()
+    source_roots: set[str] = set()
+    for path, owner in ownership.items():
+        if owner not in package_set:
+            continue
+        module = _MODULE_PATH.match(path)
+        if module is not None:
+            module_roots.add(f"/usr/lib/modules/{module.group(1)}")
+            continue
+        debug = _USR_SRC_DEBUG_PATH.match(path)
+        if debug is not None:
+            source_roots.add(f"/usr/src/debug/{debug.group(1)}")
+            continue
+        source = _USR_SRC_PATH.match(path)
+        if source is not None and source.group(1) != "debug":
+            source_roots.add(f"/usr/src/{source.group(1)}")
+    return module_roots, source_roots
+
+
+def _kernel_boot_outputs(
+    roots: CandidateRoots,
+    ownership: Mapping[str, str],
+    package_set: set[str],
+) -> set[str]:
+    """Bind mkinitcpio/kernel-install outputs to a transaction-owned pkgbase."""
+    outputs: set[str] = set()
+    for path, owner in ownership.items():
+        if owner not in package_set or not path.endswith("/pkgbase"):
+            continue
+        match = _MODULE_PATH.match(path)
+        if match is None:
+            continue
+        try:
+            pkgbase = (roots.candidate_root / path.lstrip("/")).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            raise ProductionAdmissionError("candidate_kernel_pkgbase_unreadable")
+        if _SAFE_COMPONENT.fullmatch(pkgbase) is None:
+            raise ProductionAdmissionError("candidate_kernel_pkgbase_invalid")
+        outputs.update({f"/boot/vmlinuz-{pkgbase}", f"/boot/initramfs-{pkgbase}.img"})
+    return outputs
+
+
+def _trusted_dkms_generated_paths(
+    roots: CandidateRoots,
+    module_roots: set[str],
+) -> set[str]:
+    """Allow DKMS rebuild state only for trusted modules and exact kernel releases."""
+    releases = sorted(root.removeprefix("/usr/lib/modules/") for root in module_roots)
+    if not releases:
+        return set()
+    dkms_root = roots.base_root / "var/lib/dkms"
+    if not dkms_root.exists():
+        return set()
+    try:
+        modules = sorted(os.scandir(dkms_root), key=lambda item: item.name)
+    except OSError as exc:
+        raise ProductionAdmissionError("base_dkms_state_unreadable") from exc
+    arch = os.uname().machine
+    if _SAFE_COMPONENT.fullmatch(arch) is None:
+        raise ProductionAdmissionError("dkms_architecture_invalid")
+    generated: set[str] = set()
+    for module in modules:
+        if not module.is_dir(follow_symlinks=False) or _SAFE_COMPONENT.fullmatch(module.name) is None:
+            continue
+        try:
+            versions = sorted(os.scandir(module.path), key=lambda item: item.name)
+        except OSError as exc:
+            raise ProductionAdmissionError("base_dkms_module_state_unreadable") from exc
+        for version in versions:
+            if (
+                version.is_symlink()
+                or not version.is_dir(follow_symlinks=False)
+                or _SAFE_COMPONENT.fullmatch(version.name) is None
+            ):
+                continue
+            for release in releases:
+                if _SAFE_COMPONENT.fullmatch(release) is None:
+                    raise ProductionAdmissionError("kernel_release_identity_invalid")
+                generated.add(f"/var/lib/dkms/{module.name}/{version.name}/{release}")
+                generated.add(f"/var/lib/dkms/{module.name}/kernel-{release}-{arch}")
+    return generated
+
+
 def build_production_declaration(
     roots: CandidateRoots,
     transaction: Mapping[str, Any],
@@ -66,11 +173,29 @@ def build_production_declaration(
 ) -> CandidateDeclaration:
     """Build a bounded declaration from exact package ownership plus planned outputs."""
     generation_id, names = _package_generation(transaction)
-    ownership, errors = package_ownership(roots.candidate_root)
-    if errors:
+    before_ownership, before_errors = package_ownership(roots.base_root)
+    after_ownership, after_errors = package_ownership(roots.candidate_root)
+    if before_errors:
+        raise ProductionAdmissionError("base_package_ownership_incomplete")
+    if after_errors:
         raise ProductionAdmissionError("candidate_package_ownership_incomplete")
     package_set = set(names)
-    declared = {path for path, owner in ownership.items() if owner in package_set}
+    declared = _transaction_owned_paths(before_ownership, package_set)
+    declared.update(_transaction_owned_paths(after_ownership, package_set))
+
+    before_modules, before_sources = _bounded_security_roots(before_ownership, package_set)
+    after_modules, after_sources = _bounded_security_roots(after_ownership, package_set)
+    module_roots = before_modules | after_modules
+    declared.update(module_roots)
+    declared.update(before_sources | after_sources)
+
+    # Generated outputs are admitted only when they are derivable from trusted
+    # base state plus exact transaction-owned kernel identities.
+    declared.update(_trusted_dkms_generated_paths(roots, module_roots))
+    declared.update(_kernel_boot_outputs(roots, after_ownership, package_set))
+    for package in package_set:
+        declared.update(_KNOWN_CROSS_PACKAGE_OUTPUTS.get(package, ()))
+
     # These are package-manager/generated outputs that are expected from the
     # exact transaction but are not necessarily owned by a package database row.
     declared.update(str(path) for path in plan.boot_artifacts)

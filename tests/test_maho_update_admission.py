@@ -44,6 +44,12 @@ def write_file(root: Path, relative: str, content: bytes, mode: int = 0o644) -> 
     path.chmod(mode)
 
 
+def write_symlink(root: Path, relative: str, target: str) -> None:
+    path = root / relative.lstrip("/")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.symlink_to(target)
+
+
 def package_db(root: Path, packages: dict[str, list[str]]) -> None:
     database = root / "var/lib/pacman/local"
     database.mkdir(parents=True, exist_ok=True)
@@ -94,6 +100,110 @@ def candidate_roots(
     return CandidateRoots.create(
         transaction_id=guardian_transaction_id(TX),
         candidate_id=candidate_id,
+        base_root=before,
+        candidate_root=candidate,
+    )
+
+
+def physical_transaction() -> dict:
+    return create_transaction(
+        transaction_id=TX,
+        source_revision=SOURCE,
+        packages=[
+            {"name": "linux", "installed_version": "7.2.4.arch1-2", "candidate_version": "7.2.6.arch2-1",
+             "repository": "core", "download_size": 1, "installed_size": 1, "roles": []},
+            {"name": "linux-headers", "installed_version": "7.2.4.arch1-2", "candidate_version": "7.2.6.arch2-1",
+             "repository": "core", "download_size": 1, "installed_size": 1, "roles": []},
+            {"name": "jdk-openjdk", "installed_version": "26", "candidate_version": "27",
+             "repository": "extra", "download_size": 1, "installed_size": 1, "roles": []},
+            {"name": "brave-bin", "installed_version": "1", "candidate_version": "2",
+             "repository": "extra", "download_size": 1, "installed_size": 1, "roles": []},
+        ],
+        activation_requirements=["restart"],
+        recovery_generation_id="g3-1234567890abcdef12345678",
+        now=NOW,
+    )
+
+
+def physical_boundary_roots(
+    base: Path, *, extra_boot: bool = False, extra_kernel: bool = False,
+    extra_override: bool = False,
+) -> CandidateRoots:
+    before = base / "base"
+    candidate = base / "candidate"
+    before.mkdir()
+    candidate.mkdir()
+    old_release = "7.2.4-arch1-2"
+    new_release = "7.2.6-arch2-1"
+
+    base_packages = {
+        "linux": [
+            f"/usr/lib/modules/{old_release}/kernel/base.ko.zst",
+            f"/usr/lib/modules/{old_release}/pkgbase",
+            f"/usr/lib/modules/{old_release}/vmlinuz",
+        ],
+        "linux-headers": [f"/usr/lib/modules/{old_release}/build/header.h"],
+        "jdk-openjdk": ["/usr/lib/jvm/java-26-openjdk/bin/java"],
+        "brave-bin": ["/usr/bin/brave", "/usr/src/debug/brave-bin/old.debug"],
+        "java-runtime-common": ["/usr/lib/jvm/default", "/usr/lib/jvm/default-runtime"],
+        "stable-owner": ["/usr/bin/stable-owned"],
+    }
+    candidate_packages = {
+        "linux": [
+            f"/usr/lib/modules/{new_release}/kernel/base.ko.zst",
+            f"/usr/lib/modules/{new_release}/pkgbase",
+            f"/usr/lib/modules/{new_release}/vmlinuz",
+        ],
+        "linux-headers": [f"/usr/lib/modules/{new_release}/build/header.h"],
+        "jdk-openjdk": ["/usr/lib/jvm/java-27-openjdk/bin/java"],
+        "brave-bin": ["/usr/bin/brave"],
+        "java-runtime-common": ["/usr/lib/jvm/default", "/usr/lib/jvm/default-runtime"],
+        "stable-owner": ["/usr/bin/stable-owned"],
+    }
+
+    package_db(before, base_packages)
+    package_db(candidate, candidate_packages)
+    for root in (before, candidate):
+        (root / "home").mkdir()
+        (root / "usr/src/debug").mkdir(parents=True, exist_ok=True)
+
+    write_file(before, f"/usr/lib/modules/{old_release}/kernel/base.ko.zst", b"old-module")
+    write_file(before, f"/usr/lib/modules/{old_release}/pkgbase", b"linux\n")
+    write_file(before, f"/usr/lib/modules/{old_release}/vmlinuz", b"old-vmlinuz")
+    write_file(before, f"/usr/lib/modules/{old_release}/build/header.h", b"old-header")
+    write_file(before, f"/usr/lib/modules/{old_release}/modules.dep", b"old-depmod")
+    write_file(before, "/usr/lib/jvm/java-26-openjdk/bin/java", b"old-java", 0o755)
+    write_symlink(before, "/usr/lib/jvm/default", "java-26-openjdk")
+    write_symlink(before, "/usr/lib/jvm/default-runtime", "java-26-openjdk")
+    write_file(before, "/usr/bin/brave", b"brave-1", 0o755)
+    write_file(before, "/usr/src/debug/brave-bin/old.debug", b"debug")
+    write_file(before, "/usr/bin/stable-owned", b"stable", 0o755)
+    write_file(before, f"/var/lib/dkms/nvidia/580.178.04/{old_release}/x86_64/module/nvidia.ko.zst", b"old-dkms")
+    write_symlink(before, f"/var/lib/dkms/nvidia/kernel-{old_release}-x86_64", f"580.178.04/{old_release}/x86_64")
+
+    write_file(candidate, f"/usr/lib/modules/{new_release}/kernel/base.ko.zst", b"new-module")
+    write_file(candidate, f"/usr/lib/modules/{new_release}/pkgbase", b"linux\n")
+    write_file(candidate, f"/usr/lib/modules/{new_release}/vmlinuz", b"new-vmlinuz")
+    write_file(candidate, f"/usr/lib/modules/{new_release}/build/header.h", b"new-header")
+    write_file(candidate, f"/usr/lib/modules/{new_release}/modules.dep", b"new-depmod")
+    write_file(candidate, f"/var/lib/dkms/nvidia/580.178.04/{new_release}/x86_64/module/nvidia.ko.zst", b"new-dkms")
+    write_symlink(candidate, f"/var/lib/dkms/nvidia/kernel-{new_release}-x86_64", f"580.178.04/{new_release}/x86_64")
+    write_file(candidate, "/boot/vmlinuz-linux", b"stock-vmlinuz")
+    write_file(candidate, "/boot/initramfs-linux.img", b"stock-initramfs")
+    write_file(candidate, "/usr/lib/jvm/java-27-openjdk/bin/java", b"new-java", 0o755)
+    write_symlink(candidate, "/usr/lib/jvm/default", "java-27-openjdk")
+    write_symlink(candidate, "/usr/lib/jvm/default-runtime", "java-27-openjdk")
+    write_file(candidate, "/usr/bin/brave", b"brave-2", 0o755)
+    write_file(candidate, "/usr/bin/stable-owned", b"changed" if extra_override else b"stable", 0o755)
+
+    if extra_boot:
+        write_file(candidate, "/boot/rogue.efi", b"rogue")
+    if extra_kernel:
+        write_file(candidate, "/usr/lib/modules/evil-release/rogue.ko", b"rogue")
+
+    return CandidateRoots.create(
+        transaction_id=guardian_transaction_id(TX),
+        candidate_id="44444444-4444-4444-4444-444444444444",
         base_root=before,
         candidate_root=candidate,
     )
@@ -284,6 +394,54 @@ def main() -> None:
             ),
             "promotion_authority_binding_mismatch",
         )
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-physical-") as td:
+        physical_roots = physical_boundary_roots(Path(td))
+        physical_result = evaluate_production_candidate(
+            physical_roots, physical_transaction(), SimpleNamespace(boot_artifacts=()),
+        )
+        boundary_kinds = {"BOOT_STATE", "KERNEL_MODULE", "PACKAGE_FILE_OVERRIDE"}
+        undeclared_boundary = [
+            effect for effect in physical_result.inspection.graph.effects
+            if effect.kind.value in boundary_kinds and not effect.declared
+        ]
+        check("physical kernel/DKMS/hook outputs are bounded rather than rejected", not undeclared_boundary)
+        check("physical generated security-boundary mutation still requires REVIEW",
+              physical_result.decision.outcome is AdmissionOutcome.REVIEW)
+        check("JDK selector hook outputs are explicit package overrides",
+              all(effect.declared for effect in physical_result.inspection.graph.effects
+                  if effect.subject in {"/usr/lib/jvm/default", "/usr/lib/jvm/default-runtime"}))
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-boot-") as td:
+        rogue_boot = evaluate_production_candidate(
+            physical_boundary_roots(Path(td), extra_boot=True),
+            physical_transaction(), SimpleNamespace(boot_artifacts=()),
+        )
+        check("unrelated boot output remains REJECT",
+              rogue_boot.decision.outcome is AdmissionOutcome.REJECT
+              and any(effect.subject == "/boot/rogue.efi" and not effect.declared
+                      for effect in rogue_boot.inspection.graph.effects))
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-module-") as td:
+        rogue_module = evaluate_production_candidate(
+            physical_boundary_roots(Path(td), extra_kernel=True),
+            physical_transaction(), SimpleNamespace(boot_artifacts=()),
+        )
+        check("unrelated kernel-module output remains REJECT",
+              rogue_module.decision.outcome is AdmissionOutcome.REJECT
+              and any(effect.subject == "/usr/lib/modules/evil-release/rogue.ko" and not effect.declared
+                      for effect in rogue_module.inspection.graph.effects))
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-owner-") as td:
+        rogue_owner = evaluate_production_candidate(
+            physical_boundary_roots(Path(td), extra_override=True),
+            physical_transaction(), SimpleNamespace(boot_artifacts=()),
+        )
+        check("unrelated package-file override remains REJECT",
+              rogue_owner.decision.outcome is AdmissionOutcome.REJECT
+              and any(effect.subject == "/usr/bin/stable-owned" and not effect.declared
+                      and effect.kind.value == "PACKAGE_FILE_OVERRIDE"
+                      for effect in rogue_owner.inspection.graph.effects))
 
     print("ALL MAHO PRODUCTION ADMISSION CONTRACTS PASS")
 
