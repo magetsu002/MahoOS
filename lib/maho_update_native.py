@@ -227,6 +227,17 @@ class NativeBtrfsOps:
                 self._run(("mount", "--bind", f"/dev/{name}", str(target)), check=True)
                 nodes.append(target)
             (dev / "shm").mkdir(mode=0o1777)
+            # mkinitcpio requires the conventional descriptor links provided by
+            # a normal devtmpfs mount. Keep /dev isolated while exposing only
+            # the candidate process's own descriptors through its private procfs.
+            descriptor_links = {
+                "fd": "/proc/self/fd",
+                "stdin": "/proc/self/fd/0",
+                "stdout": "/proc/self/fd/1",
+                "stderr": "/proc/self/fd/2",
+            }
+            for name, target in descriptor_links.items():
+                (dev / name).symlink_to(target)
             self._run(("mount", "-t", "proc", "-o", "nosuid,nodev,noexec", "proc", str(proc)), check=True)
             mounted.append(proc)
             self._run(("mount", "-t", "sysfs", "-o", "ro,nosuid,nodev,noexec", "sysfs", str(sys)), check=True)
@@ -241,7 +252,11 @@ class NativeBtrfsOps:
                 try: self._unmount(path)
                 except Exception: pass
             raise
-        return {"ok": True, "runtime": ["dev-minimal", "proc", "sys-ro", "run-private"]}
+        return {
+            "ok": True,
+            "runtime": ["dev-minimal", "proc", "sys-ro", "run-private"],
+            "device_links": descriptor_links,
+        }
 
     def unmount_normal_candidate_runtime(self) -> None:
         root = self.offline_root
@@ -637,7 +652,10 @@ class NativeCandidateUpdateOps(OfflineRootUpdateOps):
             if separator:
                 observed[name] = version.strip()
         ok = result.returncode == 0 and all(observed.get(name) == version for name, version in self.expected_versions.items())
-        return {"ok": ok, "observed": observed, "expected": self.expected_versions}
+        evidence = {"ok": ok, "observed": observed, "expected": self.expected_versions}
+        if result.returncode != 0:
+            evidence["failure_evidence"] = self._failure_evidence("kernel-header-dkms", result)
+        return evidence
 
     def finalize_install(self, plan: ExecutionPlan) -> Mapping[str, Any]:
         shown = self.btrfs_ops._run(("btrfs", "subvolume", "show", str(self.root)), check=True)

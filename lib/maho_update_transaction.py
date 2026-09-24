@@ -25,10 +25,18 @@ _PACKAGE = re.compile(r"[a-zA-Z0-9@._+:-]+")
 
 
 class ExecutionFailure(RuntimeError):
-    def __init__(self, stage: str, message: str, *, mutation_started: bool = False) -> None:
+    def __init__(
+        self,
+        stage: str,
+        message: str,
+        *,
+        mutation_started: bool = False,
+        evidence: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.stage = stage
         self.mutation_started = mutation_started
+        self.evidence = dict(evidence or {})
 
 
 @dataclass(frozen=True)
@@ -136,6 +144,45 @@ class OfflineRootUpdateOps:
         self.commands.append(tuple(command))
         return self.runner(tuple(command))
 
+    def _failure_evidence(self, stage: str, result: CommandResult) -> dict[str, Any]:
+        """Persist exact command output outside the disposable candidate root."""
+        safe_stage = re.sub(r"[^a-zA-Z0-9._-]", "-", stage)
+        evidence_root = self.cache / ".execution-evidence"
+        evidence_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if evidence_root.is_symlink() or not evidence_root.is_dir():
+            raise RuntimeError("execution evidence directory is unsafe")
+        payload = json.dumps(
+            {
+                "exit_code": result.returncode,
+                "stderr": result.stderr,
+                "stdout": result.stdout,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        destination = evidence_root / f"{safe_stage}.json"
+        temporary = evidence_root / f".{safe_stage}.{os.getpid()}.tmp"
+        try:
+            with temporary.open("xb") as stream:
+                os.chmod(temporary, 0o600)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, destination)
+            directory_fd = os.open(evidence_root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        return {
+            "path": str(destination),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size": len(payload),
+        }
+
     def prepare_recovery(self, plan: ExecutionPlan) -> Mapping[str, Any]:
         marker = self.root / ".maho-recovery-generation"
         try:
@@ -146,7 +193,10 @@ class OfflineRootUpdateOps:
 
     def install_full_upgrade(self, plan: ExecutionPlan) -> Mapping[str, Any]:
         result = self.run(self.install_command(plan), plan)
-        return {"ok": result.returncode == 0, "exit_code": result.returncode, "mutation_started": True}
+        evidence = {"ok": result.returncode == 0, "exit_code": result.returncode, "mutation_started": True}
+        if result.returncode != 0:
+            evidence["failure_evidence"] = self._failure_evidence("full-package-upgrade", result)
+        return evidence
 
     def verify_maho_runtime(self, plan: ExecutionPlan) -> Mapping[str, Any]:
         releases = self.root / "usr/lib/maho/releases"
@@ -165,11 +215,18 @@ class OfflineRootUpdateOps:
                 plan.primary_kernel, plan.primary_headers, plan.fallback_kernel, plan.fallback_headers,
             )
         }
-        return {"ok": result.returncode == 0 and all(observed.get(name) == version for name, version in expected.items()), "observed": observed}
+        ok = result.returncode == 0 and all(observed.get(name) == version for name, version in expected.items())
+        evidence = {"ok": ok, "observed": observed}
+        if result.returncode != 0:
+            evidence["failure_evidence"] = self._failure_evidence("kernel-header-dkms", result)
+        return evidence
 
     def build_initramfs(self, plan: ExecutionPlan, preset: str) -> Mapping[str, Any]:
         result = self.run(self.initramfs_command(preset), plan)
-        return {"ok": result.returncode == 0, "preset": preset, "exit_code": result.returncode}
+        evidence = {"ok": result.returncode == 0, "preset": preset, "exit_code": result.returncode}
+        if result.returncode != 0:
+            evidence["failure_evidence"] = self._failure_evidence(f"initramfs-{preset}", result)
+        return evidence
 
     def verify_boot_artifacts(self, plan: ExecutionPlan) -> Mapping[str, Any]:
         hashes: dict[str, str] = {}
@@ -268,7 +325,14 @@ def build_execution_plan(
 def _require_ok(evidence: Mapping[str, Any], stage: str) -> dict[str, Any]:
     if not isinstance(evidence, Mapping) or evidence.get("ok") is not True:
         mutation_started = isinstance(evidence, Mapping) and evidence.get("mutation_started") is True
-        raise ExecutionFailure(stage, f"{stage} did not produce positive bounded evidence", mutation_started=mutation_started)
+        details = dict(evidence) if isinstance(evidence, Mapping) else {}
+        json.dumps(details, sort_keys=True)
+        raise ExecutionFailure(
+            stage,
+            f"{stage} did not produce positive bounded evidence",
+            mutation_started=mutation_started,
+            evidence=details,
+        )
     json.dumps(evidence, sort_keys=True)
     return dict(evidence)
 
@@ -298,18 +362,21 @@ def _recover_failure(
     now=None,
 ) -> ExecutionResult:
     mutation_started = mutation_started or failure.mutation_started
+    failure_evidence: dict[str, Any] = {"stage": failure.stage, "error": str(failure)}
+    if failure.evidence:
+        failure_evidence["details"] = failure.evidence
     if not mutation_started:
         failed = transition_transaction(
             installing, UpdateState.FAILED_RECOVERABLE,
             reason=f"update failed before package mutation: {failure.stage}",
-            evidence={"stage": failure.stage, "error": str(failure)}, now=now,
+            evidence=failure_evidence, now=now,
         )
         _persist(journal_path, failed)
         return ExecutionResult(failed, plan, False, False)
     recovering = transition_transaction(
         installing, UpdateState.RECOVERING,
         reason=f"bounded recovery started after {failure.stage}",
-        evidence={"stage": failure.stage, "error": str(failure)}, now=now,
+        evidence=failure_evidence, now=now,
     )
     _persist(journal_path, recovering)
     try:
