@@ -12,7 +12,7 @@ from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from maho_behavior_preferences import SPECS, write_preference
 from maho_system_status import DiagnosticRecord, SystemModel, collect_system_model
-from maho_tui import box, bounded_lines, clip, paint, read_key, short_id
+from maho_tui import box, bounded_lines, clip, read_key, short_id
 
 
 PAGES = (
@@ -592,8 +592,9 @@ def _behavior(model: SystemModel, state: UIState, width: int) -> list[str]:
     start, end, selected = viewport_bounds(len(SPECS), selected, capacity, state.row_offset)
     for index, spec in enumerate(SPECS[start:end], start):
         cursor = ">" if index == selected else " "
-        mark = "ON " if model.preferences.enabled(spec.key) else "OFF"
-        prefs.append(f"{cursor} [{mark}] {spec.group}: {spec.label}")
+        label = "ON" if model.preferences.enabled(spec.key) else "OFF"
+        button = f"[{label:^5}]"
+        prefs.append(f"{cursor} {button}  {spec.group}: {spec.label}")
     selected_spec = SPECS[selected]
     prefs += [
         f"Selected: {selected_spec.description}",
@@ -744,6 +745,7 @@ def _raw(
 
 def _help(width: int) -> list[str]:
     return box("Help", [
+        "[Mouse] Click section tabs and Behavior preferences",
         "[Left/Right or Tab] Sections   [1-8] Direct section",
         "[Up/Down] Select   [PgUp/PgDn] Move viewport   [Home/End] First/last",
         "[Enter] Inspect or toggle a Behavior preference   [F] Evidence filter",
@@ -784,12 +786,56 @@ def _footer(page: str, state: UIState) -> str:
     if page == "Updates":
         return "[↑↓/PgUp/PgDn] Packages  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Behavior":
-        return "[↑↓] Preference  [Enter] Toggle  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
+        return "[Mouse/↑↓] Preference  [Click/Enter] Toggle  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Doctor":
         return "[↑↓] Select  [Enter] Explain  [A] Attention/All  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Logs / Evidence":
         return "[↑↓] Select  [Enter] Inspect  [F] Filter  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     return "[←→/Tab] Sections  [1-8] Jump  [E] Evidence  [R] Refresh  [D] Doctor  [L] Evidence  [?] Help  [Q] Quit"
+
+
+def _nav_layout(width: int, page_index: int) -> tuple[list[str], list[tuple[int, int, int, int]]]:
+    """Return rendered tab rows plus 1-based mouse hitboxes."""
+    tabs = [f"[{name}]" if i == page_index else name for i, name in enumerate(NAV_SHORT)]
+    rows: list[str] = []
+    hitboxes: list[tuple[int, int, int, int]] = []
+    current = ""
+    row = 0
+    for index, tab in enumerate(tabs):
+        separator = "" if not current else "  "
+        candidate = current + separator + tab
+        if current and len(candidate) > width:
+            rows.append(current)
+            row += 1
+            current = tab
+            start = 1
+        else:
+            start = len(current) + len(separator) + 1
+            current = candidate
+        hitboxes.append((row, start, start + len(tab) - 1, index))
+    if current:
+        rows.append(current)
+    return rows, hitboxes
+
+
+def _tab_at(width: int, x: int, y: int) -> int | None:
+    """Resolve a 1-based terminal click to a top navigation tab."""
+    nav_rows, hitboxes = _nav_layout(width, 0)
+    del nav_rows
+    nav_row = y - 3
+    if nav_row < 0:
+        return None
+    for row, start, end, index in hitboxes:
+        if row == nav_row and start <= x <= end:
+            return index
+    # Active-tab brackets change only that tab's width, so recalculate against
+    # every possible active page before deciding the click missed.
+    for active in range(1, len(PAGES)):
+        _, hitboxes = _nav_layout(width, active)
+        for row, start, end, index in hitboxes:
+            if row == nav_row and start <= x <= end:
+                return index
+    return None
 
 
 def compose(
@@ -807,20 +853,8 @@ def compose(
     header = [clip(title + " " * max(1, width - len(title) - len(live_status)) + live_status, width), "─" * width]
     footer = ["─" * width, clip(_footer(page, state), width)]
 
-    # Keep every section visible as a real top tab. The sidebar experiment
-    # duplicated navigation visually and wasted useful horizontal space.
-    tabs = [f"[{name}]" if i == state.page_index else name for i, name in enumerate(NAV_SHORT)]
-    nav_rows: list[str] = []
-    current = ""
-    for tab in tabs:
-        candidate = tab if not current else current + "  " + tab
-        if current and len(candidate) > width:
-            nav_rows.append(current)
-            current = tab
-        else:
-            current = candidate
-    if current:
-        nav_rows.append(current)
+    # Keep every section visible as a real top tab.
+    nav_rows, _ = _nav_layout(width, state.page_index)
 
     body_height = height - len(header) - len(nav_rows) - 1 - len(footer)
     body = bounded_lines(
@@ -833,10 +867,8 @@ def compose(
     while len(lines) < height - len(footer):
         lines.append("")
     lines = lines[: height - len(footer)] + footer
-    if color:
-        # Color only the explicit active tab. Never infer semantics from prose.
-        active = f"[{NAV_SHORT[state.page_index]}]"
-        lines = [line.replace(active, paint(active, "active", True)) for line in lines]
+    # Brackets are the active-state treatment. Avoid reverse-video here: it
+    # becomes a harsh white block in light terminal themes when Tab is pressed.
     return "\n".join(lines) + "\n"
 
 def render(
@@ -856,6 +888,26 @@ def _row_count(model: SystemModel, page: str, state: UIState | None = None) -> i
     if page == "Behavior": return len(SPECS)
     if page == "Logs / Evidence": return len(_event_items(model, state))
     return 1
+
+
+def _behavior_preference_at(
+    model: SystemModel, state: UIState, *, width: int, height: int, x: int, y: int,
+) -> int | None:
+    """Resolve a click on a visible Behavior preference row."""
+    if not SPECS:
+        return None
+    screen = compose(model, state, width=width, height=height, color=False).splitlines()
+    if y < 1 or y > len(screen):
+        return None
+    line = screen[y - 1]
+    capacity = 5 if width >= 90 else 3
+    start, end, _ = viewport_bounds(len(SPECS), state.row_index, capacity, state.row_offset)
+    for index, spec in enumerate(SPECS[start:end], start):
+        token = f"{spec.group}: {spec.label}"
+        position = line.find(token)
+        if position >= 0 and 2 <= x <= len(line):
+            return index
+    return None
 
 
 def interactive(
@@ -888,7 +940,8 @@ def interactive(
         dirty = True
 
     if tty_output:
-        stdout.write("\033[?1049h\033[?25l")
+        mouse_on = "\033[?1000h\033[?1006h" if tty_input else ""
+        stdout.write("\033[?1049h\033[?25l" + mouse_on)
         stdout.flush()
     try:
         while True:
@@ -912,6 +965,36 @@ def interactive(
                 last_size = size
             key = read_key(stdin, timeout=.2 if tty_input else None)
             if key == "timeout":
+                continue
+            if key.startswith("mouse-wheel-"):
+                key = "down" if key.startswith("mouse-wheel-down:") else "up"
+            if key.startswith("mouse-left:"):
+                try:
+                    _, x_raw, y_raw = key.split(":")
+                    mouse_x, mouse_y = int(x_raw), int(y_raw)
+                except (ValueError, TypeError):
+                    continue
+                clicked_tab = _tab_at(min(screen_width, 180), mouse_x, mouse_y)
+                if clicked_tab is not None:
+                    state.page_index = clicked_tab
+                    state.row_index = state.row_offset = state.detail_offset = 0
+                    state.show_detail = state.show_evidence = False
+                    dirty = True
+                    continue
+                if (
+                    not state.show_help and not state.show_evidence
+                    and PAGES[state.page_index] == "Behavior"
+                ):
+                    preference = _behavior_preference_at(
+                        model, state, width=screen_width, height=screen_height,
+                        x=mouse_x, y=mouse_y,
+                    )
+                    if preference is not None:
+                        state.row_index = preference
+                        spec = SPECS[preference]
+                        write_preference(spec.key, not model.preferences.enabled(spec.key), preference_path)
+                        refresh()
+                    continue
                 continue
             if key in {"q", "quit", "exit"}:
                 return 0
@@ -990,6 +1073,7 @@ def interactive(
             state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
     finally:
         if tty_output:
-            stdout.write("\033[?25h\033[?1049l")
+            mouse_off = "\033[?1000l\033[?1006l" if tty_input else ""
+            stdout.write(mouse_off + "\033[?25h\033[?1049l")
             stdout.flush()
     return 0
