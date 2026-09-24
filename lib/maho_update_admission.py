@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
 
@@ -102,6 +103,75 @@ def _bounded_security_roots(
     return module_roots, source_roots
 
 
+def _local_package_name(package_dir: Path) -> str:
+    try:
+        lines = (package_dir / "desc").read_text(encoding="utf-8", errors="strict").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ProductionAdmissionError("package_manifest_identity_unreadable") from exc
+    names = [lines[index + 1] for index, line in enumerate(lines[:-1]) if line == "%NAME%" and lines[index + 1]]
+    if len(names) != 1:
+        raise ProductionAdmissionError("package_manifest_identity_invalid")
+    return names[0]
+
+
+def _transaction_source_directory_roots(root: Path, package_set: set[str]) -> set[str]:
+    """Read exact transaction-owned /usr/src directory entries from Pacman manifests.
+
+    Pacman's ownership projection intentionally excludes directory rows. Some
+    packages, such as brave-bin, legitimately own only a package-specific debug
+    directory there; removing that empty directory during an upgrade must remain
+    attributable without declaring /usr/src as a whole.
+    """
+    database = root / "var/lib/pacman/local"
+    try:
+        package_dirs = sorted(item for item in database.iterdir() if item.is_dir())
+    except OSError as exc:
+        raise ProductionAdmissionError("package_manifest_database_unavailable") from exc
+    seen: set[str] = set()
+    roots: set[str] = set()
+    for package_dir in package_dirs:
+        name = _local_package_name(package_dir)
+        if name not in package_set:
+            continue
+        if name in seen:
+            raise ProductionAdmissionError("package_manifest_identity_ambiguous")
+        seen.add(name)
+        try:
+            raw = (package_dir / "files").read_text(encoding="utf-8", errors="strict")
+        except (OSError, UnicodeError) as exc:
+            raise ProductionAdmissionError("package_manifest_files_unreadable") from exc
+        if raw == "":
+            continue
+        in_files = False
+        found_files = False
+        for line in raw.splitlines():
+            if line == "%FILES%":
+                in_files = True
+                found_files = True
+                continue
+            if in_files and line.startswith("%") and line.endswith("%"):
+                break
+            if not in_files or not line or not line.endswith("/"):
+                continue
+            path = "/" + line.lstrip("/").rstrip("/")
+            if ".." in path.split("/") or "//" in path:
+                raise ProductionAdmissionError("package_manifest_directory_invalid")
+            debug = _USR_SRC_DEBUG_PATH.match(path)
+            if debug is not None and _SAFE_COMPONENT.fullmatch(debug.group(1)) is not None:
+                roots.add(f"/usr/src/debug/{debug.group(1)}")
+                continue
+            source = _USR_SRC_PATH.match(path)
+            if (
+                source is not None
+                and source.group(1) != "debug"
+                and _SAFE_COMPONENT.fullmatch(source.group(1)) is not None
+            ):
+                roots.add(f"/usr/src/{source.group(1)}")
+        if not found_files:
+            raise ProductionAdmissionError("package_manifest_files_missing")
+    return roots
+
+
 def _kernel_boot_outputs(
     roots: CandidateRoots,
     ownership: Mapping[str, str],
@@ -188,6 +258,8 @@ def build_production_declaration(
     module_roots = before_modules | after_modules
     declared.update(module_roots)
     declared.update(before_sources | after_sources)
+    declared.update(_transaction_source_directory_roots(roots.base_root, package_set))
+    declared.update(_transaction_source_directory_roots(roots.candidate_root, package_set))
 
     # Generated outputs are admitted only when they are derivable from trusted
     # base state plus exact transaction-owned kernel identities.
