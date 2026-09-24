@@ -57,8 +57,7 @@ final release hardening are also unfinished.
 
 ## Learn more
 
+[Desktop](docs/DESKTOP.md)  
+[Recovery](docs/RECOVERY.md)  
 [Architecture](docs/ARCHITECTURE.md)  
-[Maho Shell](docs/MAHO-SHELL.md)  
-[Maho Notify](docs/MAHO-NOTIFY.md)  
-[Roadmap](docs/ROADMAP.md)  
-[Signed boot authority](docs/SIGNED-BOOT-AUTHORITY.md)
+[Roadmap](docs/ROADMAP.md)
