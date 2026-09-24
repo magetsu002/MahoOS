@@ -801,34 +801,41 @@ def compose(
     width = min(width, 180)
     page = PAGES[state.page_index]
     title = "Maho System"
-    human_status = f"{_human_state(model.summary.operational_health)} · Trust {_human_state(model.summary.trust)} · {model.summary.severity}"
+    live_status = page
     if freshness_seconds is not None:
-        human_status += f" · Live · {max(0, freshness_seconds)}s ago"
-    header = [clip(title + " " * max(1, width - len(title) - len(human_status)) + human_status, width), "─" * width]
+        live_status += f" · Live · {max(0, freshness_seconds)}s"
+    header = [clip(title + " " * max(1, width - len(title) - len(live_status)) + live_status, width), "─" * width]
     footer = ["─" * width, clip(_footer(page, state), width)]
-    if width >= 110:
-        sidebar_width = 21
-        content_width = width - sidebar_width - 3
-        body_height = height - 4
-        body = bounded_lines(_body(model, state, content_width, body_height), body_height, content_width, "… more; scroll or enlarge the terminal")
-        side = [("› " if name == page else "  ") + f"{i + 1} {name}" for i, name in enumerate(PAGES)]
-        lines = header[:]
-        for index, row in enumerate(body):
-            left = side[index] if index < len(side) else ""
-            lines.append(clip(left, sidebar_width).ljust(sidebar_width) + " │ " + clip(row, content_width))
-    else:
-        first = max(0, min(state.page_index - 1, len(PAGES) - 3))
-        visible = range(first, min(len(PAGES), first + 3))
-        nav = "  ".join(f"[{i + 1} {NAV_SHORT[i]}]" if i == state.page_index else f"{i + 1} {NAV_SHORT[i]}" for i in visible)
-        body_height = height - 6
-        body = bounded_lines(_body(model, state, width, body_height), body_height, width, "… more; scroll or enlarge the terminal")
-        lines = header + [clip(nav, width), ""] + body
+
+    # Keep every section visible as a real top tab. The sidebar experiment
+    # duplicated navigation visually and wasted useful horizontal space.
+    tabs = [f"[{name}]" if i == state.page_index else name for i, name in enumerate(NAV_SHORT)]
+    nav_rows: list[str] = []
+    current = ""
+    for tab in tabs:
+        candidate = tab if not current else current + "  " + tab
+        if current and len(candidate) > width:
+            nav_rows.append(current)
+            current = tab
+        else:
+            current = candidate
+    if current:
+        nav_rows.append(current)
+
+    body_height = height - len(header) - len(nav_rows) - 1 - len(footer)
+    body = bounded_lines(
+        _body(model, state, width, body_height),
+        body_height,
+        width,
+        "… more; use the page controls or enlarge the terminal",
+    )
+    lines = header + nav_rows + [""] + body
     while len(lines) < height - len(footer):
         lines.append("")
     lines = lines[: height - len(footer)] + footer
     if color:
-        # Color only explicit UI tokens. Never infer semantics by matching prose.
-        active = f"› {state.page_index + 1} {page}"
+        # Color only the explicit active tab. Never infer semantics from prose.
+        active = f"[{NAV_SHORT[state.page_index]}]"
         lines = [line.replace(active, paint(active, "active", True)) for line in lines]
     return "\n".join(lines) + "\n"
 
@@ -895,7 +902,9 @@ def interactive(
                 now = time.monotonic()
             if dirty or size != last_size:
                 if tty_output:
-                    stdout.write("\033[H")
+                    # Clear stale rows before each frame. A cursor-home alone
+                    # leaves previous text behind when the new frame is shorter.
+                    stdout.write("\033[H\033[J")
                 freshness = int(max(0.0, now - last_refresh)) if tty_output else None
                 stdout.write(compose(model, state, width=screen_width, height=screen_height, color=bool(color), freshness_seconds=freshness))
                 stdout.flush()

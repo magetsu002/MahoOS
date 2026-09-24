@@ -313,6 +313,12 @@ def main() -> None:
     raw_output = io.StringIO()
     interactive(model, stdin=io.StringIO("f\ne\nq\n"), stdout=raw_output, width=100, height=30, color=False, page="Logs / Evidence")
     check("Selected Guardian event resolves exact source evidence", "guardian.recent_activity" in raw_output.getvalue() and "source_evidence" in raw_output.getvalue())
+    top_nav = "\n".join(render(model, page="Overview", width=80, height=24).splitlines()[:5])
+    check(
+        "all section tabs remain visible at 80x24",
+        all(name in top_nav for name in ("Overview", "Doctor", "Guardian", "Trust", "Updates", "Behavior", "Recovery", "Evidence")),
+    )
+    check("active section uses visible tab treatment", "[Overview]" in top_nav)
     check("render is deterministic", render(model, page="Overview") == render(model, page="Overview"))
     for count, selected, capacity, offset in ((20, 0, 5, 10), (20, 19, 5, 0), (3, 2, 8, 0)):
         start, end, normalized = viewport_bounds(count, selected, capacity, offset)
