@@ -10,6 +10,9 @@ FILES=(
   config/platform.json
   config/platform/maho-pacman.conf
   lib/maho_trust_identity.py
+  lib/maho_generation_v2.py
+  lib/maho_kernel_generation.py
+  lib/maho_live_generation.py
   lib/guardian_admission.py
   lib/guardian_native_admission.py
   lib/maho_runtime_release.py

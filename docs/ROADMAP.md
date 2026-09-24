@@ -15,11 +15,12 @@ ending in a known bug.
 
 ## Current focus
 
-The production kernel update path is going through physical certification.
+The production kernel update path completed its first transaction-backed physical M4B certification on 2026-09-24. Future generations remain subject to the same candidate, Admission, explicit-reboot, and postboot proof gates.
 
-A real update has already reached the offline candidate and initramfs stages.
-The remaining work is to complete the candidate, approve it, activate it,
-reboot into the new Primary kernel, and verify the result after boot.
+The certified transaction completed offline installation, immutable Native
+Admission, explicit activation, a normal Primary reboot, and postboot
+`HEALTHY` verification. The installer/ISO and the separately gated signed-boot
+publication boundary remain outside this certification.
 
 ## Before V1
 

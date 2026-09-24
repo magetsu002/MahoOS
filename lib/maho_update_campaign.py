@@ -21,6 +21,11 @@ from typing import Any, Mapping
 from guardian_admission import AdmissionOutcome
 from guardian_native_admission import CandidateRoots
 from maho_runtime_release import verify_release
+from maho_live_generation import (
+    certification_confirmation as generation_certification_confirmation,
+    observe_live_generation,
+    publish_live_generations,
+)
 from maho_system_restore_campaign import prepare_campaign as prepare_l3_campaign, seed_campaign
 from maho_system_restore_host import SystemPreparationOps
 from maho_system_restore_journal import read_journal as read_l3_journal
@@ -1019,6 +1024,75 @@ def verify_native_activation(transaction_id: str) -> dict[str, Any]:
     }
 
 
+def certify_native_execution(transaction_id: str, confirmation: str) -> dict[str, Any]:
+    """Publish the first live generation only from complete physical M4B proof."""
+    _require_root()
+    root = _root()
+    publisher_revision = _source_revision(root)
+    policy = _platform(root).get("update")
+    if not isinstance(policy, Mapping) or policy.get("native_execution_certified") is not True:
+        raise RuntimeError("platform_native_execution_certification_is_not_enabled")
+    machine_id = _machine_id()
+    path = _campaign_path(machine_id, transaction_id)
+    journal = _read_campaign(path)
+    if journal.get("phase") != "verified" or journal.get("transaction_state") != UpdateState.HEALTHY.value:
+        raise RuntimeError("M4B campaign has not completed physical postboot verification")
+    transaction = read_transaction(transaction_path(_STATE_ROOT, transaction_id))
+    if transaction["state"] != UpdateState.HEALTHY.value:
+        raise RuntimeError("M4B update transaction is not HEALTHY")
+    candidate = journal.get("candidate")
+    activation = journal.get("activation")
+    if not isinstance(candidate, Mapping) or not isinstance(activation, Mapping):
+        raise RuntimeError("M4B candidate activation identity is unavailable")
+    expected_confirmation = generation_certification_confirmation(transaction_id, str(candidate.get("uuid", "")))
+    if confirmation != expected_confirmation:
+        raise RuntimeError("exact M4B physical certification confirmation token is required")
+    runtime = _runtime_identity(str(journal.get("user", "")))
+    if not _runtime_identity_matches(runtime, journal.get("runtime_identity", {})):
+        raise RuntimeError("Maho runtime identity drifted after physical verification")
+    home = SystemPreparationOps(machine_id=machine_id).home_identity()
+    if home != journal.get("home_identity"):
+        raise RuntimeError("/home identity drifted after physical verification")
+    l3_seed = journal.get("l3_seed")
+    if not isinstance(l3_seed, Mapping):
+        raise RuntimeError("M3B recovery generation authority is missing")
+    recovery = SystemPreparationOps(machine_id=machine_id).wait_for_backup(int(l3_seed["snapshot_id"]))
+    if recovery.get("snapshot_uuid") != l3_seed.get("snapshot_uuid") or recovery.get("read_only") is not True:
+        raise RuntimeError("M3B recovery generation is no longer immutable")
+    health = next(
+        (event.get("evidence") for event in reversed(transaction["history"])
+         if event.get("state") == UpdateState.HEALTHY.value and isinstance(event.get("evidence"), Mapping)),
+        None,
+    )
+    if not isinstance(health, Mapping):
+        raise RuntimeError("M4B HEALTHY evidence is unavailable")
+    receipt_path = _STATE_ROOT / "receipts" / f"{transaction_id}.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    boot_paths = tuple(sorted(str(path) for path in activation.get("boot_sha256", {})))
+    observation = observe_live_generation(
+        expected_versions=journal["expected_versions"], boot_paths=boot_paths,
+        runtime_source_revision=str(runtime["source_revision"]),
+        runtime_content_sha256=str(runtime["content_sha256"]), home_identity=home,
+        recovery_generation_id=str(l3_seed["generation_id"]),
+        previous_root_uuid=str(health.get("previous_root_uuid", "")),
+        previous_root_read_only=health.get("previous_root_read_only") is True,
+    )
+    publication = publish_live_generations(
+        transaction, journal, receipt, observation,
+        publisher_source_revision=publisher_revision,
+    )
+    _transition_campaign(path, journal, "verified", generation_publication=publication)
+    return {
+        "phase": "certified", "transaction_id": transaction_id,
+        "transaction_state": UpdateState.HEALTHY.value,
+        "system_generation_id": publication["system_generation_id"],
+        "kernel_generation_id": publication["kernel_generation_id"],
+        "publication_id": publication["publication_id"],
+        "publisher_source_revision": publisher_revision,
+        "reboot_performed": False,
+    }
+
+
 def status_native_campaign(transaction_id: str) -> dict[str, Any]:
     machine_id = _machine_id()
     journal = _read_campaign(_campaign_path(machine_id, transaction_id))
@@ -1189,6 +1263,9 @@ def main() -> None:
     activate.add_argument("--confirm", required=True)
     verify = sub.add_parser("verify")
     verify.add_argument("transaction_id")
+    certify = sub.add_parser("certify-m4b")
+    certify.add_argument("transaction_id")
+    certify.add_argument("--confirm", required=True)
     status = sub.add_parser("status")
     status.add_argument("transaction_id")
     normal = sub.add_parser("certify-normal")
@@ -1215,6 +1292,8 @@ def main() -> None:
                 payload = arm_native_activation(args.transaction_id, args.confirm)
             elif args.command == "verify":
                 payload = verify_native_activation(args.transaction_id)
+            elif args.command == "certify-m4b":
+                payload = certify_native_execution(args.transaction_id, args.confirm)
             elif args.command == "certify-normal":
                 payload = certify_normal_update(
                     args.package, args.confirm, preflight_only=args.preflight_only,

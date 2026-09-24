@@ -39,7 +39,7 @@ jobs:
           assert p['boot']['snapshot_integration'] == 'recovery-input-only'
           assert p['boot']['kernel_update_snapshot_restore_certified'] is True
           assert p['boot']['boot_state_transaction_required'] is True
-          assert p['update']['native_execution_certified'] is False
+          assert p['update']['native_execution_certified'] is True
           assert p['update']['normal_execution_certified'] is False
           assert p['update']['candidate_root_strategy'] == 'btrfs-subvolume-swap'
           assert p['update']['boot_artifact_transaction_required'] is True

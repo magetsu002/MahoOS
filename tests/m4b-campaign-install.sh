@@ -53,6 +53,7 @@ grep -Fq 'prepare_l3_campaign(' "$CAMPAIGN" || fail "M3B emergency preparation m
 grep -Fq 'publish_transaction(candidate_state_root' "$CAMPAIGN" || fail "candidate authority is not durably copied"
 grep -Fq 'M4B certification requires a real Primary kernel update generation' "$CAMPAIGN" || fail "real kernel-update proof gate missing"
 grep -Fq 'certify_normal_update' "$CAMPAIGN" || fail "normal production certification entrypoint missing from root campaign"
+grep -Fq 'certify_native_execution' "$CAMPAIGN" || fail "physical M4B certification entrypoint missing from root campaign"
 grep -Fq -- '--preflight-only' "$CAMPAIGN" || fail "normal production preflight CLI missing from root campaign"
 grep -Fq 'preflight_only' "$ROOT/lib/maho_update_normal_campaign.py" || fail "normal production preflight implementation missing"
 grep -Fq 'config/platform/maho-pacman.conf' "$INSTALLER" || fail "canonical Pacman authority missing from root campaign payload"
@@ -66,7 +67,7 @@ import json,sys
 from pathlib import Path
 p=json.load(open(sys.argv[1]))
 assert p['boot']['kernel_update_snapshot_restore_certified'] is True
-assert p['update']['native_execution_certified'] is False
+assert p['update']['native_execution_certified'] is True
 assert p['update']['normal_execution_certified'] is False
 assert p['update']['automatic_reboot'] is False
 assert p['update']['pacman_config'] == '/etc/maho/pacman.conf'
@@ -116,7 +117,7 @@ assert 'package_repo_set_mismatch' in s
 assert '"phase": "blocked"' in s
 assert 'with lock_context:' in s and '_campaign_mutex()' in s
 PY
-pass "production M4B certification remains false and package authority is pinned before hardware proof"
+pass "production M4B certification is explicit and package authority remains pinned"
 if grep -En '(^|[[:space:];|&])(reboot|shutdown|poweroff|efibootmgr)([[:space:];|&]|$)' "$INSTALLER" "$WRAPPER" "$CAMPAIGN" >/dev/null; then fail "M4B campaign contains reboot or firmware mutation command"; fi
 pass "campaign cannot reboot or mutate firmware"
 echo 'ALL M4B CAMPAIGN INSTALL CONTRACTS PASS'
