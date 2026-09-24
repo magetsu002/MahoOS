@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_behavior_preferences import SPECS, defaults, load_preferences  # noqa: E402
 from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
-from maho_system_tui import PAGES, _update_lifecycle, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
+from maho_system_tui import PAGES, UIState, _behavior_preference_at, _nav_layout, _tab_at, _update_lifecycle, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
+from maho_tui import decode_escape_sequence  # noqa: E402
 
 
 def check(name: str, condition: bool) -> None:
@@ -319,6 +320,35 @@ def main() -> None:
         all(name in top_nav for name in ("Overview", "Doctor", "Guardian", "Trust", "Updates", "Behavior", "Recovery", "Evidence")),
     )
     check("active section uses visible tab treatment", "[Overview]" in top_nav)
+    check("active section never uses reverse-video highlight", "\x1b[7m" not in render(model, page="Overview", color=True))
+
+    for active in range(len(PAGES)):
+        _, hitboxes = _nav_layout(80, active)
+        for row, start, end, target in hitboxes:
+            x = (start + end) // 2
+            y = row + 3
+            check(
+                f"mouse tab hitbox {active}->{target}",
+                _tab_at(80, active, x, y) == target,
+            )
+
+    check("SGR mouse left click decodes", decode_escape_sequence(b"\x1b[<0;12;3M") == "mouse-left:12:3")
+    check("SGR mouse wheel up decodes", decode_escape_sequence(b"\x1b[<64;40;12M") == "mouse-wheel-up:40:12")
+    check("SGR mouse wheel down decodes", decode_escape_sequence(b"\x1b[<65;40;12M") == "mouse-wheel-down:40:12")
+
+    behavior_screen = render(model, page="Behavior", width=100, height=30).splitlines()
+    behavior_y = next(i + 1 for i, line in enumerate(behavior_screen) if SPECS[0].label in line)
+    behavior_x = behavior_screen[behavior_y - 1].index("Focus:") + 1
+    behavior_state = UIState(page_index=PAGES.index("Behavior"))
+    check(
+        "mouse Behavior row resolves selected preference",
+        _behavior_preference_at(model, behavior_state, width=100, height=30, x=behavior_x, y=behavior_y) == 0,
+    )
+    check("Behavior ON button is fixed-width and centered", "[ ON  ]" in "\n".join(behavior_screen))
+    off_preferences = replace(defaults(), values={spec.key: False for spec in SPECS})
+    off_behavior = render(fixture(off_preferences), page="Behavior", width=100, height=30)
+    check("Behavior OFF button matches ON button width", "[ OFF ]" in off_behavior)
+
     check("render is deterministic", render(model, page="Overview") == render(model, page="Overview"))
     for count, selected, capacity, offset in ((20, 0, 5, 10), (20, 19, 5, 0), (3, 2, 8, 0)):
         start, end, normalized = viewport_bounds(count, selected, capacity, offset)
