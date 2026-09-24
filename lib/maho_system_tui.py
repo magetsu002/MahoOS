@@ -23,6 +23,7 @@ PAGES = (
     "Recovery", "Logs / Evidence",
 )
 NAV_SHORT = ("Overview", "Doctor", "Guardian", "Trust", "Updates", "Behavior", "Recovery", "Evidence")
+EVIDENCE_FILTERS = ("All", "Guardian", "Updates", "Recovery", "Behavior", "Trust")
 MIN_WIDTH = 60
 MIN_HEIGHT = 18
 
@@ -37,6 +38,7 @@ class UIState:
     row_offset: int = 0
     detail_offset: int = 0
     doctor_all: bool = False
+    evidence_filter: int = 0
 
 
 @dataclass(frozen=True)
@@ -94,6 +96,14 @@ def _doctor_items(model: SystemModel, show_all: bool = False) -> list[Diagnostic
     ]
 
 
+def _event_items(model: SystemModel, state: UIState | None = None) -> list[Any]:
+    name = EVIDENCE_FILTERS[state.evidence_filter] if state else "All"
+    if name == "All":
+        return list(model.events)
+    expected = "Update" if name == "Updates" else name
+    return [event for event in model.events if event.source == expected]
+
+
 def _row_identity(model: SystemModel, page: str, row: int, state: UIState | None = None) -> str | None:
     if page == "Doctor":
         rows = _doctor_items(model, bool(state and state.doctor_all))
@@ -106,9 +116,11 @@ def _row_identity(model: SystemModel, page: str, row: int, state: UIState | None
             return str(item.get("name") or row)
     if page == "Behavior" and SPECS:
         return SPECS[min(max(row, 0), len(SPECS) - 1)].key
-    if page == "Logs / Evidence" and model.events:
-        event = model.events[min(max(row, 0), len(model.events) - 1)]
-        return "|".join((event.source, event.at or "", event.reference or "", event.label))
+    if page == "Logs / Evidence":
+        events = _event_items(model, state)
+        if events:
+            event = events[min(max(row, 0), len(events) - 1)]
+            return "|".join((event.source, event.at or "", event.reference or "", event.label))
     return None
 
 
@@ -122,7 +134,7 @@ def restore_selection(
     elif page == "Behavior":
         ids = [spec.key for spec in SPECS]
     elif page == "Logs / Evidence":
-        ids = ["|".join((event.source, event.at or "", event.reference or "", event.label)) for event in model.events]
+        ids = ["|".join((event.source, event.at or "", event.reference or "", event.label)) for event in _event_items(model, state)]
     else:
         ids = []
     if identity is not None and identity in ids:
@@ -626,31 +638,102 @@ def _recovery(model: SystemModel, width: int) -> list[str]:
     return box("Recovery", rows, width)
 
 
+def _event_detail(model: SystemModel, event: Any) -> tuple[str, tuple[str, ...], str | None]:
+    reference = event.reference
+    if event.source == "Guardian":
+        refs = ("guardian.recent_activity",) + ((f"guardian.incident:{reference}",) if reference else ())
+        return "Guardian recorded this structured incident/activity event.", refs, reference
+    if event.source == "Update":
+        refs = ("update.receipt",) + ((f"update.transaction:{reference}",) if reference else ())
+        return "Maho Update recorded this transaction state from the authoritative receipt.", refs, reference
+    if event.source == "Behavior":
+        refs = ("behavior.current",) + ((f"behavior.snapshot:{reference}",) if reference else ())
+        return "Behavior evaluated the current situation and recorded its certified convenience posture.", refs, reference
+    if event.source == "Recovery":
+        refs = ("recovery.status",) + ((f"recovery.campaign:{reference}",) if reference else ())
+        return "Guardian Recovery retained this verified recovery history record.", refs, reference
+    if event.source == "Trust":
+        return (
+            "Guardian produced the current trust judgment from live trust signals; historical recovery does not promote it.",
+            ("guardian.world_state.guardian.trust", "guardian.world_state.guardian.trust.signals"),
+            reference,
+        )
+    return "Structured Maho evidence event.", ((reference,) if reference else ()), reference
+
+
 def _logs(model: SystemModel, state: UIState, width: int) -> list[str]:
-    if not model.events:
-        return box("Recent events", ["No structured recent events are available."], width)
-    selected = min(max(state.row_index, 0), len(model.events) - 1)
-    start, end, selected = viewport_bounds(len(model.events), selected, 12, state.row_offset)
-    rows = []
-    for index, event in enumerate(model.events[start:end], start):
+    events = _event_items(model, state)
+    filter_name = EVIDENCE_FILTERS[state.evidence_filter]
+    if not events:
+        return box(f"Evidence · {filter_name}", ["No structured events match this filter.", "[F] Change filter"], width)
+    selected = min(max(state.row_index, 0), len(events) - 1)
+    start, end, selected = viewport_bounds(len(events), selected, 9, state.row_offset)
+    rows = [f"Filter: {filter_name} · {len(events)} event{'s' if len(events) != 1 else ''} · [F] change"]
+    for index, event in enumerate(events[start:end], start):
         cursor = ">" if index == selected else " "
         at = (event.at or "historical").replace("T", " ")[:19]
-        rows.append(f"{cursor} {at:<19} {event.source:<9} {event.state:<10} {event.label}")
+        rows.append(f"{cursor} {at:<19} {event.source:<9} {event.state:<12} {event.label}")
     if state.show_detail:
-        event = model.events[selected]
-        rows += ["", f"Reference: {event.reference or 'not supplied'}"]
-    return box("Recent events", rows, width)
+        event = events[selected]
+        explanation, refs, related_id = _event_detail(model, event)
+        rows += [
+            "",
+            f"Explanation  {explanation}",
+            f"Reference    {event.reference or 'not supplied'}",
+            f"Related      {', '.join(refs) or 'none'}",
+            f"ID           {related_id or 'not supplied'}",
+            "Press [E] for the structured evidence behind this selected item.",
+        ]
+    else:
+        rows += ["", "[Enter] Inspect selected event   [E] Structured evidence"]
+    return box(f"Evidence browser · {filter_name}", rows, width)
 
 
-def _raw(model: SystemModel, page: str, width: int, offset: int = 0, capacity: int = 20) -> list[str]:
+def _selected_evidence_payload(model: SystemModel, state: UIState) -> Any:
+    events = _event_items(model, state)
+    if not events:
+        return {"filter": EVIDENCE_FILTERS[state.evidence_filter], "events": []}
+    selected = min(max(state.row_index, 0), len(events) - 1)
+    event = events[selected]
+    explanation, refs, related_id = _event_detail(model, event)
+    metadata = {
+        "source": event.source,
+        "at": event.at,
+        "label": event.label,
+        "state": event.state,
+        "reference": event.reference,
+        "explanation": explanation,
+        "related_evidence_refs": list(refs),
+        "related_id": related_id,
+    }
+    if event.source == "Guardian":
+        source = model.guardian
+    elif event.source == "Update":
+        source = model.update
+    elif event.source == "Behavior":
+        source = model.behavior
+    elif event.source == "Recovery":
+        source = model.recovery
+    elif event.source == "Trust":
+        source = _obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust", {})
+    else:
+        source = model.as_dict(include_evidence=True)
+    return {"selected_event": metadata, "source_evidence": source}
+
+
+def _raw(
+    model: SystemModel, page: str, width: int, offset: int = 0, capacity: int = 20,
+    state: UIState | None = None,
+) -> list[str]:
     value: Any = {
-        "Guardian": model.guardian, "Trust": _obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust", {}),
-        "Updates": model.update, "Behavior": model.behavior, "Recovery": model.recovery,
-        "Logs / Evidence": model.as_dict(include_evidence=True),
+        "Guardian": model.guardian,
+        "Trust": _obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust", {}),
+        "Updates": model.update,
+        "Behavior": model.behavior,
+        "Recovery": model.recovery,
+        "Logs / Evidence": _selected_evidence_payload(model, state or UIState(page_index=PAGES.index("Logs / Evidence"))),
     }.get(page, model.as_dict(include_evidence=True))
     encoded = json.dumps(value, indent=2, sort_keys=True, default=str).splitlines()
-    # Reserve box borders plus room for above/below scroll markers so the
-    # compositor never hides the navigation state.
     capacity = max(1, capacity - 4)
     start = min(max(offset, 0), max(0, len(encoded) - capacity))
     window = encoded[start:start + capacity]
@@ -658,7 +741,7 @@ def _raw(model: SystemModel, page: str, width: int, offset: int = 0, capacity: i
         window.insert(0, f"… {start} lines above")
     if start + capacity < len(encoded):
         window.append(f"… {len(encoded) - start - capacity} lines below")
-    return box("Raw structured evidence", window, width)
+    return box("Structured evidence", window, width)
 
 def _help(width: int) -> list[str]:
     return box("Help", [
@@ -673,7 +756,7 @@ def _body(model: SystemModel, state: UIState, width: int, height: int = 24) -> l
         return _help(width)
     page = PAGES[state.page_index]
     if state.show_evidence:
-        return _raw(model, page, width, state.detail_offset, height)
+        return _raw(model, page, width, state.detail_offset, height, state)
     if page == "Overview": return _overview(model, width)
     if page == "Doctor": return _doctor(model, state, width)
     if page == "Guardian": return _guardian(model, width)
@@ -702,7 +785,7 @@ def _footer(page: str, state: UIState) -> str:
     if page == "Doctor":
         return "[↑↓] Select  [Enter] Explain  [A] Attention/All  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Logs / Evidence":
-        return "[↑↓] Select  [Enter] Inspect  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
+        return "[↑↓] Select  [Enter] Inspect  [F] Filter  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     return "[←→/Tab] Sections  [1-8] Jump  [E] Evidence  [R] Refresh  [D] Doctor  [L] Evidence  [?] Help  [Q] Quit"
 
 
@@ -761,7 +844,7 @@ def _row_count(model: SystemModel, page: str, state: UIState | None = None) -> i
     if page == "Doctor": return len(_doctor_items(model, bool(state and state.doctor_all)))
     if page == "Updates": return len(_package_changes(model))
     if page == "Behavior": return len(SPECS)
-    if page == "Logs / Evidence": return len(model.events)
+    if page == "Logs / Evidence": return len(_event_items(model, state))
     return 1
 
 
@@ -859,6 +942,11 @@ def interactive(
                 state.page_index = PAGES.index("Logs / Evidence"); state.row_index = state.row_offset = 0; continue
             if key == "e":
                 state.show_evidence = not state.show_evidence; state.detail_offset = 0; continue
+            if key == "f" and PAGES[state.page_index] == "Logs / Evidence" and not state.show_evidence:
+                state.evidence_filter = (state.evidence_filter + 1) % len(EVIDENCE_FILTERS)
+                state.row_index = state.row_offset = state.detail_offset = 0
+                state.show_detail = False
+                continue
             if key == "a" and PAGES[state.page_index] == "Doctor":
                 identity = _row_identity(model, "Doctor", state.row_index, state)
                 state.doctor_all = not state.doctor_all

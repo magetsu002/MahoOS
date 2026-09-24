@@ -332,6 +332,13 @@ def _events(
             label="Automatic behavior evaluation", state="blocked" if behavior.get("blocked") else "recorded",
             reference=str(behavior.get("snapshot_id")) if behavior.get("snapshot_id") else None,
         ))
+    world_trust = _object(_world_guardian(guardian).get("trust"))
+    if world_trust:
+        events.append(EvidenceEvent(
+            source="Trust", at=str(guardian.get("captured_at") or "") or None,
+            label="Current trust judgment", state=str(world_trust.get("state", "UNKNOWN")),
+            reference="guardian.world_state.guardian.trust",
+        ))
     for key in ("last_verified_recovery", "last_verified_runtime_recovery"):
         row = _object(recovery.get(key))
         if row:
