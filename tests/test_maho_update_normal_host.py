@@ -212,6 +212,11 @@ def main():
         check('candidate runtime mounts sysfs read-only',any('ro,nosuid,nodev,noexec sysfs '+str(fake.offline_root/'sys') in item for item in joined))
         for node in ('null','zero','random','urandom'):
             check(f'candidate runtime exposes only safe device {node}',any(f'/dev/{node} '+str(fake.offline_root/'dev'/node) in item for item in joined))
+        descriptor_links={'fd':'/proc/self/fd','stdin':'/proc/self/fd/0','stdout':'/proc/self/fd/1','stderr':'/proc/self/fd/2'}
+        check('candidate runtime reports exact process descriptor links',evidence['device_links']==descriptor_links)
+        for name,target in descriptor_links.items():
+            path=fake.offline_root/'dev'/name
+            check(f'candidate runtime exposes process descriptor link {name}',path.is_symlink() and os.readlink(path)==target)
         check('candidate runtime does not bind host run',not any('--bind /run ' in item or '--rbind /run ' in item for item in joined))
         fake.unmount_normal_candidate_runtime()
         check('candidate runtime teardown removes nested mounts',fake.mounted=={str(fake.offline_root)})

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_update_state import UpdateState, bind_native_authority, create_transaction, transaction_path, transition_transaction  # noqa: E402
+from maho_update_discovery import CommandResult  # noqa: E402
 from maho_update_transaction import (  # noqa: E402
     ExecutionFailure,
     OfflineRootUpdateOps,
@@ -119,6 +121,24 @@ class NativeFakeOps(FakeOps):
     production_safe = True
 
 
+class EvidenceFailureOps(FakeOps):
+    def build_initramfs(self, plan, preset):
+        name = f"initramfs:{preset}"
+        self.calls.append(name)
+        if preset == "linux-cachyos":
+            return {
+                "ok": False,
+                "preset": preset,
+                "exit_code": 1,
+                "failure_evidence": {
+                    "path": "/var/cache/maho/update-m4b/fixture/execution-evidence/initramfs-linux-cachyos.json",
+                    "sha256": "a" * 64,
+                    "size": 93,
+                },
+            }
+        return {"ok": True, "stage": name}
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="maho-update-transaction-") as temporary:
         cache = Path(temporary)
@@ -167,6 +187,24 @@ def main() -> None:
         fixture_escape = execute_update(transaction, fixture_plan, offline, now=NOW)
         check("fixture label cannot unlock concrete system executor", fixture_escape.transaction["state"] == "BLOCKED" and fixture_escape.transaction["blockers"] == ["fixture_executor_not_isolated"] and offline.commands == [])
         check("candidate initramfs uses the universally available coreutils chroot", offline.initramfs_command("linux-cachyos")[:2] == ("/usr/bin/chroot", str(offline_root)))
+        failed_command = OfflineRootUpdateOps(
+            offline_root,
+            cache,
+            runner=lambda command: CommandResult(1, "candidate stdout\n", "candidate stderr\n"),
+        )
+        failed_initramfs = failed_command.build_initramfs(fixture_plan, "linux-cachyos")
+        exact_log = Path(failed_initramfs["failure_evidence"]["path"])
+        exact_payload = exact_log.read_bytes()
+        check(
+            "failed initramfs preserves exact output outside the candidate root",
+            exact_log.parent == cache / ".execution-evidence"
+            and json.loads(exact_payload) == {
+                "exit_code": 1,
+                "stderr": "candidate stderr\n",
+                "stdout": "candidate stdout\n",
+            }
+            and hashlib.sha256(exact_payload).hexdigest() == failed_initramfs["failure_evidence"]["sha256"],
+        )
         rejected("concrete executor can never target live root", lambda: OfflineRootUpdateOps("/", cache))
         rejected("concrete executor rejects live Pacman cache", lambda: OfflineRootUpdateOps(offline_root, "/var/cache/pacman/pkg"))
         try:
@@ -182,6 +220,12 @@ def main() -> None:
         check("pre-mutation recovery preparation failure is recoverable and bounded", before_mutation.transaction["state"] == "FAILED_RECOVERABLE" and not before_mutation.mutation_started)
         package_failure = execute_update(transaction, fixture_plan, FakeOps(fail="full-package-upgrade", failed_mutation=True), now=NOW)
         check("partial package mutation enters recovery", package_failure.transaction["state"] == "RECOVERED" and package_failure.recovery_attempted)
+        evidence_failure = execute_update(transaction, fixture_plan, EvidenceFailureOps(), now=NOW)
+        recovering_event = next(item for item in evidence_failure.transaction["history"] if item["state"] == "RECOVERING")
+        check(
+            "failed command evidence survives candidate recovery",
+            recovering_event["evidence"]["details"]["failure_evidence"]["sha256"] == "a" * 64,
+        )
         for stage in ("maho-runtime", "kernel-header-dkms", "initramfs:linux-cachyos", "initramfs:linux-cachyos-lts", "boot-artifacts", "install-finalization"):
             failed_ops = FakeOps(fail=stage)
             result = execute_update(transaction, fixture_plan, failed_ops, now=NOW)
