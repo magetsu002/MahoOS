@@ -1261,6 +1261,163 @@ PY_INNER
   SCENARIO_ACTUAL=PREVENTED
 }
 
+final_contract_run() {
+  local directory="$1" label="$2"
+  shift 2
+  local log="$directory/evidence/$label.log"
+  if ! "$@" >"$log" 2>&1; then
+    cat "$log" >&2 || true
+    SCENARIO_REASON="$label failed"
+    return 1
+  fi
+  cat "$log"
+}
+
+scenario_final_runtime_admission() {
+  local directory="$1"
+  final_contract_run "$directory" runtime-deployment     u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_maho_runtime_deployment.py" || return
+  final_contract_run "$directory" runtime-release     u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_maho_runtime_release.py" || return
+  SCENARIO_BLOCKED=true
+  SCENARIO_ACTUAL=PREVENTED
+}
+
+scenario_final_runtime_interruption() {
+  local directory="$1"
+  final_contract_run "$directory" setup-contracts     u bash "$SRC/tests/setup-contracts.sh" || return
+  final_contract_run "$directory" runtime-auto-response     u env PYTHONPATH="$SRC/lib:$SRC/tests" python3 "$SRC/tests/test_guardian_runtime_auto_response.py" || return
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_final_runtime_authority() {
+  local directory="$1"
+  final_contract_run "$directory" runtime-recovery     u env PYTHONPATH="$SRC/lib:$SRC/tests" python3 "$SRC/tests/test_guardian_runtime_recovery.py" || return
+  final_contract_run "$directory" runtime-recovery-campaign     u env PYTHONPATH="$SRC/lib:$SRC/tests" python3 "$SRC/tests/test_guardian_runtime_recovery_campaign.py" || return
+  SCENARIO_ACTUAL=RECOVERED_WITH_AUTHORITY
+}
+
+scenario_final_persistence() {
+  local directory="$1"
+  final_contract_run "$directory" persistence-transition     u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_maho_persistence_transition.py" || return
+  SCENARIO_BLOCKED=true
+  SCENARIO_ACTUAL=PREVENTED
+}
+
+scenario_final_firewall() {
+  local directory="$1"
+  final_contract_run "$directory" firewall-receipt     u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_maho_firewall_receipt.py" || return
+  final_contract_run "$directory" firewall-observer     u bash "$SRC/tests/firewall-observer-contracts.sh" || return
+  final_contract_run "$directory" firewall-policy-netns     bash "$SRC/tests/firewall-policy-netns.sh" || return
+  final_contract_run "$directory" firewall-transaction-netns     bash "$SRC/tests/firewall-transaction-netns.sh" || return
+  SCENARIO_ACTUAL=DETECTED_ONLY
+}
+
+scenario_final_vesktop() {
+  local directory="$1"
+  final_contract_run "$directory" vesktop-install     u bash "$SRC/tests/vesktop-install-contracts.sh" || return
+  final_contract_run "$directory" vesktop-reliability     u bash "$SRC/tests/vesktop-session-reliability.sh" || return
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
+scenario_final_gc() {
+  local directory="$1"
+  final_contract_run "$directory" generation-gc     u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_generation_gc.py" || return
+  SCENARIO_ACTUAL=RECOVERED_WITH_AUTHORITY
+}
+
+scenario_final_desktop_contracts() {
+  local directory="$1"
+  final_contract_run "$directory" link     u bash "$SRC/tests/maho-link-contracts.sh" || return
+  final_contract_run "$directory" tui     u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_maho_system_tui.py" || return
+  final_contract_run "$directory" files-qml     u bash "$SRC/tests/maho-files-qml-contracts.sh" || return
+  final_contract_run "$directory" files-dnd     u bash "$SRC/tests/maho-files-dnd-search-contracts.sh" || return
+  final_contract_run "$directory" files-ux     u bash "$SRC/tests/maho-files-ux-closure-contracts.sh" || return
+  final_contract_run "$directory" files-icon     u bash "$SRC/tests/maho-files-icon-contracts.sh" || return
+  final_contract_run "$directory" files-model     u bash "$SRC/tests/maho-files-model-ops.sh" || return
+  final_contract_run "$directory" wallpaper-policy     u bash "$SRC/tests/wallpaper-policy.sh" || return
+  final_contract_run "$directory" wallpaper-restore     u bash "$SRC/tests/wallpaper-restore.sh" || return
+  SCENARIO_ACTUAL=DETECTED_ONLY
+}
+
+mount_final_wallpaper_picker() {
+  local mountpoint=/mnt/qs-wallpaper-picker
+  mkdir -p "$mountpoint"
+  if ! mountpoint -q "$mountpoint"; then
+    mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=262144 wallpaper_picker "$mountpoint"
+  fi
+  [ "$(findmnt -n -o FSTYPE "$mountpoint")" = 9p ]
+  [[ ",$(findmnt -n -o OPTIONS "$mountpoint")," == *,ro,* ]]
+  [ "$(cat "$mountpoint/.maho-source-revision")" = "$(cmdv maho.vm.wallpaper_picker_revision)" ]
+  local expected_sha actual_sha
+  expected_sha="$(cmdv maho.vm.wallpaper_picker_sha256)"
+  actual_sha="$(python3 - "$mountpoint" <<'PY_PICKER_GUEST_SHA'
+import hashlib, pathlib, sys
+root=pathlib.Path(sys.argv[1])
+h=hashlib.sha256()
+for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    rel=path.relative_to(root).as_posix().encode()
+    data=path.read_bytes()
+    h.update(len(rel).to_bytes(8,"big")); h.update(rel)
+    h.update(len(data).to_bytes(8,"big")); h.update(data)
+print(h.hexdigest())
+PY_PICKER_GUEST_SHA
+)"
+  [ "$actual_sha" = "$expected_sha" ]
+  if touch "$mountpoint/.write-probe" 2>/dev/null; then
+    rm -f "$mountpoint/.write-probe"
+    return 1
+  fi
+}
+
+picker_surface_present() {
+  graphical_user hyprctl clients -j 2>/dev/null | python3 -c '
+import json,sys
+rows=json.load(sys.stdin)
+raise SystemExit(0 if any(
+    "qs-wallpaper-picker" in str(r.get("title","")).lower()
+    or "wallpaper-picker" in str(r.get("class","")).lower()
+    for r in rows
+) else 1)
+'
+}
+
+picker_surface_absent() {
+  ! picker_surface_present
+}
+
+scenario_final_wallpaper_picker() {
+  local directory="$1" picker=/mnt/qs-wallpaper-picker first second
+  mount_final_wallpaper_picker || { SCENARIO_REASON="wallpaper picker share failed identity/read-only validation"; return 1; }
+  install -d -o "$UID_VM" -g "$UID_VM" "$HOME_VM/Wallpapers"
+  install -o "$UID_VM" -g "$UID_VM" -m 0644     "$(readlink -f "$HOME_VM/.local/share/maho/runtime/current")/config/quickshell/maho-shell/maho-guardian-rotor.png"     "$HOME_VM/Wallpapers/certification.png"
+
+  graphical_user env QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-first.log" 2>&1 &
+  first=$!
+  wait_until 20 picker_surface_present || {
+    cat "$directory/evidence/picker-first.log" >&2 || true
+    SCENARIO_REASON="first wallpaper picker launch did not map"
+    kill "$first" 2>/dev/null || true
+    return 1
+  }
+  graphical_user hyprctl clients -j >"$directory/evidence/picker-first-clients.json"
+  pkill -TERM -u "$UID_VM" -f "quickshell -p $picker/Main.qml" 2>/dev/null || true
+  wait_until 15 picker_surface_absent || { SCENARIO_REASON="first wallpaper picker instance did not close"; return 1; }
+  wait "$first" 2>/dev/null || true
+
+  graphical_user env QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-second.log" 2>&1 &
+  second=$!
+  wait_until 20 picker_surface_present || {
+    cat "$directory/evidence/picker-second.log" >&2 || true
+    SCENARIO_REASON="wallpaper picker failed to reopen"
+    kill "$second" 2>/dev/null || true
+    return 1
+  }
+  graphical_user hyprctl clients -j >"$directory/evidence/picker-second-clients.json"
+  pkill -TERM -u "$UID_VM" -f "quickshell -p $picker/Main.qml" 2>/dev/null || true
+  wait_until 15 picker_surface_absent || { SCENARIO_REASON="second wallpaper picker instance did not close"; return 1; }
+  wait "$second" 2>/dev/null || true
+  SCENARIO_ACTUAL=RECOVERED_AUTOMATICALLY
+}
+
 torture_profile() {
   local profile="$1" iteration
   prepare_graphical_torture
@@ -1313,6 +1470,17 @@ torture_profile() {
     torture-storage)
       scenario_run enospc-durable-publication RECOVERED_AUTOMATICALLY 1 scenario_enospc_atomicity
       scenario_run readonly-durable-publication RECOVERED_AUTOMATICALLY 1 scenario_readonly_atomicity
+      ;;
+    torture-final-contracts)
+      scenario_run final-runtime-admission PREVENTED 1 scenario_final_runtime_admission
+      scenario_run final-runtime-interruption RECOVERED_AUTOMATICALLY 1 scenario_final_runtime_interruption
+      scenario_run final-runtime-authority RECOVERED_WITH_AUTHORITY 1 scenario_final_runtime_authority
+      scenario_run final-persistence-authority PREVENTED 1 scenario_final_persistence
+      scenario_run final-firewall-fail-closed DETECTED_ONLY 1 scenario_final_firewall
+      scenario_run final-vesktop-recovery RECOVERED_AUTOMATICALLY 1 scenario_final_vesktop
+      scenario_run final-generation-gc RECOVERED_WITH_AUTHORITY 1 scenario_final_gc
+      scenario_run final-desktop-contracts DETECTED_ONLY 1 scenario_final_desktop_contracts
+      scenario_run final-wallpaper-picker-reopen RECOVERED_AUTOMATICALLY 1 scenario_final_wallpaper_picker
       ;;
     torture-compound)
       seed_canonical_wallpaper

@@ -251,6 +251,9 @@ python "$ROOT/tests/test_guardian_completion_status.py"
 bash "$ROOT/tests/platform-hardening-contracts.sh"
 bash "$ROOT/tests/platform-transaction-contracts.sh"
 
+echo "=== Final VM contract matrix wiring ==="
+bash "$ROOT/tests/vm-final-contracts.sh"
+
 echo "=== Maho Files desktop UX closure ==="
 bash "$ROOT/tests/maho-files-qml-contracts.sh"
 bash "$ROOT/tests/maho-files-dnd-search-contracts.sh"

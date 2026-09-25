@@ -80,6 +80,32 @@ esac
 if [[ "$PROFILE" == torture-* ]]; then
   CMDLINE="$CMDLINE maho.vm.torture=1 maho.vm.allowed_writable_block=vda maho.vm.torture_iterations=${MAHO_TORTURE_ITERATIONS:-20}"
 fi
+if [ "$PROFILE" = torture-final-contracts ]; then
+  PICKER_RELEASE="${MAHO_WALLPAPER_PICKER_RELEASE:-$(readlink -f "${XDG_DATA_HOME:-$HOME/.local/share}/maho/components/qs-wallpaper-picker/current" 2>/dev/null || true)}"
+  [ -d "$PICKER_RELEASE" ] || { echo "maho-vm-certify: wallpaper picker release unavailable: $PICKER_RELEASE" >&2; exit 2; }
+  [ -x "$PICKER_RELEASE/scripts/open_picker.sh" ] || { echo "maho-vm-certify: wallpaper picker launcher missing" >&2; exit 2; }
+  [ -r "$PICKER_RELEASE/.maho-source-revision" ] || { echo "maho-vm-certify: wallpaper picker revision marker missing" >&2; exit 2; }
+  PICKER_REV="$(cat "$PICKER_RELEASE/.maho-source-revision")"
+  [[ "$PICKER_REV" =~ ^[0-9a-f]{40}$ ]] || { echo "maho-vm-certify: invalid wallpaper picker revision: $PICKER_REV" >&2; exit 2; }
+  PICKER_SHA="$(python3 - "$PICKER_RELEASE" <<'PY_PICKER_SHA'
+import hashlib, pathlib, sys
+root=pathlib.Path(sys.argv[1])
+h=hashlib.sha256()
+for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    rel=path.relative_to(root).as_posix().encode()
+    data=path.read_bytes()
+    h.update(len(rel).to_bytes(8,"big")); h.update(rel)
+    h.update(len(data).to_bytes(8,"big")); h.update(data)
+print(h.hexdigest())
+PY_PICKER_SHA
+)"
+  CMDLINE="$CMDLINE maho.vm.wallpaper_picker_revision=$PICKER_REV maho.vm.wallpaper_picker_sha256=$PICKER_SHA"
+  EXTRA_QEMU+=(
+    -virtfs "local,path=$PICKER_RELEASE,mount_tag=wallpaper_picker,security_model=none,readonly=on"
+  )
+  printf 'INFO  wallpaper-picker revision=%s tree_sha256=%s
+' "$PICKER_REV" "$PICKER_SHA"
+fi
 if [ "$PROFILE" = torture-root-destruction ]; then
   CMDLINE="$CMDLINE lsm=landlock,lockdown,yama,integrity,bpf"
 fi
