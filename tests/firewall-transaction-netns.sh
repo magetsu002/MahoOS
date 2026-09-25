@@ -29,9 +29,11 @@ EOF
 UNRELATED_BEFORE="$(nft list table inet unrelated_provider | normalize)"
 MULLVAD_BEFORE="$(nft list table inet mullvad_mock | normalize)"
 "$FW" live-status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="unprotected" and x["table_present"] is False'
+echo 'PASS missing Maho firewall table is detected'
 
 "$FW" apply --policy "$POLICY" --json | json_true success
 "$FW" live-status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="protected" and x["verified"] is True'
+echo 'PASS exact Maho firewall table is verified'
 FIRST="$(nft list table inet maho_host | normalize)"
 "$FW" apply --policy "$POLICY" --json | json_true success
 SECOND="$(nft list table inet maho_host | normalize)"

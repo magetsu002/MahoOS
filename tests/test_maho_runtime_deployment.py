@@ -66,6 +66,18 @@ def main() -> None:
         explicit_downgrade = plan_deployment(repo, new_runtime, development=True)
         check("explicit development downgrade is admitted but not trusted", explicit_downgrade.allowed and explicit_downgrade.transition == "downgrade" and not explicit_downgrade.trust_eligible)
 
+        git(repo, "checkout", "-q", "--orphan", "unrelated")
+        (repo / "payload").write_text("unrelated\n")
+        git(repo, "add", "payload")
+        git(repo, "commit", "-qm", "unrelated")
+        divergent = plan_deployment(repo, new_runtime)
+        check(
+            "divergent production deployment is rejected",
+            not divergent.allowed
+            and divergent.transition == "unrelated-or-unverifiable"
+            and "production_transition_unrelated-or-unverifiable" in divergent.reasons,
+        )
+
     print("ALL MAHO RUNTIME DEPLOYMENT AUTHORITY TESTS PASS")
 
 
