@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import io
+import os
+import pty
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import sys
+import termios
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +17,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from maho_behavior_preferences import SPECS, defaults, load_preferences  # noqa: E402
 from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
 from maho_system_tui import PAGES, UIState, _behavior_preference_at, _nav_layout, _tab_at, _update_lifecycle, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
-from maho_tui import decode_escape_sequence  # noqa: E402
+from maho_tui import decode_escape_sequence, navigation_input_mode  # noqa: E402
 
 
 def check(name: str, condition: bool) -> None:
@@ -363,6 +366,44 @@ def main() -> None:
     check("SGR mouse left click decodes", decode_escape_sequence(b"\x1b[<0;12;3M") == "mouse-left:12:3")
     check("SGR mouse wheel up decodes", decode_escape_sequence(b"\x1b[<64;40;12M") == "mouse-wheel-up:40:12")
     check("SGR mouse wheel down decodes", decode_escape_sequence(b"\x1b[<65;40;12M") == "mouse-wheel-down:40:12")
+    extended_keys = {
+        b"\x1b[9u": "tab",
+        b"\x1b[9;2u": "shift-tab",
+        b"\x1b[13u": "enter",
+        b"\x1b[27u": "escape",
+        b"\x1b[49u": "1",
+        b"\x1b[113u": "q",
+        b"\x1b[1;2H": "home",
+        b"\x1b[1;2F": "end",
+        b"\x1b[5;2~": "page-up",
+        b"\x1b[6;2~": "page-down",
+    }
+    check(
+        "Kitty extended keyboard navigation decodes",
+        all(decode_escape_sequence(raw) == expected for raw, expected in extended_keys.items()),
+    )
+    check(
+        "Kitty key release does not trigger navigation",
+        decode_escape_sequence(b"\x1b[9;1:3u") == "unknown",
+    )
+    master_fd, slave_fd = pty.openpty()
+    try:
+        before = termios.tcgetattr(slave_fd)
+        with os.fdopen(os.dup(slave_fd), "r", encoding="utf-8", errors="ignore") as terminal_input:
+            with navigation_input_mode(terminal_input):
+                active = termios.tcgetattr(slave_fd)
+                check(
+                    "interactive navigation keeps input non-canonical between polls",
+                    not active[3] & termios.ICANON and not active[3] & termios.ECHO,
+                )
+                check(
+                    "interactive navigation preserves terminal output processing",
+                    active[1] == before[1],
+                )
+        check("interactive navigation restores terminal mode", termios.tcgetattr(slave_fd) == before)
+    finally:
+        os.close(master_fd)
+        os.close(slave_fd)
 
     behavior_screen = render(model, page="Behavior", width=100, height=30).splitlines()
     behavior_y = next(i + 1 for i, line in enumerate(behavior_screen) if SPECS[0].label in line)

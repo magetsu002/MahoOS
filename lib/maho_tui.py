@@ -6,6 +6,7 @@ policy.  It only owns bounded text layout, semantic colour, and key decoding.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 import re
 import select
@@ -170,6 +171,45 @@ def decode_escape_sequence(raw: bytes) -> str:
         return exact[raw]
     if raw.startswith(b"\x1b[") and raw[-1:] in {b"A", b"B", b"C", b"D"}:
         return {b"A": "up", b"B": "down", b"C": "right", b"D": "left"}[raw[-1:]]
+    if raw.startswith(b"\x1b[") and raw[-1:] in {b"H", b"F"}:
+        return "home" if raw[-1:] == b"H" else "end"
+    if raw.startswith(b"\x1b[") and raw[-1:] == b"~":
+        try:
+            code = int(raw[2:-1].split(b";", 1)[0])
+        except ValueError:
+            code = -1
+        if code in {5, 6}:
+            return "page-up" if code == 5 else "page-down"
+        if code in {1, 7}:
+            return "home"
+        if code in {4, 8}:
+            return "end"
+    if raw.startswith(b"\x1b[") and raw[-1:] == b"u":
+        try:
+            fields = raw[2:-1].decode("ascii").split(";")
+            key_code = int(fields[0].split(":", 1)[0])
+            modifier_field = fields[1] if len(fields) > 1 and fields[1] else "1"
+            modifier_parts = modifier_field.split(":", 1)
+            modifiers = int(modifier_parts[0])
+            event_type = int(modifier_parts[1]) if len(modifier_parts) > 1 else 1
+        except (UnicodeDecodeError, ValueError):
+            return "unknown"
+        if event_type == 3:
+            return "unknown"
+        modifier_bits = max(0, modifiers - 1)
+        shift = bool(modifier_bits & 1)
+        disallowed_modifiers = modifier_bits & ~1
+        if key_code == 9 and not disallowed_modifiers:
+            return "shift-tab" if shift else "tab"
+        if key_code == 13 and not disallowed_modifiers:
+            return "enter"
+        if key_code == 27 and not disallowed_modifiers:
+            return "escape"
+        if key_code == 32 and not disallowed_modifiers:
+            return " "
+        if 33 <= key_code <= 126 and not disallowed_modifiers:
+            return chr(key_code).lower()
+        return "unknown"
     if raw.startswith(b"\x1b[<") and raw[-1:] in {b"M", b"m"}:
         try:
             button, x, y = (int(value) for value in raw[3:-1].decode("ascii").split(";"))
@@ -185,6 +225,32 @@ def decode_escape_sequence(raw: bytes) -> str:
     return "unknown"
 
 
+@contextmanager
+def navigation_input_mode(stdin: TextIO):
+    """Keep terminal input non-canonical for one interactive session.
+
+    Output processing stays untouched so full-screen redraws keep normal newline
+    behavior.  Keeping this mode active across polling gaps prevents navigation
+    escape sequences from being echoed or buffered by canonical line discipline.
+    """
+    is_tty = bool(getattr(stdin, "isatty", lambda: False)())
+    if not is_tty:
+        yield
+        return
+    fd = stdin.fileno()
+    previous = termios.tcgetattr(fd)
+    active = termios.tcgetattr(fd)
+    active[0] &= ~termios.IXON
+    active[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG | termios.IEXTEN)
+    active[6][termios.VMIN] = 1
+    active[6][termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, active)
+    try:
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+
+
 def read_key(stdin: TextIO, timeout: float | None = None) -> str:
     """Read one navigation key; raw mode is used only for a real TTY."""
     is_tty = bool(getattr(stdin, "isatty", lambda: False)())
@@ -193,8 +259,10 @@ def read_key(stdin: TextIO, timeout: float | None = None) -> str:
         return value.strip().lower() if value else "q"
     fd = stdin.fileno()
     previous = termios.tcgetattr(fd)
+    manage_mode = bool(previous[3] & (termios.ICANON | termios.ECHO))
     try:
-        tty.setraw(fd)
+        if manage_mode:
+            tty.setraw(fd)
         if timeout is not None:
             ready, _, _ = select.select([fd], [], [], timeout)
             if not ready:
@@ -220,4 +288,5 @@ def read_key(stdin: TextIO, timeout: float | None = None) -> str:
             return "q"
         return first.decode("utf-8", errors="ignore").lower()
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+        if manage_mode:
+            termios.tcsetattr(fd, termios.TCSADRAIN, previous)
