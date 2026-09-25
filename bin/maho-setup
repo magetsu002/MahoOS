@@ -13,6 +13,7 @@ PREVIOUS="$RUNTIME_ROOT/previous"
 GUARDIAN_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 RUNTIME_RECOVERY_ENGINE="$ROOT/lib/guardian_runtime_recovery.py"
 RUNTIME_RELEASE_VERIFIER="$ROOT/lib/maho_runtime_release.py"
+RUNTIME_DEPLOYMENT_PLANNER="$ROOT/lib/maho_runtime_deployment.py"
 MARKER="# managed-by: maho-setup v3"
 V2_MARKER="# managed-by: maho-setup v2"
 V1_MARKER="# managed-by: maho-setup v1"
@@ -321,7 +322,7 @@ preflight() {
     "$ROOT/lib/maho_process_control.py" "$ROOT/lib/maho_prevention_kernel.py" \
     "$ROOT/lib/maho_intent_guard.py" "$ROOT/lib/maho_break_glass.py" \
     "$ROOT/lib/guardian_live_cli.py" "$ROOT/lib/guardian_signed_boot_provider.py" \
-    "$ROOT/lib/maho_runtime_release.py" \
+    "$ROOT/lib/maho_runtime_release.py" "$ROOT/lib/maho_runtime_deployment.py" \
     "$ROOT/lib/maho_update_state.py" "$ROOT/lib/maho_update_discovery.py" \
     "$ROOT/lib/maho_update_staging.py" "$ROOT/lib/maho_update_preparation.py" \
     "$ROOT/lib/maho_update_maintenance.py" "$ROOT/lib/maho_update_transaction.py" \
@@ -385,6 +386,18 @@ build_release() {
   mkdir -p "$stage/share/maho"
   provenance="$stage/share/maho/runtime-source-revision"
   printf '%s\n' "$revision" >"$provenance"
+  python - "$stage/share/maho/runtime-deployment.json" "$DEPLOYMENT_CLASS" "$SOURCE_DIRTY" "$TRUST_ELIGIBLE" <<'PY_DEPLOYMENT_METADATA'
+import json
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "version": 1,
+    "deployment_class": sys.argv[2],
+    "source_dirty": sys.argv[3] == "true",
+    "trust_eligible": sys.argv[4] == "true",
+}, indent=2, sort_keys=True) + "\n")
+PY_DEPLOYMENT_METADATA
 
   hash="$(cd "$stage"; find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
   final="$RELEASES/$hash"
@@ -432,7 +445,7 @@ PY_EXISTING_RELEASE
 
     rm -rf -- "$stage"
   else
-    python - "$stage/manifest.json" "$hash" "$revision" <<'PY_NEW_RELEASE'
+    python - "$stage/manifest.json" "$hash" "$revision" "$DEPLOYMENT_CLASS" "$SOURCE_DIRTY" "$TRUST_ELIGIBLE" <<'PY_NEW_RELEASE'
 import datetime
 import json
 import pathlib
@@ -442,6 +455,9 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps({
     "version": 3,
     "content_sha256": sys.argv[2],
     "source_revision": sys.argv[3],
+    "deployment_class": sys.argv[4],
+    "source_dirty": sys.argv[5] == "true",
+    "trust_eligible": sys.argv[6] == "true",
     "installed_at": datetime.datetime.now(
         datetime.timezone.utc
     ).isoformat()
@@ -610,9 +626,34 @@ install_runtime() (
   set -e
   local release old="" tx committed=0 rc transaction_id recovery_incident="" health_file begin_json
   local reload_verified=1 wiring_verified=0 observed_current="" finish_json verified
-  local activation_started=0 activation_stage="prepared"
-  preflight; validate_targets; release="$(build_release)"
+  local activation_started=0 activation_stage="prepared" deployment_json planner_rc=0
+  preflight; validate_targets
   [ -L "$CURRENT" ] && old="$(readlink -f -- "$CURRENT" 2>/dev/null || true)"
+  planner_args=(python "$RUNTIME_DEPLOYMENT_PLANNER" --source-root "$ROOT")
+  [ -z "$old" ] || planner_args+=(--current "$old")
+  [ "${MAHO_RUNTIME_DEVELOPMENT:-0}" -eq 0 ] || planner_args+=(--development)
+  deployment_json="$("${planner_args[@]}")" || planner_rc=$?
+  if [ "$planner_rc" -ne 0 ]; then
+    echo "$deployment_json" >&2
+    die "runtime deployment authority rejected the source or transition; use --development only for an explicitly trust-ineligible developer runtime"
+    return 1
+  fi
+  readarray -t deployment_fields < <(python - "$deployment_json" <<'PY_DEPLOYMENT_PLAN'
+import json,sys
+row=json.loads(sys.argv[1])
+print(row["deployment_class"])
+print("true" if row.get("source_dirty") is True else "false")
+print("true" if row.get("trust_eligible") is True else "false")
+print(row["transition"])
+PY_DEPLOYMENT_PLAN
+)
+  DEPLOYMENT_CLASS="${deployment_fields[0]}"
+  SOURCE_DIRTY="${deployment_fields[1]}"
+  TRUST_ELIGIBLE="${deployment_fields[2]}"
+  DEPLOYMENT_TRANSITION="${deployment_fields[3]}"
+  export DEPLOYMENT_CLASS SOURCE_DIRTY TRUST_ELIGIBLE DEPLOYMENT_TRANSITION
+  echo "PASS  deployment authority $DEPLOYMENT_CLASS/$DEPLOYMENT_TRANSITION"
+  release="$(build_release)"
   tx="$RUNTIME_ROOT/.transaction-$$"; snapshot_all "$tx"
   transaction_id="runtime-activation-$(python -c 'import uuid; print(uuid.uuid4().hex)')"
   health_file="$tx/activation-health.json"
@@ -832,18 +873,20 @@ case "${1:-}" in
     shift
     with_sddm=0
     with_platform=0
+    development=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --adopt-live) ;;
         --with-sddm) with_sddm=1 ;;
         --with-platform) with_platform=1 ;;
+        --development) development=1 ;;
         *) die "unknown install option: $1"; exit 2 ;;
       esac
       shift
     done
     [ "$with_sddm" -eq 0 ] || bash "$ROOT/bin/maho-lock-sddm-install" preflight
     [ "$with_platform" -eq 0 ] || bash "$ROOT/bin/maho-platform-install" preflight
-    install_runtime
+    MAHO_RUNTIME_DEVELOPMENT="$development" install_runtime
     [ "$with_sddm" -eq 0 ] || install_sddm
     [ "$with_platform" -eq 0 ] || install_platform
     ;;
@@ -856,7 +899,7 @@ Maho OS durable V1 runtime setup
 
 Usage:
   bash bin/maho-setup preflight
-  bash bin/maho-setup install [--adopt-live] [--with-sddm] [--with-platform]
+  bash bin/maho-setup install [--adopt-live] [--with-sddm] [--with-platform] [--development]
   maho-setup status
   maho-setup rollback
   maho-setup uninstall
@@ -872,6 +915,8 @@ preserved and the managed Notify wrapper explicitly uses the immutable runtime
 configuration.
 
 --adopt-live is retained for compatibility and does not bypass validation.
+--development explicitly permits dirty, divergent, or older source, and marks
+the resulting immutable runtime as ineligible for production trust.
 --with-sddm explicitly installs and verifies the persistent Maho Lock greeter
 without restarting SDDM or the current graphical session.
 --with-platform installs the singleton Secret Service activation, explicit
