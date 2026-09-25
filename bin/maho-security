@@ -209,6 +209,15 @@ elif kind == "baseline-transition-applied":
     print("Trusted persistence baseline advanced by verified package transition")
     print("Transaction:",r["transaction_id"]); print("Exact changed files:",len(r.get("changes",[])))
     print("State:",r["target_state_sha256"]); print("Authority:",r["authority_id"])
+elif kind == "baseline-transition-authority-repair-ready":
+    print("Legacy persistence transition authority repair is ready")
+    print("Transaction:",r["transaction_id"]); print("Legacy authority:",r["legacy_authority_id"])
+    print("Exact changed files:",len(r.get("changes",[]))); print("Target state:",r["target_state_sha256"])
+    print("Repeat with --apply --accept-state",r["target_state_sha256"])
+elif kind == "baseline-transition-authority-repaired":
+    print("Persistence transition authority repaired from exact verified evidence")
+    print("Transaction:",r["transaction_id"]); print("Legacy authority:",r["legacy_authority_id"])
+    print("State:",r["target_state_sha256"]); print("Authority:",r["authority_id"])
 elif kind == "baseline-cleared": print("Trusted persistence baseline cleared; historical authority receipts retained:",r.get("retained_authorities",0))
 elif kind == "baseline":
     print("Maho persistence baseline"); print("Captured:",r.get("captured_at")); print("Items:",r["items"]); print("Path:",r["path"]); print("Authority:",r.get("authority_id")); print("Accepted:",r.get("accepted_at")); print("Reason:",r.get("authority_reason"))
@@ -346,6 +355,8 @@ persistence_command() {
         baseline-set) emit_security_event persistence.baseline verified info "User accepted an exact persistence state with bounded baseline authority" security.persistence user "$result" ;;
         baseline-transition-ready) emit_security_event persistence.transition-ready verified info "Verified an exact package-owned persistence transition without changing the baseline" security.persistence maho-update "$result" ;;
         baseline-transition-applied) emit_security_event persistence.transition-applied verified info "Advanced the persistence baseline through exact HEALTHY update and current-generation authority" security.persistence maho-update "$result" ;;
+        baseline-transition-authority-repair-ready) emit_security_event persistence.transition-authority-repair-ready verified info "Verified exact evidence for bounded repair of a malformed transition authority receipt" security.persistence maho-update "$result" ;;
+        baseline-transition-authority-repaired) emit_security_event persistence.transition-authority-repaired verified info "Repaired malformed transition authority metadata from exact prior baseline, package, update, and generation evidence" security.persistence maho-update "$result" ;;
         baseline-cleared) emit_security_event persistence.baseline-cleared observed info "User cleared the trusted persistence baseline" security.persistence user "$result" ;;
         clean) emit_security_event persistence.check verified info "Persistence inventory matches the user-selected baseline" security.persistence maho "$result" ;;
         changed)

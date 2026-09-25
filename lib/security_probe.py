@@ -776,6 +776,114 @@ def load_persistence_authority(baseline_data: dict, authorities: Path) -> tuple[
     return authority, path
 
 
+def transition_authority_payload(
+    public_plan: dict, *, authority_id: str, previous_authority_id: str,
+    accepted_state: str, accepted_at: str, accepted_by_uid: int,
+    repaired_from: dict | None = None,
+) -> dict:
+    """Build a canonical transition authority without allowing plan keys to shadow authority identity."""
+    authority = {
+        **public_plan,
+        "version": VERSION,
+        "kind": "persistence-baseline-transition-authority",
+        "authority_id": authority_id,
+        "authority_scope": "exact-package-owned-transition",
+        "accepted_at": accepted_at,
+        "accepted_by_uid": accepted_by_uid,
+        "accepted_state_sha256": accepted_state,
+        "previous_baseline_authority_id": previous_authority_id,
+    }
+    if repaired_from is not None:
+        authority["repaired_from_authority_id"] = repaired_from["authority_id"]
+        authority["repaired_from_authority_sha256"] = stable_hash(repaired_from)
+    return authority
+
+
+def validate_legacy_transition_authority(baseline_data: dict, authority: dict) -> None:
+    """Recognize only the exact PR #100 malformed transition receipt for bounded repair."""
+    if authority.get("version") != VERSION or authority.get("kind") != "persistence-package-transition-plan":
+        raise ValueError("not a repairable legacy persistence transition authority")
+    authority_id = authority.get("authority_id")
+    if not isinstance(authority_id, str) or re.fullmatch(r"pbt-[0-9a-f]{16}-[0-9a-f]{12}", authority_id) is None:
+        raise ValueError("legacy persistence transition authority identity is invalid")
+    if authority.get("authority_scope") != "exact-package-owned-transition":
+        raise ValueError("legacy persistence transition authority scope is invalid")
+    accepted_state = authority.get("accepted_state_sha256")
+    if not isinstance(accepted_state, str) or SHA256_RE.fullmatch(accepted_state) is None:
+        raise ValueError("legacy persistence transition accepted state is invalid")
+    if accepted_state != baseline_data.get("state_sha256") or authority.get("target_state_sha256") != accepted_state:
+        raise ValueError("legacy persistence transition does not bind the current baseline state")
+    if baseline_data.get("baseline_authority_id") != authority_id:
+        raise ValueError("legacy persistence transition identity does not match baseline")
+    if baseline_data.get("baseline_authority_sha256") != stable_hash(authority):
+        raise ValueError("legacy persistence transition receipt hash mismatch")
+    previous_id = authority.get("previous_baseline_authority_id")
+    if not isinstance(previous_id, str) or re.fullmatch(r"pba-[0-9a-f]{16}-[0-9a-f]{12}", previous_id) is None:
+        raise ValueError("legacy persistence transition previous authority is invalid")
+    if authority.get("previous_baseline_state_sha256") == accepted_state:
+        raise ValueError("legacy persistence transition did not advance the baseline")
+    for key in ("plan_sha256", "transaction_sha256", "publication_sha256", "previous_baseline_state_sha256"):
+        value = authority.get(key)
+        if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
+            raise ValueError(f"legacy persistence transition {key} is invalid")
+    if not isinstance(authority.get("changes"), list) or not authority["changes"]:
+        raise ValueError("legacy persistence transition has no exact changes")
+
+
+def load_legacy_transition_authority(baseline_data: dict, authorities: Path) -> tuple[dict, Path]:
+    authority_id = baseline_data.get("baseline_authority_id")
+    if not isinstance(authority_id, str) or re.fullmatch(r"pbt-[0-9a-f]{16}-[0-9a-f]{12}", authority_id) is None:
+        raise ValueError("baseline does not reference a repairable transition authority")
+    path = authorities / f"{authority_id}.json"
+    authority = load_json(path)
+    validate_legacy_transition_authority(baseline_data, authority)
+    return authority, path
+
+
+def persistence_diff(
+    before_inventory: dict, after_inventory: dict, *, home: Path, xdg_config: Path,
+    db_root: Path, fs_root: Path,
+) -> dict:
+    before = {x["path"]: x for x in before_inventory["items"]}
+    after = {x["path"]: x for x in after_inventory["items"]}
+    added = [
+        _annotate_persistence_change(after[path], home, xdg_config, db_root, fs_root)
+        for path in sorted(set(after) - set(before))
+    ]
+    removed = [before[path] for path in sorted(set(before) - set(after))]
+    changed = []
+    for path in sorted(set(before) & set(after)):
+        if before[path] == after[path]:
+            continue
+        row = {"path": path, "before": before[path], "after": after[path]}
+        attribution = _persistence_attribution(after[path], home, xdg_config, db_root, fs_root)
+        if attribution is not None:
+            row["expected"] = True
+            row["attribution"] = attribution
+        changed.append(row)
+    unexpected_added = [item for item in added if item.get("expected") is not True]
+    unexpected_changed = [item for item in changed if item.get("expected") is not True]
+    unexpected_removed = list(removed)
+    expected_changes = (
+        [{"change": "added", **item} for item in added if item.get("expected") is True]
+        + [{"change": "changed", **item} for item in changed if item.get("expected") is True]
+    )
+    result = "clean" if not (added or removed or changed) else "changed"
+    attention = "clean" if not (unexpected_added or unexpected_removed or unexpected_changed) else "changed"
+    return {
+        "result": result,
+        "attention_result": attention,
+        "current_state_sha256": stable_hash(after_inventory),
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "expected_changes": expected_changes,
+        "unexpected_added": unexpected_added,
+        "unexpected_removed": unexpected_removed,
+        "unexpected_changed": unexpected_changed,
+    }
+
+
 def persistence_command(args) -> dict:
     state_root = Path(args.state_root) / "persistence"
     snapshots = state_root / "snapshots"
@@ -912,10 +1020,124 @@ def persistence_command(args) -> dict:
             raise SystemExit("baseline transition requires an existing trusted persistence baseline")
         baseline_data = load_json(baseline)
         validate_persistence_snapshot(baseline_data)
+        legacy_authority = None
         try:
             previous_authority, _ = load_persistence_authority(baseline_data, authorities)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"existing persistence baseline authority is invalid: {exc}") from exc
+            try:
+                legacy_authority, _ = load_legacy_transition_authority(baseline_data, authorities)
+            except (OSError, ValueError, json.JSONDecodeError):
+                raise SystemExit(f"existing persistence baseline authority is invalid: {exc}") from exc
+
+        if legacy_authority is not None:
+            previous_id = legacy_authority["previous_baseline_authority_id"]
+            target_inventory = baseline_data["inventory"]
+            target_items = {
+                str(item.get("path")): dict(item)
+                for item in target_inventory["items"] if isinstance(item, dict)
+            }
+            for change in legacy_authority["changes"]:
+                path = change.get("path")
+                kind = change.get("kind")
+                before = change.get("before")
+                after = change.get("after")
+                if (
+                    not isinstance(path, str) or not isinstance(kind, str)
+                    or not isinstance(before, dict) or not isinstance(after, dict)
+                ):
+                    raise SystemExit("legacy persistence transition repair denied: malformed exact change")
+                expected_after = {"path": path, "kind": kind, **after}
+                if target_items.get(path) != expected_after:
+                    raise SystemExit(
+                        f"legacy persistence transition repair denied: accepted target does not contain exact after state for {path}"
+                    )
+                target_items[path] = {"path": path, "kind": kind, **before}
+            previous_inventory = {
+                "version": target_inventory.get("version"),
+                "kind": target_inventory.get("kind"),
+                "items": sorted(
+                    target_items.values(),
+                    key=lambda item: (str(item.get("kind")), str(item.get("path"))),
+                ),
+            }
+            previous_state = stable_hash(previous_inventory)
+            if previous_state != legacy_authority.get("previous_baseline_state_sha256"):
+                raise SystemExit("legacy persistence transition repair denied: exact reverse transition does not reconstruct the previous baseline")
+            previous_baseline = {
+                "version": VERSION,
+                "kind": "persistence-snapshot",
+                "inventory": previous_inventory,
+                "state_sha256": previous_state,
+            }
+
+            current_inventory = persistence_inventory(home, xdg_config, fs_root)
+            post_transition_diff = persistence_diff(
+                baseline_data["inventory"], current_inventory,
+                home=home, xdg_config=xdg_config, db_root=db_root, fs_root=fs_root,
+            )
+            if post_transition_diff["attention_result"] != "clean":
+                raise SystemExit("legacy persistence transition repair denied: unexplained persistence drift exists after the accepted target")
+            reconstructed_check = {
+                "baseline_state_sha256": previous_baseline["state_sha256"],
+                **persistence_diff(
+                    previous_baseline["inventory"], current_inventory,
+                    home=home, xdg_config=xdg_config, db_root=db_root, fs_root=fs_root,
+                ),
+            }
+            try:
+                plan = build_transition_plan(
+                    baseline=previous_baseline,
+                    check=reconstructed_check,
+                    transaction=transaction,
+                    publication=publication,
+                    db_root=db_root,
+                    fs_root=fs_root,
+                    transaction_sha256=hashlib.sha256(tx_raw).hexdigest(),
+                    publication_sha256=hashlib.sha256(publication_raw).hexdigest(),
+                )
+            except ValueError as exc:
+                raise SystemExit(f"legacy persistence transition repair denied: {exc}") from exc
+            public_plan = {key: value for key, value in plan.items() if key != "target_inventory"}
+            for key, value in public_plan.items():
+                if legacy_authority.get(key) != value:
+                    raise SystemExit(f"legacy persistence transition repair denied: receipt mismatch for {key}")
+            accepted_state = str(args.accept_state or "")
+            if not args.apply:
+                return {
+                    "result": "baseline-transition-authority-repair-ready",
+                    "baseline": str(baseline),
+                    "legacy_authority_id": legacy_authority["authority_id"],
+                    **public_plan,
+                }
+            if accepted_state != plan["target_state_sha256"]:
+                raise SystemExit("baseline transition repair --accept-state must equal the exact planned target state")
+            legacy_hash = stable_hash(legacy_authority)
+            authority_id = f"pbt-{accepted_state[:16]}-{legacy_hash[:12]}"
+            authority = transition_authority_payload(
+                public_plan,
+                authority_id=authority_id,
+                previous_authority_id=previous_id,
+                accepted_state=accepted_state,
+                accepted_at=legacy_authority["accepted_at"],
+                accepted_by_uid=int(legacy_authority["accepted_by_uid"]),
+                repaired_from=legacy_authority,
+            )
+            authority_sha256 = stable_hash(authority)
+            replacement = dict(baseline_data)
+            replacement["baseline_authority_id"] = authority_id
+            replacement["baseline_authority_sha256"] = authority_sha256
+            authority_path = authorities / f"{authority_id}.json"
+            atomic_private(authority_path, canonical_bytes(authority))
+            atomic_private(baseline, canonical_bytes(replacement))
+            return {
+                "result": "baseline-transition-authority-repaired",
+                "path": str(baseline),
+                "authority_id": authority_id,
+                "authority_path": str(authority_path),
+                "authority_sha256": authority_sha256,
+                "legacy_authority_id": legacy_authority["authority_id"],
+                **public_plan,
+            }
 
         original_command = args.persistence_command
         args.persistence_command = "check"
@@ -951,17 +1173,14 @@ def persistence_command(args) -> dict:
 
         accepted_at = now_utc()
         authority_id = f"pbt-{accepted_state[:16]}-{uuid.uuid4().hex[:12]}"
-        authority = {
-            "version": VERSION,
-            "kind": "persistence-baseline-transition-authority",
-            "authority_id": authority_id,
-            "authority_scope": "exact-package-owned-transition",
-            "accepted_at": accepted_at,
-            "accepted_by_uid": os.getuid(),
-            "accepted_state_sha256": accepted_state,
-            "previous_baseline_authority_id": previous_authority["authority_id"],
-            **public_plan,
-        }
+        authority = transition_authority_payload(
+            public_plan,
+            authority_id=authority_id,
+            previous_authority_id=previous_authority["authority_id"],
+            accepted_state=accepted_state,
+            accepted_at=accepted_at,
+            accepted_by_uid=os.getuid(),
+        )
         authority_sha256 = stable_hash(authority)
         replacement = {
             "version": VERSION,
@@ -1035,49 +1254,16 @@ def persistence_command(args) -> dict:
                 "baseline_state_sha256": base.get("state_sha256"),
             }
         current_inventory = persistence_inventory(home, xdg_config, fs_root)
-        before = {x["path"]: x for x in base["inventory"]["items"]}
-        after = {x["path"]: x for x in current_inventory["items"]}
-        added = [
-            _annotate_persistence_change(after[p], home, xdg_config, db_root, fs_root)
-            for p in sorted(set(after) - set(before))
-        ]
-        removed = [before[p] for p in sorted(set(before) - set(after))]
-        changed = []
-        for p in sorted(set(before) & set(after)):
-            if before[p] == after[p]:
-                continue
-            row = {"path": p, "before": before[p], "after": after[p]}
-            attribution = _persistence_attribution(after[p], home, xdg_config, db_root, fs_root)
-            if attribution is not None:
-                row["expected"] = True
-                row["attribution"] = attribution
-            changed.append(row)
-
-        unexpected_added = [item for item in added if item.get("expected") is not True]
-        unexpected_changed = [item for item in changed if item.get("expected") is not True]
-        unexpected_removed = list(removed)
-        expected_changes = [
-            {"change": "added", **item} for item in added if item.get("expected") is True
-        ] + [
-            {"change": "changed", **item} for item in changed if item.get("expected") is True
-        ]
-        result = "clean" if not (added or removed or changed) else "changed"
-        attention_result = "clean" if not (unexpected_added or unexpected_removed or unexpected_changed) else "changed"
+        diff = persistence_diff(
+            base["inventory"], current_inventory,
+            home=home, xdg_config=xdg_config, db_root=db_root, fs_root=fs_root,
+        )
         return {
-            "result": result,
-            "attention_result": attention_result,
+            **diff,
             "baseline": str(baseline),
             "baseline_state_sha256": base["state_sha256"],
             "baseline_authority_id": authority["authority_id"],
             "baseline_authority_path": str(authority_path),
-            "current_state_sha256": stable_hash(current_inventory),
-            "added": added,
-            "removed": removed,
-            "changed": changed,
-            "expected_changes": expected_changes,
-            "unexpected_added": unexpected_added,
-            "unexpected_removed": unexpected_removed,
-            "unexpected_changed": unexpected_changed,
         }
 
     raise SystemExit("unknown persistence command")
