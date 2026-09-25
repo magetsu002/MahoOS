@@ -8,7 +8,9 @@ PATCHER="${MAHO_VESKTOP_PATCHER:-$ROOT/lib/maho_vesktop_patch.py}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/maho"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/maho/vesktop-runtime"
-SOURCE_ASAR="${MAHO_VESKTOP_SOURCE_ASAR:-/opt/vesktop/resources/app.asar}"
+VESKTOP_HOME="${MAHO_VESKTOP_HOME:-/opt/vesktop}"
+SOURCE_ASAR="${MAHO_VESKTOP_SOURCE_ASAR:-$VESKTOP_HOME/resources/app.asar}"
+ELECTRON_BIN="${MAHO_VESKTOP_ELECTRON:-/usr/bin/electron43}"
 PATCHED_ASAR="$DATA_DIR/app.asar"
 MANIFEST="$DATA_DIR/manifest"
 LOCK="$RUNTIME_DIR/maho-vesktop-profile.lock"
@@ -53,21 +55,72 @@ import_session_env() {
         esac
     done < <(systemctl --user show-environment 2>/dev/null)
 }
+process_is_profile_owner() {
+    local pid="$1" proc="/proc/$1" arg first="" first_exec="" has_runtime=0 has_type=0 index=0
+    [ -r "$proc/cmdline" ] || return 1
+    while IFS= read -r -d '' arg; do
+        if [ "$index" -eq 0 ]; then
+            first="$arg"
+        fi
+        case "$arg" in
+            "$SOURCE_ASAR"|"$PATCHED_ASAR"|*" $SOURCE_ASAR"*|*" $PATCHED_ASAR"*) has_runtime=1 ;;
+        esac
+        case "$arg" in
+            --type=*|*" --type="*) has_type=1 ;;
+        esac
+        index=$((index + 1))
+    done <"$proc/cmdline"
+    [ "$has_runtime" -eq 1 ] && [ "$has_type" -eq 0 ] || return 1
+    first_exec="${first%% *}"
+    case "${first_exec##*/}" in
+        vesktop|electron|electron[0-9]*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 profile_owner_pids() {
-    local proc pid cmd
+    local proc pid
     for proc in /proc/[0-9]*; do
         pid="${proc##*/}"
-        [ -r "$proc/cmdline" ] || continue
-        cmd="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$cmd" in
-            *"$SOURCE_ASAR"*|*"$PATCHED_ASAR"*)
-                case "$cmd" in
-                    *" --type="*) continue ;;
-                esac
-                printf '%s\n' "$pid"
-                ;;
-        esac
+        process_is_profile_owner "$pid" || continue
+        printf '%s\n' "$pid"
     done
+}
+
+owner_record_value() {
+    local key="$1"
+    [ -r "$OWNER" ] || return 1
+    sed -n "s/^$key=//p" "$OWNER" | head -n 1
+}
+
+recorded_owner_is_current() {
+    local pid start_ticks runtime profile actual_ticks
+    pid="$(owner_record_value pid 2>/dev/null || true)"
+    start_ticks="$(owner_record_value start_ticks 2>/dev/null || true)"
+    runtime="$(owner_record_value runtime 2>/dev/null || true)"
+    profile="$(owner_record_value profile 2>/dev/null || true)"
+    case "$pid:$start_ticks" in
+        *[!0-9:]*|:*) return 1 ;;
+    esac
+    [ "$runtime" = "$PATCHED_ASAR" ] || return 1
+    [ "$profile" = "$HOME/.config/vesktop/sessionData" ] || return 1
+    [ -r "/proc/$pid/stat" ] || return 1
+    actual_ticks="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null || true)"
+    [ "$actual_ticks" = "$start_ticks" ] || return 1
+    process_is_profile_owner "$pid" || return 1
+    printf '%s\n' "$pid"
+}
+
+window_inventory_available() {
+    command -v hyprctl >/dev/null 2>&1 || return 1
+    hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if isinstance(rows, list) else 1)
+' >/dev/null 2>&1
 }
 
 mapped_window_exists() {
@@ -163,18 +216,48 @@ activate_existing() {
     return 1
 }
 
+recover_recorded_ghost() {
+    local pid
+    pid="$(recorded_owner_is_current 2>/dev/null || true)"
+    [ -n "$pid" ] || return 1
+    window_inventory_available || return 1
+    mapped_window_exists && return 1
+
+    log_event "action=recover-ghost phase=terminate owner_pid=$pid"
+    kill -TERM "$pid" 2>/dev/null || return 1
+    if command -v timeout >/dev/null 2>&1 && command -v tail >/dev/null 2>&1; then
+        timeout 3 tail --pid="$pid" -f /dev/null >/dev/null 2>&1 || true
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+        log_event "action=recover-ghost result=fail detail=owner-did-not-exit owner_pid=$pid"
+        return 1
+    fi
+    rm -f "$SOCKET" "$OWNER"
+    log_event "action=recover-ghost result=pass owner_pid=$pid"
+    return 0
+}
+
 source_sha256() {
     sha256sum "$SOURCE_ASAR" 2>/dev/null | awk '{print $1}'
 }
 
+patcher_sha256() {
+    sha256sum "$PATCHER" 2>/dev/null | awk '{print $1}'
+}
+
 runtime_current() {
     [ -r "$SOURCE_ASAR" ] || return 1
+    [ -r "$PATCHER" ] || return 1
     [ -r "$PATCHED_ASAR" ] || return 1
     [ -r "$MANIFEST" ] || return 1
-    local expected
-    expected="$(source_sha256)"
-    [ -n "$expected" ] || return 1
-    grep -Fxq "source_sha256=$expected" "$MANIFEST"
+    local expected_source expected_patcher expected_runtime
+    expected_source="$(source_sha256)"
+    expected_patcher="$(patcher_sha256)"
+    expected_runtime="$(sha256sum "$PATCHED_ASAR" 2>/dev/null | awk '{print $1}')"
+    [ -n "$expected_source" ] && [ -n "$expected_patcher" ] && [ -n "$expected_runtime" ] || return 1
+    grep -Fxq "source_sha256=$expected_source" "$MANIFEST" &&
+        grep -Fxq "patcher_sha256=$expected_patcher" "$MANIFEST" &&
+        grep -Fxq "runtime_sha256=$expected_runtime" "$MANIFEST"
 }
 
 refresh_runtime() {
@@ -190,7 +273,7 @@ refresh_runtime() {
         }
     done
 
-    local tmp tree source_sha runtime_sha package
+    local tmp tree source_sha patcher_sha runtime_sha package
     tmp="$(mktemp -d "$RUNTIME_DIR/maho-vesktop-build.XXXXXX")" || return 1
     tree="$tmp/tree"
     if ! npx --yes @electron/asar@4.3.0 extract "$SOURCE_ASAR" "$tree" >/dev/null; then
@@ -212,6 +295,7 @@ refresh_runtime() {
     fi
 
     source_sha="$(source_sha256)"
+    patcher_sha="$(patcher_sha256)"
     runtime_sha="$(sha256sum "$tmp/app.asar" | awk '{print $1}')"
     package="$(pacman -Q vesktop-bin 2>/dev/null || true)"
     install -m 0600 "$tmp/app.asar" "$DATA_DIR/.app.asar.$$.tmp"
@@ -219,6 +303,7 @@ refresh_runtime() {
     {
         printf 'source=%s\n' "$SOURCE_ASAR"
         printf 'source_sha256=%s\n' "$source_sha"
+        printf 'patcher_sha256=%s\n' "$patcher_sha"
         printf 'runtime_sha256=%s\n' "$runtime_sha"
         printf 'package=%s\n' "$package"
         printf 'generated=%s\n' "$(date -Ins)"
@@ -226,7 +311,7 @@ refresh_runtime() {
     chmod 0600 "$DATA_DIR/.manifest.$$.tmp"
     mv -f "$DATA_DIR/.manifest.$$.tmp" "$MANIFEST"
     rm -rf "$tmp"
-    log_event "action=refresh-runtime source_sha256=$source_sha runtime_sha256=$runtime_sha"
+    log_event "action=refresh-runtime source_sha256=$source_sha patcher_sha256=$patcher_sha runtime_sha256=$runtime_sha"
     return 0
 }
 
@@ -256,8 +341,15 @@ launch_owner() {
         if activate_existing "$@"; then
             return 0
         fi
-        fatal "profile owner exists but could not be activated; refusing a second profile owner"
-        return 75
+        if recover_recorded_ghost; then
+            if ! flock -w 2 9; then
+                fatal "stale Vesktop owner exited but profile lock remained busy"
+                return 75
+            fi
+        else
+            fatal "profile owner exists but could not be activated; refusing a second profile owner"
+            return 75
+        fi
     fi
 
     local existing_count
@@ -267,9 +359,20 @@ launch_owner() {
             flock -u 9
             return 0
         fi
-        flock -u 9
-        fatal "an unmanaged Vesktop profile owner is already running; refusing to contend with it"
-        return 76
+        if recover_recorded_ghost; then
+            existing_count="$(profile_owner_pids | awk 'NF {n++} END {print n+0}')"
+            if [ "$existing_count" -eq 0 ]; then
+                :
+            else
+                flock -u 9
+                fatal "managed ghost recovery left a Vesktop profile owner running"
+                return 76
+            fi
+        else
+            flock -u 9
+            fatal "an unmanaged Vesktop profile owner is already running; refusing to contend with it"
+            return 76
+        fi
     fi
     rm -f "$SOCKET"
     if ! runtime_current; then
@@ -299,6 +402,7 @@ launch_owner() {
     export ELECTRON_OZONE_PLATFORM_HINT="${ELECTRON_OZONE_PLATFORM_HINT:-auto}"
     export CHROME_DESKTOP=vesktop.desktop
     export MAHO_VESKTOP_CONTROL_SOCKET="$SOCKET"
+    export MAHO_VESKTOP_OWNER_FILE="$OWNER"
 
     case "${XDG_CURRENT_DESKTOP:-}" in
         KDE) export ELECTRON_TRASH=kioclient5 ;;
@@ -312,13 +416,24 @@ launch_owner() {
         sandbox=(--no-sandbox)
     fi
 
-    log_event "action=launch route=canonical started_new=yes owner_pid=$$ arg_count=$#"
-    cd /opt/vesktop || return 1
+    [ -x "$ELECTRON_BIN" ] || {
+        flock -u 9
+        fatal "Electron runtime is unavailable: $ELECTRON_BIN"
+        return 78
+    }
+    [ -d "$VESKTOP_HOME" ] || {
+        flock -u 9
+        fatal "Vesktop application directory is unavailable: $VESKTOP_HOME"
+        return 78
+    }
+
+    log_event "action=launch route=canonical started_new=yes owner_pid=$$ arg_count=$# electron=$ELECTRON_BIN"
+    cd "$VESKTOP_HOME" || return 1
     # The packaged /opt/vesktop/vesktop binary always loads its adjacent
     # resources/app.asar and treats another ASAR path as an application
     # argument.  The generic Electron runner is required to execute the exact
     # user-private, source-hash-bound runtime built above.
-    exec /usr/bin/electron43 "${ELECTRON_FLAGS[@]}" "${sandbox[@]}" "$PATCHED_ASAR" "$@"
+    exec "$ELECTRON_BIN" "${ELECTRON_FLAGS[@]}" "${sandbox[@]}" "$PATCHED_ASAR" "$@"
 }
 
 indexeddb_lock_holders() {
