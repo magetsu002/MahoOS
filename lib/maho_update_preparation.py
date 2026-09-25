@@ -29,6 +29,8 @@ class PreparationEvidence:
     recovery_generation_id: str | None
     native_l3_certified: bool
     execution_environment: str = "production"
+    safe_reserve_bytes: int = 0
+    gc_authority_current: bool = True
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class PreparationPlan:
     recovery_generation_id: str | None
     requires_native_l3: bool
     execution_environment: str
+    safe_reserve_bytes: int
+    reserve_after_preparation_bytes: int
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -68,6 +72,8 @@ def plan_preparation(
         raise ValueError("preparation evidence cannot forge native L3 certification")
     if evidence.recovery_generation_id is not None and not evidence.recovery_generation_id.startswith("g3-"):
         raise ValueError("preparation recovery generation identity is invalid")
+    if isinstance(evidence.safe_reserve_bytes, bool) or evidence.safe_reserve_bytes < 0:
+        raise ValueError("safe storage reserve must be a non-negative integer")
 
     blockers: list[str] = []
     if not evidence.discovery_generation_current:
@@ -76,6 +82,11 @@ def plan_preparation(
         blockers.append("partial_upgrade_or_incoherent_package_set")
     if evidence.required_disk_bytes < 0 or evidence.available_disk_bytes < evidence.required_disk_bytes:
         blockers.append("insufficient_install_space")
+    reserve_after = evidence.available_disk_bytes - max(0, evidence.required_disk_bytes)
+    if not evidence.gc_authority_current:
+        blockers.append("generation_gc_authority_unknown")
+    elif reserve_after < evidence.safe_reserve_bytes:
+        blockers.append("unsafe_post_update_disk_reserve")
     if not evidence.power_status_known:
         blockers.append("power_status_unknown")
     elif not evidence.power_policy_satisfied:
@@ -110,6 +121,8 @@ def plan_preparation(
         recovery_generation_id=evidence.recovery_generation_id,
         requires_native_l3=requires_native_l3,
         execution_environment=evidence.execution_environment,
+        safe_reserve_bytes=evidence.safe_reserve_bytes,
+        reserve_after_preparation_bytes=reserve_after,
     )
 
 

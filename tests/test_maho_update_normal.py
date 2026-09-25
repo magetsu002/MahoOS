@@ -125,6 +125,26 @@ def main():
         prepared=prepare_normal_transaction(staged.transaction,staged.manifest,cache,evidence(),now=NOW)
         check('full solver generation with no boot effects is valid normal lane',prepared.transaction['state']=='PREPARED' and prepared.plan.selection_kind=='full')
 
+    with tempfile.TemporaryDirectory(prefix='maho-normal-reserve-') as temporary:
+        staged,cache=stage(Path(temporary))
+        reserve=prepare_normal_transaction(
+            staged.transaction,staged.manifest,cache,
+            NormalPreparationEvidence(
+                discovery_generation_current=True,
+                coherent_independent_generation=True,
+                required_disk_bytes=32,
+                available_disk_bytes=100,
+                power_status_known=True,
+                power_policy_satisfied=True,
+                concurrent_package_or_build_operation=False,
+                candidate_root_available=True,
+                guardian_admission_available=True,
+                execution_environment='fixture',
+                safe_reserve_bytes=100,
+                gc_authority_current=True,
+            ),now=NOW)
+        check('normal update blocks before consuming the safe storage reserve','unsafe_post_update_disk_reserve' in reserve.blockers)
+
     print('ALL MAHO NORMAL UPDATE CONTRACTS PASS')
 
 if __name__=='__main__': main()
