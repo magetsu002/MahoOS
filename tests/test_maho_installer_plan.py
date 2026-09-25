@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
@@ -155,6 +157,41 @@ def main() -> None:
     observed = probe_disk("/dev/nvme9n1", run=fake_run)
     check("live probe uses read-only lsblk against exact device", observed["path"] == "/dev/nvme9n1" and commands and commands[0][-1] == "/dev/nvme9n1")
     check("live probe never invokes a mutating tool", commands[0][0] == "lsblk")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        packaged_root = tmp_path / "payload"
+        (packaged_root / "bin").mkdir(parents=True)
+        (packaged_root / "lib").mkdir(parents=True)
+        (packaged_root / "lib/bytecode_probe.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (packaged_root / "bin/maho-installer").write_text(
+            "import os, sys\n"
+            "sys.path.insert(0, os.path.join(os.environ['MAHO_ROOT'], 'lib'))\n"
+            "import bytecode_probe\n",
+            encoding="utf-8",
+        )
+        env = os.environ.copy()
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        env.pop("PYTHONPYCACHEPREFIX", None)
+        env["HOME"] = str(tmp_path / "home")
+        env["XDG_DATA_HOME"] = str(tmp_path / "data")
+        env["MAHO_PACKAGED_ROOT"] = str(packaged_root)
+        wrapper = ROOT / "packaging/arch/maho-installer-wrapper"
+
+        subprocess.run(["bash", str(wrapper), "--help"], env=env, check=True)
+        check(
+            "packaged installer help keeps payload bytecode-free",
+            not any(packaged_root.rglob("__pycache__")),
+        )
+
+        current = tmp_path / "data/maho/runtime/current"
+        current.parent.mkdir(parents=True)
+        current.symlink_to(packaged_root, target_is_directory=True)
+        subprocess.run(["bash", str(wrapper), "--help"], env=env, check=True)
+        check(
+            "runtime installer help keeps immutable release bytecode-free",
+            not any(packaged_root.rglob("__pycache__")),
+        )
 
     print("ALL MAHO INSTALLER PLAN CONTRACTS PASS")
 
