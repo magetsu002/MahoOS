@@ -16,6 +16,7 @@ export XDG_STATE_HOME="$TMP/state"
 export XDG_CACHE_HOME="$TMP/cache"
 export PATH="$TMP/fake-bin:/usr/bin:/bin"
 mkdir -p "$HOME/.local/bin" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$TMP/fake-bin"
+git config --global --add safe.directory "$ROOT"
 
 SYSTEMCTL_LOG="$TMP/systemctl.log"
 export MAHO_TEST_SYSTEMCTL_LOG="$SYSTEMCTL_LOG"
