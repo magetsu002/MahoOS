@@ -1,7 +1,9 @@
 # MahoOS V1 pre-installer architecture freeze
 
-Status: **architecture decisions frozen; installer start gate NOT MET**  
-Decision date: 2026-09-25  
+Status: **architecture decisions frozen; installer start gate NOT MET**
+
+Decision date: 2026-09-25
+
 Baseline source: `09f2eddc91c8480698afe1dcc4493c72f0b1b6b8`
 
 This is the canonical V1 contract an installer must implement. It does not authorize installer execution and does not claim final-source VM or physical certification.
