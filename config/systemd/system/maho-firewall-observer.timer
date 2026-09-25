@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Maho host firewall status receipt
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=maho-firewall-observer.service
+
+[Install]
+WantedBy=timers.target

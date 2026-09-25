@@ -27,6 +27,7 @@ depends=(
   'brightnessctl'
   'wireplumber'
   'networkmanager'
+  'nftables'
   'wireless-regdb'
   'iw'
   'imagemagick'
@@ -132,6 +133,12 @@ package() {
     "$pkgdir/usr/lib/systemd/system/maho-prevention-boundary.service"
   install -Dm644 "$source_root/config/systemd/system/maho-prevention-evidence.service" \
     "$pkgdir/usr/lib/systemd/system/maho-prevention-evidence.service"
+  install -Dm644 "$source_root/config/systemd/system/maho-firewall-observer.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-firewall-observer.service"
+  install -Dm644 "$source_root/config/systemd/system/maho-firewall-observer.timer" \
+    "$pkgdir/usr/lib/systemd/system/maho-firewall-observer.timer"
+  install -Dm644 "$source_root/config/tmpfiles.d/maho-firewall.conf" \
+    "$pkgdir/usr/lib/tmpfiles.d/maho-firewall.conf"
   install -Dm644 "$source_root/config/polkit-1/actions/io.maho.prevention.policy" \
     "$pkgdir/usr/share/polkit-1/actions/io.maho.prevention.policy"
   install -Dm644 "$source_root/config/tmpfiles.d/maho-prevention.conf" \
