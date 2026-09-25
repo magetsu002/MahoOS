@@ -28,4 +28,5 @@ assert r["result"]=="unknown",r
 assert r["decision_usable"] is False,r
 assert r["receipt_valid"] is False,r
 PY
+echo 'PASS missing observer receipt remains UNKNOWN'
 echo 'ALL FIREWALL OBSERVER CONTRACTS PASS'

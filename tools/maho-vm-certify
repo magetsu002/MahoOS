@@ -32,7 +32,7 @@ case "$PROFILE" in
   smoke|fresh-user|update-freeze|resilience|session) MEMORY=4096 ;;
   performance-4g) MEMORY=4096 ;;
   performance-8g) MEMORY=8192 ;;
-  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying|torture-reboot-update-phases|torture-root-destruction) MEMORY=4096 ;;
+  torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-final-contracts|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying|torture-reboot-update-phases|torture-root-destruction) MEMORY=4096 ;;
   torture-prevention)
     export MAHO_VM_PROFILE_EVIDENCE="$EVIDENCE"
     exec "$ROOT/tools/vm/prevention-torture-profile"
@@ -65,7 +65,7 @@ HOME_IMAGE=""
 EXTRA_QEMU=()
 
 case "$PROFILE" in
-  session|performance-4g|performance-8g|torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying|torture-reboot-update-phases|torture-root-destruction)
+  session|performance-4g|performance-8g|torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-final-contracts|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying|torture-reboot-update-phases|torture-root-destruction)
     command -v mkfs.ext4 >/dev/null || { echo "maho-vm-certify: missing mkfs.ext4" >&2; exit 2; }
     HOME_IMAGE="$WORK/home-$STAMP-$PROFILE.img"
     truncate -s 8G "$HOME_IMAGE"

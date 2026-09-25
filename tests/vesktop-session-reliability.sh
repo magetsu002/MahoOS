@@ -50,6 +50,10 @@ except RuntimeError:
 else:
     raise AssertionError("patch mismatch did not fail closed")
 
+recovered = module.patch_main(source)
+assert "__mahoVesktopSetupControl" in recovered
+print("PASS Vesktop guard recovers after a rejected runtime shape")
+
 guard = guard_path.read_text()
 assert 'LOCK="$RUNTIME_DIR/maho-vesktop-profile.lock"' in guard
 assert 'SOCKET="$RUNTIME_DIR/maho-vesktop-control.sock"' in guard
