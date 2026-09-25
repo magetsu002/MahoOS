@@ -32,6 +32,7 @@ class MahoDirectoryModel final : public QAbstractListModel
     Q_PROPERTY(bool operationBusy READ operationBusy NOTIFY operationBusyChanged)
     Q_PROPERTY(QString operationMessage READ operationMessage NOTIFY operationMessageChanged)
     Q_PROPERTY(bool canPaste READ canPaste NOTIFY canPasteChanged)
+    Q_PROPERTY(bool canMutateCurrentDirectory READ canMutateCurrentDirectory NOTIFY currentUrlChanged)
 
 public:
     enum Role {
@@ -69,6 +70,7 @@ public:
     bool operationBusy() const;
     QString operationMessage() const;
     bool canPaste() const;
+    bool canMutateCurrentDirectory() const;
 
     Q_INVOKABLE void openUrl(const QUrl &url);
     Q_INVOKABLE void openLocation(const QString &location);
@@ -85,6 +87,7 @@ public:
     Q_INVOKABLE QString nameAt(int row) const;
     Q_INVOKABLE bool isDirectoryAt(int row) const;
     Q_INVOKABLE void createFolder(const QString &name);
+    Q_INVOKABLE void createFile(const QString &name);
     Q_INVOKABLE void renameIndex(int row, const QString &name);
     Q_INVOKABLE void trashIndex(int row);
     Q_INVOKABLE void trashRows(const QVariantList &rows);
@@ -95,7 +98,8 @@ public:
     Q_INVOKABLE void duplicateIndex(int row);
     Q_INVOKABLE void openWithIndex(int row);
     Q_INVOKABLE QString propertiesText(int row) const;
-    Q_INVOKABLE void dropUrls(const QVariantList &values, bool move = false);
+    Q_INVOKABLE bool canDropUrlsTo(const QVariantList &values, const QUrl &destination) const;
+    Q_INVOKABLE void dropUrls(const QVariantList &values, const QUrl &destination, int action);
     Q_INVOKABLE void paste();
 
 signals:
@@ -108,6 +112,7 @@ signals:
     void operationBusyChanged();
     void operationMessageChanged();
     void canPasteChanged();
+    void selectRowRequested(int row);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -137,8 +142,16 @@ private:
     void startDragForRow(int row);
     int fileRowAt(QQuickWindow *window, const QPointF &scenePosition) const;
     int fileRowAtItem(QQuickItem *root, const QPointF &scenePosition) const;
-    void watchJob(KJob *job, const QString &successMessage);
+    void watchJob(KJob *job, const QString &successMessage, const QUrl &selectUrl = {});
     QUrl childUrl(const QString &name) const;
+    QUrl validatedChildUrl(const QString &name, QString *error) const;
+    QList<QUrl> dropUrlsFromValues(const QVariantList &values) const;
+    bool validateDrop(
+        const QList<QUrl> &urls,
+        const QUrl &destination,
+        QString *error,
+        bool rejectSameParent = true) const;
+    static Qt::DropAction naturalDragAction(const QList<QUrl> &urls);
 
     KCoreDirLister m_lister;
     QPointer<KIO::ListJob> m_recentJob;
@@ -162,4 +175,5 @@ private:
     QString m_searchQuery;
     bool m_operationBusy = false;
     QString m_operationMessage;
+    QUrl m_pendingSelectionUrl;
 };

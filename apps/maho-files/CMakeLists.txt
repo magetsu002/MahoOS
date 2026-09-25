@@ -16,6 +16,8 @@ find_package(KF6KIO CONFIG REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
+option(MAHO_FILES_BUILD_TESTS "Build focused Maho Files model tests" OFF)
+
 qt_add_executable(maho-files
     src/main.cpp
     src/MahoDirectoryModel.cpp
@@ -63,6 +65,34 @@ target_link_libraries(maho-files PRIVATE
     KF6::KIOGui
     KF6::KIOFileWidgets
 )
+
+
+if(MAHO_FILES_BUILD_TESTS)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+
+    qt_add_executable(maho-files-model-tests
+        tests/MahoDirectoryModelTest.cpp
+        src/MahoDirectoryModel.cpp
+        src/MahoDirectoryModel.h
+    )
+    target_include_directories(maho-files-model-tests PRIVATE src)
+    target_link_libraries(maho-files-model-tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::Quick
+        Qt6::Test
+        KF6::KIOCore
+        KF6::KIOGui
+        KF6::KIOFileWidgets
+    )
+
+    enable_testing()
+    add_test(NAME maho-files-model-ops COMMAND maho-files-model-tests)
+    set_tests_properties(maho-files-model-ops PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+endif()
 
 install(TARGETS maho-files
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
