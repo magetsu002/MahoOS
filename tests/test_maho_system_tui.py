@@ -25,7 +25,11 @@ def check(name: str, condition: bool) -> None:
 
 def fixture(preferences=None, *, active: bool = False, severity_level: int = 1, incident: bool = True):
     guardian = {
-        "system": {"current_system_generation": None, "current_kernel_generation": None, "maho_runtime": {"verified": True}},
+        "system": {
+            "current_system_generation": None, "current_kernel_generation": None,
+            "active_package_transaction_generation": None,
+            "maho_runtime": {"verified": True, "deployment_class": "production", "source_revision": "a" * 40, "content_sha256": "b" * 64},
+        },
         "reliability": {"state": "healthy", "counts": {"healthy": 4, "degraded": 0, "unknown": 0}},
         "world_state": {"guardian": {
             "self_health": {"state": "HEALTHY", "missing_providers": [], "stale_providers": []},
@@ -105,6 +109,12 @@ def fixture(preferences=None, *, active: bool = False, severity_level: int = 1, 
             "last_verified_recovery": None, "invalid_unified_history_records": 0,
         },
         preferences=preferences or defaults(),
+        firewall={"decision_usable": True, "receipt_valid": True, "result": "protected", "reasons": []},
+        generation_gc={
+            "authority": "durable-inventory", "reserve_restored": True,
+            "free_bytes": 10_000, "safe_reserve_bytes": 2_000,
+            "reclaimable_bytes": 500, "protected_bytes": 8_000,
+        },
     )
 
 
@@ -118,6 +128,8 @@ def rebuild(model, *, guardian=None, update=None, behavior=None, recovery=None, 
         preferences=model.preferences,
         collection_errors=collection_errors,
         login=model.login,
+        firewall=model.firewall,
+        generation_gc=model.generation_gc,
     )
 
 
@@ -135,6 +147,21 @@ def main() -> None:
             )
     too_small = render(model, width=59, height=17)
     check("too-small terminal screen remains available", "Terminal too small" in too_small and len(too_small.splitlines()) == 17)
+    identity_guardian = deepcopy(model.guardian)
+    identity_guardian["system"].update({
+        "current_system_generation": "gen-fixture",
+        "current_kernel_generation": "kgen-fixture",
+        "active_package_transaction_generation": "pkg-fixture",
+    })
+    identity_model = rebuild(model, guardian=identity_guardian)
+    overview = render(identity_model, page="Overview", width=120, height=35)
+    check("Overview exposes live identities and protection posture", all(value in overview for value in ("gen-fixture", "kgen-fixture", "pkg-fixture", "Firewall Protected", "current + 2")))
+    trust = render(identity_model, page="Trust", width=120, height=35)
+    check("Trust exposes PackageGeneration and exact runtime identity", "PackageGeneration" in trust and "Runtime" in trust and "aaaaaaaaaaaaaaaa" in trust)
+    updates = render(model, page="Updates", width=120, height=35)
+    check("Updates exposes disk reserve and reclaimable state", "Storage" in updates and "reclaimable 500" in updates and "reserve ready" in updates)
+    recovery = render(model, page="Recovery", width=120, height=35)
+    check("Recovery exposes generation retention policy", "RETENTION" in recovery and "current + 2" in recovery)
 
     severity_labels = {0: "normal", 1: "minor", 2: "moderate", 3: "serious", 4: "critical"}
     for level, label in severity_labels.items():
@@ -156,6 +183,7 @@ def main() -> None:
     trusted_recovery = deepcopy(trusted_base.recovery)
     trusted_guardian["system"]["current_system_generation"] = "sys-gen-fixture"
     trusted_guardian["system"]["current_kernel_generation"] = "kernel-gen-fixture"
+    trusted_guardian["system"]["active_package_transaction_generation"] = "pkg-gen-fixture"
     trusted_guardian["boot"].update({
         "signed_boot_authority": "VERIFIED",
         "boot_authority_id": "boot-authority-fixture",
@@ -353,9 +381,14 @@ def main() -> None:
     for count, selected, capacity, offset in ((20, 0, 5, 10), (20, 19, 5, 0), (3, 2, 8, 0)):
         start, end, normalized = viewport_bounds(count, selected, capacity, offset)
         check(f"viewport keeps row {selected} reachable", start <= normalized < end)
-    chosen = model.diagnostics[6].id
+    original_doctor_view = [
+        item for item in model.diagnostics
+        if item.attention or (item.state != "PASS" and item.id not in {"provider.environment.power", "provider.environment.thermal"})
+    ]
+    chosen_index = min(6, len(original_doctor_view) - 1)
+    chosen = original_doctor_view[chosen_index].id
     reordered = replace(model, diagnostics=tuple(reversed(model.diagnostics)))
-    restored = restore_selection(reordered, "Doctor", chosen, 6)
+    restored = restore_selection(reordered, "Doctor", chosen, chosen_index)
     doctor_view = [
         item for item in reordered.diagnostics
         if item.attention or (item.state != "PASS" and item.id not in {"provider.environment.power", "provider.environment.thermal"})

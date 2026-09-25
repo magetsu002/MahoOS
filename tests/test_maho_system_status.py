@@ -47,6 +47,8 @@ def build(**overrides):
         "recovery": {"recovery_modes": ["RUNTIME"], "last_verified_runtime_recovery": {"valid": True, "campaign_id": "runtime-test", "reason": "verified"}, "invalid_unified_history_records": 0},
         "preferences": defaults(),
         "login": {"state": "PASS", "failed_checks": []},
+        "firewall": {"decision_usable": True, "receipt_valid": True, "result": "protected", "reasons": []},
+        "generation_gc": {"authority": "durable-inventory", "reserve_restored": True, "free_bytes": 1000, "reclaimable_bytes": 0, "safe_reserve_bytes": 100, "protected_bytes": 900},
     }
     values.update(overrides)
     return build_system_model(**values)
@@ -63,6 +65,7 @@ def main() -> None:
     login = next(item for item in model.diagnostics if item.id == "platform.login")
     check("Doctor exposes a distinct Platform/Login contract", login.state == "PASS" and login.subsystem == "Platform/Login")
     check("system model is stable JSON", json.loads(json.dumps(model.as_dict()))["schema_version"] == 1)
+    check("system model preserves firewall and GC evidence", model.firewall["result"] == "protected" and model.generation_gc["authority"] == "durable-inventory")
 
     degraded = build(guardian=guardian_fixture(reliability="degraded", trust="VERIFIED", incident_level=2))
     check("degraded operation can retain verified trust", degraded.summary.operational_health == "DEGRADED" and degraded.summary.trust == "VERIFIED")

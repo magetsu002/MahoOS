@@ -181,6 +181,8 @@ def _overview(model: SystemModel, width: int) -> list[str]:
     else:
         live_text = "Activation has not occurred; the current live system remains active."
     groups = attention_groups(model)
+    system = _obj(model.guardian.get("system"))
+    runtime = _obj(system.get("maho_runtime"))
     rows = [
         f"SYSTEM      {_human_state(summary.operational_health)}",
         _system_guidance(summary.operational_health),
@@ -193,6 +195,12 @@ def _overview(model: SystemModel, width: int) -> list[str]:
         "",
         f"ACTIVITY    {activity}",
         live_text,
+        "",
+        f"IDENTITY    System {short_id(str(system.get('current_system_generation') or 'unknown'), 22)}",
+        f"            Kernel {short_id(str(system.get('current_kernel_generation') or 'unknown'), 22)} · Package {short_id(str(system.get('active_package_transaction_generation') or 'unknown'), 22)}",
+        f"RUNTIME     {short_id(str(runtime.get('source_revision') or 'unknown'), 16)} · {'production verified' if runtime.get('verified') is True and runtime.get('deployment_class') == 'production' else 'not fully verified'}",
+        f"PROTECTION  Firewall {_firewall_display(model)} · Prevention {_prevention_display(model)}",
+        f"RETENTION   {_gc_display(model)}",
         "",
         f"NEEDS ATTENTION    {len(groups)} root issue{'s' if len(groups) != 1 else ''}",
     ]
@@ -327,6 +335,31 @@ def _human_state(value: Any) -> str:
     }.get(raw, raw.replace("_", " ").title())
 
 
+def _firewall_display(model: SystemModel) -> str:
+    if model.firewall.get("decision_usable") is True and model.firewall.get("receipt_valid") is True:
+        return "Protected" if str(model.firewall.get("result")).lower() == "protected" else "Unprotected"
+    return "Unknown"
+
+
+def _prevention_display(model: SystemModel) -> str:
+    prevention = _obj(model.guardian.get("prevention"))
+    state = str(prevention.get("state") or "inactive-or-no-evidence")
+    if int(prevention.get("invalid_records", 0) or 0):
+        return "Evidence invalid"
+    if state == "inactive-or-no-evidence":
+        return "Not activated"
+    return _human_state(state)
+
+
+def _gc_display(model: SystemModel) -> str:
+    gc = model.generation_gc
+    if not gc:
+        return "Unknown"
+    reserve = "reserve ready" if gc.get("reserve_restored") is True else "reserve blocked"
+    authority = "durable" if gc.get("authority") == "durable-inventory" else "read-only"
+    return f"current + 2 · {reserve} · {authority}"
+
+
 def _boot_trust_display(boot: Mapping[str, Any]) -> str:
     raw = str(boot.get("signed_boot_authority") or "UNKNOWN").upper()
     reason = str(boot.get("trust_reason") or "").lower()
@@ -426,6 +459,7 @@ def _trust(model: SystemModel, width: int) -> list[str]:
         ("Boot authority", _boot_authority_display(model)),
         ("SystemGeneration", _generation_link(model, "current_system_generation")),
         ("KernelGeneration", _generation_link(model, "current_kernel_generation")),
+        ("PackageGeneration", _generation_link(model, "active_package_transaction_generation")),
         ("Maho runtime", "Verified" if runtime.get("verified") is True else "Unknown"),
         ("Guardian observation", _guardian_observation_display(model)),
         ("Overall trust", overall),
@@ -441,6 +475,11 @@ def _trust(model: SystemModel, width: int) -> list[str]:
             else:
                 rows.append("        ↓")
     rows += [
+        "",
+        f"System ID   {system.get('current_system_generation') or 'not published'}",
+        f"Kernel ID   {system.get('current_kernel_generation') or 'not published'}",
+        f"Package ID  {system.get('active_package_transaction_generation') or 'not published'}",
+        f"Runtime     {runtime.get('source_revision') or 'unknown'} · {runtime.get('content_sha256') or 'content unknown'}",
         "",
         "A running component is not automatically trusted.",
         "Verified downstream runtime evidence does not repair an upstream trust break.",
@@ -497,6 +536,11 @@ def _updates(model: SystemModel, state: UIState, width: int) -> list[str]:
             else "Current root  Still active and untouched by candidate activation."
         ),
         f"Activation    {'required' if receipt.get('activation_required') is True else 'not required'} · reboot {reboot}",
+        (
+            f"Storage       free {model.generation_gc.get('free_bytes', 'unknown')} · "
+            f"reclaimable {model.generation_gc.get('reclaimable_bytes', 'unknown')} · "
+            f"reserve {'ready' if model.generation_gc.get('reserve_restored') is True else 'blocked'}"
+        ),
     ]
     blockers = update.get("blockers") if isinstance(update.get("blockers"), list) else []
     if blockers:
@@ -627,6 +671,7 @@ def _recovery(model: SystemModel, width: int) -> list[str]:
         f"             Native {native_campaign} · Runtime {runtime_campaign}",
         f"CURRENT      {_human_state(guardian_recovery.get('state'))} · last native {native_campaign}",
         f"HISTORY      {recovery.get('unified_history_count', 0)} records · {recovery.get('invalid_unified_history_records', 0)} invalid",
+        f"RETENTION    {_gc_display(model)} · protected {model.generation_gc.get('protected_bytes', 'unknown')} bytes",
         (
             "             Integrity requires review."
             if int(recovery.get("invalid_unified_history_records", 0) or 0)
@@ -731,6 +776,7 @@ def _raw(
         "Updates": model.update,
         "Behavior": model.behavior,
         "Recovery": model.recovery,
+        "Platform": {"firewall": model.firewall, "generation_gc": model.generation_gc, "prevention": model.guardian.get("prevention", {})},
         "Logs / Evidence": _selected_evidence_payload(model, state or UIState(page_index=PAGES.index("Logs / Evidence"))),
     }.get(page, model.as_dict(include_evidence=True))
     encoded = json.dumps(value, indent=2, sort_keys=True, default=str).splitlines()

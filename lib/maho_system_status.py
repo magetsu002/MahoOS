@@ -6,8 +6,9 @@ existing contracts into one bounded vocabulary for presentation.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import shutil
 from typing import Any, Mapping, Sequence
 
 from guardian_completion_status import enrich_status
@@ -19,6 +20,13 @@ from maho_adaptive_shadow import repo_root, state_root as behavior_state_root
 from maho_behavior_preferences import BehaviorPreferences, load_preferences
 from maho_update_cli import status_payload as update_status
 from maho_login_diagnostic import collect_login_diagnostic
+from maho_firewall_receipt import verify as firewall_status
+from maho_generation_gc import inventory_from_generation_store, inventory_status as generation_gc_status, read_inventory
+
+
+GENERATION_ROOT = Path("/var/lib/maho/generations")
+GENERATION_GC_INVENTORY = Path("/var/lib/maho/gc/inventory.json")
+SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 DIAGNOSTIC_STATES = frozenset({"PASS", "WARN", "FAIL", "UNKNOWN", "BLOCKED"})
@@ -73,6 +81,8 @@ class SystemModel:
     recovery: Mapping[str, Any]
     login: Mapping[str, Any]
     preferences: BehaviorPreferences
+    firewall: Mapping[str, Any] = field(default_factory=dict)
+    generation_gc: Mapping[str, Any] = field(default_factory=dict)
     collection_errors: tuple[str, ...] = ()
 
     def as_dict(self, *, include_evidence: bool = False) -> dict[str, Any]:
@@ -92,6 +102,8 @@ class SystemModel:
                 "behavior_doctor": dict(self.behavior_doctor),
                 "recovery": dict(self.recovery),
                 "login": dict(self.login),
+                "firewall": dict(self.firewall),
+                "generation_gc": dict(self.generation_gc),
             }
         return result
 
@@ -138,6 +150,8 @@ def _diagnostics(
     adaptive_doctor: Mapping[str, Any], recovery: Mapping[str, Any],
     preferences: BehaviorPreferences, collection_errors: Sequence[str],
     login: Mapping[str, Any] | None = None,
+    firewall: Mapping[str, Any] | None = None,
+    generation_gc: Mapping[str, Any] | None = None,
 ) -> tuple[DiagnosticRecord, ...]:
     records: list[DiagnosticRecord] = []
     world_guardian = _world_guardian(guardian)
@@ -158,6 +172,49 @@ def _diagnostics(
         "platform.reliability", "Platform", rel_diag, "Operational reliability",
         f"Reliability is {reliability_state}; {counts.get('healthy', 0)} healthy, {counts.get('degraded', 0)} degraded, {counts.get('unknown', 0)} unknown findings.",
         ("guardian.reliability",), "Inspect the non-healthy reliability findings." if rel_diag != "PASS" else "No action required.",
+    ))
+
+    firewall = firewall or {}
+    firewall_usable = firewall.get("decision_usable") is True and firewall.get("receipt_valid") is True
+    firewall_result = str(firewall.get("result") or "unknown").lower()
+    firewall_diag = "PASS" if firewall_usable and firewall_result == "protected" else "FAIL" if firewall_usable else "UNKNOWN"
+    firewall_reasons = firewall.get("reasons") if isinstance(firewall.get("reasons"), list) else []
+    records.append(_diag(
+        "platform.firewall", "Platform/Firewall", firewall_diag, "Host firewall receipt",
+        (
+            "Current-boot root receipt verifies exact table inet maho_host and the packaged policy."
+            if firewall_diag == "PASS" else
+            "; ".join(map(str, firewall_reasons[:3])) or "Current-boot firewall receipt is unavailable or unusable."
+        ),
+        ("firewall.receipt",),
+        "Restore the root-owned observer and verify a fresh current-boot receipt." if firewall_diag != "PASS" else "No action required.",
+    ))
+
+    prevention = _object(guardian.get("prevention"))
+    prevention_state = str(prevention.get("state") or "inactive-or-no-evidence")
+    prevention_invalid = int(prevention.get("invalid_records", 0) or 0)
+    prevention_diag = "FAIL" if prevention_invalid else "PASS" if prevention_state not in {"unreadable"} else "UNKNOWN"
+    records.append(_diag(
+        "platform.prevention", "Platform/Prevention", prevention_diag, "Prevention V1 stance",
+        f"State is {prevention_state}; {int(prevention.get('prevented_count', 0) or 0)} prevented event(s), {prevention_invalid} invalid record(s).",
+        ("guardian.prevention",),
+        "Inspect prevention evidence integrity." if prevention_invalid else "No action required; physical prevention activation remains a separate explicit boundary.",
+        attention=prevention_invalid > 0,
+    ))
+
+    generation_gc = generation_gc or {}
+    reserve_ok = generation_gc.get("reserve_restored") is True
+    gc_authority = str(generation_gc.get("authority") or "unknown")
+    gc_diag = "PASS" if reserve_ok else "FAIL" if generation_gc else "UNKNOWN"
+    records.append(_diag(
+        "platform.generation-retention", "Platform/Storage", gc_diag, "Generation retention and disk reserve",
+        (
+            f"Authority {gc_authority}; free {generation_gc.get('free_bytes', 'unknown')} bytes, "
+            f"reclaimable {generation_gc.get('reclaimable_bytes', 'unknown')} bytes, "
+            f"safe reserve {generation_gc.get('safe_reserve_bytes', 'unknown')} bytes."
+        ),
+        ("generation_gc.status",),
+        "Reclaim only GC-eligible state or stop update mutation." if not reserve_ok else "No action required.",
     ))
 
     login = login or {}
@@ -356,10 +413,13 @@ def build_system_model(
     behavior: Mapping[str, Any] | None, adaptive_doctor: Mapping[str, Any],
     recovery: Mapping[str, Any], preferences: BehaviorPreferences,
     collection_errors: Sequence[str] = (), login: Mapping[str, Any] | None = None,
+    firewall: Mapping[str, Any] | None = None,
+    generation_gc: Mapping[str, Any] | None = None,
 ) -> SystemModel:
     behavior_map = behavior or {}
     diagnostics = _diagnostics(
-        guardian, update, behavior_map, adaptive_doctor, recovery, preferences, collection_errors, login,
+        guardian, update, behavior_map, adaptive_doctor, recovery, preferences, collection_errors,
+        login, firewall, generation_gc,
     )
     world_guardian = _world_guardian(guardian)
     reliability_state = str(_object(guardian.get("reliability")).get("state", "unknown")).lower()
@@ -414,6 +474,7 @@ def build_system_model(
         events=_events(guardian, update, behavior_map, recovery),
         guardian=guardian, update=update, behavior=behavior_map,
         behavior_doctor=adaptive_doctor, recovery=recovery, login=login or {}, preferences=preferences,
+        firewall=firewall or {}, generation_gc=generation_gc or {},
         collection_errors=tuple(collection_errors),
     )
 
@@ -447,9 +508,29 @@ def collect_system_model(paths: LivePaths | None = None) -> SystemModel:
         ), {},
     )
     login = collect("login", collect_login_diagnostic, {"state": "UNKNOWN", "failed_checks": ["collector_unavailable"]})
+    firewall = collect(
+        "firewall",
+        lambda: firewall_status(root=paths.runtime_root / "current"),
+        {"state": "unknown", "result": "unknown", "verified": False, "decision_usable": False, "receipt_valid": False, "reasons": ["collector unavailable"]},
+    )
+
+    def collect_gc() -> Mapping[str, Any]:
+        durable = GENERATION_GC_INVENTORY.is_file()
+        inventory = read_inventory(GENERATION_GC_INVENTORY) if durable else inventory_from_generation_store(GENERATION_ROOT)
+        value = generation_gc_status(
+            inventory,
+            free_bytes=shutil.disk_usage(GENERATION_ROOT).free,
+            safe_reserve_bytes=SAFE_STORAGE_RESERVE_BYTES,
+        )
+        value["authority"] = "durable-inventory" if durable else "generation-store-adapter"
+        value["mutation_supported"] = durable
+        return value
+
+    generation_gc = collect("generation-gc", collect_gc, {"authority": "unknown", "reserve_restored": False})
     preferences = load_preferences()
     return build_system_model(
         guardian=guardian, update=update, behavior=behavior,
         adaptive_doctor=adaptive_doctor, recovery=recovery,
         preferences=preferences, collection_errors=errors, login=login,
+        firewall=firewall, generation_gc=generation_gc,
     )
