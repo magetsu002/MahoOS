@@ -26,5 +26,8 @@ identities, reclaimed bytes, and reserve outcome.
 
 `maho-generation-gc status` is unprivileged and read-only. Installations that
 predate a durable GC inventory are adapted from verified generation-store
-manifests with mutation disabled. `apply` and `resume` require root, a durable
-inventory, and (for apply) the exact `GC:<plan-sha256>` confirmation token.
+manifests with mutation disabled. A bounded root deployment may perform the
+single-use `initialize` operation to publish that exact discovered inventory;
+it refuses to replace an existing inventory. `apply` and `resume` require root,
+a durable inventory, and (for apply) the exact `GC:<plan-sha256>` confirmation
+token.

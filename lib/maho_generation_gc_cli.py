@@ -11,7 +11,7 @@ import sys
 
 from maho_generation_gc import (
     GCExecutor, InventoryError, RetentionPlan, inventory_from_generation_store,
-    inventory_status, plan_retention, read_inventory,
+    inventory_status, plan_retention, read_inventory, write_inventory,
 )
 
 
@@ -44,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser = subparsers.add_parser("apply")
     apply_parser.add_argument("--plan", type=Path, required=True)
     apply_parser.add_argument("--confirm", required=True)
+    subparsers.add_parser("initialize")
     subparsers.add_parser("resume")
     args = parser.parse_args(argv)
 
@@ -80,6 +81,20 @@ def main(argv: list[str] | None = None) -> int:
 
         if os.geteuid() != 0:
             raise PermissionError("GC mutation requires the bounded privileged boundary")
+        if args.command == "initialize":
+            if args.inventory.exists():
+                raise PermissionError("durable GC inventory already exists; initialization is single-use")
+            inventory = inventory_from_generation_store(args.generation_root)
+            write_inventory(args.inventory, inventory)
+            _emit({
+                "schema_version": 1,
+                "kind": "maho-generation-gc-initialization",
+                "inventory": str(args.inventory),
+                "inventory_sha256": inventory.inventory_sha256,
+                "object_count": len(inventory.objects),
+                "mutation_authority": "exact discovered generation-store objects only",
+            })
+            return 0
         executor = GCExecutor(
             inventory_path=args.inventory,
             data_root=args.generation_root,
