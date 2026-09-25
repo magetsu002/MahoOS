@@ -155,6 +155,36 @@ def bounded_lines(lines: Sequence[str], height: int, width: int, more: str = "â€
     return result
 
 
+def decode_escape_sequence(raw: bytes) -> str:
+    """Decode one complete terminal escape sequence into a semantic key."""
+    exact = {
+        b"\x1b[A": "up", b"\x1b[B": "down", b"\x1b[C": "right",
+        b"\x1b[D": "left", b"\x1bOA": "up", b"\x1bOB": "down",
+        b"\x1bOC": "right", b"\x1bOD": "left",
+        b"\x1b[Z": "shift-tab",
+        b"\x1b[5~": "page-up", b"\x1b[6~": "page-down",
+        b"\x1b[H": "home", b"\x1b[1~": "home", b"\x1bOH": "home",
+        b"\x1b[F": "end", b"\x1b[4~": "end", b"\x1bOF": "end",
+    }
+    if raw in exact:
+        return exact[raw]
+    if raw.startswith(b"\x1b[") and raw[-1:] in {b"A", b"B", b"C", b"D"}:
+        return {b"A": "up", b"B": "down", b"C": "right", b"D": "left"}[raw[-1:]]
+    if raw.startswith(b"\x1b[<") and raw[-1:] in {b"M", b"m"}:
+        try:
+            button, x, y = (int(value) for value in raw[3:-1].decode("ascii").split(";"))
+        except (UnicodeDecodeError, ValueError):
+            return "unknown"
+        if button & 64:
+            return f"mouse-wheel-{'down' if button & 1 else 'up'}:{x}:{y}"
+        if raw[-1:] == b"M" and button & 3 == 0:
+            return f"mouse-left:{x}:{y}"
+        return "mouse"
+    if raw == b"\x1b":
+        return "escape"
+    return "unknown"
+
+
 def read_key(stdin: TextIO, timeout: float | None = None) -> str:
     """Read one navigation key; raw mode is used only for a real TTY."""
     is_tty = bool(getattr(stdin, "isatty", lambda: False)())
@@ -174,15 +204,14 @@ def read_key(stdin: TextIO, timeout: float | None = None) -> str:
             return "q"
         if first == b"\x1b":
             sequence = bytearray(first)
-            while len(sequence) < 3:
-                ready, _, _ = select.select([fd], [], [], 0.04)
+            while len(sequence) < 64:
+                ready, _, _ = select.select([fd], [], [], 0.01)
                 if not ready:
                     break
                 sequence.extend(os.read(fd, 1))
-            return {
-                b"\x1b[A": "up", b"\x1b[B": "down", b"\x1b[C": "right",
-                b"\x1b[D": "left", b"\x1b[Z": "shift-tab",
-            }.get(bytes(sequence), "escape")
+                if len(sequence) >= 3 and 0x40 <= sequence[-1] <= 0x7e:
+                    break
+            return decode_escape_sequence(bytes(sequence))
         if first == b"\t":
             return "tab"
         if first in {b"\r", b"\n"}:
