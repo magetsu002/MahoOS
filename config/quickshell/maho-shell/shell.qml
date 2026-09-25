@@ -694,7 +694,13 @@ ShellRoot {
                     onVolumeRequested: function(value) { audio.setVolume(value) }
                     onBrightnessRequested: function(value) { brightness.setValue(value) }
 
-                    onWifiRequested: { root.closePanel(); Quickshell.execDetached(["bash", Quickshell.env("HOME") + "/.local/bin/maho-link"]) }
+                    onWifiRequested: {
+                        root.closePanel()
+                        Quickshell.execDetached([
+                            Quickshell.env("HOME") + "/.local/bin/maho-link",
+                            "wifi"
+                        ])
+                    }
                     onBluetoothRequested: {
                         root.closePanel()
                         Quickshell.execDetached([

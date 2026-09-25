@@ -13,8 +13,8 @@ MODE="wifi"
 
 case "${1:-wifi}" in
     wifi|bluetooth)
-        MODE="$1"
-        [ "$#" -eq 1 ] || {
+        MODE="${1:-wifi}"
+        [ "$#" -le 1 ] || {
             echo "maho-link: too many arguments" >&2
             exit 2
         }

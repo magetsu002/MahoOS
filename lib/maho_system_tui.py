@@ -12,7 +12,7 @@ from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from maho_behavior_preferences import SPECS, write_preference
 from maho_system_status import DiagnosticRecord, SystemModel, collect_system_model
-from maho_tui import box, bounded_lines, clip, read_key, short_id
+from maho_tui import box, bounded_lines, clip, navigation_input_mode, read_key, short_id
 
 
 PAGES = (
@@ -977,6 +977,8 @@ def interactive(
         last_refresh = time.monotonic()
         dirty = True
 
+    input_mode = navigation_input_mode(stdin)
+    input_mode.__enter__()
     if tty_output:
         mouse_on = "\033[?1000h\033[?1006h" if tty_input else ""
         stdout.write("\033[?1049h\033[?25l" + mouse_on)
@@ -1110,6 +1112,7 @@ def interactive(
                     state.show_detail = not state.show_detail
             state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
     finally:
+        input_mode.__exit__(None, None, None)
         if tty_output:
             mouse_off = "\033[?1000l\033[?1006l" if tty_input else ""
             stdout.write(mouse_off + "\033[?25h\033[?1049l")
