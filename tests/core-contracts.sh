@@ -269,4 +269,8 @@ for test in "$ROOT"/tests/test_adaptive_*.py; do
   python "$test"
 done
 
+PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_generation_gc.py"
+PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_maho_update_preparation.py"
+PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_maho_update_normal.py"
+
 echo "ALL CORE CONTRACTS PASS"

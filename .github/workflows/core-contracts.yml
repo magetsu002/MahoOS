@@ -118,8 +118,6 @@ jobs:
             lib/maho_boot_publication.py \
             lib/maho_kernel_security.py \
             lib/maho_release_manifest.py \
-            lib/maho_generation_gc.py \
-            lib/maho_generation_gc_cli.py \
             lib/maho_secure_boot.py \
             tools/build-qemu-secure-boot-fixtures.py \
             tools/qemu-secure-boot-certify.py \
@@ -131,7 +129,6 @@ jobs:
             tests/test_guardian_security_recovery.py \
             tests/test_guardian_reliability.py \
             tests/test_guardian_completion_status.py \
-            tests/test_generation_gc.py \
             config/quickshell/maho-shell/state.py \
             config/quickshell/maho-notify/state.py
 
@@ -262,14 +259,6 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/shell-contracts.sh
-
-      - name: Generation retention and fault matrix
-        shell: bash
-        run: |
-          set -euo pipefail
-          PYTHONPATH=lib python tests/test_generation_gc.py
-          PYTHONPATH=lib python tests/test_maho_update_preparation.py
-          PYTHONPATH=lib python tests/test_maho_update_normal.py
 
   setup-lifecycle:
     runs-on: ubuntu-latest
