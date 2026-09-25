@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_evidence import EvidenceFreshness, ProviderHealth  # noqa: E402
-from guardian_live_state import LivePaths, ProviderSpec, _provider_envelope  # noqa: E402
+from guardian_live_state import LivePaths, ProviderSpec, _provider_envelope, _trust_signals  # noqa: E402
+from guardian_world_state import GuardianTrustState  # noqa: E402
 from guardian_provider_state import record_heartbeat  # noqa: E402
 
 NOW = datetime(2026, 9, 15, 8, 30, tzinfo=timezone.utc)
@@ -112,6 +113,10 @@ def main() -> None:
         state_file.unlink()
         missing_state, _ = _provider_envelope(p, SPEC, state_root=p.security_root, now=NOW)
         check("fresh heartbeat cannot make disappeared provider state healthy", missing_state.health is ProviderHealth.UNKNOWN and not missing_state.decision_usable(now=NOW))
+
+    signals = _trust_signals((), {"verified": True, "trust_eligible": False}, None, now=NOW)
+    runtime_signal = next(item for item in signals if item.provider_id == "maho.runtime")
+    check("verified development runtime cannot claim production trust", runtime_signal.state is GuardianTrustState.DEGRADED)
 
     print("ALL GUARDIAN LIVE STATE TESTS PASS")
 

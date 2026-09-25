@@ -13,14 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from guardian_admission import AdmissionOutcome  # noqa: E402
+import guardian_native_admission as guardian_native  # noqa: E402
 from guardian_native_admission import CandidateRoots  # noqa: E402
 from maho_update_admission import (  # noqa: E402
     ProductionAdmissionError,
     admission_review_confirmation,
+    approve_frozen_production_admission,
     evaluate_normal_production_candidate,
     evaluate_production_candidate,
+    freeze_admission_evidence,
     guardian_transaction_id,
     issue_activation_authority,
+    issue_frozen_activation_authority,
+    verify_frozen_activation_authority,
     verify_activation_authority,
 )
 from maho_update_state import create_transaction  # noqa: E402
@@ -127,7 +132,7 @@ def physical_transaction() -> dict:
 
 def physical_boundary_roots(
     base: Path, *, extra_boot: bool = False, extra_kernel: bool = False,
-    extra_override: bool = False,
+    extra_source: bool = False, extra_override: bool = False,
 ) -> CandidateRoots:
     before = base / "base"
     candidate = base / "candidate"
@@ -144,7 +149,7 @@ def physical_boundary_roots(
         ],
         "linux-headers": [f"/usr/lib/modules/{old_release}/build/header.h"],
         "jdk-openjdk": ["/usr/lib/jvm/java-26-openjdk/bin/java"],
-        "brave-bin": ["/usr/bin/brave", "/usr/src/debug/brave-bin/old.debug"],
+        "brave-bin": ["/usr/bin/brave", "/usr/src/debug/brave-bin/"],
         "java-runtime-common": ["/usr/lib/jvm/default", "/usr/lib/jvm/default-runtime"],
         "stable-owner": ["/usr/bin/stable-owned"],
     }
@@ -176,7 +181,7 @@ def physical_boundary_roots(
     write_symlink(before, "/usr/lib/jvm/default", "java-26-openjdk")
     write_symlink(before, "/usr/lib/jvm/default-runtime", "java-26-openjdk")
     write_file(before, "/usr/bin/brave", b"brave-1", 0o755)
-    write_file(before, "/usr/src/debug/brave-bin/old.debug", b"debug")
+    (before / "usr/src/debug/brave-bin").mkdir()
     write_file(before, "/usr/bin/stable-owned", b"stable", 0o755)
     write_file(before, f"/var/lib/dkms/nvidia/580.178.04/{old_release}/x86_64/module/nvidia.ko.zst", b"old-dkms")
     write_symlink(before, f"/var/lib/dkms/nvidia/kernel-{old_release}-x86_64", f"580.178.04/{old_release}/x86_64")
@@ -200,6 +205,8 @@ def physical_boundary_roots(
         write_file(candidate, "/boot/rogue.efi", b"rogue")
     if extra_kernel:
         write_file(candidate, "/usr/lib/modules/evil-release/rogue.ko", b"rogue")
+    if extra_source:
+        (candidate / "usr/src/debug/not-in-transaction").mkdir(parents=True)
 
     return CandidateRoots.create(
         transaction_id=guardian_transaction_id(TX),
@@ -237,6 +244,38 @@ def main() -> None:
             transaction=tx, plan=plan, source_revision=SOURCE,
         )
         check("exact Admission authority survives process-boundary serialization", verified.authority_id == authority.authority_id)
+        allow_base_uuid = "88888888-8888-8888-8888-888888888888"
+        allow_boot_hashes = {"/boot/vmlinuz-demo": "8" * 64}
+        frozen_allow = freeze_admission_evidence(
+            result,
+            update_transaction_id=TX,
+            transaction=tx,
+            source_revision=SOURCE,
+            candidate_btrfs_uuid=roots.candidate_id,
+            base_btrfs_uuid=allow_base_uuid,
+            candidate_boot_sha256=allow_boot_hashes,
+        )
+        frozen_allow_authority = issue_frozen_activation_authority(
+            result,
+            frozen_allow.as_dict(),
+            update_transaction_id=TX,
+            transaction=tx,
+            source_revision=SOURCE,
+        )
+        allow_approval = {
+            "decision": result.decision.as_dict(),
+            "promotion_authority": result.promotion_authority.as_dict(),
+            "frozen_admission_evidence_id": str(frozen_allow.evidence_id),
+        }
+        check(
+            "initial bounded ALLOW consumes frozen authority without rescanning",
+            verify_frozen_activation_authority(
+                frozen_allow_authority.as_dict(), frozen_allow.as_dict(), result.as_dict(), allow_approval,
+                roots=roots, update_transaction_id=TX, transaction=tx, source_revision=SOURCE,
+                candidate_btrfs_uuid=roots.candidate_id, base_btrfs_uuid=allow_base_uuid,
+                candidate_boot_sha256=allow_boot_hashes,
+            ).authority_id == frozen_allow_authority.authority_id,
+        )
         boot_generation = SimpleNamespace(
             boot_generation_id="bootgen-" + "1" * 64,
             source_revision=SOURCE,
@@ -285,6 +324,134 @@ def main() -> None:
             )
             check("exact reviewed graph alone becomes ALLOW", approved.decision.outcome is AdmissionOutcome.ALLOW and approved.promotion_authority is not None)
             check("different graph cannot reuse review approval", approved.inspection.graph.graph_id == reviewed.inspection.graph.graph_id)
+
+            base_uuid = "55555555-5555-5555-5555-555555555555"
+            boot_hashes = {"/boot/vmlinuz-demo": "b" * 64}
+            frozen = freeze_admission_evidence(
+                reviewed,
+                update_transaction_id=TX,
+                transaction=tx,
+                source_revision=SOURCE,
+                candidate_btrfs_uuid=review_roots.candidate_id,
+                base_btrfs_uuid=base_uuid,
+                candidate_boot_sha256=boot_hashes,
+            )
+            original_inspect = guardian_native.inspect_candidate
+            guardian_native.inspect_candidate = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("duplicate full-root inspection invoked")
+            )
+            try:
+                approval, frozen_authority = approve_frozen_production_admission(
+                    frozen.as_dict(),
+                    reviewed.as_dict(),
+                    roots=review_roots,
+                    reviewed_graph_id=reviewed.inspection.graph.graph_id,
+                    update_transaction_id=TX,
+                    transaction=tx,
+                    source_revision=SOURCE,
+                    candidate_btrfs_uuid=review_roots.candidate_id,
+                    base_btrfs_uuid=base_uuid,
+                    candidate_boot_sha256=boot_hashes,
+                )
+                check(
+                    "exact frozen REVIEW approval reaches ALLOW without rescanning",
+                    approval["decision"]["outcome"] == "ALLOW"
+                    and approval["decision"]["reasons"] == ["exact_known_safe_transition"],
+                )
+                consumed = verify_frozen_activation_authority(
+                    frozen_authority.as_dict(),
+                    frozen.as_dict(),
+                    reviewed.as_dict(),
+                    approval,
+                    roots=review_roots,
+                    update_transaction_id=TX,
+                    transaction=tx,
+                    source_revision=SOURCE,
+                    candidate_btrfs_uuid=review_roots.candidate_id,
+                    base_btrfs_uuid=base_uuid,
+                    candidate_boot_sha256=boot_hashes,
+                )
+                check(
+                    "frozen activation authority verifies without rescanning",
+                    consumed.authority_id == frozen_authority.authority_id,
+                )
+            finally:
+                guardian_native.inspect_candidate = original_inspect
+
+            frozen_args = {
+                "roots": review_roots,
+                "update_transaction_id": TX,
+                "transaction": tx,
+                "source_revision": SOURCE,
+                "candidate_btrfs_uuid": review_roots.candidate_id,
+                "base_btrfs_uuid": base_uuid,
+                "candidate_boot_sha256": boot_hashes,
+            }
+            rejected(
+                "candidate Btrfs UUID drift blocks frozen approval",
+                lambda: approve_frozen_production_admission(
+                    frozen.as_dict(), reviewed.as_dict(),
+                    reviewed_graph_id=reviewed.inspection.graph.graph_id,
+                    **(frozen_args | {"candidate_btrfs_uuid": "66666666-6666-6666-6666-666666666666"}),
+                ),
+                "frozen_admission_binding_mismatch",
+            )
+            rejected(
+                "Admission base Btrfs UUID drift blocks frozen approval",
+                lambda: approve_frozen_production_admission(
+                    frozen.as_dict(), reviewed.as_dict(),
+                    reviewed_graph_id=reviewed.inspection.graph.graph_id,
+                    **(frozen_args | {"base_btrfs_uuid": "77777777-7777-7777-7777-777777777777"}),
+                ),
+                "frozen_admission_binding_mismatch",
+            )
+            rejected(
+                "source revision drift blocks frozen approval",
+                lambda: approve_frozen_production_admission(
+                    frozen.as_dict(), reviewed.as_dict(),
+                    reviewed_graph_id=reviewed.inspection.graph.graph_id,
+                    **(frozen_args | {"source_revision": "c" * 40}),
+                ),
+                "frozen_admission_binding_mismatch",
+            )
+            rejected(
+                "package generation drift blocks frozen approval",
+                lambda: approve_frozen_production_admission(
+                    frozen.as_dict(), reviewed.as_dict(),
+                    reviewed_graph_id=reviewed.inspection.graph.graph_id,
+                    **(frozen_args | {"transaction": transaction(foo_version="9")}),
+                ),
+                "frozen_admission_binding_mismatch",
+            )
+            rejected(
+                "candidate boot hash drift blocks frozen activation",
+                lambda: verify_frozen_activation_authority(
+                    frozen_authority.as_dict(), frozen.as_dict(), reviewed.as_dict(), approval,
+                    **(frozen_args | {"candidate_boot_sha256": {"/boot/vmlinuz-demo": "c" * 64}}),
+                ),
+                "frozen_admission_binding_mismatch",
+            )
+            tampered_graph = deepcopy(reviewed.as_dict())
+            tampered_graph["mutation_graph"]["effects"][0]["declared"] = not tampered_graph["mutation_graph"]["effects"][0]["declared"]
+            rejected(
+                "persisted inspection material tampering blocks approval",
+                lambda: approve_frozen_production_admission(
+                    frozen.as_dict(), tampered_graph,
+                    reviewed_graph_id=reviewed.inspection.graph.graph_id,
+                    **frozen_args,
+                ),
+                "frozen_admission_binding_mismatch",
+            )
+            tampered_approval = deepcopy(approval)
+            tampered_approval["promotion_authority"]["graph_id"] = "art-" + "0" * 64
+            rejected(
+                "graph authority tampering blocks activation",
+                lambda: verify_frozen_activation_authority(
+                    frozen_authority.as_dict(), frozen.as_dict(), reviewed.as_dict(), tampered_approval,
+                    **frozen_args,
+                ),
+                "promotion_authority",
+            )
 
         rejected(
             "authority from another update transaction fails closed",
@@ -431,6 +598,17 @@ def main() -> None:
               rogue_module.decision.outcome is AdmissionOutcome.REJECT
               and any(effect.subject == "/usr/lib/modules/evil-release/rogue.ko" and not effect.declared
                       for effect in rogue_module.inspection.graph.effects))
+
+    with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-source-") as td:
+        rogue_source = evaluate_production_candidate(
+            physical_boundary_roots(Path(td), extra_source=True),
+            physical_transaction(), SimpleNamespace(boot_artifacts=()),
+        )
+        check("unrelated source-tree output remains REJECT",
+              rogue_source.decision.outcome is AdmissionOutcome.REJECT
+              and any(effect.subject == "/usr/src/debug/not-in-transaction" and not effect.declared
+                      and effect.kind.value == "KERNEL_MODULE"
+                      for effect in rogue_source.inspection.graph.effects))
 
     with tempfile.TemporaryDirectory(prefix="maho-production-admission-rogue-owner-") as td:
         rogue_owner = evaluate_production_candidate(

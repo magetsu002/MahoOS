@@ -73,6 +73,8 @@ def evidence(**changes) -> PreparationEvidence:
         "recovery_generation_id": "g3-1234567890abcdef12345678",
         "native_l3_certified": False,
         "execution_environment": "production",
+        "safe_reserve_bytes": 100,
+        "gc_authority_current": True,
     }
     values.update(changes)
     return PreparationEvidence(**values)
@@ -107,6 +109,8 @@ def main() -> None:
             ("stale transaction", {"discovery_generation_current": False}, "stale_update_transaction"),
             ("partial upgrade", {"coherent_full_upgrade": False}, "partial_upgrade_or_incoherent_package_set"),
             ("low disk", {"available_disk_bytes": 1}, "insufficient_install_space"),
+            ("unsafe reserve", {"available_disk_bytes": 150}, "unsafe_post_update_disk_reserve"),
+            ("unknown GC authority", {"gc_authority_current": False}, "generation_gc_authority_unknown"),
             ("unknown power", {"power_status_known": False}, "power_status_unknown"),
             ("low battery", {"power_policy_satisfied": False}, "power_policy_unsatisfied"),
             ("concurrent package transaction", {"concurrent_package_or_build_operation": True}, "concurrent_package_or_build_operation"),

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "maho-preinstaller-qemu-signed-boot-summary",
+  "source_revision": "c8c612d34399f787d2b31d531c46720b8fb8c3af",
+  "isolated_ovmf_variables": true,
+  "passed": true,
+  "scenario_count": 13,
+  "scenarios": [
+    {"name": "valid-chain", "expected": "TRUSTED", "passed": true, "serial_sha256": "e8df5576b7150db3bbbcebca767762b9efba71993bf9888591687334dcdebc28"},
+    {"name": "recovery-loader", "expected": "TRUSTED-RECOVERY", "passed": true, "serial_sha256": "ae6d4b3a4e2e56a0b5821a60ae63bc38fb0aecb6b096f4746f72bddc79d22dc5"},
+    {"name": "invalid-loader", "expected": "REFUSED", "passed": true, "serial_sha256": "aeec8526443034f6fd15e4b4b8f775ae7ed8c024bf4b52493963ad21f9a15230"},
+    {"name": "wrong-signer", "expected": "REFUSED", "passed": true, "serial_sha256": "aeec8526443034f6fd15e4b4b8f775ae7ed8c024bf4b52493963ad21f9a15230"},
+    {"name": "config-tamper", "expected": "REFUSED", "passed": true, "serial_sha256": "73c93ed82fcd386d79195fb03b01f3a4d9ef81c62f41b21050500f5329b6a491"},
+    {"name": "missing-config-enrollment", "expected": "UNTRUSTED", "passed": true, "serial_sha256": "747fb9cae1bb6d4effd2056b750a5b37daa1d95ac134821d20f0d3e20fdd5438"},
+    {"name": "kernel-tamper", "expected": "REFUSED", "passed": true, "serial_sha256": "e63b4a07c427387a42d937ee7ab4503a9c983f7a88bef2ae9ed6fea60f0cfe20"},
+    {"name": "initramfs-tamper", "expected": "REFUSED", "passed": true, "serial_sha256": "5b5579a9f7d827d32e43282b69ab839793d119f9ea3ca57e12afeb684e1128c9"},
+    {"name": "microcode-tamper", "expected": "REFUSED", "passed": true, "serial_sha256": "c7b605c819b666e66187ffecfefabc9812e5e8f8592e3c29fe4095597f9439bc"},
+    {"name": "damaged-normal-recovery-available", "expected": "TRUSTED-RECOVERY", "passed": true, "serial_sha256": "9bf004a8261313e49088653486d846d668d5227d392cac686b87d585484f5a92"},
+    {"name": "damaged-recovery", "expected": "REFUSED", "passed": true, "serial_sha256": "683ce2e4f2d036ca5a65fd59a6e7e50a0e763154fb930576b38df5e5cae92852"},
+    {"name": "old-generation-replay", "expected": "REPLAY-MODELED", "passed": true, "serial_sha256": "48ba32eec2a075b060849d7e2cc2b1efa83b175c2d954303ad383094d721d6b4"},
+    {"name": "revoked-generation", "expected": "UNTRUSTED", "passed": true, "serial_sha256": "c55a52bf427cf5f7ab744375ec2a2623b00c945647098ad0456170b15da3c471"}
+  ]
+}

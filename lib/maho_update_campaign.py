@@ -21,6 +21,11 @@ from typing import Any, Mapping
 from guardian_admission import AdmissionOutcome
 from guardian_native_admission import CandidateRoots
 from maho_runtime_release import verify_release
+from maho_live_generation import (
+    certification_confirmation as generation_certification_confirmation,
+    observe_live_generation,
+    publish_live_generations,
+)
 from maho_system_restore_campaign import prepare_campaign as prepare_l3_campaign, seed_campaign
 from maho_system_restore_host import SystemPreparationOps
 from maho_system_restore_journal import read_journal as read_l3_journal
@@ -28,10 +33,12 @@ from maho_update_discovery import IsolatedPacmanDiscovery, discover_updates
 from maho_update_external import stage_aur_artifacts, transaction_from_aur_receipt
 from maho_update_admission import (
     admission_review_confirmation,
+    approve_frozen_production_admission,
     evaluate_production_candidate,
+    freeze_admission_evidence,
     guardian_transaction_id,
-    issue_activation_authority,
-    verify_activation_authority,
+    issue_frozen_activation_authority,
+    verify_frozen_activation_authority,
 )
 from maho_adaptive_maintenance_state import MaintenanceVetoError, maintenance_gate_for_user
 from maho_update_native import (
@@ -67,6 +74,7 @@ _STATE_ROOT = Path("/var/lib/maho/update")
 _AUR_CACHE_ROOT = Path("/var/cache/maho/update-aur")
 _M4B_READINESS_ROOT = Path("/var/cache/maho/update-m4b-readiness")
 _CAMPAIGN_LOCK_PATH = Path("/run/lock/maho-update-campaign.lock")
+_SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def _root() -> Path:
@@ -528,6 +536,8 @@ def prepare_native_campaign() -> dict[str, Any]:
         raise RuntimeError("concurrent_package_or_build_operation")
     if available < required:
         raise RuntimeError("insufficient_install_space")
+    if available - required < _SAFE_STORAGE_RESERVE_BYTES:
+        raise RuntimeError("unsafe_post_update_disk_reserve")
 
     # Only after the full package graph and exact payload set are proven do we
     # create any M3B recovery state. This keeps failed solver/staging attempts
@@ -574,6 +584,8 @@ def prepare_native_campaign() -> dict[str, Any]:
         recovery_generation_id=l3_seed["generation_id"],
         native_l3_certified=True,
         execution_environment="production",
+        safe_reserve_bytes=_SAFE_STORAGE_RESERVE_BYTES,
+        gc_authority_current=True,
     )
     prepared = prepare_transaction(transaction, staged.manifest, cache, evidence, now=now)
     if prepared.transaction["state"] != UpdateState.PREPARED.value or not prepared.plan.complete:
@@ -727,11 +739,22 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
         )
         admission = evaluate_production_candidate(roots, execution.transaction, plan)
         admission_payload = admission.as_dict()
+        frozen_admission = freeze_admission_evidence(
+            admission,
+            update_transaction_id=transaction_id,
+            transaction=execution.transaction,
+            source_revision=source_revision,
+            candidate_btrfs_uuid=candidate["uuid"],
+            base_btrfs_uuid=candidate["admission_base_uuid"],
+            candidate_boot_sha256=candidate["boot_sha256"],
+            admission_payload=admission_payload,
+        )
         if admission.decision.outcome is AdmissionOutcome.REJECT:
             cleanup = btrfs.cleanup_candidate(candidate["uuid"])
             _transition_campaign(
                 path, journal, "admission-rejected", candidate=candidate, plan=plan.as_dict(),
                 transaction_state=execution.transaction["state"], admission=admission_payload,
+                frozen_admission=frozen_admission.as_dict(),
                 candidate_cleanup=cleanup,
             )
             return {
@@ -742,6 +765,7 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
             journal = _transition_campaign(
                 path, journal, "admission-review", candidate=candidate, plan=plan.as_dict(),
                 transaction_state=execution.transaction["state"], admission=admission_payload,
+                frozen_admission=frozen_admission.as_dict(),
             )
             success = True
             return {
@@ -752,10 +776,18 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
                     transaction_id, admission.inspection.graph.graph_id,
                 ),
             }
-        activation_authority = issue_activation_authority(
-            admission, update_transaction_id=transaction_id,
-            transaction=execution.transaction, source_revision=source_revision,
+        activation_authority = issue_frozen_activation_authority(
+            admission,
+            frozen_admission.as_dict(),
+            update_transaction_id=transaction_id,
+            transaction=execution.transaction,
+            source_revision=source_revision,
         )
+        admission_approval = {
+            "decision": admission.decision.as_dict(),
+            "promotion_authority": admission.promotion_authority.as_dict(),
+            "frozen_admission_evidence_id": str(frozen_admission.evidence_id),
+        }
         journal = _transition_campaign(
             path,
             journal,
@@ -764,6 +796,8 @@ def execute_native_campaign(transaction_id: str, confirmation: str) -> dict[str,
             plan=plan.as_dict(),
             transaction_state=execution.transaction["state"],
             admission=admission_payload,
+            admission_approval=admission_approval,
+            frozen_admission=frozen_admission.as_dict(),
             activation_authority=activation_authority.as_dict(),
         )
         success = True
@@ -810,7 +844,12 @@ def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str
         raise RuntimeError("update authority is not pending activation")
     candidate = journal.get("candidate")
     admission_payload = journal.get("admission")
-    if not isinstance(candidate, Mapping) or not isinstance(admission_payload, Mapping):
+    frozen_admission = journal.get("frozen_admission")
+    if (
+        not isinstance(candidate, Mapping)
+        or not isinstance(admission_payload, Mapping)
+        or not isinstance(frozen_admission, Mapping)
+    ):
         raise RuntimeError("Admission review evidence is incomplete")
     mutation_graph = admission_payload.get("mutation_graph")
     if not isinstance(mutation_graph, Mapping):
@@ -818,7 +857,6 @@ def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str
     graph_id = ArtifactID(str(mutation_graph.get("graph_id", "")))
     if confirmation != admission_review_confirmation(transaction_id, graph_id):
         raise RuntimeError("exact Admission graph confirmation token is required")
-    plan = _plan_from_dict(journal["plan"])
     btrfs = NativeBtrfsOps(transaction_id)
     try:
         admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
@@ -828,20 +866,24 @@ def approve_native_admission(transaction_id: str, confirmation: str) -> dict[str
             base_root=admission_paths["base_root"],
             candidate_root=admission_paths["candidate_root"],
         )
-        admission = evaluate_production_candidate(
-            roots, transaction, plan, known_safe_graph_ids=(graph_id,),
-        )
-        if admission.decision.outcome is not AdmissionOutcome.ALLOW:
-            raise RuntimeError("reviewed Admission graph no longer reaches ALLOW")
-        authority = issue_activation_authority(
-            admission, update_transaction_id=transaction_id,
-            transaction=transaction, source_revision=source_revision,
+        admission_approval, authority = approve_frozen_production_admission(
+            frozen_admission,
+            admission_payload,
+            roots=roots,
+            reviewed_graph_id=graph_id,
+            update_transaction_id=transaction_id,
+            transaction=transaction,
+            source_revision=source_revision,
+            candidate_btrfs_uuid=admission_paths["candidate_uuid"],
+            base_btrfs_uuid=admission_paths["base_uuid"],
+            candidate_boot_sha256=candidate["boot_sha256"],
         )
     finally:
         btrfs.close()
     _transition_campaign(
         path, journal, "installed-pending-activation",
-        admission=admission.as_dict(), activation_authority=authority.as_dict(),
+        admission_approval=admission_approval,
+        activation_authority=authority.as_dict(),
     )
     return {
         "transaction_id": transaction_id,
@@ -877,9 +919,16 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
     if read_l3_journal(Path(journal["l3_prepared"]["journal_path"]))["phase"] != "prepared":
         raise RuntimeError("M3B recovery transaction is no longer prepared")
     activation_authority = journal.get("activation_authority")
-    if not isinstance(activation_authority, Mapping):
+    frozen_admission = journal.get("frozen_admission")
+    admission_payload = journal.get("admission")
+    admission_approval = journal.get("admission_approval")
+    if (
+        not isinstance(activation_authority, Mapping)
+        or not isinstance(frozen_admission, Mapping)
+        or not isinstance(admission_payload, Mapping)
+        or not isinstance(admission_approval, Mapping)
+    ):
         raise RuntimeError("Native Admission activation authority is missing")
-    plan = _plan_from_dict(journal["plan"])
     btrfs = NativeBtrfsOps(transaction_id)
     try:
         admission_paths = btrfs.admission_roots(candidate["uuid"], candidate["admission_base_uuid"])
@@ -889,9 +938,18 @@ def arm_native_activation(transaction_id: str, confirmation: str) -> dict[str, A
             base_root=admission_paths["base_root"],
             candidate_root=admission_paths["candidate_root"],
         )
-        verified_authority = verify_activation_authority(
-            activation_authority, roots=roots, update_transaction_id=transaction_id,
-            transaction=transaction, plan=plan, source_revision=source_revision,
+        verified_authority = verify_frozen_activation_authority(
+            activation_authority,
+            frozen_admission,
+            admission_payload,
+            admission_approval,
+            roots=roots,
+            update_transaction_id=transaction_id,
+            transaction=transaction,
+            source_revision=source_revision,
+            candidate_btrfs_uuid=admission_paths["candidate_uuid"],
+            base_btrfs_uuid=admission_paths["base_uuid"],
+            candidate_boot_sha256=candidate["boot_sha256"],
         )
         evidence = btrfs.arm_activation(
             machine_id=machine_id,
@@ -967,6 +1025,75 @@ def verify_native_activation(transaction_id: str) -> dict[str, Any]:
         "blockers": result.transaction.get("blockers", []),
         "receipt_path": str(receipt),
         "admission_base_cleanup": admission_cleanup,
+        "reboot_performed": False,
+    }
+
+
+def certify_native_execution(transaction_id: str, confirmation: str) -> dict[str, Any]:
+    """Publish the first live generation only from complete physical M4B proof."""
+    _require_root()
+    root = _root()
+    publisher_revision = _source_revision(root)
+    policy = _platform(root).get("update")
+    if not isinstance(policy, Mapping) or policy.get("native_execution_certified") is not True:
+        raise RuntimeError("platform_native_execution_certification_is_not_enabled")
+    machine_id = _machine_id()
+    path = _campaign_path(machine_id, transaction_id)
+    journal = _read_campaign(path)
+    if journal.get("phase") != "verified" or journal.get("transaction_state") != UpdateState.HEALTHY.value:
+        raise RuntimeError("M4B campaign has not completed physical postboot verification")
+    transaction = read_transaction(transaction_path(_STATE_ROOT, transaction_id))
+    if transaction["state"] != UpdateState.HEALTHY.value:
+        raise RuntimeError("M4B update transaction is not HEALTHY")
+    candidate = journal.get("candidate")
+    activation = journal.get("activation")
+    if not isinstance(candidate, Mapping) or not isinstance(activation, Mapping):
+        raise RuntimeError("M4B candidate activation identity is unavailable")
+    expected_confirmation = generation_certification_confirmation(transaction_id, str(candidate.get("uuid", "")))
+    if confirmation != expected_confirmation:
+        raise RuntimeError("exact M4B physical certification confirmation token is required")
+    runtime = _runtime_identity(str(journal.get("user", "")))
+    if not _runtime_identity_matches(runtime, journal.get("runtime_identity", {})):
+        raise RuntimeError("Maho runtime identity drifted after physical verification")
+    home = SystemPreparationOps(machine_id=machine_id).home_identity()
+    if home != journal.get("home_identity"):
+        raise RuntimeError("/home identity drifted after physical verification")
+    l3_seed = journal.get("l3_seed")
+    if not isinstance(l3_seed, Mapping):
+        raise RuntimeError("M3B recovery generation authority is missing")
+    recovery = SystemPreparationOps(machine_id=machine_id).wait_for_backup(int(l3_seed["snapshot_id"]))
+    if recovery.get("snapshot_uuid") != l3_seed.get("snapshot_uuid") or recovery.get("read_only") is not True:
+        raise RuntimeError("M3B recovery generation is no longer immutable")
+    health = next(
+        (event.get("evidence") for event in reversed(transaction["history"])
+         if event.get("state") == UpdateState.HEALTHY.value and isinstance(event.get("evidence"), Mapping)),
+        None,
+    )
+    if not isinstance(health, Mapping):
+        raise RuntimeError("M4B HEALTHY evidence is unavailable")
+    receipt_path = _STATE_ROOT / "receipts" / f"{transaction_id}.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    boot_paths = tuple(sorted(str(path) for path in activation.get("boot_sha256", {})))
+    observation = observe_live_generation(
+        expected_versions=journal["expected_versions"], boot_paths=boot_paths,
+        runtime_source_revision=str(runtime["source_revision"]),
+        runtime_content_sha256=str(runtime["content_sha256"]), home_identity=home,
+        recovery_generation_id=str(l3_seed["generation_id"]),
+        previous_root_uuid=str(health.get("previous_root_uuid", "")),
+        previous_root_read_only=health.get("previous_root_read_only") is True,
+    )
+    publication = publish_live_generations(
+        transaction, journal, receipt, observation,
+        publisher_source_revision=publisher_revision,
+    )
+    _transition_campaign(path, journal, "verified", generation_publication=publication)
+    return {
+        "phase": "certified", "transaction_id": transaction_id,
+        "transaction_state": UpdateState.HEALTHY.value,
+        "system_generation_id": publication["system_generation_id"],
+        "kernel_generation_id": publication["kernel_generation_id"],
+        "publication_id": publication["publication_id"],
+        "publisher_source_revision": publisher_revision,
         "reboot_performed": False,
     }
 
@@ -1060,6 +1187,7 @@ def apply_aur_campaign(
             NormalPreparationEvidence(
                 _generation_is_current(staged.transaction), True, required, free,
                 power_known, power_ok, False, True, True, "production",
+                _SAFE_STORAGE_RESERVE_BYTES, True,
             ),
         )
         publish_transaction(_STATE_ROOT, prepared.transaction)
@@ -1141,6 +1269,9 @@ def main() -> None:
     activate.add_argument("--confirm", required=True)
     verify = sub.add_parser("verify")
     verify.add_argument("transaction_id")
+    certify = sub.add_parser("certify-m4b")
+    certify.add_argument("transaction_id")
+    certify.add_argument("--confirm", required=True)
     status = sub.add_parser("status")
     status.add_argument("transaction_id")
     normal = sub.add_parser("certify-normal")
@@ -1167,6 +1298,8 @@ def main() -> None:
                 payload = arm_native_activation(args.transaction_id, args.confirm)
             elif args.command == "verify":
                 payload = verify_native_activation(args.transaction_id)
+            elif args.command == "certify-m4b":
+                payload = certify_native_execution(args.transaction_id, args.confirm)
             elif args.command == "certify-normal":
                 payload = certify_normal_update(
                     args.package, args.confirm, preflight_only=args.preflight_only,

@@ -10,20 +10,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
 
-from guardian_admission import AdmissionOutcome, CandidateDeclaration, EffectKind
+from guardian_admission import AdmissionOutcome, CandidateDeclaration, EffectKind, MutationGraph
 from guardian_native_admission import (
     CandidateRoots,
     NativeAdmissionError,
+    NativeInspection,
     NativeAdmissionResult,
     PromotionAuthority,
     RuntimeListenerEvidence,
+    approve_persisted_admission,
     admit_candidate,
     package_ownership,
     revalidate_promotion_authority,
     root_identity,
+    verify_persisted_admission_authority,
 )
 from maho_trust_identity import ArtifactID, TransactionID, canonical_bytes
 from maho_boot_authority import BootAuthority, BootGeneration
@@ -32,6 +36,8 @@ from maho_update_transaction import ExecutionPlan
 
 _UPDATE_TX = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
 _SHA40 = re.compile(r"[0-9a-f]{40}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _ALL_EFFECTS = tuple(EffectKind)
 
 
@@ -100,6 +106,75 @@ def _bounded_security_roots(
         if source is not None and source.group(1) != "debug":
             source_roots.add(f"/usr/src/{source.group(1)}")
     return module_roots, source_roots
+
+
+def _local_package_name(package_dir: Path) -> str:
+    try:
+        lines = (package_dir / "desc").read_text(encoding="utf-8", errors="strict").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ProductionAdmissionError("package_manifest_identity_unreadable") from exc
+    names = [lines[index + 1] for index, line in enumerate(lines[:-1]) if line == "%NAME%" and lines[index + 1]]
+    if len(names) != 1:
+        raise ProductionAdmissionError("package_manifest_identity_invalid")
+    return names[0]
+
+
+def _transaction_source_directory_roots(root: Path, package_set: set[str]) -> set[str]:
+    """Read exact transaction-owned /usr/src directory entries from Pacman manifests.
+
+    Pacman's ownership projection intentionally excludes directory rows. Some
+    packages, such as brave-bin, legitimately own only a package-specific debug
+    directory there; removing that empty directory during an upgrade must remain
+    attributable without declaring /usr/src as a whole.
+    """
+    database = root / "var/lib/pacman/local"
+    try:
+        package_dirs = sorted(item for item in database.iterdir() if item.is_dir())
+    except OSError as exc:
+        raise ProductionAdmissionError("package_manifest_database_unavailable") from exc
+    seen: set[str] = set()
+    roots: set[str] = set()
+    for package_dir in package_dirs:
+        name = _local_package_name(package_dir)
+        if name not in package_set:
+            continue
+        if name in seen:
+            raise ProductionAdmissionError("package_manifest_identity_ambiguous")
+        seen.add(name)
+        try:
+            raw = (package_dir / "files").read_text(encoding="utf-8", errors="strict")
+        except (OSError, UnicodeError) as exc:
+            raise ProductionAdmissionError("package_manifest_files_unreadable") from exc
+        if raw == "":
+            continue
+        in_files = False
+        found_files = False
+        for line in raw.splitlines():
+            if line == "%FILES%":
+                in_files = True
+                found_files = True
+                continue
+            if in_files and line.startswith("%") and line.endswith("%"):
+                break
+            if not in_files or not line or not line.endswith("/"):
+                continue
+            path = "/" + line.lstrip("/").rstrip("/")
+            if ".." in path.split("/") or "//" in path:
+                raise ProductionAdmissionError("package_manifest_directory_invalid")
+            debug = _USR_SRC_DEBUG_PATH.match(path)
+            if debug is not None and _SAFE_COMPONENT.fullmatch(debug.group(1)) is not None:
+                roots.add(f"/usr/src/debug/{debug.group(1)}")
+                continue
+            source = _USR_SRC_PATH.match(path)
+            if (
+                source is not None
+                and source.group(1) != "debug"
+                and _SAFE_COMPONENT.fullmatch(source.group(1)) is not None
+            ):
+                roots.add(f"/usr/src/{source.group(1)}")
+        if not found_files:
+            raise ProductionAdmissionError("package_manifest_files_missing")
+    return roots
 
 
 def _kernel_boot_outputs(
@@ -188,6 +263,8 @@ def build_production_declaration(
     module_roots = before_modules | after_modules
     declared.update(module_roots)
     declared.update(before_sources | after_sources)
+    declared.update(_transaction_source_directory_roots(roots.base_root, package_set))
+    declared.update(_transaction_source_directory_roots(roots.candidate_root, package_set))
 
     # Generated outputs are admitted only when they are derivable from trusted
     # base state plus exact transaction-owned kernel identities.
@@ -309,6 +386,215 @@ def admission_review_confirmation(update_transaction_id: str, graph_id: Artifact
 
 
 @dataclass(frozen=True)
+class FrozenAdmissionEvidence:
+    evidence_id: ArtifactID
+    update_transaction_id: str
+    guardian_transaction_id: TransactionID
+    candidate_id: str
+    package_generation_id: str
+    source_revision: str
+    graph_id: ArtifactID
+    candidate_btrfs_uuid: str
+    base_btrfs_uuid: str
+    base_root_identity: str
+    candidate_root_identity: str
+    runtime_evidence_sha256: str
+    admission_payload_sha256: str
+    candidate_boot_sha256: Mapping[str, str]
+
+    def identity_material(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "kind": "maho-update-frozen-admission-evidence",
+            "update_transaction_id": self.update_transaction_id,
+            "guardian_transaction_id": str(self.guardian_transaction_id),
+            "candidate_id": self.candidate_id,
+            "package_generation_id": self.package_generation_id,
+            "source_revision": self.source_revision,
+            "graph_id": str(self.graph_id),
+            "candidate_btrfs_uuid": self.candidate_btrfs_uuid,
+            "base_btrfs_uuid": self.base_btrfs_uuid,
+            "base_root_identity": self.base_root_identity,
+            "candidate_root_identity": self.candidate_root_identity,
+            "runtime_evidence_sha256": self.runtime_evidence_sha256,
+            "admission_payload_sha256": self.admission_payload_sha256,
+            "candidate_boot_sha256": dict(sorted(self.candidate_boot_sha256.items())),
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.identity_material() | {"evidence_id": str(self.evidence_id)}
+
+
+@dataclass(frozen=True)
+class FrozenActivationAuthority:
+    authority_id: ArtifactID
+    frozen_admission_evidence_id: ArtifactID
+    candidate_btrfs_uuid: str
+    base_btrfs_uuid: str
+    activation_authority: Mapping[str, Any]
+
+    def identity_material(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "kind": "maho-update-frozen-activation-authority",
+            "authority_scope": "activate-exact-immutable-native-admitted-candidate",
+            "frozen_admission_evidence_id": str(self.frozen_admission_evidence_id),
+            "candidate_btrfs_uuid": self.candidate_btrfs_uuid,
+            "base_btrfs_uuid": self.base_btrfs_uuid,
+            "activation_authority": dict(self.activation_authority),
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.identity_material() | {"authority_id": str(self.authority_id)}
+
+
+def freeze_admission_evidence(
+    result: NativeAdmissionResult,
+    *, update_transaction_id: str, transaction: Mapping[str, Any], source_revision: str,
+    candidate_btrfs_uuid: str, base_btrfs_uuid: str,
+    candidate_boot_sha256: Mapping[str, str],
+    admission_payload: Mapping[str, Any] | None = None,
+) -> FrozenAdmissionEvidence:
+    generation_id, _ = _package_generation(transaction)
+    if (
+        _UPDATE_TX.fullmatch(update_transaction_id) is None
+        or _SHA40.fullmatch(source_revision) is None
+        or _UUID.fullmatch(candidate_btrfs_uuid) is None
+        or _UUID.fullmatch(base_btrfs_uuid) is None
+        or result.inspection.candidate_id != candidate_btrfs_uuid
+        or result.decision.transaction_id != guardian_transaction_id(update_transaction_id)
+        or result.decision.graph_id != result.inspection.graph.graph_id
+    ):
+        raise ProductionAdmissionError("frozen_admission_context_invalid")
+    boot = dict(candidate_boot_sha256)
+    if (
+        not boot
+        or any(not isinstance(path, str) or not path.startswith("/boot/") for path in boot)
+        or any(not isinstance(digest, str) or _SHA256.fullmatch(digest) is None for digest in boot.values())
+    ):
+        raise ProductionAdmissionError("frozen_admission_boot_identity_invalid")
+    payload = dict(admission_payload) if admission_payload is not None else result.as_dict()
+    payload_graph = payload.get("mutation_graph")
+    if (
+        payload.get("candidate_id") != result.inspection.candidate_id
+        or payload.get("base_root_identity") != result.inspection.base_root_identity
+        or payload.get("candidate_root_identity") != result.inspection.candidate_root_identity
+        or not isinstance(payload_graph, Mapping)
+        or payload_graph.get("graph_id") != str(result.inspection.graph.graph_id)
+        or payload.get("decision") != result.decision.as_dict()
+    ):
+        raise ProductionAdmissionError("frozen_admission_payload_mismatch")
+    provisional = FrozenAdmissionEvidence(
+        evidence_id=ArtifactID.from_content(b"placeholder"),
+        update_transaction_id=update_transaction_id,
+        guardian_transaction_id=result.decision.transaction_id,
+        candidate_id=result.inspection.candidate_id,
+        package_generation_id=generation_id,
+        source_revision=source_revision,
+        graph_id=result.inspection.graph.graph_id,
+        candidate_btrfs_uuid=candidate_btrfs_uuid,
+        base_btrfs_uuid=base_btrfs_uuid,
+        base_root_identity=result.inspection.base_root_identity,
+        candidate_root_identity=result.inspection.candidate_root_identity,
+        runtime_evidence_sha256=result.inspection.runtime_evidence_sha256,
+        admission_payload_sha256=ArtifactID.from_content(canonical_bytes(payload)).removeprefix("art-"),
+        candidate_boot_sha256=boot,
+    )
+    return FrozenAdmissionEvidence(
+        evidence_id=ArtifactID.from_content(canonical_bytes(provisional.identity_material())),
+        **{name: getattr(provisional, name) for name in provisional.__dataclass_fields__ if name != "evidence_id"},
+    )
+
+
+def _parse_frozen_admission(value: Mapping[str, Any]) -> FrozenAdmissionEvidence:
+    required = {
+        "schema_version", "kind", "update_transaction_id", "guardian_transaction_id",
+        "candidate_id", "package_generation_id", "source_revision", "graph_id",
+        "candidate_btrfs_uuid", "base_btrfs_uuid", "base_root_identity",
+        "candidate_root_identity", "runtime_evidence_sha256", "admission_payload_sha256",
+        "candidate_boot_sha256", "evidence_id",
+    }
+    if set(value) != required or value.get("schema_version") != 1 or value.get("kind") != "maho-update-frozen-admission-evidence":
+        raise ProductionAdmissionError("frozen_admission_fields_invalid")
+    boot = value.get("candidate_boot_sha256")
+    if not isinstance(boot, Mapping):
+        raise ProductionAdmissionError("frozen_admission_boot_identity_invalid")
+    try:
+        evidence = FrozenAdmissionEvidence(
+            evidence_id=ArtifactID(str(value["evidence_id"])),
+            update_transaction_id=str(value["update_transaction_id"]),
+            guardian_transaction_id=TransactionID(str(value["guardian_transaction_id"])),
+            candidate_id=str(value["candidate_id"]),
+            package_generation_id=str(value["package_generation_id"]),
+            source_revision=str(value["source_revision"]),
+            graph_id=ArtifactID(str(value["graph_id"])),
+            candidate_btrfs_uuid=str(value["candidate_btrfs_uuid"]),
+            base_btrfs_uuid=str(value["base_btrfs_uuid"]),
+            base_root_identity=str(value["base_root_identity"]),
+            candidate_root_identity=str(value["candidate_root_identity"]),
+            runtime_evidence_sha256=str(value["runtime_evidence_sha256"]),
+            admission_payload_sha256=str(value["admission_payload_sha256"]),
+            candidate_boot_sha256={str(path): str(digest) for path, digest in boot.items()},
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProductionAdmissionError("frozen_admission_invalid") from exc
+    if value != evidence.as_dict():
+        raise ProductionAdmissionError("frozen_admission_contract_invalid")
+    if ArtifactID.from_content(canonical_bytes(evidence.identity_material())) != evidence.evidence_id:
+        raise ProductionAdmissionError("frozen_admission_digest_mismatch")
+    return evidence
+
+
+def _verify_frozen_admission(
+    value: Mapping[str, Any], *, admission_payload: Mapping[str, Any], roots: CandidateRoots,
+    update_transaction_id: str, transaction: Mapping[str, Any], source_revision: str,
+    candidate_btrfs_uuid: str, base_btrfs_uuid: str,
+    candidate_boot_sha256: Mapping[str, str],
+) -> FrozenAdmissionEvidence:
+    evidence = _parse_frozen_admission(value)
+    generation_id, _ = _package_generation(transaction)
+    runtime = offline_runtime_evidence(roots)
+    mutation_graph = admission_payload.get("mutation_graph")
+    graph_id = mutation_graph.get("graph_id") if isinstance(mutation_graph, Mapping) else None
+    if (
+        evidence.update_transaction_id != update_transaction_id
+        or evidence.guardian_transaction_id != guardian_transaction_id(update_transaction_id)
+        or evidence.candidate_id != roots.candidate_id
+        or evidence.package_generation_id != generation_id
+        or evidence.source_revision != source_revision
+        or str(evidence.graph_id) != graph_id
+        or evidence.candidate_btrfs_uuid != candidate_btrfs_uuid
+        or evidence.base_btrfs_uuid != base_btrfs_uuid
+        or evidence.base_root_identity != root_identity(roots.base_root)
+        or evidence.candidate_root_identity != root_identity(roots.candidate_root)
+        or evidence.runtime_evidence_sha256 != runtime.evidence_sha256
+        or evidence.admission_payload_sha256 != ArtifactID.from_content(canonical_bytes(dict(admission_payload))).removeprefix("art-")
+        or dict(evidence.candidate_boot_sha256) != dict(candidate_boot_sha256)
+    ):
+        raise ProductionAdmissionError("frozen_admission_binding_mismatch")
+    return evidence
+
+
+def _wrap_frozen_activation_authority(
+    authority: "ProductionActivationAuthority", evidence: FrozenAdmissionEvidence,
+) -> FrozenActivationAuthority:
+    provisional = FrozenActivationAuthority(
+        authority_id=ArtifactID.from_content(b"placeholder"),
+        frozen_admission_evidence_id=evidence.evidence_id,
+        candidate_btrfs_uuid=evidence.candidate_btrfs_uuid,
+        base_btrfs_uuid=evidence.base_btrfs_uuid,
+        activation_authority=authority.as_dict(),
+    )
+    return FrozenActivationAuthority(
+        authority_id=ArtifactID.from_content(canonical_bytes(provisional.identity_material())),
+        frozen_admission_evidence_id=provisional.frozen_admission_evidence_id,
+        candidate_btrfs_uuid=provisional.candidate_btrfs_uuid,
+        base_btrfs_uuid=provisional.base_btrfs_uuid,
+        activation_authority=provisional.activation_authority,
+    )
+
+
+@dataclass(frozen=True)
 class ProductionActivationAuthority:
     authority_id: ArtifactID
     update_transaction_id: str
@@ -417,6 +703,169 @@ def issue_activation_authority(
         signer_fingerprint=authority.signer_fingerprint,
         native_promotion_authority=authority.native_promotion_authority,
     )
+
+
+def issue_frozen_activation_authority(
+    result: NativeAdmissionResult,
+    frozen_evidence: Mapping[str, Any],
+    *, update_transaction_id: str, transaction: Mapping[str, Any], source_revision: str,
+) -> FrozenActivationAuthority:
+    evidence = _parse_frozen_admission(frozen_evidence)
+    if (
+        result.decision.outcome is not AdmissionOutcome.ALLOW
+        or result.promotion_authority is None
+        or evidence.update_transaction_id != update_transaction_id
+        or evidence.graph_id != result.decision.graph_id
+        or evidence.candidate_id != result.inspection.candidate_id
+        or evidence.base_root_identity != result.inspection.base_root_identity
+        or evidence.candidate_root_identity != result.inspection.candidate_root_identity
+        or evidence.runtime_evidence_sha256 != result.inspection.runtime_evidence_sha256
+    ):
+        raise ProductionAdmissionError("frozen_admission_allow_binding_mismatch")
+    authority = issue_activation_authority(
+        result,
+        update_transaction_id=update_transaction_id,
+        transaction=transaction,
+        source_revision=source_revision,
+    )
+    return _wrap_frozen_activation_authority(authority, evidence)
+
+
+def approve_frozen_production_admission(
+    frozen_evidence: Mapping[str, Any], admission_payload: Mapping[str, Any],
+    *, roots: CandidateRoots, reviewed_graph_id: ArtifactID,
+    update_transaction_id: str, transaction: Mapping[str, Any], source_revision: str,
+    candidate_btrfs_uuid: str, base_btrfs_uuid: str,
+    candidate_boot_sha256: Mapping[str, str],
+) -> tuple[dict[str, Any], FrozenActivationAuthority]:
+    """Approve one immutable reviewed graph and issue activation authority without rescanning."""
+    evidence = _verify_frozen_admission(
+        frozen_evidence,
+        admission_payload=admission_payload,
+        roots=roots,
+        update_transaction_id=update_transaction_id,
+        transaction=transaction,
+        source_revision=source_revision,
+        candidate_btrfs_uuid=candidate_btrfs_uuid,
+        base_btrfs_uuid=base_btrfs_uuid,
+        candidate_boot_sha256=candidate_boot_sha256,
+    )
+    try:
+        approved_payload, decision, promotion = approve_persisted_admission(
+            admission_payload, roots=roots, reviewed_graph_id=reviewed_graph_id,
+        )
+    except NativeAdmissionError as exc:
+        raise ProductionAdmissionError(str(exc)) from exc
+    inspection = NativeInspection(
+        graph=MutationGraph(decision.transaction_id, decision.graph_id, (), True),
+        candidate_id=roots.candidate_id,
+        base_root_identity=evidence.base_root_identity,
+        candidate_root_identity=evidence.candidate_root_identity,
+        excluded_roots=tuple(str(item) for item in approved_payload["excluded_roots"]),
+        errors=(), runtime_complete=True, runtime_isolated=True,
+        runtime_evidence_sha256=evidence.runtime_evidence_sha256,
+    )
+    synthetic = NativeAdmissionResult(inspection, decision, promotion)
+    authority = issue_activation_authority(
+        synthetic,
+        update_transaction_id=update_transaction_id,
+        transaction=transaction,
+        source_revision=source_revision,
+    )
+    approval = {
+        "decision": decision.as_dict(),
+        "promotion_authority": promotion.as_dict(),
+        "frozen_admission_evidence_id": str(evidence.evidence_id),
+    }
+    return approval, _wrap_frozen_activation_authority(authority, evidence)
+
+
+def _parse_frozen_activation_authority(value: Mapping[str, Any]) -> FrozenActivationAuthority:
+    required = {
+        "schema_version", "kind", "authority_scope", "frozen_admission_evidence_id",
+        "candidate_btrfs_uuid", "base_btrfs_uuid", "activation_authority", "authority_id",
+    }
+    nested = value.get("activation_authority")
+    if (
+        set(value) != required
+        or value.get("schema_version") != 1
+        or value.get("kind") != "maho-update-frozen-activation-authority"
+        or value.get("authority_scope") != "activate-exact-immutable-native-admitted-candidate"
+        or not isinstance(nested, Mapping)
+    ):
+        raise ProductionAdmissionError("frozen_activation_authority_fields_invalid")
+    try:
+        authority = FrozenActivationAuthority(
+            authority_id=ArtifactID(str(value["authority_id"])),
+            frozen_admission_evidence_id=ArtifactID(str(value["frozen_admission_evidence_id"])),
+            candidate_btrfs_uuid=str(value["candidate_btrfs_uuid"]),
+            base_btrfs_uuid=str(value["base_btrfs_uuid"]),
+            activation_authority=dict(nested),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProductionAdmissionError("frozen_activation_authority_invalid") from exc
+    if value != authority.as_dict():
+        raise ProductionAdmissionError("frozen_activation_authority_contract_invalid")
+    if ArtifactID.from_content(canonical_bytes(authority.identity_material())) != authority.authority_id:
+        raise ProductionAdmissionError("frozen_activation_authority_digest_mismatch")
+    return authority
+
+
+def verify_frozen_activation_authority(
+    value: Mapping[str, Any], frozen_evidence: Mapping[str, Any],
+    admission_payload: Mapping[str, Any], admission_approval: Mapping[str, Any],
+    *, roots: CandidateRoots, update_transaction_id: str,
+    transaction: Mapping[str, Any], source_revision: str,
+    candidate_btrfs_uuid: str, base_btrfs_uuid: str,
+    candidate_boot_sha256: Mapping[str, str],
+) -> FrozenActivationAuthority:
+    """Consume exact immutable Admission authority without a third root scan."""
+    envelope = _parse_frozen_activation_authority(value)
+    evidence = _verify_frozen_admission(
+        frozen_evidence,
+        admission_payload=admission_payload,
+        roots=roots,
+        update_transaction_id=update_transaction_id,
+        transaction=transaction,
+        source_revision=source_revision,
+        candidate_btrfs_uuid=candidate_btrfs_uuid,
+        base_btrfs_uuid=base_btrfs_uuid,
+        candidate_boot_sha256=candidate_boot_sha256,
+    )
+    if (
+        envelope.frozen_admission_evidence_id != evidence.evidence_id
+        or envelope.candidate_btrfs_uuid != candidate_btrfs_uuid
+        or envelope.base_btrfs_uuid != base_btrfs_uuid
+        or admission_approval.get("frozen_admission_evidence_id") != str(evidence.evidence_id)
+    ):
+        raise ProductionAdmissionError("frozen_activation_authority_binding_mismatch")
+    decision_value = admission_approval.get("decision")
+    promotion_value = admission_approval.get("promotion_authority")
+    if not isinstance(decision_value, Mapping) or not isinstance(promotion_value, Mapping):
+        raise ProductionAdmissionError("frozen_admission_approval_invalid")
+    approved_payload = dict(admission_payload)
+    approved_payload["decision"] = dict(decision_value)
+    approved_payload["promotion_authority"] = dict(promotion_value)
+    try:
+        decision, promotion = verify_persisted_admission_authority(approved_payload, roots=roots)
+    except NativeAdmissionError as exc:
+        raise ProductionAdmissionError(str(exc)) from exc
+    authority = _parse_authority(envelope.activation_authority)
+    generation_id, _ = _package_generation(transaction)
+    if (
+        authority.update_transaction_id != update_transaction_id
+        or authority.guardian_transaction_id != guardian_transaction_id(update_transaction_id)
+        or authority.candidate_id != roots.candidate_id
+        or authority.package_generation_id != generation_id
+        or authority.graph_id != decision.graph_id
+        or authority.base_root_identity != evidence.base_root_identity
+        or authority.candidate_root_identity != evidence.candidate_root_identity
+        or authority.runtime_evidence_sha256 != evidence.runtime_evidence_sha256
+        or authority.source_revision != source_revision
+        or authority.native_promotion_authority != promotion.as_dict()
+    ):
+        raise ProductionAdmissionError("frozen_activation_authority_context_mismatch")
+    return envelope
 
 
 def _parse_authority(value: Mapping[str, Any]) -> ProductionActivationAuthority:

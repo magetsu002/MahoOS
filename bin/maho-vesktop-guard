@@ -8,7 +8,7 @@ PATCHER="${MAHO_VESKTOP_PATCHER:-$ROOT/lib/maho_vesktop_patch.py}"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/maho"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/maho/vesktop-runtime"
-SOURCE_ASAR="${MAHO_VESKTOP_SOURCE_ASAR:-/usr/lib/vesktop/app.asar}"
+SOURCE_ASAR="${MAHO_VESKTOP_SOURCE_ASAR:-/opt/vesktop/resources/app.asar}"
 PATCHED_ASAR="$DATA_DIR/app.asar"
 MANIFEST="$DATA_DIR/manifest"
 LOCK="$RUNTIME_DIR/maho-vesktop-profile.lock"
@@ -296,7 +296,6 @@ launch_owner() {
     export ELECTRON_DISABLE_SECURITY_WARNINGS=true
     export NODE_ENV=production
     export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-    export LD_LIBRARY_PATH="/usr/lib/vesktop/lib:${LD_LIBRARY_PATH:-}"
     export ELECTRON_OZONE_PLATFORM_HINT="${ELECTRON_OZONE_PLATFORM_HINT:-auto}"
     export CHROME_DESKTOP=vesktop.desktop
     export MAHO_VESKTOP_CONTROL_SOCKET="$SOCKET"
@@ -314,7 +313,11 @@ launch_owner() {
     fi
 
     log_event "action=launch route=canonical started_new=yes owner_pid=$$ arg_count=$#"
-    cd /usr/lib/vesktop || return 1
+    cd /opt/vesktop || return 1
+    # The packaged /opt/vesktop/vesktop binary always loads its adjacent
+    # resources/app.asar and treats another ASAR path as an application
+    # argument.  The generic Electron runner is required to execute the exact
+    # user-private, source-hash-bound runtime built above.
     exec /usr/bin/electron43 "${ELECTRON_FLAGS[@]}" "${sandbox[@]}" "$PATCHED_ASAR" "$@"
 }
 

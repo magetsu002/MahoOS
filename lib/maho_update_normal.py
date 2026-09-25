@@ -31,6 +31,8 @@ class NormalPreparationEvidence:
     candidate_root_available: bool
     guardian_admission_available: bool
     execution_environment: str = "production"
+    safe_reserve_bytes: int = 0
+    gc_authority_current: bool = True
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class NormalExecutionPlan:
     activation_requirements: tuple[str, ...]
     selection_kind: str
     execution_environment: str
+    safe_reserve_bytes: int
+    reserve_after_preparation_bytes: int
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -145,6 +149,8 @@ def prepare_normal_transaction(
         raise ValueError("normal preparation requires exact staged effect evidence")
     if evidence.execution_environment not in {"production", "fixture"}:
         raise ValueError("normal execution environment is invalid")
+    if isinstance(evidence.safe_reserve_bytes, bool) or evidence.safe_reserve_bytes < 0:
+        raise ValueError("normal update safe storage reserve is invalid")
 
     effects = aggregate_effects(staged["payloads"])
     provenance = _provenance_map(current)
@@ -164,6 +170,11 @@ def prepare_normal_transaction(
         blockers.append("independent_generation_not_proven")
     if evidence.required_disk_bytes < 0 or evidence.available_disk_bytes < evidence.required_disk_bytes:
         blockers.append("insufficient_install_space")
+    reserve_after = evidence.available_disk_bytes - max(0, evidence.required_disk_bytes)
+    if not evidence.gc_authority_current:
+        blockers.append("generation_gc_authority_unknown")
+    elif reserve_after < evidence.safe_reserve_bytes:
+        blockers.append("unsafe_post_update_disk_reserve")
     if not evidence.power_status_known:
         blockers.append("power_status_unknown")
     elif not evidence.power_policy_satisfied:
@@ -184,6 +195,8 @@ def prepare_normal_transaction(
         activation_requirements=tuple(effects["activation_requirements"]),
         selection_kind=current["selection"]["kind"],
         execution_environment=evidence.execution_environment,
+        safe_reserve_bytes=evidence.safe_reserve_bytes,
+        reserve_after_preparation_bytes=reserve_after,
     )
     if blockers:
         blocked = transition_transaction(

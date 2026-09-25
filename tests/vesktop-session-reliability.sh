@@ -57,7 +57,11 @@ assert '*" --type="*) continue ;;' in guard
 launch_tail = guard.split('local start_ticks', 1)[1]
 launch_tail = launch_tail.split('indexeddb_lock_holders()', 1)[0]
 assert "flock -u 9" not in launch_tail
+assert 'SOURCE_ASAR="${MAHO_VESKTOP_SOURCE_ASAR:-/opt/vesktop/resources/app.asar}"' in guard
+assert 'cd /opt/vesktop || return 1' in launch_tail
 assert 'exec /usr/bin/electron43' in launch_tail
+assert 'exec /opt/vesktop/vesktop' not in launch_tail
+assert '/usr/lib/vesktop' not in guard
 PY
 
 git -C "$ROOT" diff --check

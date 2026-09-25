@@ -13,13 +13,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 from guardian_admission import (
     AdmissionDecision, AdmissionOutcome, CandidateDeclaration, EffectKind,
     FileObservation, ListenerObservation, MutationGraph,
-    derive_mutation_graph, evaluate_admission,
+    derive_mutation_graph, evaluate_admission, evaluate_serialized_admission,
 )
 from maho_trust_identity import ArtifactID, TransactionID, canonical_bytes
 
@@ -484,6 +485,147 @@ def issue_promotion_authority(
         graph_id=decision.graph_id,
         candidate_root_identity=inspection.candidate_root_identity,
     )
+
+
+def _issue_persisted_promotion_authority(
+    *, decision: AdmissionDecision, candidate_id: str,
+    candidate_root_identity: str, inspection_complete: bool,
+) -> PromotionAuthority:
+    if (
+        decision.outcome is not AdmissionOutcome.ALLOW
+        or not decision.promotion_authorized
+        or not inspection_complete
+    ):
+        raise NativeAdmissionError("admission_did_not_allow_promotion")
+    material = {
+        "schema_version": 1,
+        "kind": "guardian-native-promotion-authority",
+        "authority_scope": "promote-exact-admitted-candidate",
+        "transaction_id": str(decision.transaction_id),
+        "candidate_id": candidate_id,
+        "graph_id": str(decision.graph_id),
+        "candidate_root_identity": candidate_root_identity,
+        "admission_outcome": "ALLOW",
+    }
+    return PromotionAuthority(
+        authority_id=ArtifactID.from_content(canonical_bytes(material)),
+        transaction_id=decision.transaction_id,
+        candidate_id=candidate_id,
+        graph_id=decision.graph_id,
+        candidate_root_identity=candidate_root_identity,
+    )
+
+
+def _persisted_admission_binding(
+    value: Mapping[str, Any], *, roots: CandidateRoots,
+) -> tuple[Mapping[str, Any], AdmissionDecision]:
+    required = {
+        "schema_version", "kind", "candidate_id", "base_root_identity",
+        "candidate_root_identity", "excluded_roots", "inspection_errors",
+        "inspection_complete", "runtime_complete", "runtime_isolated",
+        "runtime_evidence_sha256", "mutation_graph", "decision", "promotion_authority",
+    }
+    if set(value) != required or value.get("schema_version") != 1 or value.get("kind") != "guardian-native-admission-result":
+        raise NativeAdmissionError("persisted_admission_schema_invalid")
+    graph = value.get("mutation_graph")
+    decision_value = value.get("decision")
+    if not isinstance(graph, Mapping) or not isinstance(decision_value, Mapping):
+        raise NativeAdmissionError("persisted_admission_content_invalid")
+    if (
+        value.get("candidate_id") != roots.candidate_id
+        or value.get("base_root_identity") != root_identity(roots.base_root)
+        or value.get("candidate_root_identity") != root_identity(roots.candidate_root)
+        or value.get("excluded_roots") != sorted(_EXCLUDED_ROOTS)
+        or value.get("inspection_errors") != []
+        or value.get("inspection_complete") is not True
+        or value.get("runtime_complete") is not True
+        or value.get("runtime_isolated") is not True
+        or not isinstance(value.get("runtime_evidence_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", str(value["runtime_evidence_sha256"])) is None
+    ):
+        raise NativeAdmissionError("persisted_admission_binding_mismatch")
+    try:
+        observed = evaluate_serialized_admission(graph)
+    except ValueError as exc:
+        raise NativeAdmissionError(str(exc)) from exc
+    if decision_value != observed.as_dict():
+        raise NativeAdmissionError("persisted_admission_decision_mismatch")
+    return graph, observed
+
+
+def approve_persisted_admission(
+    value: Mapping[str, Any], *, roots: CandidateRoots, reviewed_graph_id: ArtifactID,
+) -> tuple[dict[str, Any], AdmissionDecision, PromotionAuthority]:
+    """Approve one frozen REVIEW graph without another filesystem inspection."""
+    graph, original = _persisted_admission_binding(value, roots=roots)
+    if (
+        original.outcome is not AdmissionOutcome.REVIEW
+        or value.get("promotion_authority") is not None
+        or original.graph_id != reviewed_graph_id
+    ):
+        raise NativeAdmissionError("persisted_admission_not_exact_review")
+    approved = evaluate_serialized_admission(
+        graph, known_safe_graph_ids=(reviewed_graph_id,),
+    )
+    authority = _issue_persisted_promotion_authority(
+        decision=approved,
+        candidate_id=roots.candidate_id,
+        candidate_root_identity=str(value["candidate_root_identity"]),
+        inspection_complete=True,
+    )
+    updated = dict(value)
+    updated["decision"] = approved.as_dict()
+    updated["promotion_authority"] = authority.as_dict()
+    return updated, approved, authority
+
+
+def verify_persisted_admission_authority(
+    value: Mapping[str, Any], *, roots: CandidateRoots,
+) -> tuple[AdmissionDecision, PromotionAuthority]:
+    """Verify the approved frozen graph and promotion authority without rescanning."""
+    if not isinstance(value.get("mutation_graph"), Mapping):
+        raise NativeAdmissionError("persisted_admission_content_invalid")
+    original_decision = evaluate_serialized_admission(value["mutation_graph"])
+    graph, initial = _persisted_admission_binding(
+        {**dict(value), "decision": original_decision.as_dict(),
+         "promotion_authority": None},
+        roots=roots,
+    )
+    decision_value = value.get("decision")
+    authority_value = value.get("promotion_authority")
+    if not isinstance(decision_value, Mapping) or not isinstance(authority_value, Mapping):
+        raise NativeAdmissionError("persisted_admission_authority_missing")
+    approved = (
+        initial
+        if initial.outcome is AdmissionOutcome.ALLOW
+        else evaluate_serialized_admission(graph, known_safe_graph_ids=(initial.graph_id,))
+    )
+    if decision_value != approved.as_dict():
+        raise NativeAdmissionError("persisted_admission_approval_mismatch")
+    authority = verify_persisted_promotion_authority(
+        authority_value,
+        transaction_id=approved.transaction_id,
+        candidate_id=roots.candidate_id,
+        graph_id=approved.graph_id,
+        candidate_root_identity=str(value["candidate_root_identity"]),
+    )
+    return approved, authority
+
+
+def verify_persisted_promotion_authority(
+    value: Mapping[str, Any], *, transaction_id: TransactionID, candidate_id: str,
+    graph_id: ArtifactID, candidate_root_identity: str,
+) -> PromotionAuthority:
+    placeholder = NativeInspection(
+        graph=MutationGraph(transaction_id, graph_id, (), True),
+        candidate_id=candidate_id,
+        base_root_identity="persisted",
+        candidate_root_identity=candidate_root_identity,
+        excluded_roots=tuple(sorted(_EXCLUDED_ROOTS)),
+        errors=(), runtime_complete=True, runtime_isolated=True,
+        runtime_evidence_sha256="0" * 64,
+    )
+    return verify_promotion_authority(value, inspection=placeholder)
 
 
 def verify_promotion_authority(
