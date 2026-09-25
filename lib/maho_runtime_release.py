@@ -22,6 +22,9 @@ class ReleaseVerification:
     source_revision: str | None
     reasons: tuple[str, ...]
     observed_content_sha256: str | None = None
+    deployment_class: str | None = None
+    source_dirty: bool | None = None
+    trust_eligible: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -94,6 +97,41 @@ def verify_release(candidate: str | os.PathLike[str], releases_root: str | os.Pa
     else:
         revision = revision.strip()
 
+    classified = all(key in manifest for key in ("deployment_class", "source_dirty", "trust_eligible"))
+    deployment_class = manifest.get("deployment_class") if classified else "legacy-unclassified"
+    source_dirty = manifest.get("source_dirty") if classified else None
+    trust_eligible = manifest.get("trust_eligible") if classified else False
+    if deployment_class not in {"production", "development", "legacy-unclassified"}:
+        reasons.append("deployment_class_invalid")
+        deployment_class = None
+    if classified and not isinstance(source_dirty, bool):
+        reasons.append("source_dirty_invalid")
+        source_dirty = None
+    if not isinstance(trust_eligible, bool):
+        reasons.append("trust_eligible_invalid")
+        trust_eligible = False
+    if deployment_class == "production" and (source_dirty is not False or trust_eligible is not True):
+        reasons.append("production_deployment_authority_invalid")
+    if deployment_class == "development" and trust_eligible is not False:
+        reasons.append("development_deployment_trust_invalid")
+
+    metadata: dict[str, Any] | None = None
+    try:
+        raw_metadata = json.loads((real / "share/maho/runtime-deployment.json").read_text(encoding="utf-8"))
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        # Version-3 releases created before deployment classification remain
+        # byte-verifiable for rollback, but are not production-trust-eligible.
+        metadata = None
+    if classified and metadata is None:
+        reasons.append("deployment_metadata_missing")
+    if metadata is not None and any((
+        metadata.get("deployment_class") != deployment_class,
+        metadata.get("source_dirty") != source_dirty,
+        metadata.get("trust_eligible") != trust_eligible,
+    )):
+        reasons.append("deployment_metadata_mismatch")
+
     try:
         provenance = (real / "share/maho/runtime-source-revision").read_text(encoding="utf-8").strip()
     except (OSError, UnicodeError):
@@ -120,6 +158,9 @@ def verify_release(candidate: str | os.PathLike[str], releases_root: str | os.Pa
         revision,
         tuple(reasons),
         observed_content_sha256=observed_hash,
+        deployment_class=deployment_class,
+        source_dirty=source_dirty,
+        trust_eligible=bool(trust_eligible and not reasons),
     )
 
 

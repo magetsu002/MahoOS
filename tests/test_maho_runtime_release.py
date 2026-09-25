@@ -32,21 +32,35 @@ def payload_identity(stage: Path) -> str:
     return hashlib.sha256(b"".join(lines)).hexdigest()
 
 
-def make_release(releases: Path, revision: str) -> Path:
+def make_release(releases: Path, revision: str, *, development: bool = False, legacy: bool = False) -> Path:
     stage = releases / f"stage-{revision[:8]}"
     (stage / "bin").mkdir(parents=True)
     (stage / "share/maho").mkdir(parents=True)
     (stage / "bin/probe").write_text("#!/usr/bin/env bash\nexit 0\n")
     (stage / "share/maho/runtime-source-revision").write_text(revision + "\n")
+    if not legacy:
+        (stage / "share/maho/runtime-deployment.json").write_text(json.dumps({
+            "version": 1,
+            "deployment_class": "development" if development else "production",
+            "source_dirty": development,
+            "trust_eligible": not development,
+        }, sort_keys=True) + "\n")
     identity = payload_identity(stage)
     final = releases / identity
     stage.rename(final)
-    (final / "manifest.json").write_text(json.dumps({
+    manifest = {
         "version": 3,
         "content_sha256": identity,
         "source_revision": revision,
         "installed_at": "2026-09-09T00:00:00+00:00",
-    }, indent=2, sort_keys=True) + "\n")
+    }
+    if not legacy:
+        manifest.update({
+            "deployment_class": "development" if development else "production",
+            "source_dirty": development,
+            "trust_eligible": not development,
+        })
+    (final / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     for path in sorted(final.rglob("*"), reverse=True):
         if path.is_file():
             os.chmod(path, 0o444)
@@ -70,6 +84,15 @@ def main() -> None:
         result = verify_release(valid, releases)
         check("valid immutable release verifies", result.verified and not result.reasons)
         check("verified release exposes provenance", result.source_revision == "a" * 40 and result.content_sha256 == valid.name)
+        check("production release is trust eligible", result.trust_eligible and result.deployment_class == "production")
+
+        development = make_release(releases, "e" * 40, development=True)
+        result = verify_release(development, releases)
+        check("development release has verified bytes but no production trust", result.verified and not result.trust_eligible and result.deployment_class == "development")
+
+        legacy = make_release(releases, "1" * 40, legacy=True)
+        result = verify_release(legacy, releases)
+        check("legacy release remains recoverable but cannot claim production trust", result.verified and not result.trust_eligible and result.deployment_class == "legacy-unclassified")
 
         nested_parent = releases / "nested"
         nested_parent.mkdir()

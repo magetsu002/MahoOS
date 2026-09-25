@@ -496,8 +496,10 @@ def _trust_signals(
             state,
             str(boot.data.get("trust_reason") or "Signed Boot provider returned no trust explanation"),
         ))
-    if runtime.get("verified") is True:
+    if runtime.get("verified") is True and runtime.get("trust_eligible", True) is True:
         signals.append(TrustSignal("maho.runtime", GuardianTrustState.VERIFIED, "immutable Maho runtime release verified"))
+    elif runtime.get("verified") is True:
+        signals.append(TrustSignal("maho.runtime", GuardianTrustState.DEGRADED, "development Maho runtime is content-verified but not production-trust-eligible"))
     elif runtime.get("reasons") == ["release_unavailable"]:
         signals.append(TrustSignal("maho.runtime", GuardianTrustState.UNKNOWN, "Maho runtime identity unavailable"))
     else:

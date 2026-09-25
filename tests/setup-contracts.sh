@@ -254,7 +254,7 @@ export MAHO_SDDM_SESSION_LAUNCH_ROOT="$TMP/sddm/lib"
 LEGACY_NATIVE_BUILD="$XDG_CACHE_HOME/maho/files-release-build"
 mkdir -p "$LEGACY_NATIVE_BUILD"
 printf '%s\n' 'CMAKE_HOME_DIRECTORY:INTERNAL=/definitely/foreign/checkout/apps/maho-files' >"$LEGACY_NATIVE_BUILD/CMakeCache.txt"
-bash "$ROOT/bin/maho-setup" install --with-sddm >/dev/null
+bash "$ROOT/bin/maho-setup" install --development --with-sddm >/dev/null
 [ -x "$HOME/.local/bin/maho-lock-sddm-install" ] || fail 'SDDM installer command was omitted from the managed runtime'
 grep -Fxq 'Current=maho-lock' "$MAHO_SDDM_CONFIG_ROOT/90-maho-lock.conf" || \
   fail 'explicit setup did not persist the Maho Lock SDDM theme'
@@ -274,7 +274,7 @@ echo '=== validation failure is non-mutating ==='
 cp "$HOME/.local/bin/maho-security" "$TMP/maho-security.v2"
 printf '%s\n' '#!/usr/bin/env bash' 'echo external-security-owner' >"$HOME/.local/bin/maho-security"; chmod +x "$HOME/.local/bin/maho-security"
 capture_live_state "$TMP/before-validation-failure"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer accepted an unmanaged command'; fi
+if bash "$ROOT/bin/maho-setup" install --development >/dev/null 2>&1; then fail 'installer accepted an unmanaged command'; fi
 capture_live_state "$TMP/after-validation-failure"
 cmp -s "$TMP/before-validation-failure" "$TMP/after-validation-failure" || fail 'validation failure mutated live wiring'
 cp "$TMP/maho-security.v2" "$HOME/.local/bin/maho-security"; chmod +x "$HOME/.local/bin/maho-security"
@@ -283,7 +283,7 @@ echo PASS
 echo '=== post-switch failure rolls back exact live wiring ==='
 capture_live_state "$TMP/before-post-switch-failure"
 export MAHO_TEST_FAIL_DAEMON_RELOAD=1
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'simulated daemon-reload failure unexpectedly succeeded'; fi
+if bash "$ROOT/bin/maho-setup" install --development >/dev/null 2>&1; then fail 'simulated daemon-reload failure unexpectedly succeeded'; fi
 unset MAHO_TEST_FAIL_DAEMON_RELOAD
 capture_live_state "$TMP/after-post-switch-failure"
 cmp -s "$TMP/before-post-switch-failure" "$TMP/after-post-switch-failure" || fail 'post-switch failure did not restore exact pre-install wiring'
@@ -350,7 +350,7 @@ echo PASS
 
 echo '=== successful durable V1 migration ==='
 : >"$SYSTEMCTL_LOG"
-bash "$ROOT/bin/maho-setup" install >/dev/null
+bash "$ROOT/bin/maho-setup" install --development >/dev/null
 NEW_RELEASE="$(readlink -f "$CURRENT")"
 [ -n "$NEW_RELEASE" ] || fail 'runtime/current did not resolve'
 [ "$NEW_RELEASE" != "$OLD_RELEASE" ] || fail 'runtime/current did not switch'
@@ -397,7 +397,7 @@ if find "$NEW_RELEASE" -type d -name __pycache__ -print -quit | grep -q .; then
   fail 'runtime security inspection created bytecode inside immutable release'
 fi
 
-bash "$ROOT/bin/maho-setup" install >/dev/null
+bash "$ROOT/bin/maho-setup" install --development >/dev/null
 [ "$(readlink -f "$CURRENT")" = "$FIRST_RELEASE" ] ||
   fail 'identical source revision did not reuse deterministic runtime release'
 [ -r "$NEW_RELEASE/apps/maho-files/CMakeLists.txt" ] || fail 'native Maho Files source omitted from release'
@@ -479,6 +479,7 @@ make_g2_source() {
   cp "$FIRST_RELEASE/apps/maho-files/prebuilt/maho-files" "$destination/apps/maho-files/prebuilt/maho-files"
   chmod +x "$destination/apps/maho-files/prebuilt/maho-files"
   printf '%s\n' "$marker" >"$destination/share/maho/g2-activation-fixture"
+  printf '{"source_revision":"%s"}\n' "$marker" >"$destination/share/maho/release.json"
 }
 
 cat >"$TMP/fake-bin/update-desktop-database" <<'EOF_UPDATE_DB'
@@ -495,7 +496,7 @@ G2_SOURCE_ONE="$TMP/g2-source-one"
 make_g2_source "$G2_SOURCE_ONE" first-failed-activation
 export MAHO_TEST_CORRUPT_WIRING=1
 export MAHO_TEST_CORRUPT_TARGET="$SHELL_TARGET"
-if bash "$G2_SOURCE_ONE/bin/maho-setup" install >/dev/null 2>"$TMP/g2-first-failure.err"; then
+if bash "$G2_SOURCE_ONE/bin/maho-setup" install --development >/dev/null 2>"$TMP/g2-first-failure.err"; then
   fail 'G2 simulated bad activation unexpectedly succeeded'
 fi
 unset MAHO_TEST_CORRUPT_WIRING
@@ -535,7 +536,7 @@ make_g2_source "$G2_SOURCE_TWO" second-failed-activation
 export MAHO_TEST_DAEMON_RELOAD_COUNT_FILE="$TMP/daemon-reload-count"
 export MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER=1
 export MAHO_TEST_CORRUPT_WIRING=1
-if bash "$G2_SOURCE_TWO/bin/maho-setup" install >/dev/null 2>"$TMP/g2-second-failure.err"; then
+if bash "$G2_SOURCE_TWO/bin/maho-setup" install --development >/dev/null 2>"$TMP/g2-second-failure.err"; then
   fail 'G2 rollback-verification failure unexpectedly succeeded'
 fi
 unset MAHO_TEST_CORRUPT_WIRING MAHO_TEST_FAIL_DAEMON_RELOAD_AFTER MAHO_TEST_DAEMON_RELOAD_COUNT_FILE
@@ -566,7 +567,7 @@ make_g2_source "$G2_SOURCE_THREE" third-daemon-reload-failure
 : >"$TMP/daemon-reload-count"
 export MAHO_TEST_DAEMON_RELOAD_COUNT_FILE="$TMP/daemon-reload-count"
 export MAHO_TEST_FAIL_DAEMON_RELOAD_AT=1
-if bash "$G2_SOURCE_THREE/bin/maho-setup" install >/dev/null 2>"$TMP/g2-third-failure.err"; then
+if bash "$G2_SOURCE_THREE/bin/maho-setup" install --development >/dev/null 2>"$TMP/g2-third-failure.err"; then
   fail 'G2 daemon-reload activation failure unexpectedly succeeded'
 fi
 unset MAHO_TEST_FAIL_DAEMON_RELOAD_AT MAHO_TEST_DAEMON_RELOAD_COUNT_FILE
@@ -589,7 +590,7 @@ echo PASS
 echo '=== G2 later healthy activation supersedes stale unresolved incident ==='
 G2_SOURCE_FOUR="$TMP/g2-source-four"
 make_g2_source "$G2_SOURCE_FOUR" later-healthy-activation
-bash "$G2_SOURCE_FOUR/bin/maho-setup" install >"$TMP/g2-fourth-success.out" 2>"$TMP/g2-fourth-success.err" || fail 'G2 later healthy activation unexpectedly failed'
+bash "$G2_SOURCE_FOUR/bin/maho-setup" install --development >"$TMP/g2-fourth-success.out" 2>"$TMP/g2-fourth-success.err" || fail 'G2 later healthy activation unexpectedly failed'
 grep -Fq 'Guardian archived 1 superseded runtime incident(s)' "$TMP/g2-fourth-success.out" || fail 'G2 later healthy activation did not report stale incident supersession'
 python - "$G2_HISTORY" <<'PY_G2_SUPERSEDED'
 import json,pathlib,sys
@@ -612,7 +613,7 @@ echo PASS
 echo '=== unmanaged Hyprland hook remains protected ==='
 rm -f "$HYPR_SESSION"; printf '%s\n' '-- external Hyprland owner' >"$HYPR_SESSION"
 capture_live_state "$TMP/before-unmanaged-hypr"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer overwrote unrelated Hyprland hook'; fi
+if bash "$ROOT/bin/maho-setup" install --development >/dev/null 2>&1; then fail 'installer overwrote unrelated Hyprland hook'; fi
 capture_live_state "$TMP/after-unmanaged-hypr"
 cmp -s "$TMP/before-unmanaged-hypr" "$TMP/after-unmanaged-hypr" || fail 'failed Hyprland validation mutated wiring'
 rm -f "$HYPR_SESSION"; ln -s "$CURRENT/config/hypr/maho/core/session.lua" "$HYPR_SESSION"
@@ -621,7 +622,7 @@ echo PASS
 echo '=== unmanaged Maho Files desktop entry remains protected ==='
 rm -f "$FILES_DESKTOP_TARGET"; printf '%s\n' '[Desktop Entry]' 'Name=External Files' >"$FILES_DESKTOP_TARGET"
 capture_live_state "$TMP/before-unmanaged-files"
-if bash "$ROOT/bin/maho-setup" install >/dev/null 2>&1; then fail 'installer overwrote unrelated Files desktop entry'; fi
+if bash "$ROOT/bin/maho-setup" install --development >/dev/null 2>&1; then fail 'installer overwrote unrelated Files desktop entry'; fi
 capture_live_state "$TMP/after-unmanaged-files"
 cmp -s "$TMP/before-unmanaged-files" "$TMP/after-unmanaged-files" || fail 'failed Files validation mutated wiring'
 rm -f "$FILES_DESKTOP_TARGET"

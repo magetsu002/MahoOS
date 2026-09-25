@@ -20,6 +20,7 @@ on:
       - 'lib/guardian_recovery_executor.py'
       - 'lib/guardian_runtime_recovery.py'
       - 'lib/maho_runtime_release.py'
+      - 'lib/maho_runtime_deployment.py'
       - 'lib/maho_recovery_policy.py'
       - 'config/quickshell/maho-shell/GuardianState.qml'
       - 'config/quickshell/maho-shell/GuardianWheel.qml'
@@ -40,6 +41,7 @@ on:
       - 'tests/test_guardian_recovery_contract.py'
       - 'tests/test_guardian_runtime_recovery.py'
       - 'tests/test_maho_runtime_release.py'
+      - 'tests/test_maho_runtime_deployment.py'
       - 'tests/guardian-wheel-contracts.sh'
       - 'tests/security-incidents.sh'
       - 'tests/shell-contracts.sh'
@@ -60,6 +62,7 @@ on:
       - 'lib/guardian_recovery_executor.py'
       - 'lib/guardian_runtime_recovery.py'
       - 'lib/maho_runtime_release.py'
+      - 'lib/maho_runtime_deployment.py'
       - 'lib/maho_recovery_policy.py'
       - 'config/quickshell/maho-shell/GuardianState.qml'
       - 'config/quickshell/maho-shell/GuardianWheel.qml'
@@ -80,6 +83,7 @@ on:
       - 'tests/test_guardian_recovery_contract.py'
       - 'tests/test_guardian_runtime_recovery.py'
       - 'tests/test_maho_runtime_release.py'
+      - 'tests/test_maho_runtime_deployment.py'
       - 'tests/guardian-wheel-contracts.sh'
       - 'tests/security-incidents.sh'
       - 'tests/shell-contracts.sh'
@@ -112,6 +116,7 @@ jobs:
             lib/guardian_recovery_executor.py \
             lib/guardian_runtime_recovery.py \
             lib/maho_runtime_release.py \
+            lib/maho_runtime_deployment.py \
             lib/maho_recovery_policy.py \
             tests/test_guardian_severity.py \
             tests/test_guardian_engine.py \
@@ -126,6 +131,7 @@ jobs:
             tests/test_guardian_recovery_contract.py \
             tests/test_guardian_runtime_recovery.py \
             tests/test_maho_runtime_release.py \
+            tests/test_maho_runtime_deployment.py \
             tests/recovery-policy.py
 
       - name: Guardian severity policy tests
@@ -175,6 +181,7 @@ jobs:
         run: |
           set -euo pipefail
           python tests/test_maho_runtime_release.py
+          python tests/test_maho_runtime_deployment.py
 
       - name: Guardian runtime recovery lifecycle tests
         run: |
