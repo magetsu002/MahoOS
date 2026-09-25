@@ -12,6 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_persistence_transition import build_transition_plan, stable_hash  # noqa: E402
+from security_probe import (  # noqa: E402
+    transition_authority_payload,
+    validate_legacy_transition_authority,
+    validate_persistence_authority,
+)
 
 
 def check(label: str, condition: bool) -> None:
@@ -109,6 +114,47 @@ with tempfile.TemporaryDirectory() as raw:
     check("transition binds package versions and mtree", accepted["changes"][0]["before_version"] == "1.0-1" and accepted["changes"][0]["after_version"] == "2.0-1" and accepted["changes"][0]["package_mtree_sha256"] == after_sha)
     check("transition binds package and live generation identities", accepted["package_generation_id"] == publication["package_generation_id"] and accepted["system_generation_id"] == publication["system_generation_id"])
     check("narrow target advances only the authorized file", accepted["target_inventory"]["items"] == [after_item])
+
+    public_plan = {key: value for key, value in accepted.items() if key != "target_inventory"}
+    authority_id = "pbt-" + accepted["target_state_sha256"][:16] + "-123456abcdef"
+    previous_authority_id = "pba-" + baseline["state_sha256"][:16] + "-abcdef123456"
+    authority = transition_authority_payload(
+        public_plan,
+        authority_id=authority_id,
+        previous_authority_id=previous_authority_id,
+        accepted_state=accepted["target_state_sha256"],
+        accepted_at="2026-09-25T12:00:00.000Z",
+        accepted_by_uid=1000,
+    )
+    check(
+        "plan kind cannot shadow transition authority kind",
+        authority["kind"] == "persistence-baseline-transition-authority",
+    )
+    authority_baseline = {
+        "state_sha256": accepted["target_state_sha256"],
+        "baseline_authority_id": authority_id,
+        "baseline_authority_sha256": stable_hash(authority),
+    }
+    validate_persistence_authority(authority_baseline, authority)
+    check("fresh transition authority validates after serialization", True)
+
+    legacy = copy.deepcopy(authority)
+    legacy["kind"] = "persistence-package-transition-plan"
+    legacy_baseline = {
+        "state_sha256": accepted["target_state_sha256"],
+        "baseline_authority_id": authority_id,
+        "baseline_authority_sha256": stable_hash(legacy),
+    }
+    validate_legacy_transition_authority(legacy_baseline, legacy)
+    check("exact PR100 malformed authority is recognized only for bounded repair", True)
+    stale_hash_baseline = {**legacy_baseline, "baseline_authority_sha256": "0" * 64}
+    check(
+        "tampered legacy receipt is rejected before repair",
+        rejected(
+            lambda: validate_legacy_transition_authority(stale_hash_baseline, legacy),
+            "receipt hash mismatch",
+        ),
+    )
 
     wrong_version = copy.deepcopy(transaction)
     wrong_version["package_generation"]["packages"][0]["candidate_version"] = "9.0-1"
