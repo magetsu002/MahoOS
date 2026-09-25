@@ -36,8 +36,8 @@ require_text "$MODEL_CPP" 'mime->setUrls(urls);' \
     'drag payload does not export a standards-aware URL list'
 require_text "$MODEL_CPP" 'm_selectedRows.size() > 1 && m_selectedRows.contains(row)' \
     'dragging a selected file does not carry the full current selection'
-require_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction);' \
-    'file/folder drag does not enter the native drag-and-drop session'
+require_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction | Qt::MoveAction, naturalDragAction(urls));'     'file/folder drag must expose native copy and move semantics'
+reject_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction);'     'native drag regressed to copy-only behavior'
 require_text "$MODEL_CPP" 'fileRowAt(window, mouse->position())' \
     'drag source does not resolve the actual file delegate under the pointer'
 require_text "$MODEL_CPP" 'fileRowAtItem(window->contentItem(), scenePosition)' \
@@ -131,14 +131,12 @@ echo PASS
 echo '=== native drag-in contract ==='
 require_text "$MODEL_H" 'dropUrls(const QVariantList &values' \
     'native inbound file drop API is missing'
-require_text "$MODEL_CPP" 'KIO::copy(urls, m_currentUrl' \
-    'inbound drop copy is not delegated to KIO'
-require_text "$MODEL_CPP" 'KIO::move(urls, m_currentUrl' \
-    'inbound drop move is not delegated to KIO'
-require_text "$QML" 'DropArea {' \
-    'file content does not accept native drops'
-require_text "$QML" 'drop.acceptProposedAction()' \
-    'drop action is not acknowledged back to the source'
+require_text "$MODEL_H" 'canDropUrlsTo(const QVariantList &values, const QUrl &destination)'     'drop destinations cannot be validated independently'
+require_text "$MODEL_CPP" 'KIO::copy(urls, destination'     'inbound drop copy is not delegated to KIO for the real target folder'
+require_text "$MODEL_CPP" 'KIO::move(urls, destination'     'inbound drop move is not delegated to KIO for the real target folder'
+require_text "$QML" 'id: gridFolderDrop'     'grid folders are not native drop targets'
+require_text "$QML" 'id: listFolderDrop'     'list folders are not native drop targets'
+require_text "$QML" 'drop.accept(action)'     'drop action is not acknowledged back to the source'
 echo PASS
 
 echo 'ALL MAHO FILES DND + SEARCH CONTRACTS PASS'

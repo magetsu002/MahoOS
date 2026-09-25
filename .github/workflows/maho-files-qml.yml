@@ -35,6 +35,7 @@ jobs:
         run: |
           bash tests/maho-files-qml-contracts.sh
           bash tests/maho-files-dnd-search-contracts.sh
+          bash tests/maho-files-ux-closure-contracts.sh
 
       - name: Configure native app
         run: |
@@ -42,11 +43,18 @@ jobs:
             -S apps/maho-files \
             -B build/maho-files \
             -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMAHO_FILES_BUILD_TESTS=ON
 
       - name: Compile native app and QML cache
         run: |
           cmake --build build/maho-files --parallel 2
+
+      - name: Focused model operations
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build/maho-files --output-on-failure -R maho-files-model-ops
 
       - name: Binary proof
         env:

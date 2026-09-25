@@ -38,6 +38,7 @@ ApplicationWindow {
     property real selectionDragCurrentX: 0
     property real selectionDragCurrentY: 0
     property real sidebarWidth: 228
+    property string folderDropTargetUrl: ""
 
     readonly property int selectedCount: selectedIndexes.length
 
@@ -64,6 +65,39 @@ ApplicationWindow {
 
     function icon(name) {
         return "image://mahoicons/" + encodeURIComponent(name)
+    }
+
+    function dropAction(drop) {
+        if (drop.proposedAction === Qt.MoveAction || drop.proposedAction === Qt.CopyAction)
+            return drop.proposedAction
+        if ((drop.supportedActions & Qt.MoveAction) !== 0)
+            return Qt.MoveAction
+        if ((drop.supportedActions & Qt.CopyAction) !== 0)
+            return Qt.CopyAction
+        return Qt.IgnoreAction
+    }
+
+    function acceptDrop(drop, destination) {
+        const action = dropAction(drop)
+        if (!drop.hasUrls || action === Qt.IgnoreAction
+                || !directoryModel.canDropUrlsTo(drop.urls, destination)) {
+            drop.accepted = false
+            return false
+        }
+        drop.accept(action)
+        return true
+    }
+
+    function performDrop(drop, destination) {
+        const action = dropAction(drop)
+        if (!drop.hasUrls || action === Qt.IgnoreAction
+                || !directoryModel.canDropUrlsTo(drop.urls, destination)) {
+            drop.accepted = false
+            return false
+        }
+        directoryModel.dropUrls(drop.urls, destination, action)
+        drop.accept(action)
+        return true
     }
 
     function showSearch() {
@@ -334,7 +368,7 @@ ApplicationWindow {
 
     function handleBrowseKey(event) {
         if (event.accepted || root.textEntryHasFocus() || namePopup.opened
-                || morePopup.opened || contextPopup.opened)
+                || morePopup.opened || contextPopup.opened || backgroundPopup.opened)
             return
 
         if (event.key === Qt.Key_Escape && root.searchVisible) {
@@ -679,6 +713,15 @@ ApplicationWindow {
             if (!searchField.activeFocus)
                 searchField.text = directoryModel.searchQuery
         }
+        function onSelectRowRequested(row) {
+            root.selectSingle(row)
+            Qt.callLater(function() {
+                if (root.viewMode === "grid")
+                    grid.positionViewAtIndex(row, GridView.Contain)
+                else
+                    listView.positionViewAtIndex(row, ListView.Contain)
+            })
+        }
     }
 
     Popup {
@@ -710,7 +753,14 @@ ApplicationWindow {
             MenuAction {
                 label: "New Folder"
                 iconName: "folder-new"
+                enabledState: directoryModel.canMutateCurrentDirectory
                 onTriggered: { morePopup.close(); namePopup.beginNewFolder() }
+            }
+            MenuAction {
+                label: "New File"
+                iconName: "document-new"
+                enabledState: directoryModel.canMutateCurrentDirectory
+                onTriggered: { morePopup.close(); namePopup.beginNewFile() }
             }
             MenuAction {
                 label: "Paste"
@@ -857,6 +907,89 @@ ApplicationWindow {
     }
 
     Popup {
+        id: backgroundPopup
+        parent: Overlay.overlay
+        padding: 8
+        width: Math.min(242, Math.max(220, root.width - 24))
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        function openAt(contentX, contentY) {
+            const point = contentArea.mapToItem(root.contentItem, contentX, contentY)
+            x = Math.max(12, Math.min(root.width - width - 12, point.x))
+            y = Math.max(12, Math.min(root.height - height - 12, point.y))
+            open()
+        }
+
+        background: Rectangle {
+            radius: 18
+            color: root.menuFill
+            border.width: 1
+            border.color: root.quietRim
+        }
+
+        contentItem: Column {
+            spacing: 2
+
+            MenuAction {
+                label: "New Folder"
+                iconName: "folder-new"
+                enabledState: directoryModel.canMutateCurrentDirectory
+                onTriggered: { backgroundPopup.close(); namePopup.beginNewFolder() }
+            }
+            MenuAction {
+                label: "New File"
+                iconName: "document-new"
+                enabledState: directoryModel.canMutateCurrentDirectory
+                onTriggered: { backgroundPopup.close(); namePopup.beginNewFile() }
+            }
+            MenuAction {
+                label: "Paste"
+                iconName: "edit-paste"
+                enabledState: directoryModel.canPaste && directoryModel.canMutateCurrentDirectory
+                onTriggered: { backgroundPopup.close(); directoryModel.paste() }
+            }
+            Rectangle { width: Math.min(226, backgroundPopup.width - 16); height: 1; color: root.divider }
+            MenuAction {
+                label: root.searchVisible ? "Hide Search" : "Search This Folder"
+                iconName: "edit-find"
+                checkedState: root.searchVisible
+                onTriggered: {
+                    backgroundPopup.close()
+                    if (root.searchVisible)
+                        root.closeSearch()
+                    else
+                        root.showSearch()
+                }
+            }
+            MenuAction {
+                label: directoryModel.showHidden ? "Hide Hidden Files" : "Show Hidden Files"
+                iconName: "view-hidden"
+                checkedState: directoryModel.showHidden
+                onTriggered: {
+                    backgroundPopup.close()
+                    directoryModel.showHidden = !directoryModel.showHidden
+                }
+            }
+            MenuAction {
+                label: root.viewMode === "grid" ? "Switch to List View" : "Switch to Grid View"
+                iconName: root.viewMode === "grid" ? "view-list-details" : "view-grid"
+                onTriggered: {
+                    backgroundPopup.close()
+                    root.viewMode = root.viewMode === "grid" ? "list" : "grid"
+                }
+            }
+            Rectangle { width: Math.min(226, backgroundPopup.width - 16); height: 1; color: root.divider }
+            MenuAction {
+                label: "Reload"
+                iconName: "view-refresh"
+                onTriggered: { backgroundPopup.close(); directoryModel.reload() }
+            }
+        }
+    }
+
+    Popup {
         id: propertiesPopup
         parent: Overlay.overlay
         modal: true
@@ -907,13 +1040,21 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-        property string mode: "new"
+        property string mode: "folder"
         property int targetIndex: -1
 
         function beginNewFolder() {
-            mode = "new"
+            mode = "folder"
             targetIndex = -1
             nameField.text = "New Folder"
+            open()
+            Qt.callLater(function() { nameField.forceActiveFocus(); nameField.selectAll() })
+        }
+
+        function beginNewFile() {
+            mode = "file"
+            targetIndex = -1
+            nameField.text = "New File"
             open()
             Qt.callLater(function() { nameField.forceActiveFocus(); nameField.selectAll() })
         }
@@ -929,10 +1070,10 @@ ApplicationWindow {
         }
 
         function submit() {
-            if (nameField.text.trim().length === 0)
-                return
-            if (mode === "new")
+            if (mode === "folder")
                 directoryModel.createFolder(nameField.text)
+            else if (mode === "file")
+                directoryModel.createFile(nameField.text)
             else
                 directoryModel.renameIndex(targetIndex, nameField.text)
             close()
@@ -950,7 +1091,9 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: namePopup.mode === "new" ? "New Folder" : "Rename"
+                text: namePopup.mode === "folder"
+                    ? "New Folder"
+                    : namePopup.mode === "file" ? "New File" : "Rename"
                 color: root.foreground
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
@@ -1455,6 +1598,7 @@ ApplicationWindow {
 
                     GridView {
                         id: grid
+                        z: 2
                         anchors.fill: parent
                         anchors.margins: root.width < 560 ? 10 : 18
                         cellWidth: root.width < 560 ? 112 : root.width < 820 ? 124 : 138
@@ -1507,16 +1651,21 @@ ApplicationWindow {
                             // from the topmost hit item.
                             property int mahoFileRow: index
                             property bool selected: root.isSelected(index)
+                            property bool folderDropReady: false
 
                             Rectangle {
                                 anchors.fill: parent
                                 anchors.margins: 3
                                 radius: 18
-                                color: fileDelegate.selected
-                                    ? root.selectedFill
-                                    : fileHover.hovered ? root.hoverFill : "transparent"
-                                border.width: fileDelegate.selected ? 1 : 0
-                                border.color: root.selectedRim
+                                color: fileDelegate.folderDropReady
+                                    ? root.alpha(root.accent, root.lightMode ? 0.18 : 0.22)
+                                    : fileDelegate.selected
+                                        ? root.selectedFill
+                                        : fileHover.hovered ? root.hoverFill : "transparent"
+                                border.width: fileDelegate.selected || fileDelegate.folderDropReady ? 1 : 0
+                                border.color: fileDelegate.folderDropReady
+                                    ? root.alpha(root.accent, 0.72)
+                                    : root.selectedRim
                                 Behavior on color { ColorAnimation { duration: 145 } }
                             }
 
@@ -1575,6 +1724,29 @@ ApplicationWindow {
                             }
 
                             HoverHandler { id: fileHover }
+                            DropArea {
+                                id: gridFolderDrop
+                                anchors.fill: parent
+                                enabled: fileDelegate.isDirectory
+                                onEntered: function(drag) {
+                                    fileDelegate.folderDropReady = root.acceptDrop(drag, fileDelegate.url)
+                                    if (fileDelegate.folderDropReady)
+                                        root.folderDropTargetUrl = String(fileDelegate.url)
+                                }
+                                onExited: {
+                                    fileDelegate.folderDropReady = false
+                                    if (root.folderDropTargetUrl === String(fileDelegate.url))
+                                        root.folderDropTargetUrl = ""
+                                }
+                                onDropped: function(drop) {
+                                    const accepted = root.performDrop(drop, fileDelegate.url)
+                                    fileDelegate.folderDropReady = false
+                                    if (root.folderDropTargetUrl === String(fileDelegate.url))
+                                        root.folderDropTargetUrl = ""
+                                    if (!accepted)
+                                        drop.accepted = false
+                                }
+                            }
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton
@@ -1605,6 +1777,7 @@ ApplicationWindow {
 
                     Item {
                         id: listPanel
+                        z: 2
                         anchors.fill: parent
                         anchors.margins: root.width < 560 ? 8 : 16
                         visible: root.viewMode === "list"
@@ -1670,6 +1843,8 @@ ApplicationWindow {
                                 id: listDelegate
                                 required property int index
                                 required property string name
+                                required property url url
+                                required property bool isDirectory
                                 required property string iconName
                                 required property string sizeText
                                 required property string mimeComment
@@ -1680,15 +1855,20 @@ ApplicationWindow {
                                 height: 44
                                 property int mahoFileRow: index
                                 property bool selected: root.isSelected(index)
+                                property bool folderDropReady: false
 
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: 11
-                                    color: listDelegate.selected
-                                        ? root.selectedFill
-                                        : listHover.hovered ? root.hoverFill : "transparent"
-                                    border.width: listDelegate.selected ? 1 : 0
-                                    border.color: root.selectedRim
+                                    color: listDelegate.folderDropReady
+                                        ? root.alpha(root.accent, root.lightMode ? 0.18 : 0.22)
+                                        : listDelegate.selected
+                                            ? root.selectedFill
+                                            : listHover.hovered ? root.hoverFill : "transparent"
+                                    border.width: listDelegate.selected || listDelegate.folderDropReady ? 1 : 0
+                                    border.color: listDelegate.folderDropReady
+                                        ? root.alpha(root.accent, 0.72)
+                                        : root.selectedRim
                                     Behavior on color { ColorAnimation { duration: 130 } }
                                 }
 
@@ -1728,6 +1908,29 @@ ApplicationWindow {
                                 }
 
                                 HoverHandler { id: listHover }
+                                DropArea {
+                                    id: listFolderDrop
+                                    anchors.fill: parent
+                                    enabled: listDelegate.isDirectory
+                                    onEntered: function(drag) {
+                                        listDelegate.folderDropReady = root.acceptDrop(drag, listDelegate.url)
+                                        if (listDelegate.folderDropReady)
+                                            root.folderDropTargetUrl = String(listDelegate.url)
+                                    }
+                                    onExited: {
+                                        listDelegate.folderDropReady = false
+                                        if (root.folderDropTargetUrl === String(listDelegate.url))
+                                            root.folderDropTargetUrl = ""
+                                    }
+                                    onDropped: function(drop) {
+                                        const accepted = root.performDrop(drop, listDelegate.url)
+                                        listDelegate.folderDropReady = false
+                                        if (root.folderDropTargetUrl === String(listDelegate.url))
+                                            root.folderDropTargetUrl = ""
+                                        if (!accepted)
+                                            drop.accepted = false
+                                    }
+                                }
                                 MouseArea {
                                     anchors.fill: parent
                                     acceptedButtons: Qt.LeftButton
@@ -1761,7 +1964,7 @@ ApplicationWindow {
                         id: rubberSelectInput
                         anchors.fill: parent
                         z: 47
-                        acceptedButtons: Qt.LeftButton
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         // Do not propagate the synthetic click generated when
                         // a marquee ends over a file. Doing so collapses the
                         // freshly selected group to the file under M1 release.
@@ -1776,6 +1979,15 @@ ApplicationWindow {
                                 activeView = null
                                 return
                             }
+
+                            if (mouse.button === Qt.RightButton) {
+                                activeView = null
+                                root.clearSelection()
+                                backgroundPopup.openAt(mouse.x, mouse.y)
+                                mouse.accepted = true
+                                return
+                            }
+
                             activeView = view
                             root.beginBackgroundSelection(view, mouse.x, mouse.y, mouse.modifiers)
                             mouse.accepted = true
@@ -1821,24 +2033,21 @@ ApplicationWindow {
                     DropArea {
                         id: contentDropArea
                         anchors.fill: parent
-                        z: 50
+                        z: 1
 
                         onEntered: function(drag) {
-                            drag.accepted = drag.hasUrls && directoryModel.currentUrl.toString().startsWith("file:")
+                            root.acceptDrop(drag, directoryModel.currentUrl)
                         }
 
                         onDropped: function(drop) {
-                            if (!drop.hasUrls)
-                                return
-                            directoryModel.dropUrls(drop.urls, drop.proposedAction === Qt.MoveAction)
-                            drop.acceptProposedAction()
+                            root.performDrop(drop, directoryModel.currentUrl)
                         }
                     }
 
                     Rectangle {
                         anchors.fill: parent
                         z: 49
-                        visible: contentDropArea.containsDrag
+                        visible: contentDropArea.containsDrag && root.folderDropTargetUrl.length === 0
                         color: root.alpha(root.accent, 0.055)
                         border.width: 2
                         border.color: root.alpha(root.accent, 0.30)

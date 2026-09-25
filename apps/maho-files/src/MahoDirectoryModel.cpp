@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QDrag>
 #include <QFileInfo>
+#include <QStorageInfo>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QMimeData>
@@ -23,6 +24,7 @@
 #include <KIO/Job>
 #include <KIO/ListJob>
 #include <KIO/MkdirJob>
+#include <KIO/StoredTransferJob>
 #include <KJob>
 
 #include <algorithm>
@@ -270,6 +272,15 @@ bool MahoDirectoryModel::canPaste() const
     return mime && !mime->urls().isEmpty();
 }
 
+bool MahoDirectoryModel::canMutateCurrentDirectory() const
+{
+    if (!m_currentUrl.isLocalFile())
+        return false;
+
+    const QFileInfo directory(m_currentUrl.toLocalFile());
+    return directory.exists() && directory.isDir() && directory.isWritable();
+}
+
 void MahoDirectoryModel::openUrl(const QUrl &url)
 {
     navigate(url, true);
@@ -429,19 +440,27 @@ bool MahoDirectoryModel::isDirectoryAt(int row) const
 
 void MahoDirectoryModel::createFolder(const QString &name)
 {
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty()) {
-        setOperationMessage(QStringLiteral("Folder name cannot be empty."));
-        return;
-    }
-
-    const QUrl destination = childUrl(trimmed);
+    QString error;
+    const QUrl destination = validatedChildUrl(name, &error);
     if (!destination.isValid()) {
-        setOperationMessage(QStringLiteral("Create a folder from a writable local location."));
+        setOperationMessage(error);
         return;
     }
 
-    watchJob(KIO::mkdir(destination), QStringLiteral("Folder created"));
+    watchJob(KIO::mkdir(destination), QStringLiteral("Folder created"), destination);
+}
+
+void MahoDirectoryModel::createFile(const QString &name)
+{
+    QString error;
+    const QUrl destination = validatedChildUrl(name, &error);
+    if (!destination.isValid()) {
+        setOperationMessage(error);
+        return;
+    }
+
+    auto *job = KIO::storedPut(QByteArray(), destination, -1, KIO::HideProgressInfo);
+    watchJob(job, QStringLiteral("File created"), destination);
 }
 
 void MahoDirectoryModel::renameIndex(int row, const QString &name)
@@ -619,30 +638,35 @@ QString MahoDirectoryModel::propertiesText(int row) const
     return lines.join(QLatin1Char('\n'));
 }
 
-void MahoDirectoryModel::dropUrls(const QVariantList &values, bool move)
+bool MahoDirectoryModel::canDropUrlsTo(const QVariantList &values, const QUrl &destination) const
 {
-    if (!m_currentUrl.isLocalFile()) {
-        setOperationMessage(QStringLiteral("Drop files into a writable local folder."));
+    const QList<QUrl> urls = dropUrlsFromValues(values);
+    return validateDrop(urls, destination, nullptr);
+}
+
+void MahoDirectoryModel::dropUrls(const QVariantList &values, const QUrl &destination, int action)
+{
+    const QList<QUrl> urls = dropUrlsFromValues(values);
+    QString error;
+    if (!validateDrop(urls, destination, &error)) {
+        setOperationMessage(error);
         return;
     }
 
-    QList<QUrl> urls;
-    urls.reserve(values.size());
-    for (const QVariant &value : values) {
-        const QUrl url = value.toUrl();
-        if (url.isValid() && !url.isEmpty())
-            urls.append(url);
-    }
-
-    if (urls.isEmpty()) {
-        setOperationMessage(QStringLiteral("The drop did not contain files."));
+    const auto dropAction = static_cast<Qt::DropAction>(action);
+    if (dropAction != Qt::CopyAction && dropAction != Qt::MoveAction) {
+        setOperationMessage(QStringLiteral("This drop action is not supported."));
         return;
     }
 
-    KIO::CopyJob *job = move
-        ? KIO::move(urls, m_currentUrl, KIO::HideProgressInfo)
-        : KIO::copy(urls, m_currentUrl, KIO::HideProgressInfo);
-    watchJob(job, move ? QStringLiteral("Moved here") : QStringLiteral("Copied here"));
+    KIO::CopyJob *job = dropAction == Qt::MoveAction
+        ? KIO::move(urls, destination, KIO::HideProgressInfo)
+        : KIO::copy(urls, destination, KIO::HideProgressInfo);
+    job->setUiDelegate(KIO::createDefaultJobUiDelegate(
+        KJobUiDelegate::AutoHandlingEnabled, nullptr));
+    watchJob(job, dropAction == Qt::MoveAction
+        ? QStringLiteral("Moved here")
+        : QStringLiteral("Copied here"));
 }
 
 void MahoDirectoryModel::paste()
@@ -662,9 +686,17 @@ void MahoDirectoryModel::paste()
     const QList<QUrl> urls = mime->urls();
     const bool cut = mime->data(QStringLiteral("application/x-kde-cutselection")) == QByteArrayLiteral("1");
 
+    QString dropError;
+    if (!validateDrop(urls, m_currentUrl, &dropError, false)) {
+        setOperationMessage(dropError);
+        return;
+    }
+
     KIO::CopyJob *job = cut
         ? KIO::move(urls, m_currentUrl, KIO::HideProgressInfo)
         : KIO::copy(urls, m_currentUrl, KIO::HideProgressInfo);
+    job->setUiDelegate(KIO::createDefaultJobUiDelegate(
+        KJobUiDelegate::AutoHandlingEnabled, nullptr));
 
     watchJob(job, cut ? QStringLiteral("Moved here") : QStringLiteral("Pasted here"));
 }
@@ -968,6 +1000,7 @@ void MahoDirectoryModel::setCurrentUrl(const QUrl &url)
     if (m_currentUrl == url)
         return;
     m_currentUrl = url;
+    m_pendingSelectionUrl = QUrl();
     emit currentUrlChanged();
     emit canPasteChanged();
 }
@@ -1036,6 +1069,16 @@ void MahoDirectoryModel::rebuildVisibleItems()
     beginResetModel();
     m_items = std::move(visible);
     endResetModel();
+
+    if (m_pendingSelectionUrl.isValid() && m_searchQuery.isEmpty()) {
+        for (int row = 0; row < m_items.size(); ++row) {
+            if (m_items.at(row).url() == m_pendingSelectionUrl) {
+                m_pendingSelectionUrl = QUrl();
+                emit selectRowRequested(row);
+                break;
+            }
+        }
+    }
 }
 
 void MahoDirectoryModel::sortItems(QVector<KFileItem> &items) const
@@ -1176,7 +1219,7 @@ void MahoDirectoryModel::startDragForRow(int row)
 
     QDrag drag(this);
     drag.setMimeData(mime);
-    drag.exec(Qt::CopyAction);
+    drag.exec(Qt::CopyAction | Qt::MoveAction, naturalDragAction(urls));
 }
 
 int MahoDirectoryModel::fileRowAt(QQuickWindow *window, const QPointF &scenePosition) const
@@ -1220,7 +1263,7 @@ int MahoDirectoryModel::fileRowAtItem(QQuickItem *root, const QPointF &scenePosi
     return ok && row >= 0 && row < m_items.size() ? row : -1;
 }
 
-void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage)
+void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage, const QUrl &selectUrl)
 {
     if (!job)
         return;
@@ -1228,13 +1271,15 @@ void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage)
     setOperationBusy(true);
     setOperationMessage({});
 
-    connect(job, &KJob::result, this, [this, successMessage](KJob *completed) {
+    connect(job, &KJob::result, this, [this, successMessage, selectUrl](KJob *completed) {
         setOperationBusy(false);
         if (completed->error()) {
             setOperationMessage(completed->errorString());
             return;
         }
         setOperationMessage(successMessage);
+        if (selectUrl.isValid() && !selectUrl.isEmpty())
+            m_pendingSelectionUrl = selectUrl;
         reload();
     });
 }
@@ -1251,4 +1296,120 @@ QUrl MahoDirectoryModel::childUrl(const QString &name) const
     path += name;
     destination.setPath(path);
     return destination;
+}
+
+QUrl MahoDirectoryModel::validatedChildUrl(const QString &name, QString *error) const
+{
+    const QString trimmed = name.trimmed();
+    auto reject = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return QUrl();
+    };
+
+    if (trimmed.isEmpty())
+        return reject(QStringLiteral("Name cannot be empty."));
+    if (trimmed == QStringLiteral(".") || trimmed == QStringLiteral("..")
+        || trimmed.contains(QLatin1Char('/')) || trimmed.contains(QChar::Null)) {
+        return reject(QStringLiteral("That name is not valid here."));
+    }
+    if (!canMutateCurrentDirectory())
+        return reject(QStringLiteral("Create items from a writable local folder."));
+
+    const QUrl destination = childUrl(trimmed);
+    if (!destination.isValid() || !destination.isLocalFile())
+        return reject(QStringLiteral("Create items from a writable local folder."));
+
+    const QFileInfo target(destination.toLocalFile());
+    if (target.exists() || target.isSymLink())
+        return reject(QStringLiteral("An item named %1 already exists.").arg(trimmed));
+
+    return destination;
+}
+
+QList<QUrl> MahoDirectoryModel::dropUrlsFromValues(const QVariantList &values) const
+{
+    QList<QUrl> urls;
+    urls.reserve(values.size());
+    for (const QVariant &value : values) {
+        const QUrl url = value.toUrl();
+        if (url.isValid() && !url.isEmpty() && !urls.contains(url))
+            urls.append(url);
+    }
+    return urls;
+}
+
+bool MahoDirectoryModel::validateDrop(
+    const QList<QUrl> &urls,
+    const QUrl &destination,
+    QString *error,
+    bool rejectSameParent) const
+{
+    auto reject = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    if (urls.isEmpty())
+        return reject(QStringLiteral("The drop did not contain files."));
+    if (!destination.isLocalFile())
+        return reject(QStringLiteral("Drop files into a writable local folder."));
+
+    const QFileInfo destinationInfo(destination.toLocalFile());
+    if (!destinationInfo.exists() || !destinationInfo.isDir())
+        return reject(QStringLiteral("The drop destination is not a folder."));
+    if (!destinationInfo.isWritable())
+        return reject(QStringLiteral("The destination folder is not writable."));
+
+    const QString destinationPath = QDir::cleanPath(
+        destinationInfo.canonicalFilePath().isEmpty()
+            ? destinationInfo.absoluteFilePath()
+            : destinationInfo.canonicalFilePath());
+
+    for (const QUrl &url : urls) {
+        if (!url.isValid() || url.isEmpty())
+            return reject(QStringLiteral("The drop contains an invalid item."));
+        if (!url.isLocalFile())
+            continue;
+
+        const QFileInfo sourceInfo(url.toLocalFile());
+        const QString sourcePath = QDir::cleanPath(
+            sourceInfo.canonicalFilePath().isEmpty()
+                ? sourceInfo.absoluteFilePath()
+                : sourceInfo.canonicalFilePath());
+        if (sourcePath == destinationPath)
+            return reject(QStringLiteral("An item cannot be dropped onto itself."));
+
+        const QString sourceParent = QDir::cleanPath(sourceInfo.absolutePath());
+        if (rejectSameParent && sourceParent == destinationPath)
+            return reject(QStringLiteral("Those items are already in this folder."));
+
+        if (sourceInfo.isDir()
+            && destinationPath.startsWith(sourcePath + QLatin1Char('/'))) {
+            return reject(QStringLiteral("A folder cannot be moved or copied into its own descendant."));
+        }
+    }
+
+    return true;
+}
+
+Qt::DropAction MahoDirectoryModel::naturalDragAction(const QList<QUrl> &urls)
+{
+    if (urls.isEmpty())
+        return Qt::CopyAction;
+
+    QByteArray device;
+    for (const QUrl &url : urls) {
+        if (!url.isLocalFile())
+            return Qt::CopyAction;
+        const QStorageInfo storage(QFileInfo(url.toLocalFile()).absolutePath());
+        if (!storage.isValid() || !storage.isReady())
+            return Qt::CopyAction;
+        if (device.isEmpty())
+            device = storage.device();
+        else if (storage.device() != device)
+            return Qt::CopyAction;
+    }
+    return Qt::MoveAction;
 }
