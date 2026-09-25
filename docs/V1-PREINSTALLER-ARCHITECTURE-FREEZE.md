@@ -33,7 +33,7 @@ This is the canonical V1 contract an installer must implement. It does not autho
 
 - No hibernation, multi-disk install, removable target, BIOS/CSM, ARM, multi-seat certification, TPM auto-unlock, automatic AUR installation, or active production BPF-LSM enforcement.
 - Physical Secure Boot enrollment and trust are not yet certified; current status must remain `UNKNOWN`/pending.
-- Full-disk encryption, reinstall-with-home-preservation, retention GC, installer resume/abort, and certified first boot are frozen contracts but not implemented or destructively certified.
+- Full-disk encryption, reinstall-with-home-preservation, installer resume/abort, and certified first boot are frozen contracts but not implemented or destructively certified. Retention GC is implemented as an identity/dependency planner plus journaled executor and has an adversarial fixture matrix; its final-source destructive VM campaign remains required.
 - Hardware support is bounded to devices passing exact preflight. “Linux supports it” is not a certification result.
 
 ## Deferred post-V1

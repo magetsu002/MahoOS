@@ -44,7 +44,7 @@ COMMANDS=(
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock maho-kbdlight
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
-  maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-aur-build maho-guardian-runtime-recovery-certify
+  maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-generation-gc maho-aur-build maho-guardian-runtime-recovery-certify
   maho-vesktop-guard maho-vesktop-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)

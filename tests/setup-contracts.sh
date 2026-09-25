@@ -57,7 +57,7 @@ COMMANDS=(
   mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock
-  maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-firewall maho-memory-certify
+  maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-firewall maho-memory-certify maho-generation-gc
   maho-clipboard-history maho-lock-sddm-install maho-guardian-runtime-recovery-certify maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)

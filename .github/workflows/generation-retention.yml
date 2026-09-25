@@ -1,0 +1,51 @@
+name: generation-retention
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+    paths:
+      - 'lib/maho_generation_gc.py'
+      - 'lib/maho_generation_gc_cli.py'
+      - 'lib/maho_update_preparation.py'
+      - 'lib/maho_update_normal.py'
+      - 'lib/maho_update_campaign.py'
+      - 'lib/maho_update_normal_campaign.py'
+      - 'bin/maho-generation-gc'
+      - 'tests/test_generation_gc.py'
+      - 'tests/test_maho_update_preparation.py'
+      - 'tests/test_maho_update_normal.py'
+      - '.github/workflows/generation-retention.yml'
+  pull_request:
+    paths:
+      - 'lib/maho_generation_gc.py'
+      - 'lib/maho_generation_gc_cli.py'
+      - 'lib/maho_update_preparation.py'
+      - 'lib/maho_update_normal.py'
+      - 'lib/maho_update_campaign.py'
+      - 'lib/maho_update_normal_campaign.py'
+      - 'bin/maho-generation-gc'
+      - 'tests/test_generation_gc.py'
+      - 'tests/test_maho_update_preparation.py'
+      - 'tests/test_maho_update_normal.py'
+      - '.github/workflows/generation-retention.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  adversarial-gc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: |
+          bash -n bin/maho-generation-gc
+          python -m py_compile lib/maho_generation_gc.py lib/maho_generation_gc_cli.py
+      - name: Generation retention and fault matrix
+        run: PYTHONPATH=lib python tests/test_generation_gc.py
+      - name: Update reserve gates
+        run: |
+          PYTHONPATH=lib python tests/test_maho_update_preparation.py
+          PYTHONPATH=lib python tests/test_maho_update_normal.py

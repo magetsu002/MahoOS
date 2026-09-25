@@ -74,6 +74,7 @@ _STATE_ROOT = Path("/var/lib/maho/update")
 _AUR_CACHE_ROOT = Path("/var/cache/maho/update-aur")
 _M4B_READINESS_ROOT = Path("/var/cache/maho/update-m4b-readiness")
 _CAMPAIGN_LOCK_PATH = Path("/run/lock/maho-update-campaign.lock")
+_SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def _root() -> Path:
@@ -535,6 +536,8 @@ def prepare_native_campaign() -> dict[str, Any]:
         raise RuntimeError("concurrent_package_or_build_operation")
     if available < required:
         raise RuntimeError("insufficient_install_space")
+    if available - required < _SAFE_STORAGE_RESERVE_BYTES:
+        raise RuntimeError("unsafe_post_update_disk_reserve")
 
     # Only after the full package graph and exact payload set are proven do we
     # create any M3B recovery state. This keeps failed solver/staging attempts
@@ -581,6 +584,8 @@ def prepare_native_campaign() -> dict[str, Any]:
         recovery_generation_id=l3_seed["generation_id"],
         native_l3_certified=True,
         execution_environment="production",
+        safe_reserve_bytes=_SAFE_STORAGE_RESERVE_BYTES,
+        gc_authority_current=True,
     )
     prepared = prepare_transaction(transaction, staged.manifest, cache, evidence, now=now)
     if prepared.transaction["state"] != UpdateState.PREPARED.value or not prepared.plan.complete:
@@ -1182,6 +1187,7 @@ def apply_aur_campaign(
             NormalPreparationEvidence(
                 _generation_is_current(staged.transaction), True, required, free,
                 power_known, power_ok, False, True, True, "production",
+                _SAFE_STORAGE_RESERVE_BYTES, True,
             ),
         )
         publish_transaction(_STATE_ROOT, prepared.transaction)

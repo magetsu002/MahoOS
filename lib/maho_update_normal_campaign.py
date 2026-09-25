@@ -22,6 +22,7 @@ from maho_update_staging import IsolatedPacmanStaging, stage_transaction
 from maho_update_state import UpdateState, publish_transaction
 
 STATE_ROOT = Path("/var/lib/maho/update")
+SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 CACHE_ROOT = Path("/var/cache/maho/update-normal-certification")
 RUN_ROOT = Path("/run/maho-update-normal")
 def _require_root() -> None:
@@ -168,7 +169,8 @@ def certify_normal_update(
         prep = prepare_normal_transaction(
             staged.transaction, staged.manifest, cache,
             NormalPreparationEvidence(
-                True, True, required, free, power_known, power_ok, False, True, True, "production"
+                True, True, required, free, power_known, power_ok, False, True, True,
+                "production", SAFE_STORAGE_RESERVE_BYTES, True,
             ),
         )
         if prep.transaction["state"] != UpdateState.PREPARED.value:
