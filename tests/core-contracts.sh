@@ -219,6 +219,12 @@ python "$ROOT/tests/test_guardian_live_signed_boot.py"
 python "$ROOT/tests/test_maho_runtime_release.py"
 python "$ROOT/tests/test_maho_runtime_deployment.py"
 
+echo "=== Firewall authority and receipt ==="
+python "$ROOT/tests/test_maho_firewall_receipt.py"
+bash "$ROOT/tests/firewall-certification-contracts.sh"
+bash "$ROOT/tests/firewall-observer-contracts.sh"
+bash "$ROOT/tests/firewall-transaction-netns.sh"
+
 echo "=== Core prevention boundary ==="
 python "$ROOT/tests/test_maho_prevention_policy.py"
 python "$ROOT/tests/test_maho_mutation_authority.py"

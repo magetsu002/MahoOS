@@ -28,10 +28,10 @@ table inet mullvad_mock {
 EOF
 UNRELATED_BEFORE="$(nft list table inet unrelated_provider | normalize)"
 MULLVAD_BEFORE="$(nft list table inet mullvad_mock | normalize)"
-"$FW" status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="unprotected" and x["table_present"] is False'
+"$FW" live-status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="unprotected" and x["table_present"] is False'
 
 "$FW" apply --policy "$POLICY" --json | json_true success
-"$FW" status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="protected" and x["verified"] is True'
+"$FW" live-status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="protected" and x["verified"] is True'
 FIRST="$(nft list table inet maho_host | normalize)"
 "$FW" apply --policy "$POLICY" --json | json_true success
 SECOND="$(nft list table inet maho_host | normalize)"
@@ -74,7 +74,7 @@ EOF
 [ "$FIRST" = "$(nft list table inet maho_host | normalize)" ]
 
 "$FW" remove --json | json_true success
-"$FW" status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="unprotected" and x["table_present"] is False'
+"$FW" live-status --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["result"]=="unprotected" and x["table_present"] is False'
 "$FW" remove --json | python -c 'import json,sys; x=json.load(sys.stdin); assert x["success"] is True and x["changed"] is False'
 [ "$UNRELATED_BEFORE" = "$(nft list table inet unrelated_provider | normalize)" ]
 [ "$MULLVAD_BEFORE" = "$(nft list table inet mullvad_mock | normalize)" ]

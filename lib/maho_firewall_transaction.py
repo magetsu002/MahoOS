@@ -22,6 +22,33 @@ def root_dir() -> Path:
     return Path(explicit).expanduser().resolve() if explicit else Path(__file__).resolve().parent.parent
 
 
+def receipt_path() -> Path:
+    return Path("/run/maho/firewall/status.json")
+
+
+def host_root_authority() -> bool:
+    if os.geteuid() != 0:
+        return False
+    try:
+        mappings = Path("/proc/self/uid_map").read_text(encoding="utf-8").splitlines()
+        for line in mappings:
+            inside, outside, length = (int(part) for part in line.split())
+            if inside <= 0 < inside + length:
+                return outside + (0 - inside) == 0
+    except (OSError, ValueError):
+        return True
+    return False
+
+
+def invalidate_receipt() -> None:
+    if not host_root_authority():
+        return
+    try:
+        receipt_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
 def nft(args: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["nft", *args], input=input_text, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
 
@@ -99,7 +126,7 @@ def verify_table(payload: dict[str, Any] | None) -> tuple[bool, list[str]]:
     return not reasons, reasons
 
 
-def status_payload() -> dict[str, Any]:
+def live_status_payload() -> dict[str, Any]:
     state, payload, detail = table_json()
     result: dict[str, Any] = {
         "schema_version": 1,
@@ -153,6 +180,7 @@ def rollback(previous_state: str, previous_text: str, previous_json: dict[str, A
 def apply_policy(path: Path) -> dict[str, Any]:
     validate_policy_scope(path)
     previous_state, previous_text = table_text()
+    invalidate_receipt()
     _, previous_json, _ = table_json()
     result = nft(["-f", str(path)])
     if result.returncode != 0:
@@ -166,37 +194,59 @@ def apply_policy(path: Path) -> dict[str, Any]:
             "rollback": "verified" if restored else "failed", "rollback_detail": rollback_detail,
             "error": detail or ",".join(reasons) or "post-apply verification failed",
         }
-    return {"schema_version": 1, "operation": "apply", "success": True, "changed": True, "rollback": "not-needed", "status": status_payload()}
+    return {"schema_version": 1, "operation": "apply", "success": True, "changed": True, "rollback": "not-needed", "status": live_status_payload()}
 
 
 def remove_policy() -> dict[str, Any]:
     before, _, detail = table_json()
     if before == "visibility-error":
         return {"schema_version": 1, "operation": "remove", "success": False, "changed": False, "error": detail}
+    invalidate_receipt()
     result = nft(["-f", "-"], input_text=f"destroy table {TABLE_FAMILY} {TABLE_NAME}\n")
     if result.returncode != 0:
         return {"schema_version": 1, "operation": "remove", "success": False, "changed": False, "error": result.stderr.strip() or "atomic nft removal failed"}
     after, _, after_detail = table_json()
     if after != "absent":
         return {"schema_version": 1, "operation": "remove", "success": False, "changed": False, "error": after_detail or f"post-remove state is {after}"}
-    return {"schema_version": 1, "operation": "remove", "success": True, "changed": before == "present", "status": status_payload()}
+    return {"schema_version": 1, "operation": "remove", "success": True, "changed": before == "present", "status": live_status_payload()}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="maho-firewall", description="Manage only MahoOS table inet maho_host")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("status", "remove"):
-        command = sub.add_parser(name); command.add_argument("--json", action="store_true")
-    apply = sub.add_parser("apply"); apply.add_argument("--policy", type=Path, default=root_dir() / "config/platform/maho-host-firewall.nft"); apply.add_argument("--json", action="store_true")
+    status = sub.add_parser("status")
+    status.add_argument("--json", action="store_true")
+    status.add_argument("--receipt", type=Path, default=receipt_path())
+    status.add_argument("--max-age-seconds", type=int, default=45)
+    live = sub.add_parser("live-status")
+    live.add_argument("--json", action="store_true")
+    remove = sub.add_parser("remove")
+    remove.add_argument("--json", action="store_true")
+    apply = sub.add_parser("apply")
+    apply.add_argument("--policy", type=Path, default=root_dir() / "config/platform/maho-host-firewall.nft")
+    apply.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    if args.command == "status" and args.max_age_seconds < 1:
+        parser.error("--max-age-seconds must be positive")
     try:
-        if args.command == "status": payload = status_payload()
-        elif args.command == "apply": payload = apply_policy(args.policy.expanduser().resolve())
-        else: payload = remove_policy()
+        if args.command == "status":
+            from maho_firewall_receipt import verify
+            payload = verify(
+                args.receipt.expanduser(),
+                root=root_dir(),
+                max_age_seconds=args.max_age_seconds,
+            )
+        elif args.command == "live-status":
+            payload = live_status_payload()
+        elif args.command == "apply":
+            payload = apply_policy(args.policy.expanduser().resolve())
+        else:
+            payload = remove_policy()
     except (OSError, ValueError, RuntimeError) as exc:
         payload = {"schema_version": 1, "operation": args.command, "success": False, "changed": False, "error": str(exc)}
     emit(payload, bool(getattr(args, "json", False)))
-    return 0 if (payload.get("success") is True or args.command == "status" and payload.get("decision_usable") is True) else 1
+    readable = args.command in {"status", "live-status"} and payload.get("decision_usable") is True
+    return 0 if payload.get("success") is True or readable else 1
 
 
 if __name__ == "__main__":
