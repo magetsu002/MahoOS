@@ -43,6 +43,15 @@ The campaign adds a fail-closed deployment planner:
 
 Current main already contains the canonical live-publication reader. Running that source against the host resolved the exact current generation. The user-facing unresolved generation was entirely due to the stale deployed runtime, not a second generation store.
 
+## Exact-source verification completed
+
+- `git diff --check`: pass.
+- Focused runtime deployment, runtime release, Guardian trust/live-state, and durable setup transaction suites: pass.
+- Full `tests/core-contracts.sh`: pass on clean commit `c8c612d34399f787d2b31d531c46720b8fb8c3af`.
+- Arch package build: pass; package release provenance names that exact commit and contains the new deployment planner.
+- Disposable QEMU/OVMF Signed Boot: 13/13 pass with isolated variable stores, including valid normal/recovery chains, invalid/wrong signer, config/kernel/initramfs/microcode tamper, damaged normal/recovery, replay, and revoked generation. The durable summary is `v1-preinstaller-qemu-signed-boot-2026-09-25.json`.
+- Full destructive Maho VM torture campaign: not rerun on this commit.
+
 ## Performance and quality baseline
 
 These are observations, not targets:
@@ -88,12 +97,12 @@ The three Quickshell Maho UI processes used approximately 250 MiB, 234 MiB, and 
 | Boot | normal boot | NOT_COVERED | No reboot authorized |
 | Boot | fallback kernel | NOT_COVERED | No reboot authorized |
 | Boot | recovery boot | NOT_COVERED | No reboot authorized |
-| Boot | corrupted normal boot | NOT_COVERED | No final-source VM run |
-| Boot | corrupted recovery boot | NOT_COVERED | No final-source VM run |
-| Boot | stale boot artifact | NOT_COVERED | No final-source VM run |
-| Boot | mismatched initramfs | NOT_COVERED | No final-source VM run |
-| Boot | wrong kernel | NOT_COVERED | No final-source VM run |
-| Boot | boot metadata drift | NOT_COVERED | No final-source VM run |
+| Boot | corrupted normal boot | RECOVERED_AUTOMATICALLY | QEMU selected trusted recovery when normal was damaged |
+| Boot | corrupted recovery boot | PREVENTED | QEMU refused damaged recovery loader |
+| Boot | stale boot artifact | PREVENTED | QEMU modeled replay/revocation as non-current trust, never VERIFIED |
+| Boot | mismatched initramfs | PREVENTED | QEMU refused initramfs hash mismatch |
+| Boot | wrong kernel | PREVENTED | QEMU refused kernel hash mismatch |
+| Boot | boot metadata drift | PREVENTED | QEMU refused config tamper/missing enrollment |
 | Runtime | immutable runtime corruption | DETECTED_ONLY | Setup status rejects payload hash drift |
 | Runtime | runtime deployment interruption | RECOVERED_AUTOMATICALLY | Setup transaction contract restores exact previous runtime |
 | Runtime | stale runtime deployment | PREVENTED | Production ancestry test rejects downgrade |
@@ -171,10 +180,10 @@ The three Quickshell Maho UI processes used approximately 250 MiB, 234 MiB, and 
 1. Exact healthy package-transaction authority cannot yet advance the persistence baseline, so the legitimate Limine package change remains an active L1.
 2. No privileged boot-bound firewall receipt publisher feeds the unprivileged product status; current live firewall state is unavailable.
 3. The confirmed Vesktop `/usr/lib` → `/opt` package-layout fix is not on a clean reviewed branch/main, and current main remains broken for a fresh build.
-4. The destructive QEMU/OVMF and VM matrix above has not been rerun on the final campaign source.
+4. The full destructive system VM matrix above has not been rerun on the final campaign source; only the 13-scenario QEMU/OVMF Signed Boot subset is current.
 5. Physical Signed Boot, fallback/recovery boot, and key provisioning remain unproven; current host trust is correctly `UNKNOWN`.
 6. Retention/GC and storage-pressure behavior are policy only and lack implementation plus ENOSPC/power-loss certification.
-7. Final campaign source has not passed PR CI, landed on main, been deployed through the canonical production path, or converged with the live runtime.
+7. Final campaign source has not passed PR CI, landed on main, been deployed through the canonical production path, or converged with the live runtime (local core/package/QEMU checks pass).
 8. The requested complete performance baseline, especially recovery/detection/update phases, suspend/resume, battery and first-frame quality, has not been captured on final source.
 
 No release tag was created. Installer work must not begin while these blockers remain.
