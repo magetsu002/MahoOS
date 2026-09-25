@@ -203,6 +203,7 @@ private:
         return name == QStringLiteral("application-menu")
             || name == QStringLiteral("folder-new")
             || name == QStringLiteral("folder-open")
+            || name == QStringLiteral("document-new")
             || name == QStringLiteral("document-open")
             || name == QStringLiteral("user-trash")
             || name == QStringLiteral("media-eject")

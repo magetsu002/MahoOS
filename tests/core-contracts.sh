@@ -255,6 +255,7 @@ echo "=== Maho Files desktop UX closure ==="
 bash "$ROOT/tests/maho-files-qml-contracts.sh"
 bash "$ROOT/tests/maho-files-dnd-search-contracts.sh"
 bash "$ROOT/tests/maho-files-ux-closure-contracts.sh"
+bash "$ROOT/tests/maho-files-icon-contracts.sh"
 bash "$ROOT/tests/maho-files-model-ops.sh"
 
 echo "=== Vesktop session reliability ==="
