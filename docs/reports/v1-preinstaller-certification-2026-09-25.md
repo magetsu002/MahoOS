@@ -50,6 +50,7 @@ Current main already contains the canonical live-publication reader. Running tha
 - Full `tests/core-contracts.sh`: pass on clean commit `c8c612d34399f787d2b31d531c46720b8fb8c3af`.
 - Arch package build: pass; package release provenance names that exact commit and contains the new deployment planner.
 - Disposable QEMU/OVMF Signed Boot: 13/13 pass with isolated variable stores, including valid normal/recovery chains, invalid/wrong signer, config/kernel/initramfs/microcode tamper, damaged normal/recovery, replay, and revoked generation. The durable summary is `v1-preinstaller-qemu-signed-boot-2026-09-25.json`.
+- PR #99 hosted CI: all reported checks pass, including package build, setup lifecycle, migration, Guardian, prevention/policy, causality, deterministic evidence, and duplicate QEMU/OVMF jobs.
 - Full destructive Maho VM torture campaign: not rerun on this commit.
 
 ## Performance and quality baseline
@@ -183,7 +184,7 @@ The three Quickshell Maho UI processes used approximately 250 MiB, 234 MiB, and 
 4. The full destructive system VM matrix above has not been rerun on the final campaign source; only the 13-scenario QEMU/OVMF Signed Boot subset is current.
 5. Physical Signed Boot, fallback/recovery boot, and key provisioning remain unproven; current host trust is correctly `UNKNOWN`.
 6. Retention/GC and storage-pressure behavior are policy only and lack implementation plus ENOSPC/power-loss certification.
-7. Final campaign source has not passed PR CI, landed on main, been deployed through the canonical production path, or converged with the live runtime (local core/package/QEMU checks pass).
+7. PR #99 has not landed on main, been deployed through the canonical production path, or converged with the live runtime; CI and local core/package/QEMU checks pass.
 8. The requested complete performance baseline, especially recovery/detection/update phases, suspend/resume, battery and first-frame quality, has not been captured on final source.
 
 No release tag was created. Installer work must not begin while these blockers remain.
