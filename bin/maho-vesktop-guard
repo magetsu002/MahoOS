@@ -296,7 +296,6 @@ launch_owner() {
     export ELECTRON_DISABLE_SECURITY_WARNINGS=true
     export NODE_ENV=production
     export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-    export LD_LIBRARY_PATH="/opt/vesktop:${LD_LIBRARY_PATH:-}"
     export ELECTRON_OZONE_PLATFORM_HINT="${ELECTRON_OZONE_PLATFORM_HINT:-auto}"
     export CHROME_DESKTOP=vesktop.desktop
     export MAHO_VESKTOP_CONTROL_SOCKET="$SOCKET"
@@ -315,7 +314,11 @@ launch_owner() {
 
     log_event "action=launch route=canonical started_new=yes owner_pid=$$ arg_count=$#"
     cd /opt/vesktop || return 1
-    exec /opt/vesktop/vesktop "${ELECTRON_FLAGS[@]}" "${sandbox[@]}" "$PATCHED_ASAR" "$@"
+    # The packaged /opt/vesktop/vesktop binary always loads its adjacent
+    # resources/app.asar and treats another ASAR path as an application
+    # argument.  The generic Electron runner is required to execute the exact
+    # user-private, source-hash-bound runtime built above.
+    exec /usr/bin/electron43 "${ELECTRON_FLAGS[@]}" "${sandbox[@]}" "$PATCHED_ASAR" "$@"
 }
 
 indexeddb_lock_holders() {
