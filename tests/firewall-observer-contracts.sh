@@ -9,6 +9,7 @@ grep -Fq 'ExecStart=/usr/bin/python /usr/lib/maho/lib/maho_firewall_receipt.py p
 grep -Fq 'CapabilityBoundingSet=CAP_NET_ADMIN' "$SERVICE"
 grep -Fq 'ProtectSystem=strict' "$SERVICE"
 grep -Fq 'ProtectHome=yes' "$SERVICE"
+grep -Fq 'RuntimeDirectoryPreserve=yes' "$SERVICE"
 grep -Fq 'ReadWritePaths=/run/maho/firewall' "$SERVICE"
 ! grep -Eq 'CAP_SYS_ADMIN|CAP_DAC_OVERRIDE|CAP_SYS_PTRACE' "$SERVICE"
 grep -Fq 'OnUnitActiveSec=15s' "$TIMER"
