@@ -1373,7 +1373,7 @@ picker_surface_present() {
 import json,sys
 rows=json.load(sys.stdin)
 raise SystemExit(0 if any(
-    "qs-wallpaper-picker" in str(r.get("title","")).lower()
+    "wallpaper-picker" in str(r.get("title","")).lower()
     or "wallpaper-picker" in str(r.get("class","")).lower()
     for r in rows
 ) else 1)
