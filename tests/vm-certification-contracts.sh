@@ -10,17 +10,19 @@ TORTURE="$ROOT/tools/maho-vm-torture"
 TORTURE_GUEST="$ROOT/tools/vm/guest-torture.sh"
 TORTURE_LIB="$ROOT/tools/vm/torture-lib.sh"
 TORTURE_REPORT="$ROOT/tools/vm/torture-report.py"
+ROOT_DESTRUCTION_VERIFIER="$ROOT/tools/vm/root-destruction-verifier.c"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require() { grep -Fq -- "$2" "$1" || fail "$3"; }
 reject() { if grep -Fq -- "$2" "$1"; then fail "$3"; fi; }
 
-for f in "$RUNNER" "$GUEST" "$HOOK" "$INSTALL_HOOK" "$CONFIG" "$TORTURE" "$TORTURE_GUEST" "$TORTURE_LIB" "$TORTURE_REPORT"; do
+for f in "$RUNNER" "$GUEST" "$HOOK" "$INSTALL_HOOK" "$CONFIG" "$TORTURE" "$TORTURE_GUEST" "$TORTURE_LIB" "$TORTURE_REPORT" "$ROOT_DESTRUCTION_VERIFIER"; do
   [ -r "$f" ] || fail "missing VM certification source: $f"
 done
 
 bash -n "$RUNNER" "$GUEST" "$HOOK" "$INSTALL_HOOK" "$TORTURE" "$TORTURE_GUEST" "$TORTURE_LIB"
 python3 -m py_compile "$TORTURE_REPORT"
+gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only "$ROOT_DESTRUCTION_VERIFIER"
 
 require "$RUNNER" '-nic none' 'VM runner gained an external NIC'
 require "$RUNNER" 'mount_tag=hostroot,security_model=none,readonly=on' 'host root is not read-only'
@@ -73,6 +75,16 @@ require "$TORTURE" 'torture-storage' 'top-level torture storage profile missing'
 require "$TORTURE" 'torture-compound' 'top-level compound profile missing'
 require "$TORTURE" 'torture-root-destruction' 'full disposable-root destruction profile missing'
 require "$RUNNER" 'lsm=landlock,lockdown,yama,integrity,bpf' 'root destruction profile does not activate BPF LSM'
+require "$TORTURE_GUEST" '  /usr/bin/rm -rf --one-file-system --no-preserve-root / \' 'full root profile no longer executes the real rm-style root attack'
+reject "$TORTURE_GUEST" '/usr/bin/timeout 30 /usr/bin/rm' 'root destruction attack is still truncated by disposable guest userspace'
+require "$TORTURE_GUEST" 'work="$E/root-destruction-control"' 'root destruction control plane is not staged on the durable evidence mount'
+require "$TORTURE_GUEST" 'mount -t tmpfs -o mode=0555,size=4k maho-host-snapshots /.snapshots' 'host snapshot history is not isolated behind the one-file-system boundary'
+require "$TORTURE_GUEST" 'rm_pid=$!' 'root destruction verifier does not observe the live rm process'
+require "$ROOT_DESTRUCTION_VERIFIER" 'both real unprotected destruction and an rm-attributed prevention event exist' 'external verifier no longer gates termination on real destruction plus prevention evidence'
+require "$TORTURE_GUEST" '-O2 -static' 'root destruction verifier is not statically linked for post-attack execution'
+require "$ROOT_DESTRUCTION_VERIFIER" 'maho_evidence_9p' 'root destruction result does not identify its out-of-root durable sink'
+require "$ROOT_DESTRUCTION_VERIFIER" 'protected_bytes_unchanged' 'root destruction verifier lost protected-state byte comparison'
+require "$RUNNER" 'independent host verification for full disposable-root destruction' 'host-side root destruction evidence verification missing'
 reject "$RUNNER" '-net user' 'VM runner unexpectedly enables user-mode networking'
 reject "$RUNNER" '-netdev' 'VM runner unexpectedly enables a network backend'
 reject "$RUNNER" '/dev/nvme' 'VM runner reaches physical NVMe devices'
