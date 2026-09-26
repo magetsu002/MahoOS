@@ -147,6 +147,7 @@ echo "PASS"
 
 echo "=== Palette V2 behavior and compatibility ==="
 python "$ROOT/tests/palette-v2.py"
+bash "$ROOT/tests/terminal-polish-contracts.sh"
 
 echo "=== Maho Update authority ==="
 python "$ROOT/tests/test_maho_update_state.py"

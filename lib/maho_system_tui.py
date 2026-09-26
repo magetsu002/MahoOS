@@ -533,6 +533,18 @@ def _guardian_observation_display(model: SystemModel) -> str:
     return "Unknown"
 
 
+def _trust_chain_connector(name: str, state: str) -> str:
+    if state == "Untrusted":
+        return "        ↓  TRUST BREAK — upstream authority is untrusted"
+    if state == "Stale":
+        return "        ↓  TRUST UNRESOLVED — upstream authority evidence is stale"
+    if state == "Awaiting certification":
+        if name in {"Boot root", "Boot authority"}:
+            return "        ↓  BOOT TRUST PENDING — hardware root not yet certified"
+        return "        ↓  FULL CHAIN PENDING — upstream authority not yet certified"
+    return "        ↓  FULL CHAIN UNRESOLVED — upstream authority is not established"
+
+
 def _trust(model: SystemModel, width: int) -> list[str]:
     system = _obj(model.guardian.get("system"))
     runtime = _obj(system.get("maho_runtime"))
@@ -552,15 +564,21 @@ def _trust(model: SystemModel, width: int) -> list[str]:
         ("Overall trust", overall),
     ]
     rows: list[str] = []
-    broken = False
+    chain_qualified = True
     for index, (name, state) in enumerate(links):
         rows.append(f"{name:<22} {state}")
         if index < len(links) - 1:
-            if not broken and state != "Verified":
-                rows.append("        ↓  TRUST BREAK — upstream authority is not established")
-                broken = True
+            if chain_qualified and state != "Verified":
+                rows.append(_trust_chain_connector(name, state))
+                chain_qualified = False
             else:
                 rows.append("        ↓")
+    has_untrusted = any(state == "Untrusted" for _, state in links)
+    downstream_note = (
+        "Verified downstream runtime evidence does not repair an upstream trust break."
+        if has_untrusted
+        else "Verified downstream runtime evidence does not establish unresolved upstream boot authority."
+    )
     rows += [
         "",
         f"System ID   {system.get('current_system_generation') or 'not published'}",
@@ -569,7 +587,7 @@ def _trust(model: SystemModel, width: int) -> list[str]:
         f"Runtime     {runtime.get('source_revision') or 'unknown'} · {runtime.get('content_sha256') or 'content unknown'}",
         "",
         "A running component is not automatically trusted.",
-        "Verified downstream runtime evidence does not repair an upstream trust break.",
+        downstream_note,
         "Historical recovery proof never promotes current trust.",
     ]
     return box("Trust chain", rows, width)

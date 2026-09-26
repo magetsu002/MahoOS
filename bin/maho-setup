@@ -38,6 +38,11 @@ FILES_DESKTOP_TARGET="$DATA_HOME/applications/io.maho.Files.desktop"
 VESKTOP_WRAPPER="$BIN_DIR/vesktop-guard"
 VESKTOP_DESKTOP_TARGET="$DATA_HOME/applications/vesktop.desktop"
 MIMEAPPS_TARGET="$CONFIG_HOME/mimeapps.list"
+TERMINAL_DASH_TARGET="$CONFIG_HOME/zshrc/maho-dashboard.zsh"
+TERMINAL_START_TARGET="$CONFIG_HOME/zshrc/30-maho-dashboard"
+TERMINAL_LEGACY_START="$CONFIG_HOME/zshrc/30-autostart"
+TERMINAL_KITTY_INCLUDE="$CONFIG_HOME/kitty/maho.conf"
+TERMINAL_KITTY_CONFIG="$CONFIG_HOME/kitty/kitty.conf"
 
 COMMANDS=(
   maho mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
@@ -45,7 +50,7 @@ COMMANDS=(
   maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock maho-kbdlight
   maho-files maho-link maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
   maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-generation-gc maho-aur-build maho-guardian-runtime-recovery-certify
-  maho-vesktop-guard maho-vesktop-install maho-setup
+  maho-vesktop-guard maho-vesktop-install maho-terminal-dashboard maho-terminal-theme maho-terminal-install maho-setup
 )
 CORE_UNITS=(maho-observe.service maho-security.service maho-guardian.service)
 STARTUP_UNITS=(maho-kbdlight.service)
@@ -294,6 +299,9 @@ preflight() {
     config/quickshell/maho-lock/shell.qml config/quickshell/maho-power/shell.qml
     config/quickshell/maho-clipboard/shell.qml "$FILES_DESKTOP_REL"
     apps/maho-files/CMakeLists.txt lib/maho_app_model.py lib/maho_launcher_backend.py
+    lib/maho_terminal_theme.py config/kitty/maho.conf config/zshrc/maho-dashboard.zsh config/zshrc/30-maho-dashboard
+    config/fastfetch/config.jsonc config/fastfetch/config-narrow.jsonc config/fastfetch/config-tiny.jsonc
+    share/maho/terminal/kurisu-transparent.apng
   )
   for name in "${COMMANDS[@]}"; do [ -r "$ROOT/bin/$name" ] || { echo "FAIL  source $name"; failed=1; }; done
   for name in "${UNITS[@]}"; do [ -r "$ROOT/systemd/user/$name" ] || { echo "FAIL  unit $name"; failed=1; }; done
@@ -330,7 +338,7 @@ preflight() {
     "$ROOT/lib/maho_update_admission.py" \
     "$ROOT/lib/maho_boot_authority.py" "$ROOT/lib/maho_secure_boot.py" "$ROOT/lib/maho_behavior_preferences.py" "$ROOT/lib/maho_system_status.py" "$ROOT/lib/maho_system_tui.py" "$ROOT/lib/maho_system_cli.py" "$ROOT/lib/maho_tui.py" \
     "$ROOT/lib/guardian_update.py" "$ROOT/lib/maho_platform_install.py" "$ROOT"/lib/maho_adaptive_*.py \
-    "$ROOT/lib/maho_launcher_backend.py" "$ROOT/lib/maho_vesktop_patch.py" \
+    "$ROOT/lib/maho_launcher_backend.py" "$ROOT/lib/maho_vesktop_patch.py" "$ROOT/lib/maho_terminal_theme.py" \
     "$ROOT/config/quickshell/maho-shell/state.py" \
     "$ROOT/config/quickshell/maho-notify/state.py" "$ROOT/config/quickshell/maho-link/position.py" \
     >/dev/null 2>&1 || { echo "FAIL  python modules"; failed=1; }
@@ -352,6 +360,7 @@ validate_targets() {
   if [ -e "$SHELL_TARGET" ] || [ -L "$SHELL_TARGET" ]; then managed_shell || { die "refusing unmanaged shell config: $SHELL_TARGET"; return 1; }; fi
   for path in "${HYPR_MANAGED_RELS[@]}"; do safe_hypr_file "$path" || { die "refusing unmanaged Maho Hyprland config: $(hypr_target_for "$path")"; return 1; }; done
   if [ -e "$FILES_DESKTOP_TARGET" ] || [ -L "$FILES_DESKTOP_TARGET" ]; then managed_files_desktop || legacy_files_desktop || { die "refusing unmanaged Maho Files desktop entry: $FILES_DESKTOP_TARGET"; return 1; }; fi
+  MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-install" check-targets || return 1
   path="$NOTIFY_LEGACY_TARGET"
   if [ -L "$path" ]; then echo "INFO  legacy Notify config link left untouched: $path"; elif [ -d "$path" ]; then echo "INFO  preserving live-owned Notify config directory: $path"; fi
 }
@@ -511,6 +520,9 @@ snapshot_all() {
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$VESKTOP_WRAPPER" "$index"
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$VESKTOP_DESKTOP_TARGET" "$index"
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$MIMEAPPS_TARGET" "$index"
+  for path in "$TERMINAL_DASH_TARGET" "$TERMINAL_START_TARGET" "$TERMINAL_LEGACY_START" "$TERMINAL_KITTY_INCLUDE" "$TERMINAL_KITTY_CONFIG"; do
+    index=$((index+1)); snapshot_one "$tx" "$manifest" "$path" "$index"
+  done
   for name in "${UNITS[@]}"; do index=$((index+1)); snapshot_one "$tx" "$manifest" "$(unit_path "$name")" "$index"; done
   for name in "${UNITS[@]}"; do for wants in default.target.wants graphical-session.target.wants "$SESSION_TARGET_UNIT.wants"; do path="$UNIT_DIR/$wants/$name"; index=$((index+1)); snapshot_one "$tx" "$manifest" "$path" "$index"; done; done
   index=$((index+1)); snapshot_one "$tx" "$manifest" "$PREVIOUS" "$index"
@@ -562,6 +574,7 @@ wire_runtime() {
   chmod 0644 "$desktop_tmp"
   mv -Tf -- "$desktop_tmp" "$FILES_DESKTOP_TARGET"
   bash "$(runtime_path "bin/maho-vesktop-install")" install
+  MAHO_ROOT="$CURRENT" bash "$(runtime_path "bin/maho-terminal-install")" install
   for name in "${UNITS[@]}"; do atomic_link "$(runtime_path "systemd/user/$name")" "$(unit_path "$name")"; done
 }
 systemd_available() { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }
@@ -834,6 +847,7 @@ status() {
   managed_hypr || { echo "FAIL  Maho Hyprland managed configuration"; failed=1; }
   managed_files_desktop || { echo "FAIL  Maho Files desktop entry"; failed=1; }
   bash "$(runtime_path "bin/maho-vesktop-install")" status >/dev/null 2>&1 || { echo "FAIL  Vesktop canonical wiring"; failed=1; }
+  MAHO_ROOT="$CURRENT" bash "$(runtime_path "bin/maho-terminal-install")" verify >/dev/null 2>&1 || { echo "FAIL  terminal canonical wiring"; failed=1; }
   if systemd_available; then
     effective_notify_runtime_authority || { echo "FAIL  Notify execution authority bypasses runtime/current"; failed=1; }
     for name in "${CORE_UNITS[@]}"; do managed_wants_link "$name" default.target.wants || { echo "FAIL  core ownership $name"; failed=1; }; done
@@ -862,6 +876,7 @@ uninstall() {
   managed_shell && rm -f -- "$SHELL_TARGET" || true
   for name in "${HYPR_MANAGED_RELS[@]}"; do path="$(hypr_target_for "$name")"; if managed_hypr_file "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged Hyprland config $path"; fi; done
   managed_files_desktop && rm -f -- "$FILES_DESKTOP_TARGET" || true
+  if [ -x "$(runtime_path "bin/maho-terminal-install")" ]; then MAHO_ROOT="$CURRENT" bash "$(runtime_path "bin/maho-terminal-install")" uninstall || true; fi
   for name in "${COMMANDS[@]}"; do path="$(command_path "$name")"; if managed_command "$name"; then rm -f -- "$path"; elif [ -e "$path" ] || [ -L "$path" ]; then echo "KEPT  unmanaged command $path"; fi; done
   systemd_available && systemctl --user daemon-reload >/dev/null 2>&1 || true
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$FILES_DESKTOP_TARGET")" >/dev/null 2>&1 || true

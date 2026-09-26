@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+ZSH_DIR="$CONFIG_HOME/zshrc"
+KITTY_DIR="$CONFIG_HOME/kitty"
+DASH_TARGET="$ZSH_DIR/maho-dashboard.zsh"
+START_TARGET="$ZSH_DIR/30-maho-dashboard"
+LEGACY_START="$ZSH_DIR/30-autostart"
+KITTY_INCLUDE="$KITTY_DIR/maho.conf"
+KITTY_CONFIG="$KITTY_DIR/kitty.conf"
+LEGACY_DASH_SHA="b7c93f500d357c282db78b0c4cb772df97eb482c640ab0e99d2e45d5d54cb9a7"
+LEGACY_START_SHA="3190e64420a9f419c2a1dd1955168963727ac188de779c46055adbac723891fe"
+
+die() { echo "maho-terminal-install: $*" >&2; return 1; }
+
+sha_is() {
+    [ -f "$1" ] && [ "$(sha256sum "$1" | awk '{print $1}')" = "$2" ]
+}
+
+link_is_runtime_rel() {
+    local target="$1"
+    local rel="$2"
+    [ -L "$target" ] || return 1
+    case "$(readlink -- "$target")" in
+        */"$rel"|"$ROOT/$rel") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+safe_target() {
+    local target="$1"
+    local rel="$2"
+    local legacy_sha="${3:-}"
+    [ ! -e "$target" ] && [ ! -L "$target" ] && return 0
+    link_is_runtime_rel "$target" "$rel" && return 0
+    [ -n "$legacy_sha" ] && sha_is "$target" "$legacy_sha" && return 0
+    return 1
+}
+
+atomic_link() {
+    local source="$1"
+    local target="$2"
+    local tmp
+    mkdir -p "$(dirname -- "$target")"
+    tmp="$(dirname -- "$target")/.maho-terminal-link-$$-$(basename -- "$target")"
+    rm -f "$tmp"
+    ln -s -- "$source" "$tmp"
+    mv -Tf -- "$tmp" "$target"
+}
+
+check_targets() {
+    safe_target "$DASH_TARGET" "config/zshrc/maho-dashboard.zsh" "$LEGACY_DASH_SHA" ||
+        die "refusing unmanaged dashboard fragment: $DASH_TARGET"
+    safe_target "$START_TARGET" "config/zshrc/30-maho-dashboard" ||
+        die "refusing unmanaged dashboard autostart: $START_TARGET"
+    safe_target "$KITTY_INCLUDE" "config/kitty/maho.conf" ||
+        die "refusing unmanaged Kitty include: $KITTY_INCLUDE"
+
+    if [ -e "$LEGACY_START" ] || [ -L "$LEGACY_START" ]; then
+        sha_is "$LEGACY_START" "$LEGACY_START_SHA" ||
+            die "refusing unrelated legacy autostart: $LEGACY_START"
+    fi
+}
+
+wire_kitty_root() {
+    mkdir -p "$KITTY_DIR"
+    python - "$KITTY_CONFIG" <<'PY_KITTY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text() if path.exists() else ""
+begin = "# BEGIN_MAHO_THEME"
+end = "# END_MAHO_THEME"
+block = f"{begin}\ninclude maho.conf\n{end}"
+legacy = "# BEGIN_KITTY_THEME\n# Black Metal\ninclude current-theme.conf\n# END_KITTY_THEME"
+
+if legacy in text:
+    text = text.replace(legacy, block, 1)
+elif begin in text and end in text:
+    before, rest = text.split(begin, 1)
+    _, after = rest.split(end, 1)
+    text = before.rstrip() + "\n\n" + block + after
+else:
+    text = text.rstrip() + ("\n\n" if text.strip() else "") + block + "\n"
+
+path.write_text(text)
+PY_KITTY
+}
+
+install_terminal() {
+    check_targets
+    atomic_link "$ROOT/config/zshrc/maho-dashboard.zsh" "$DASH_TARGET"
+    atomic_link "$ROOT/config/zshrc/30-maho-dashboard" "$START_TARGET"
+    atomic_link "$ROOT/config/kitty/maho.conf" "$KITTY_INCLUDE"
+
+    if sha_is "$LEGACY_START" "$LEGACY_START_SHA"; then
+        rm -f -- "$LEGACY_START"
+    fi
+
+    wire_kitty_root
+
+    if [ -f "${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme/active.json" ]; then
+        MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-theme" sync
+    fi
+}
+
+verify_terminal() {
+    link_is_runtime_rel "$DASH_TARGET" "config/zshrc/maho-dashboard.zsh" || return 1
+    link_is_runtime_rel "$START_TARGET" "config/zshrc/30-maho-dashboard" || return 1
+    link_is_runtime_rel "$KITTY_INCLUDE" "config/kitty/maho.conf" || return 1
+    grep -Fq '# BEGIN_MAHO_THEME' "$KITTY_CONFIG" &&
+        grep -Fq 'include maho.conf' "$KITTY_CONFIG" &&
+        grep -Fq '# END_MAHO_THEME' "$KITTY_CONFIG"
+}
+
+remove_kitty_root_block() {
+    [ -f "$KITTY_CONFIG" ] || return 0
+    python - "$KITTY_CONFIG" <<'PY_KITTY_REMOVE'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+begin = "# BEGIN_MAHO_THEME"
+end = "# END_MAHO_THEME"
+if begin in text and end in text:
+    before, rest = text.split(begin, 1)
+    _, after = rest.split(end, 1)
+    text = (before.rstrip() + "\n\n" + after.lstrip()).rstrip() + "\n"
+    path.write_text(text)
+PY_KITTY_REMOVE
+}
+
+uninstall_terminal() {
+    link_is_runtime_rel "$DASH_TARGET" "config/zshrc/maho-dashboard.zsh" && rm -f -- "$DASH_TARGET" || true
+    link_is_runtime_rel "$START_TARGET" "config/zshrc/30-maho-dashboard" && rm -f -- "$START_TARGET" || true
+    link_is_runtime_rel "$KITTY_INCLUDE" "config/kitty/maho.conf" && rm -f -- "$KITTY_INCLUDE" || true
+    remove_kitty_root_block
+}
+
+case "${1:-}" in
+    check-targets) check_targets ;;
+    install) install_terminal ;;
+    verify) verify_terminal ;;
+    uninstall) uninstall_terminal ;;
+    *) echo "Usage: maho-terminal-install {check-targets|install|verify|uninstall}" ;;
+esac

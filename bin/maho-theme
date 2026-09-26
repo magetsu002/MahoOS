@@ -191,6 +191,11 @@ generate() {
         return 1
     fi
 
+    if ! MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-theme" render "$canonical" "$txn/kitty.conf"; then
+        echo "Terminal palette generation failed."
+        return 1
+    fi
+
     mkdir -p "$CACHE"
 
     local candidate_tmp
@@ -198,6 +203,9 @@ generate() {
 
     cp "$canonical" "$candidate_tmp"
     mv "$candidate_tmp" "$CACHE/candidate.json"
+
+    cp "$txn/kitty.conf" "$CACHE/.candidate-kitty.conf.$$"
+    mv "$CACHE/.candidate-kitty.conf.$$" "$CACHE/candidate-kitty.conf"
 
     echo
     echo "PASS"
@@ -409,13 +417,22 @@ for key in ("foreground", "primary"):
 
 apply_hypr_candidate() {
     local candidate="$CACHE/candidate.json"
+    local terminal_candidate="$CACHE/candidate-kitty.conf"
 
     [ -f "$candidate" ] || {
         die "no candidate palette exists"
         return 1
     }
+    [ -f "$terminal_candidate" ] || {
+        die "no generated terminal candidate exists"
+        return 1
+    }
 
-    hypr_apply_palette_file "$candidate" 1
+    hypr_apply_palette_file "$candidate" 1 || return 1
+
+    cp "$terminal_candidate" "$CACHE/.kitty.conf.$$"
+    mv "$CACHE/.kitty.conf.$$" "$CACHE/kitty.conf"
+    MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-theme" reload
 }
 
 restore_hypr_active() {
@@ -426,7 +443,8 @@ restore_hypr_active() {
         return 1
     }
 
-    hypr_apply_palette_file "$active" 0
+    hypr_apply_palette_file "$active" 0 || return 1
+    MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-theme" sync "$active"
 }
 
 apply_wallpaper() {

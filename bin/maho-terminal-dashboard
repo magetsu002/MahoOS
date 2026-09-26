@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime/current}"
+DASHBOARD="$ROOT/config/zshrc/maho-dashboard.zsh"
+
+[ -r "$DASHBOARD" ] || {
+    echo "maho-terminal-dashboard: missing dashboard source: $DASHBOARD" >&2
+    exit 1
+}
+
+exec zsh -c 'source "$1"; maho_dashboard' maho-terminal-dashboard "$DASHBOARD"
