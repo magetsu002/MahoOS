@@ -205,6 +205,7 @@ private:
             || name == QStringLiteral("folder-open")
             || name == QStringLiteral("document-new")
             || name == QStringLiteral("document-open")
+            || name == QStringLiteral("document-properties")
             || name == QStringLiteral("user-trash")
             || name == QStringLiteral("media-eject")
             || name == QStringLiteral("dialog-error");
