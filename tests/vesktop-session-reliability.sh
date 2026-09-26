@@ -196,6 +196,8 @@ grep -Fq "action=launch route=canonical started_new=yes" "$XDG_STATE_HOME/maho/v
 }
 echo "PASS managed unactivatable ghost is recovered before relaunch"
 
-git -C "$ROOT" diff --check
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$ROOT" diff --check
+fi
 
 echo "PASS vesktop session reliability contracts"
