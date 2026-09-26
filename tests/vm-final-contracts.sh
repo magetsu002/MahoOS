@@ -5,6 +5,7 @@ CERT="$ROOT/tools/maho-vm-certify"
 TORTURE="$ROOT/tools/maho-vm-torture"
 GUEST="$ROOT/tools/vm/guest-torture.sh"
 GCERT="$ROOT/tools/vm/guest-certify.sh"
+VESKTOP="$ROOT/tests/vesktop-session-reliability.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 req() {
@@ -30,6 +31,7 @@ req "$GUEST" 'test_maho_runtime_deployment.py' 'runtime deployment contracts abs
 req "$GUEST" 'test_maho_persistence_transition.py' 'persistence contracts absent'
 req "$GUEST" 'test_maho_firewall_receipt.py' 'firewall receipt contracts absent'
 req "$GUEST" 'vesktop-session-reliability.sh' 'Vesktop reliability contracts absent'
+req "$VESKTOP" 'rev-parse --is-inside-work-tree' 'Vesktop reliability contract requires Git metadata removed by VM isolation'
 req "$GUEST" 'test_generation_gc.py' 'GC contracts absent'
 req "$GUEST" 'maho-files-ux-closure-contracts.sh' 'Files closure contracts absent'
 req "$GUEST" 'test_maho_system_tui.py' 'TUI contracts absent'
