@@ -78,6 +78,8 @@ build() {
   cmake --build "$srcdir/build-maho-files" --parallel 2
   mkdir -p "$srcdir/build-prevention"
   clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
+    -fdebug-prefix-map="$srcdir"=/usr/src/debug/maho-os \
+    -ffile-prefix-map="$srcdir"=/usr/src/debug/maho-os \
     -I"/usr/include/$(gcc -dumpmachine)" -I"$source_root/bpf" \
     -c "$source_root/bpf/maho_prevention.bpf.c" \
     -o "$srcdir/build-prevention/maho_prevention.bpf.o"
