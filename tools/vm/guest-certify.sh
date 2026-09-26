@@ -82,7 +82,8 @@ create_user() {
 
 u() {
   runuser -u "$U" -- env HOME="$HOME_VM" USER="$U" LOGNAME="$U" XDG_RUNTIME_DIR="$RUN_VM" \
-  DBUS_SESSION_BUS_ADDRESS="unix:path=$RUN_VM/bus" PATH=/usr/local/sbin:/usr/local/bin:/usr/bin "$@"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$RUN_VM/bus" PYTHONPYCACHEPREFIX="$HOME_VM/.cache/maho/vm-python" \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/bin "$@"
 }
 
 install_fresh() {

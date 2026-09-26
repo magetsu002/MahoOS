@@ -15,6 +15,7 @@ req() {
 req "$CERT" 'torture-final-contracts' 'VM launcher does not admit final contracts profile'
 req "$TORTURE" 'torture-final-contracts' 'full campaign omits final contracts profile'
 req "$GCERT" 'torture-final-contracts' 'guest dispatcher omits final contracts profile'
+req "$GCERT" 'PYTHONPYCACHEPREFIX="$HOME_VM/.cache/maho/vm-python"' 'VM user commands can write Python cache into the read-only source tree'
 req "$CERT" 'mount_tag=wallpaper_picker' 'final VM does not mount exact live picker release'
 req "$CERT" 'maho.vm.wallpaper_picker_revision=' 'picker revision is not bound into VM authority'
 req "$CERT" 'maho.vm.wallpaper_picker_sha256=' 'picker tree digest is not bound into VM authority'
