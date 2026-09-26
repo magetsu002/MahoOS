@@ -1390,7 +1390,7 @@ scenario_final_wallpaper_picker() {
   install -d -o "$UID_VM" -g "$UID_VM" "$HOME_VM/Wallpapers"
   install -o "$UID_VM" -g "$UID_VM" -m 0644     "$(readlink -f "$HOME_VM/.local/share/maho/runtime/current")/config/quickshell/maho-shell/maho-guardian-rotor.png"     "$HOME_VM/Wallpapers/certification.png"
 
-  graphical_user env QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-first.log" 2>&1 &
+  graphical_user env QT_QUICK_BACKEND=software QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-first.log" 2>&1 &
   first=$!
   wait_until 20 picker_surface_present || {
     cat "$directory/evidence/picker-first.log" >&2 || true
@@ -1403,7 +1403,7 @@ scenario_final_wallpaper_picker() {
   wait_until 15 picker_surface_absent || { SCENARIO_REASON="first wallpaper picker instance did not close"; return 1; }
   wait "$first" 2>/dev/null || true
 
-  graphical_user env QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-second.log" 2>&1 &
+  graphical_user env QT_QUICK_BACKEND=software QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-second.log" 2>&1 &
   second=$!
   wait_until 20 picker_surface_present || {
     cat "$directory/evidence/picker-second.log" >&2 || true
