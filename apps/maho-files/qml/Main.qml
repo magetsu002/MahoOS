@@ -26,6 +26,15 @@ ApplicationWindow {
 
     property string viewMode: "grid"
     property bool searchVisible: false
+    readonly property bool contentScrollbarDragging:
+        gridScrollBar.pressed || listScrollBar.pressed || placesScrollBar.pressed
+
+    onViewModeChanged: Qt.callLater(function() {
+        const view = root.viewMode === "grid" ? grid : listView
+        view.contentY = root.boundedContentY(view, view.contentY)
+        if (root.selectedIndex >= 0)
+            view.positionViewAtIndex(root.selectedIndex, root.viewMode === "grid" ? GridView.Contain : ListView.Contain)
+    })
     property int selectedIndex: -1
     property int selectionAnchor: -1
     property var selectedIndexes: []
@@ -336,8 +345,9 @@ ApplicationWindow {
     }
 
     function boundedContentY(view, targetY) {
-        const maximum = Math.max(0, view.contentHeight - view.height)
-        return Math.max(0, Math.min(maximum, targetY))
+        const minimum = Number.isFinite(view.originY) ? view.originY : 0
+        const maximum = Math.max(minimum, minimum + view.contentHeight - view.height)
+        return Math.max(minimum, Math.min(maximum, targetY))
     }
 
     function handleAdaptiveWheel(view, wheel, baseStep, animation) {
@@ -1419,6 +1429,17 @@ ApplicationWindow {
                         clip: true
                         model: placesModel
                         spacing: 2
+                        onContentHeightChanged: contentY = root.boundedContentY(placesView, contentY)
+                        onHeightChanged: contentY = root.boundedContentY(placesView, contentY)
+
+                        ScrollBar.vertical: MahoScrollBar {
+                            id: placesScrollBar
+                            thumbColor: root.alpha(root.foreground, 0.24)
+                            thumbHoverColor: root.alpha(root.accent, 0.42)
+                            thumbPressedColor: root.alpha(root.accent, 0.68)
+                            trackColor: root.alpha(root.foreground, 0.045)
+                        }
+
                         section.property: "group"
                         section.criteria: ViewSection.FullString
 
@@ -1610,7 +1631,25 @@ ApplicationWindow {
                         keyNavigationEnabled: true
                         focus: visible
 
-                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        onContentHeightChanged: contentY = root.boundedContentY(grid, contentY)
+                        onHeightChanged: contentY = root.boundedContentY(grid, contentY)
+
+                        ScrollBar.vertical: MahoScrollBar {
+                            id: gridScrollBar
+                            parent: contentArea
+                            z: 90
+                            anchors.top: grid.top
+                            anchors.bottom: grid.bottom
+                            anchors.right: grid.right
+                            thumbColor: root.alpha(root.foreground, 0.24)
+                            thumbHoverColor: root.alpha(root.accent, 0.44)
+                            thumbPressedColor: root.alpha(root.accent, 0.72)
+                            trackColor: root.alpha(root.foreground, 0.045)
+                            onPressedChanged: {
+                                if (pressed)
+                                    gridWheelScroll.stop()
+                            }
+                        }
 
                         NumberAnimation {
                             id: gridWheelScroll
@@ -1622,6 +1661,7 @@ ApplicationWindow {
 
                         WheelHandler {
                             target: null
+                            enabled: !gridScrollBar.pressed
                             blocking: true
                             onWheel: function(wheel) {
                                 root.handleAdaptiveWheel(
@@ -1749,6 +1789,7 @@ ApplicationWindow {
                             }
                             MouseArea {
                                 anchors.fill: parent
+                                enabled: !root.contentScrollbarDragging
                                 acceptedButtons: Qt.LeftButton
                                 onClicked: function(mouse) {
                                     root.selectClicked(fileDelegate.index, mouse.modifiers)
@@ -1761,6 +1802,7 @@ ApplicationWindow {
                             }
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
+                                enabled: !root.contentScrollbarDragging
                                 onTapped: contextPopup.openFor(fileDelegate.index, fileDelegate)
                             }
                         }
@@ -1816,7 +1858,25 @@ ApplicationWindow {
                             spacing: 1
                             focus: visible
 
-                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            onContentHeightChanged: contentY = root.boundedContentY(listView, contentY)
+                            onHeightChanged: contentY = root.boundedContentY(listView, contentY)
+
+                            ScrollBar.vertical: MahoScrollBar {
+                                id: listScrollBar
+                                parent: contentArea
+                                z: 90
+                                anchors.right: listPanel.right
+                                y: listPanel.y + listView.y
+                                height: listView.height
+                                thumbColor: root.alpha(root.foreground, 0.24)
+                                thumbHoverColor: root.alpha(root.accent, 0.44)
+                                thumbPressedColor: root.alpha(root.accent, 0.72)
+                                trackColor: root.alpha(root.foreground, 0.045)
+                                onPressedChanged: {
+                                    if (pressed)
+                                        listWheelScroll.stop()
+                                }
+                            }
 
                             NumberAnimation {
                                 id: listWheelScroll
@@ -1828,6 +1888,7 @@ ApplicationWindow {
 
                             WheelHandler {
                                 target: null
+                                enabled: !listScrollBar.pressed
                                 blocking: true
                                 onWheel: function(wheel) {
                                     root.handleAdaptiveWheel(
@@ -1933,6 +1994,7 @@ ApplicationWindow {
                                 }
                                 MouseArea {
                                     anchors.fill: parent
+                                    enabled: !root.contentScrollbarDragging
                                     acceptedButtons: Qt.LeftButton
                                     onClicked: function(mouse) {
                                         root.selectClicked(listDelegate.index, mouse.modifiers)
@@ -1945,6 +2007,7 @@ ApplicationWindow {
                                 }
                                 TapHandler {
                                     acceptedButtons: Qt.RightButton
+                                    enabled: !root.contentScrollbarDragging
                                     onTapped: contextPopup.openFor(listDelegate.index, listDelegate)
                                 }
                             }
@@ -1964,6 +2027,7 @@ ApplicationWindow {
                         id: rubberSelectInput
                         anchors.fill: parent
                         z: 47
+                        enabled: !root.contentScrollbarDragging
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         // Do not propagate the synthetic click generated when
                         // a marquee ends over a file. Doing so collapses the

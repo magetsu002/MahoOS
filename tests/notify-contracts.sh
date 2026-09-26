@@ -21,6 +21,13 @@ require_text() {
     grep -Fq -- "$needle" "$file" || fail "$message"
 }
 
+reject_text() {
+    local file="$1" needle="$2" message="$3"
+    if grep -Fq -- "$needle" "$file"; then
+        fail "$message"
+    fi
+}
+
 echo "=== packaged Maho Notify components ==="
 for file in \
     shell.qml \
@@ -33,6 +40,7 @@ for file in \
     NotifyTheme.qml \
     HistoryModel.qml \
     NotificationCenter.qml \
+    NotifyScrollBar.qml \
     HistoryRow.qml \
     NotificationActionMenu.qml \
     NotificationControlMenu.qml \
@@ -266,6 +274,22 @@ require_text "$NOTIFY_DIR/NotificationCard.qml" 'card.expireRequested()' "timeou
 require_text "$NOTIFY_DIR/NotificationModel.qml" 'group.notification.dismiss()' "user dismissal path missing"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'notification.actions[index].invoke()' "app action invocation path missing"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'Math.min(2, notification.actions.length)' "action row is not bounded"
+echo "PASS"
+
+echo "=== native notification history scrollbar ==="
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'import QtQuick.Controls' "Notify cannot use native ScrollBar semantics"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'ScrollBar.vertical: NotifyScrollBar {' "history scrollbar is not attached to the real ListView"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'id: historyScrollBar' "history scrollbar identity is missing"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'readonly property bool historyScrollbarDragging' "Notify does not expose scrollbar pointer ownership"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyList.cancelFlick()' "direct scrollbar drag can fight an active flick"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'onContentHeightChanged: Qt.callLater(center.clampHistoryScroll)' "dynamic history model does not clamp scroll position"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'onCountChanged: Qt.callLater(center.clampHistoryScroll)' "clear/add history changes do not revalidate scroll position"
+require_text "$NOTIFY_DIR/HistoryRow.qml" 'enabled: !controller.historyScrollbarDragging' "history row taps remain armed during scrollbar drag"
+require_text "$NOTIFY_DIR/HistoryRow.qml" '!controller.historyScrollbarDragging' "history overflow actions remain armed during scrollbar drag"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'interactive: true' "Notify scrollbar is decorative rather than interactive"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'focusPolicy: Qt.NoFocus' "Notify scrollbar can permanently steal focus"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'snapMode: ScrollBar.NoSnap' "Notify scrollbar may snap under direct manipulation"
+reject_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyList.height * historyList.height / historyList.contentHeight' "decorative calculated scrollbar thumb still exists"
 echo "PASS"
 
 echo "=== palette and independence contract ==="

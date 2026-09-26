@@ -13,6 +13,7 @@ PALETTE_H="$APP/src/MahoPalette.h"
 PALETTE_CPP="$APP/src/MahoPalette.cpp"
 MAIN_CPP="$APP/src/main.cpp"
 QML="$APP/qml/Main.qml"
+SCROLLBAR="$APP/qml/MahoScrollBar.qml"
 WRAPPER="$ROOT/bin/maho-files"
 FINGERPRINT="$APP/source-fingerprint.py"
 LAUNCHER_BACKEND="$ROOT/lib/maho_launcher_backend.py"
@@ -38,7 +39,7 @@ reject_text() {
     fi
 }
 
-for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$WRAPPER" "$LAUNCHER_BACKEND" "$FINGERPRINT"; do
+for file in "$CMAKE" "$DESKTOP" "$MODEL_H" "$MODEL_CPP" "$PLACES_H" "$PLACES_CPP" "$PALETTE_H" "$PALETTE_CPP" "$MAIN_CPP" "$QML" "$SCROLLBAR" "$WRAPPER" "$LAUNCHER_BACKEND" "$FINGERPRINT"; do
     [ -f "$file" ] || fail "missing Maho Files file: $file"
 done
 
@@ -147,6 +148,24 @@ require_text "$QML" 'id: listWheelScroll' "list view lacks adaptive wheel animat
 require_text "$QML" 'blocking: true' "adaptive wheel handling can double-scroll with Flickable defaults"
 require_text "$QML" 'grid.cellHeight * 0.72' "grid wheel step is not tied to visible cell geometry"
 require_text "$QML" '88,' "list wheel step lost its bounded baseline"
+echo PASS
+
+echo "=== native interactive scrollbars ==="
+require_text "$CMAKE" 'qml/MahoScrollBar.qml' "native scrollbar component is not packaged"
+require_text "$SCROLLBAR" 'interactive: true' "Files scrollbar is decorative rather than interactive"
+require_text "$SCROLLBAR" 'focusPolicy: Qt.NoFocus' "Files scrollbar can permanently steal keyboard focus"
+require_text "$SCROLLBAR" 'snapMode: ScrollBar.NoSnap' "Files scrollbar may snap instead of tracking direct drag"
+require_text "$QML" 'ScrollBar.vertical: MahoScrollBar {' "Files views are not attached to native QML scrollbars"
+[ "$(grep -Fc 'ScrollBar.vertical: MahoScrollBar {' "$QML")" -ge 3 ] || fail "grid/list/places do not all use native scrollbars"
+require_text "$QML" 'id: gridScrollBar' "grid scrollbar is missing"
+require_text "$QML" 'id: listScrollBar' "list scrollbar is missing"
+require_text "$QML" 'id: placesScrollBar' "places scrollbar is missing"
+require_text "$QML" 'parent: contentArea' "main content scrollbars are not raised above the selection overlay"
+require_text "$QML" 'readonly property bool contentScrollbarDragging' "Files does not expose scrollbar pointer ownership"
+require_text "$QML" 'enabled: !root.contentScrollbarDragging' "row/background handlers can fire during scrollbar drag"
+require_text "$QML" 'onContentHeightChanged: contentY = root.boundedContentY' "dynamic model changes do not clamp scrolling"
+require_text "$QML" 'onViewModeChanged: Qt.callLater' "grid/list switching does not validate scroll state"
+reject_text "$QML" 'ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }' "legacy unowned scrollbar declaration remains"
 echo PASS
 
 echo "=== keyboard parity ==="

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 
 Item {
     id: center
@@ -25,6 +26,7 @@ Item {
 
     readonly property string focusContext: adaptiveContext.length > 0 ? adaptiveContext : historyModel.heldContext
     readonly property bool deliveryRestricted: historyModel.dndEnabled || adaptiveQuiet
+    readonly property bool historyScrollbarDragging: historyScrollBar.pressed
     readonly property string controlTitle: historyModel.dndEnabled
         ? "Do Not Disturb"
         : (adaptiveQuiet
@@ -67,6 +69,16 @@ Item {
     function dismissMenus() {
         openMenuId = ""
         controlMenuOpen = false
+    }
+
+    function clampHistoryScroll() {
+        if (!historyList)
+            return
+        const minimum = Number.isFinite(historyList.originY) ? historyList.originY : 0
+        const maximum = Math.max(minimum, minimum + historyList.contentHeight - historyList.height)
+        const bounded = Math.max(minimum, Math.min(maximum, historyList.contentY))
+        if (Math.abs(historyList.contentY - bounded) > 0.5)
+            historyList.contentY = bounded
     }
 
     function focusHeldSection() {
@@ -410,6 +422,22 @@ Item {
                     highlightMoveDuration: 120
                     model: historyModel.groupedEntries
                     visible: historyModel.loaded && historyModel.retainedCount > 0
+                    onContentHeightChanged: Qt.callLater(center.clampHistoryScroll)
+                    onHeightChanged: Qt.callLater(center.clampHistoryScroll)
+                    onCountChanged: Qt.callLater(center.clampHistoryScroll)
+
+                    ScrollBar.vertical: NotifyScrollBar {
+                        id: historyScrollBar
+                        theme: center.theme
+                        onPressedChanged: {
+                            if (pressed) {
+                                center.dismissMenus()
+                                historyList.cancelFlick()
+                            } else {
+                                Qt.callLater(center.clampHistoryScroll)
+                            }
+                        }
+                    }
 
                     onMovementStarted: {
                         center.openMenuId = ""
@@ -454,6 +482,7 @@ Item {
                         required property var modelData
                         required property int index
                         width: historyList.width
+                        enabled: !center.historyScrollbarDragging
                         theme: center.theme
                         identityResolver: center.identityResolver
                         controller: center
@@ -550,19 +579,6 @@ Item {
                     }
                 }
 
-                Rectangle {
-                    anchors.right: parent.right
-                    anchors.rightMargin: -6
-                    width: 2
-                    radius: 1
-                    color: theme.alpha(theme.foreground, 0.28)
-                    visible: historyList.visible && historyList.moving && historyList.contentHeight > historyList.height
-                    height: Math.max(26, historyList.height * historyList.height / historyList.contentHeight)
-                    y: historyList.contentHeight <= historyList.height
-                        ? 0
-                        : (historyList.contentY / (historyList.contentHeight - historyList.height))
-                            * (historyList.height - height)
-                }
             }
         }
 
