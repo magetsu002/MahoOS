@@ -1,6 +1,6 @@
 # MahoOS
 
-**Linux built to recover.**
+**Linux that takes responsibility for itself without taking control away from you.**
 
 MahoOS is an Arch-based desktop for people who want the control of Linux without
 having to babysit it every time something changes.
