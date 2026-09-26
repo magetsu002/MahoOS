@@ -177,6 +177,10 @@ legacy_kbdlight() {
   local path="$1"
   [ -f "$path" ] && [ ! -L "$path" ] && cmp -s "$path" "$ROOT/bin/maho-kbdlight"
 }
+legacy_terminal_dashboard() {
+  local path="$1"
+  sha_is "$path" "14c2cda1a226489bd47417daddafec6b848b438c8ae2e558638af8a210a09fcd"
+}
 
 safe_command() {
   local name="$1" path; path="$(command_path "$name")"
@@ -195,6 +199,7 @@ safe_command() {
     maho-clipboard) legacy_clipboard "$path" ;;
     maho-clipboard-history) legacy_clipboard_history "$path" ;;
     maho-kbdlight) legacy_kbdlight "$path" ;;
+    maho-terminal-dashboard) legacy_terminal_dashboard "$path" ;;
     *) return 1 ;;
   esac
 }
