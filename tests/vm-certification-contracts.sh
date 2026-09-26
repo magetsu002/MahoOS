@@ -22,6 +22,20 @@ done
 
 bash -n "$RUNNER" "$GUEST" "$HOOK" "$INSTALL_HOOK" "$TORTURE" "$TORTURE_GUEST" "$TORTURE_LIB"
 python3 -m py_compile "$TORTURE_REPORT"
+python3 - "$TORTURE_REPORT" <<'PY_PERIODIC_ONESHOT'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("maho_torture_report", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.command = lambda *argv: "inactive" if argv[1] == "is-active" else "rotating-invocation"
+periodic = module.service_snapshot("maho-firewall-observer.service")
+ordinary = module.service_snapshot("maho-btrfs-scrub-root.service")
+assert periodic == {"active": "inactive"}, periodic
+assert ordinary == {"active": "inactive", "invocation_id": "rotating-invocation"}, ordinary
+print("PASS periodic observer refresh does not fake host mutation")
+PY_PERIODIC_ONESHOT
 gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only "$ROOT_DESTRUCTION_VERIFIER"
 
 require "$RUNNER" '-nic none' 'VM runner gained an external NIC'
