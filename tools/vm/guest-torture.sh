@@ -1384,6 +1384,16 @@ picker_surface_absent() {
   ! picker_surface_present
 }
 
+capture_picker_diagnostics() {
+  local directory="$1" label="$2"
+  graphical_user hyprctl clients -j >"$directory/evidence/$label-clients.json" 2>"$directory/evidence/$label-hyprctl.err" || true
+  graphical_user hyprctl monitors -j >"$directory/evidence/$label-monitors.json" 2>>"$directory/evidence/$label-hyprctl.err" || true
+  ps -u "$UID_VM" -o pid=,ppid=,stat=,comm=,args= >"$directory/evidence/$label-processes.txt" || true
+  if [ -d "$RUN_VM/quickshell/by-id" ]; then
+    cp -a "$RUN_VM/quickshell/by-id" "$directory/evidence/$label-quickshell"
+  fi
+}
+
 scenario_final_wallpaper_picker() {
   local directory="$1" picker=/mnt/qs-wallpaper-picker first second
   mount_final_wallpaper_picker || { SCENARIO_REASON="wallpaper picker share failed identity/read-only validation"; return 1; }
@@ -1393,6 +1403,7 @@ scenario_final_wallpaper_picker() {
   graphical_user env QT_QUICK_BACKEND=software QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-first.log" 2>&1 &
   first=$!
   wait_until 20 picker_surface_present || {
+    capture_picker_diagnostics "$directory" picker-first
     cat "$directory/evidence/picker-first.log" >&2 || true
     SCENARIO_REASON="first wallpaper picker launch did not map"
     kill "$first" 2>/dev/null || true
@@ -1406,6 +1417,7 @@ scenario_final_wallpaper_picker() {
   graphical_user env QT_QUICK_BACKEND=software QS_WALLPAPER_DIR="$HOME_VM/Wallpapers" QS_WALLPAPER_ENABLE_ML4W=0     "$picker/scripts/open_picker.sh" >"$directory/evidence/picker-second.log" 2>&1 &
   second=$!
   wait_until 20 picker_surface_present || {
+    capture_picker_diagnostics "$directory" picker-second
     cat "$directory/evidence/picker-second.log" >&2 || true
     SCENARIO_REASON="wallpaper picker failed to reopen"
     kill "$second" 2>/dev/null || true
