@@ -188,6 +188,97 @@ fi
   exit 1
 }
 
+if [ "$PROFILE" = torture-root-destruction ]; then
+  python3 - "$EVIDENCE" "$REV" <<'PY_ROOT'
+import hashlib
+import json
+import pathlib
+import sys
+
+evidence = pathlib.Path(sys.argv[1])
+revision = sys.argv[2]
+root = evidence / "scenarios" / "full-disposable-root-destruction" / "iteration-1"
+scenario = json.loads((root / "summary.json").read_text())
+result = json.loads((root / "evidence" / "root-destruction-result.json").read_text())
+
+assert scenario["source_revision"] == revision, scenario
+assert scenario["expected_outcome"] == "PREVENTED", scenario
+assert scenario["actual_outcome"] == "PREVENTED", scenario
+assert scenario["pass"] is True, scenario
+assert scenario["host_mutation_performed"] is False, scenario
+assert scenario["guest_root_mutation_performed"] is True, scenario
+assert scenario["protected_effect_blocked"] is True, scenario
+
+command_lines = (root / "evidence" / "attack-command.txt").read_text().splitlines()
+assert command_lines and command_lines[0] == "/usr/bin/rm -rf --one-file-system --no-preserve-root /", command_lines
+for key in (
+    "attack_executed",
+    "unprotected_fixture_deleted",
+    "protected_usr",
+    "protected_etc",
+    "protected_boot",
+    "protected_pacman",
+    "protected_runtime",
+    "protected_bytes_unchanged",
+    "prevention_evidence",
+    "pass",
+):
+    assert result.get(key) is True, (key, result)
+assert result.get("durable_sink") == "maho_evidence_9p", result
+assert result.get("host_mutation_performed") is False, result
+
+names = ("usr-bash", "etc-passwd", "boot-kernel", "pacman-db-version", "runtime-manifest")
+before = root / "evidence" / "protected-before"
+after = root / "evidence" / "protected-after"
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+hashes = {}
+for name in names:
+    before_hash = digest(before / name)
+    after_hash = digest(after / name)
+    assert before_hash == after_hash, (name, before_hash, after_hash)
+    hashes[name] = before_hash
+
+recorded = {}
+for line in (root / "evidence" / "protected-before.sha256").read_text().splitlines():
+    value, path = line.split(maxsplit=1)
+    recorded[pathlib.Path(path).name] = value
+assert recorded == hashes, (recorded, hashes)
+(root / "evidence" / "protected-after.sha256").write_text(
+    "".join(f"{hashes[name]}  {name}\n" for name in names)
+)
+
+rows = [
+    json.loads(line)
+    for line in (root / "evidence" / "root-destruction-events.jsonl").read_text().splitlines()
+    if line.strip()
+]
+assert rows, "no Prevention Boundary evidence"
+rm_inode = int(result["rm_executable_inode"])
+assert any(
+    row.get("result") == "prevented"
+    and row.get("host_mutation_performed") is False
+    and int((row.get("subject") or {}).get("executable_inode", -1)) == rm_inode
+    for row in rows
+), "no valid prevention event attributable to the real rm process"
+
+host_verification = {
+    "schema_version": 1,
+    "source_revision": revision,
+    "attack_command_verified": True,
+    "scenario_classification": "PREVENTED",
+    "protected_hashes_unchanged": True,
+    "valid_prevention_event_for_rm": True,
+    "host_mutation_performed": False,
+    "pass": True,
+}
+(root / "evidence" / "host-verification.json").write_text(
+    json.dumps(host_verification, indent=2, sort_keys=True) + "\n"
+)
+print("PASS  independent host verification for full disposable-root destruction")
+PY_ROOT
+fi
+
 python3 - "$EVIDENCE/summary.json" "$PROFILE" "$REV" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
