@@ -37,4 +37,5 @@ req "$GUEST" 'maho-files-ux-closure-contracts.sh' 'Files closure contracts absen
 req "$GUEST" 'test_maho_system_tui.py' 'TUI contracts absent'
 req "$GUEST" 'maho-link-contracts.sh' 'Edge/Link contracts absent'
 req "$GUEST" 'open_picker.sh' 'real wallpaper picker launcher absent from final VM profile'
+req "$GUEST" 'QT_QUICK_BACKEND=software' 'virtual-display picker launch is not pinned to the software renderer'
 echo 'ALL FINAL VM CONTRACT WIRING PASS'
