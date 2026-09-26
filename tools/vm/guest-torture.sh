@@ -675,11 +675,14 @@ PY_INNER
 }
 
 scenario_runtime_bad_postcondition() {
-  local directory="$1" iteration="$2" tag state
+  local directory="$1" iteration="$2" tag state rc=0
   tag="bad-postcondition-$RANDOM"
-  runtime_stage_campaign "$tag" "$directory"
-  set +e
-  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
+  if ! runtime_stage_campaign "$tag" "$directory" yes; then
+    u systemctl --user start maho-guardian.service >/dev/null 2>&1 || true
+    SCENARIO_REASON="failed to stage isolated runtime postcondition campaign"
+    return 1
+  fi
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER' || rc=$?
 import pathlib, sys
 import guardian_live_recovery as r
 state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
@@ -691,19 +694,26 @@ result=r.execute_automatic_runtime_recovery(
     proc_root=pathlib.Path("/proc"), fs_root=pathlib.Path("/"), uid=1500, driver=LyingDriver())
 assert result.get("result")=="verification-failed", result
 PY_INNER
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || { SCENARIO_REASON="lying runtime driver was not rejected"; return 1; }
   state="$(runtime_active_state "$RUNTIME_INCIDENT_ID")"
+  u systemctl --user start maho-guardian.service
+  wait_until 20 user_unit_active maho-guardian.service || {
+    SCENARIO_REASON="Guardian did not resume after isolated runtime postcondition check"
+    return 1
+  }
+  [ "$rc" -eq 0 ] || { SCENARIO_REASON="lying runtime driver was not rejected"; return 1; }
   [ "$state" = verification-failed ] || { SCENARIO_REASON="bad runtime postcondition did not remain verification-failed"; return 1; }
   SCENARIO_ACTUAL=DETECTED_ONLY
 }
 
 scenario_recovery_loop_prevention() {
-  local directory="$1" iteration="$2" tag
+  local directory="$1" iteration="$2" tag rc=0
   tag="loop-prevention-$RANDOM"
-  runtime_stage_campaign "$tag" "$directory"
-  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$directory/evidence/recovery-loop-prevention.json" <<'PY_INNER'
+  if ! runtime_stage_campaign "$tag" "$directory" yes; then
+    u systemctl --user start maho-guardian.service >/dev/null 2>&1 || true
+    SCENARIO_REASON="failed to stage isolated recovery-loop campaign"
+    return 1
+  fi
+  u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$directory/evidence/recovery-loop-prevention.json" <<'PY_INNER' || rc=$?
 import json, pathlib, sys
 import guardian_live_recovery as r
 state=pathlib.Path(sys.argv[1]); runtime=pathlib.Path(sys.argv[2]); incident=sys.argv[3]
@@ -740,6 +750,12 @@ evidence.write_text(json.dumps({
     "durable_state_unchanged":before==after,"loop_prevented":True,
 },indent=2,sort_keys=True)+"\n")
 PY_INNER
+  u systemctl --user start maho-guardian.service
+  wait_until 20 user_unit_active maho-guardian.service || {
+    SCENARIO_REASON="Guardian did not resume after isolated recovery-loop check"
+    return 1
+  }
+  [ "$rc" -eq 0 ] || { SCENARIO_REASON="recovery-loop prevention assertions failed"; return 1; }
   SCENARIO_ACTUAL=DETECTED_ONLY
 }
 
