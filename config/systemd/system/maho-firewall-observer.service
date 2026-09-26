@@ -18,4 +18,5 @@ RestrictNamespaces=yes
 RestrictAddressFamilies=AF_NETLINK AF_UNIX
 RuntimeDirectory=maho/firewall
 RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 ReadWritePaths=/run/maho/firewall
