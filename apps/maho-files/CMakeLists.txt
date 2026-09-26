@@ -33,6 +33,7 @@ qt_add_qml_module(maho-files
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/MahoScrollBar.qml
 )
 
 execute_process(

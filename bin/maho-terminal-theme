@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/maho/theme"
+GENERATOR="$ROOT/lib/maho_terminal_theme.py"
+
+die() { echo "maho-terminal-theme: $*" >&2; return 1; }
+
+render() {
+    local palette="${1:-}"
+    local output="${2:-}"
+    [ -n "$palette" ] || { die "usage: maho-terminal-theme render PALETTE [OUTPUT]"; return 1; }
+    [ -n "$output" ] || output="$CACHE/kitty.conf"
+    python "$GENERATOR" "$palette" "$output"
+}
+
+reload_kitty() {
+    local config="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/kitty.conf"
+
+    if ! pgrep -x kitty >/dev/null 2>&1; then
+        echo "INFO  Kitty is not running; new windows will use the generated palette."
+        return 0
+    fi
+
+    if [ ! -f "$config" ]; then
+        echo "INFO  Kitty is running but no user config exists to signal autoreload."
+        return 0
+    fi
+
+    # Kitty watches its config by default. Touching the root config causes all
+    # running instances to reload without closing windows or killing shells.
+    touch "$config"
+    echo "PASS  Kitty config autoreload signaled."
+}
+
+sync() {
+    local palette="${1:-$CACHE/active.json}"
+    [ -f "$palette" ] || { die "palette does not exist: $palette"; return 1; }
+    render "$palette" "$CACHE/kitty.conf"
+    reload_kitty
+}
+
+case "${1:-}" in
+    render) render "${2:-}" "${3:-}" ;;
+    reload) reload_kitty ;;
+    sync) sync "${2:-}" ;;
+    *)
+        cat <<'HELP'
+Usage:
+  maho-terminal-theme render PALETTE [OUTPUT]
+  maho-terminal-theme sync [PALETTE]
+  maho-terminal-theme reload
+HELP
+        ;;
+esac

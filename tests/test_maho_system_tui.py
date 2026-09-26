@@ -206,7 +206,8 @@ def main() -> None:
     stale_guardian["evidence_freshness"]["boot.authority"] = {"freshness": "stale", "health": "healthy"}
     stale_guardian["world_state"]["guardian"]["trust"] = {"state": "UNKNOWN", "reasons": ["boot authority evidence stale"]}
     stale_model = rebuild(trusted_base, guardian=stale_guardian, recovery=trusted_recovery)
-    check("stale trust fixture cannot render verified chain", "Boot authority         Stale" in render(stale_model, page="Trust", height=35) and "TRUST BREAK" in render(stale_model, page="Trust", height=35))
+    stale_trust = render(stale_model, page="Trust", height=35)
+    check("stale trust fixture cannot render verified chain", "Boot authority         Stale" in stale_trust and "TRUST UNRESOLVED" in stale_trust and "TRUST BREAK" not in stale_trust)
 
     untrusted_guardian = deepcopy(trusted_guardian)
     untrusted_recovery = deepcopy(trusted_recovery)
@@ -214,7 +215,8 @@ def main() -> None:
     untrusted_guardian["world_state"]["guardian"]["trust"] = {"state": "UNTRUSTED", "reasons": ["authority revoked"]}
     untrusted_recovery["current_generation_trust"] = "UNTRUSTED"
     untrusted_model = rebuild(trusted_base, guardian=untrusted_guardian, recovery=untrusted_recovery)
-    check("untrusted trust fixture is explicit", "Untrusted" in render(untrusted_model, page="Trust", height=35))
+    untrusted_trust = render(untrusted_model, page="Trust", height=35)
+    check("untrusted trust fixture is explicit", "Untrusted" in untrusted_trust and "TRUST BREAK — upstream authority is untrusted" in untrusted_trust)
 
     lifecycle_fields = (
         ("discovered_time", "2026-01-01T00:00:01Z"),
@@ -303,7 +305,9 @@ def main() -> None:
     trust_page = render(model, page="Trust", height=35)
     check("Trust renders boot certification absence semantically", "Awaiting certification" in trust_page)
     check("Trust renders missing generation authority semantically", trust_page.count("Awaiting certification") >= 3)
-    check("Trust makes upstream break explicit", "TRUST BREAK" in trust_page and "Maho runtime" in trust_page and "Verified" in trust_page and "Overall trust" in trust_page and "Unresolved" in trust_page)
+    check("Trust renders pending boot authority without a false break", "BOOT TRUST PENDING — hardware root not yet certified" in trust_page and "TRUST BREAK" not in trust_page)
+    check("Trust keeps downstream verification separate from full-chain trust", "Maho runtime" in trust_page and "Verified" in trust_page and "Overall trust" in trust_page and "Unresolved" in trust_page)
+    check("Trust pending helper text does not claim an active break", "does not establish unresolved upstream boot authority" in trust_page)
     update_page = render(model, page="Updates", height=35)
     check("Update page renders PREPARED stale authority semantically", "Waiting for certification" in update_page)
     check("Update page exposes lifecycle and untouched live root", all(value in update_page for value in ("DISCOVER", "STAGE", "PREPARE", "CANDIDATE", "ADMISSION", "ACTIVATE", "VERIFY", "Still active and untouched")))

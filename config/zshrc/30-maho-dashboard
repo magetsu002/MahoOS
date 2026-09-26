@@ -1,0 +1,9 @@
+# managed-by: maho-terminal v1
+if [[ $(tty) == *"pts"* ]]; then
+    clear
+
+    source "$HOME/.config/zshrc/maho-dashboard.zsh"
+    maho_dashboard
+
+    printf "\n"
+fi

@@ -54,6 +54,7 @@ Rectangle {
     HoverHandler { id: historyHover }
     TapHandler {
         id: historyTap
+        enabled: !controller.historyScrollbarDragging
         gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: {
             if (row.menuOpen) {
@@ -243,7 +244,8 @@ Rectangle {
                     MouseArea {
                         id: menuMouse
                         anchors.fill: parent
-                        enabled: menuButton.opacity > 0.01 || row.menuOpen
+                        enabled: (menuBtton.opacity > 0.01 || row.menuOpen)
+                            && !controller.historyScrollbarDragging
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: row.menuToggleRequested(String(entry.id))
