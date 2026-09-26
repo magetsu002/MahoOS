@@ -66,6 +66,10 @@ require "$TORTURE" 'torture-reboot-recovering' 'same-disk recovering power-cycle
 require "$TORTURE" 'torture-reboot-verifying' 'same-disk verifying power-cycle profile missing'
 require "$RUNNER" 'reboot-stage1-ready' 'same-disk power-cycle orchestration missing'
 require "$TORTURE" 'torture-postconditions' 'bad-postcondition profile missing'
+sed -n '/^scenario_runtime_bad_postcondition()/,/^}/p' "$TORTURE_GUEST" | grep -Fq -- 'runtime_stage_campaign "$tag" "$directory" yes' \
+  || fail 'bad runtime postcondition injector can race the always-on Guardian coordinator'
+sed -n '/^scenario_recovery_loop_prevention()/,/^}/p' "$TORTURE_GUEST" | grep -Fq -- 'runtime_stage_campaign "$tag" "$directory" yes' \
+  || fail 'recovery-loop injector can race the always-on Guardian coordinator'
 require "$TORTURE" 'torture-network' 'isolated network-loss profile missing'
 require "$TORTURE" 'torture-update' 'top-level torture update profile missing'
 require "$TORTURE" 'torture-update-compound' 'update plus Guardian profile missing'

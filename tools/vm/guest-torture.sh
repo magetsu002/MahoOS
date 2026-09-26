@@ -677,7 +677,7 @@ PY_INNER
 scenario_runtime_bad_postcondition() {
   local directory="$1" iteration="$2" tag state
   tag="bad-postcondition-$RANDOM"
-  runtime_stage_campaign "$tag" "$directory"
+  runtime_stage_campaign "$tag" "$directory" yes
   set +e
   u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" <<'PY_INNER'
 import pathlib, sys
@@ -702,7 +702,7 @@ PY_INNER
 scenario_recovery_loop_prevention() {
   local directory="$1" iteration="$2" tag
   tag="loop-prevention-$RANDOM"
-  runtime_stage_campaign "$tag" "$directory"
+  runtime_stage_campaign "$tag" "$directory" yes
   u env PYTHONPATH="$SRC/lib" python3 - "$HOME_VM/.local/state/maho/security" "$HOME_VM/.local/share/maho/runtime" "$RUNTIME_INCIDENT_ID" "$directory/evidence/recovery-loop-prevention.json" <<'PY_INNER'
 import json, pathlib, sys
 import guardian_live_recovery as r
