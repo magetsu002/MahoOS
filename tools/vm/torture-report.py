@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 OUTCOMES=("PREVENTED","RECOVERED_AUTOMATICALLY","RECOVERED_WITH_AUTHORITY","DETECTED_ONLY","NOT_COVERED","BUG")
+PERIODIC_ONESHOT_SERVICES=frozenset({"maho-firewall-observer.service"})
 REQUIRED_MINIMUM_ITERATIONS={
     "session-compositor-kill":20,
     "quickshell-surface-kill":3,
@@ -61,13 +62,19 @@ def digest_tree(path: Path) -> str:
         h.update(str(item.relative_to(path)).encode()+b"\0"+hashlib.sha256(data).digest())
     return h.hexdigest()
 
+def service_snapshot(unit: str) -> dict[str, str]:
+    row={"active":command("systemctl","is-active",unit)}
+    if unit not in PERIODIC_ONESHOT_SERVICES:
+        row["invocation_id"]=command("systemctl","show",unit,"-p","InvocationID","--value")
+    return row
+
 def snapshot(repo: Path, output: Path) -> None:
     services={}
     raw=command("systemctl","list-units","--type=service","--all","--no-legend","--plain")
     for line in raw.splitlines():
         unit=line.split(maxsplit=1)[0] if line.split() else ""
         if unit.startswith("maho-"):
-            services[unit]={"active":command("systemctl","is-active",unit),"invocation_id":command("systemctl","show",unit,"-p","InvocationID","--value")}
+            services[unit]=service_snapshot(unit)
     payload={"schema_version":1,"captured_at":datetime.now(timezone.utc).isoformat(),"host_boot_id":Path("/proc/sys/kernel/random/boot_id").read_text().strip(),"host_root_source":command("findmnt","-n","-o","SOURCE","/"),"source_revision":command("git","-C",str(repo),"rev-parse","HEAD"),"source_status":command("git","-C",str(repo),"status","--porcelain","--untracked-files=normal"),"prevention_state_sha256":digest_tree(Path("/var/lib/maho/prevention")),"maho_system_services":services}
     output.parent.mkdir(parents=True,exist_ok=True); output.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
 
