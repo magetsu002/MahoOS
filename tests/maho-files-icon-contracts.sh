@@ -5,4 +5,6 @@ MAIN="$ROOT/apps/maho-files/src/main.cpp"
 QML="$ROOT/apps/maho-files/qml/Main.qml"
 grep -Fq 'iconName: "document-new"' "$QML" || { echo 'FAIL New File lost document-new icon'; exit 1; }
 grep -Fq 'name == QStringLiteral("document-new")' "$MAIN" || { echo 'FAIL document-new is not palette-tinted'; exit 1; }
-echo 'PASS New File icon follows Maho foreground palette'
+grep -Fq 'iconName: "document-properties"' "$QML" || { echo 'FAIL Properties lost document-properties icon'; exit 1; }
+grep -Fq 'name == QStringLiteral("document-properties")' "$MAIN" || { echo 'FAIL document-properties is not palette-tinted'; exit 1; }
+echo 'PASS New File and Properties icons follow Maho foreground palette'
