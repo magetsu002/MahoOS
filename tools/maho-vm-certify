@@ -225,6 +225,7 @@ for key in (
 ):
     assert result.get(key) is True, (key, result)
 assert result.get("durable_sink") == "maho_evidence_9p", result
+assert result.get("external_control_plane_bounded_traversal") is True, result
 assert result.get("host_mutation_performed") is False, result
 
 names = ("usr-bash", "etc-passwd", "boot-kernel", "pacman-db-version", "runtime-manifest")

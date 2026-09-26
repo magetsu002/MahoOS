@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -10,6 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -167,7 +169,9 @@ int main(int argc, char **argv)
     const char *runtime_target;
     const char *runtime_link_target;
     unsigned long long rm_inode;
-    int rm_exit;
+    pid_t attack_pid, evidence_pid;
+    int rm_exit = 127, attack_status = 0;
+    bool attack_bounded = false;
     uint64_t start_ns, end_ns;
     char path[4096];
     char before_root[4096], after_root[4096];
@@ -179,20 +183,21 @@ int main(int argc, char **argv)
     bool prevention_evidence;
     struct protected_file files[5];
 
-    if (argc != 9) {
+    if (argc != 10) {
         dprintf(STDERR_FILENO,
-                "usage: %s DIRECTORY REVISION START_NS RM_EXIT EVENTS RM_INODE RUNTIME_TARGET RUNTIME_LINK_TARGET\n",
+                "usage: %s DIRECTORY REVISION START_NS ATTACK_PID EVIDENCE_PID EVENTS RM_INODE RUNTIME_TARGET RUNTIME_LINK_TARGET\n",
                 argv[0]);
         return 2;
     }
     directory = argv[1];
     revision = argv[2];
     start_ns = strtoull(argv[3], NULL, 10);
-    rm_exit = atoi(argv[4]);
-    events = argv[5];
-    rm_inode = strtoull(argv[6], NULL, 10);
-    runtime_target = argv[7];
-    runtime_link_target = argv[8];
+    attack_pid = (pid_t)strtol(argv[4], NULL, 10);
+    evidence_pid = (pid_t)strtol(argv[5], NULL, 10);
+    events = argv[6];
+    rm_inode = strtoull(argv[7], NULL, 10);
+    runtime_target = argv[8];
+    runtime_link_target = argv[9];
 
     snprintf(before_root, sizeof(before_root), "%s/evidence/protected-before", directory);
     snprintf(after_root, sizeof(after_root), "%s/evidence/protected-after", directory);
@@ -214,6 +219,51 @@ int main(int argc, char **argv)
         files[i] = (struct protected_file){live[i], before_paths[i], after_paths[i]};
     }
     files[4] = (struct protected_file){runtime_manifest, runtime_before, runtime_after};
+
+    /*
+     * This static verifier is the independent control plane.  The real rm
+     * process is already running when the shell execs us, so verification no
+     * longer depends on attacked userspace returning from a huge protected
+     * tree walk.  We require proof that rm both destroyed deliberately
+     * unprotected root state and generated an attributable prevention event.
+     * Once both facts are durable, bound the still-running traversal.
+     */
+    for (int attempt = 0; attempt < 1200; ++attempt) {
+        pid_t waited = waitpid(attack_pid, &attack_status, WNOHANG);
+        bool fixture_gone =
+            access("/var/tmp/maho-root-unprotected/proof", F_OK) != 0 && errno == ENOENT;
+        bool prevented = evidence_has_rm_prevention(events, rm_inode);
+        if (waited == attack_pid)
+            break;
+        if (waited < 0 && errno != EINTR)
+            break;
+        if (fixture_gone && prevented) {
+            if (kill(attack_pid, SIGKILL) == 0 || errno == ESRCH)
+                attack_bounded = true;
+            while (waitpid(attack_pid, &attack_status, 0) < 0 && errno == EINTR)
+                ;
+            break;
+        }
+        struct timespec pause = {.tv_sec = 0, .tv_nsec = 100000000L};
+        nanosleep(&pause, NULL);
+    }
+    if (waitpid(attack_pid, &attack_status, WNOHANG) == 0) {
+        kill(attack_pid, SIGKILL);
+        while (waitpid(attack_pid, &attack_status, 0) < 0 && errno == EINTR)
+            ;
+    }
+    {
+        struct timespec flush_pause = {.tv_sec = 0, .tv_nsec = 250000000L};
+        nanosleep(&flush_pause, NULL);
+    }
+    kill(evidence_pid, SIGTERM);
+    while (waitpid(evidence_pid, NULL, 0) < 0 && errno == EINTR)
+        ;
+
+    if (WIFEXITED(attack_status))
+        rm_exit = WEXITSTATUS(attack_status);
+    else if (WIFSIGNALED(attack_status))
+        rm_exit = 128 + WTERMSIG(attack_status);
 
     fixture_deleted = access("/var/tmp/maho-root-unprotected/proof", F_OK) != 0 && errno == ENOENT;
     protected_usr = access("/usr/bin/bash", X_OK) == 0;
@@ -241,6 +291,8 @@ int main(int argc, char **argv)
     prevention_evidence = evidence_has_rm_prevention(events, rm_inode);
     if (rm_exit == 127)
         reason = "real rm-style attack failed to execute";
+    else if (WIFSIGNALED(attack_status) && !attack_bounded)
+        reason = "external control plane timed out before independent attack proof completed";
     else if (!fixture_deleted)
         reason = "rm-style root attack did not destroy deliberately unprotected root state";
     else if (!protected_usr)
@@ -268,6 +320,7 @@ int main(int argc, char **argv)
         "  \"attack_executed\": %s,\n"
         "  \"rm_exit\": %d,\n"
         "  \"rm_executable_inode\": %llu,\n"
+        "  \"external_control_plane_bounded_traversal\": %s,\n"
         "  \"unprotected_fixture_deleted\": %s,\n"
         "  \"protected_usr\": %s,\n"
         "  \"protected_etc\": %s,\n"
@@ -282,6 +335,7 @@ int main(int argc, char **argv)
         "}\n",
         (rm_exit != 127 && fixture_deleted) ? "true" : "false",
         rm_exit, rm_inode,
+        attack_bounded ? "true" : "false",
         fixture_deleted ? "true" : "false",
         protected_usr ? "true" : "false",
         protected_etc ? "true" : "false",

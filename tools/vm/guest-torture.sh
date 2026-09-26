@@ -1198,8 +1198,8 @@ torture_reboot_profile() {
 
 
 scenario_full_root_destruction() {
-  local directory="$1" iteration="$2" work pin events evidence_pid rc before_dir after_dir
-  local runtime_target runtime_link_target rm_inode verifier
+  local directory="$1" iteration="$2" work pin events evidence_pid attack_pid before_dir after_dir
+  local runtime_target runtime_link_target rm_inode verifier attack_start_ns
   torture_destructive_gate
   grep -qw bpf /sys/kernel/security/lsm || { SCENARIO_REASON="BPF LSM is not active in the full-system torture guest"; return 1; }
 
@@ -1240,22 +1240,21 @@ scenario_full_root_destruction() {
   printf '%s\n' '/usr/bin/rm -rf --one-file-system --no-preserve-root /' >"$directory/evidence/attack-command.txt"
   printf 'rm_executable_inode=%s\n' "$rm_inode" >>"$directory/evidence/attack-command.txt"
   sync
+  attack_start_ns="$(date +%s%N)"
 
-  # Let the real root attack run to completion. The outer QEMU certification
-  # timeout remains the fail-closed watchdog without depending on attacked userspace.
+  # Start the real root attack under an independent static control plane.
+  # The outer QEMU timeout remains the final fail-closed watchdog.
   set +e
   /usr/bin/rm -rf --one-file-system --no-preserve-root / \
-    >"$directory/evidence/root-attack.log" 2>&1
-  rc=$?
+    >"$directory/evidence/root-attack.log" 2>&1 &
+  attack_pid=$!
   set -e
 
-  # The disposable root may no longer be able to start dynamically linked tools.
-  # Stop the already-running evidence collector with shell builtins, then replace
-  # this shell with a statically linked verifier staged on maho_evidence.
-  kill "$evidence_pid" 2>/dev/null || true
-  wait "$evidence_pid" 2>/dev/null || true
-  exec "$verifier" "$directory" "$REV" "$start_ns" "$rc" "$events" "$rm_inode" \
-    "$runtime_target" "$runtime_link_target"
+  # Replace this shell immediately with the static verifier/control plane on
+  # maho_evidence. After exec(), the attack and evidence collector remain its
+  # children, so verification no longer waits on attacked userspace.
+  exec "$verifier" "$directory" "$REV" "$attack_start_ns" "$attack_pid" "$evidence_pid" \
+    "$events" "$rm_inode" "$runtime_target" "$runtime_link_target"
 }
 
 final_contract_run() {
