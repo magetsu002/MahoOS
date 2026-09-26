@@ -66,11 +66,11 @@ jobs:
           grep -Fxq 'usr/lib/maho/share/maho/release.json' /tmp/maho-package-files.txt
           bpf_object="$(mktemp)"
           bsdtar -xOf "$package" usr/lib/maho/prevention/maho_prevention.bpf.o > "$bpf_object"
-          if strings -a "$bpf_object" | grep -Fq '/tmp/tmp.'; then
+          if grep -aFq '/tmp/tmp.' "$bpf_object"; then
             echo 'packaged BPF object leaks the transient build source path' >&2
             exit 1
           fi
-          strings -a "$bpf_object" | grep -Fq '/usr/src/debug/maho-os/'
+          grep -aFq '/usr/src/debug/maho-os/' "$bpf_object"
           python - dist/release.json "$(git rev-parse HEAD)" <<'PY'
           import json
           import pathlib
