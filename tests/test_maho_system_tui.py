@@ -10,13 +10,15 @@ from pathlib import Path
 import sys
 import termios
 import tempfile
+import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_behavior_preferences import SPECS, defaults, load_preferences  # noqa: E402
 from maho_system_status import DiagnosticRecord, build_system_model  # noqa: E402
-from maho_system_tui import PAGES, UIState, _behavior_preference_at, _nav_layout, _tab_at, _update_lifecycle, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
+from maho_system_tui import PAGES, UIState, _ModelRefreshWorker, _behavior_preference_at, _nav_layout, _tab_at, _update_lifecycle, attention_groups, diagnostic_state_label, interactive, render, restore_selection, viewport_bounds  # noqa: E402
 from maho_tui import decode_escape_sequence, navigation_input_mode  # noqa: E402
 
 
@@ -440,11 +442,77 @@ def main() -> None:
     interactive(model, stdin=io.StringIO("right\nq\n"), stdout=output, width=80, height=24, color=False)
     check("keyboard navigation redraws without mutation", output.getvalue().count("Maho System") == 2)
     refresh_calls = [0]
-    def refresh_provider():
+    active_collectors = [0]
+    max_active_collectors = [0]
+    refresh_started = threading.Event()
+    release_refresh = threading.Event()
+    second_refresh_finished = threading.Event()
+    navigation_latency = [None]
+
+    def slow_refresh_provider():
         refresh_calls[0] += 1
+        active_collectors[0] += 1
+        max_active_collectors[0] = max(max_active_collectors[0], active_collectors[0])
+        refresh_started.set()
+        release_refresh.wait(1.0)
+        active_collectors[0] -= 1
+        if refresh_calls[0] >= 2:
+            second_refresh_finished.set()
         return model
-    interactive(model, stdin=io.StringIO("r\nq\n"), stdout=io.StringIO(), width=80, height=24, color=False, model_provider=refresh_provider)
-    check("R forces immediate model refresh", refresh_calls[0] == 1)
+
+    class CoordinatedInput:
+        def __init__(self):
+            self.reads = 0
+            self.navigation_started = 0.0
+
+        def isatty(self):
+            return False
+
+        def readline(self):
+            self.reads += 1
+            if self.reads == 1:
+                return "r\n"
+            if self.reads == 2:
+                if not refresh_started.wait(1.0):
+                    raise AssertionError("manual refresh did not start")
+                return "r\n"
+            if self.reads == 3:
+                self.navigation_started = time.perf_counter()
+                return "right\n"
+            if self.reads == 4:
+                navigation_latency[0] = time.perf_counter() - self.navigation_started
+                release_refresh.set()
+                if not second_refresh_finished.wait(1.0):
+                    raise AssertionError("coalesced refresh did not finish")
+                return "q\n"
+            return "q\n"
+
+    interactive(
+        model, stdin=CoordinatedInput(), stdout=io.StringIO(), width=80, height=24,
+        color=False, model_provider=slow_refresh_provider,
+    )
+    check("R requests model refresh without blocking input", refresh_calls[0] == 2)
+    check("manual refreshes never overlap collectors", max_active_collectors[0] == 1)
+    check(
+        "Tab navigation stays responsive during slow collection",
+        navigation_latency[0] is not None and navigation_latency[0] < 0.2,
+    )
+
+    failed_worker = _ModelRefreshWorker(lambda: (_ for _ in ()).throw(RuntimeError("fixture failure")))
+    try:
+        check("failed refresh request is accepted", failed_worker.request())
+        failed_result = None
+        deadline = time.monotonic() + 1.0
+        while failed_result is None and time.monotonic() < deadline:
+            failed_result = failed_worker.take_result(0)
+            if failed_result is None:
+                time.sleep(0.01)
+        check(
+            "failed collection never publishes a replacement snapshot",
+            failed_result is not None and failed_result.model is None,
+        )
+    finally:
+        failed_worker.close()
 
     with tempfile.TemporaryDirectory(prefix="maho-system-tui-") as temporary:
         path = Path(temporary) / "behavior.json"

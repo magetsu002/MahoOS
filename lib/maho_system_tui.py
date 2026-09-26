@@ -2,11 +2,12 @@
 """Calm, read-only-by-default terminal interface for Maho System state."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import shutil
 import sys
+from threading import Condition, Thread
 import time
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
@@ -36,6 +37,92 @@ class UIState:
     detail_offset: int = 0
     doctor_all: bool = False
     evidence_filter: int = 0
+
+
+@dataclass(frozen=True)
+class _RefreshResult:
+    generation: int
+    model: SystemModel | None
+    completed_at: float
+
+
+class _ModelRefreshWorker:
+    """Run at most one model collection at a time away from the UI loop."""
+
+    def __init__(self, provider: Callable[[], SystemModel]) -> None:
+        self._provider = provider
+        self._condition = Condition()
+        self._requested = False
+        self._busy = False
+        self._rerun = False
+        self._closed = False
+        self._generation = 0
+        self._result: _RefreshResult | None = None
+        self._thread = Thread(target=self._run, name="maho-system-model-refresh", daemon=True)
+        self._thread.start()
+
+    def request(self, *, force_after_active: bool = False) -> bool:
+        """Request a refresh without ever waiting for collection to finish."""
+        with self._condition:
+            if self._closed:
+                return False
+            if self._busy:
+                if force_after_active:
+                    self._rerun = True
+                return False
+            if self._requested:
+                return False
+            self._requested = True
+            self._condition.notify()
+            return True
+
+    def take_result(self, after_generation: int) -> _RefreshResult | None:
+        with self._condition:
+            result = self._result
+            if result is None or result.generation <= after_generation:
+                return None
+            return result
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._requested = False
+            self._rerun = False
+            self._condition.notify_all()
+        # Collection is read-only but not cooperatively cancellable. Do not make
+        # terminal shutdown inherit a slow provider; the daemon exits with us.
+        self._thread.join(timeout=0.05)
+
+    def _run(self) -> None:
+        while True:
+            with self._condition:
+                self._condition.wait_for(lambda: self._closed or self._requested)
+                if self._closed:
+                    return
+                self._requested = False
+                self._busy = True
+
+            candidate: SystemModel | None = None
+            try:
+                collected = self._provider()
+                if not isinstance(collected, SystemModel):
+                    raise TypeError("model provider returned a non-SystemModel value")
+                candidate = collected
+            except Exception:
+                candidate = None
+            completed_at = time.monotonic()
+
+            with self._condition:
+                self._busy = False
+                if self._closed:
+                    self._condition.notify_all()
+                    return
+                self._generation += 1
+                self._result = _RefreshResult(self._generation, candidate, completed_at)
+                if self._rerun:
+                    self._rerun = False
+                    self._requested = True
+                self._condition.notify_all()
 
 
 @dataclass(frozen=True)
@@ -963,20 +1050,30 @@ def interactive(
     dirty = True
     last_size = None
     last_refresh = time.monotonic()
+    last_refresh_attempt = last_refresh
+    refresh_generation = 0
     refresh_interval = 2.0
 
-    def refresh() -> None:
-        nonlocal model, last_refresh, dirty
+    def adopt_refresh(result: _RefreshResult) -> None:
+        nonlocal model, last_refresh, last_refresh_attempt, refresh_generation, dirty
+        refresh_generation = result.generation
+        last_refresh_attempt = result.completed_at
+        if result.model is None:
+            # Keep the last complete snapshot. Its age continues increasing so a
+            # failed collection can never masquerade as fresh state.
+            dirty = True
+            return
         page_name = PAGES[state.page_index]
         identity = _row_identity(model, page_name, state.row_index, state)
         previous = state.row_index
-        model = model_provider()
+        model = result.model
         state.row_index = restore_selection(model, page_name, identity, previous, state)
         count = _row_count(model, page_name, state)
         state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
-        last_refresh = time.monotonic()
+        last_refresh = result.completed_at
         dirty = True
 
+    refresh_worker = _ModelRefreshWorker(model_provider)
     input_mode = navigation_input_mode(stdin)
     input_mode.__enter__()
     if tty_output:
@@ -989,10 +1086,12 @@ def interactive(
             screen_width = width or terminal.columns
             screen_height = height or terminal.lines
             size = (screen_width, screen_height)
+            result = refresh_worker.take_result(refresh_generation)
+            if result is not None:
+                adopt_refresh(result)
             now = time.monotonic()
-            if now - last_refresh >= refresh_interval:
-                refresh()
-                now = time.monotonic()
+            if now - last_refresh_attempt >= refresh_interval:
+                refresh_worker.request()
             if dirty or size != last_size:
                 if tty_output:
                     # Clear stale rows before each frame. A cursor-home alone
@@ -1032,8 +1131,12 @@ def interactive(
                     if preference is not None:
                         state.row_index = preference
                         spec = SPECS[preference]
-                        write_preference(spec.key, not model.preferences.enabled(spec.key), preference_path)
-                        refresh()
+                        preferences = write_preference(
+                            spec.key, not model.preferences.enabled(spec.key), preference_path,
+                        )
+                        model = replace(model, preferences=preferences)
+                        dirty = True
+                        refresh_worker.request(force_after_active=True)
                     continue
                 continue
             if key in {"q", "quit", "exit"}:
@@ -1049,7 +1152,7 @@ def interactive(
                 state.show_help = True
                 continue
             if key == "r":
-                refresh()
+                refresh_worker.request(force_after_active=True)
                 continue
             if key == "escape":
                 state.show_detail = False
@@ -1106,12 +1209,16 @@ def interactive(
             elif key in {"enter", " "}:
                 if page_name == "Behavior" and SPECS:
                     spec = SPECS[min(state.row_index, len(SPECS) - 1)]
-                    write_preference(spec.key, not model.preferences.enabled(spec.key), preference_path)
-                    refresh()
+                    preferences = write_preference(
+                        spec.key, not model.preferences.enabled(spec.key), preference_path,
+                    )
+                    model = replace(model, preferences=preferences)
+                    refresh_worker.request(force_after_active=True)
                 elif page_name in {"Doctor", "Logs / Evidence"}:
                     state.show_detail = not state.show_detail
             state.row_offset = viewport_bounds(count, state.row_index, 8, state.row_offset)[0]
     finally:
+        refresh_worker.close()
         input_mode.__exit__(None, None, None)
         if tty_output:
             mouse_off = "\033[?1000l\033[?1006l" if tty_input else ""
