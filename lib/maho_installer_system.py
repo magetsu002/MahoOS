@@ -346,12 +346,12 @@ class SystemAssemblyOps:
             f"{mapper} UUID={luks} none luks\n", encoding="utf-8",
         )
         luks_partition = plan["layout_contract"]["partitions"][1]["path"]
-        password = self.password_file.read_bytes().rstrip(b"\n") + b"\n"
+        password = self.password_file.read_bytes().rstrip(b"\r\n")
         self._run((
             "cryptsetup", "luksAddKey", luks_partition,
             "--key-file", str(self.storage_key_file), "--new-keyfile", "-",
         ), input_bytes=password)
-        recovery = secrets.token_bytes(48).hex().encode() + b"\n"
+        recovery = secrets.token_bytes(48).hex().encode()
         self.recovery_key_output.parent.mkdir(parents=True, exist_ok=True)
         descriptor = os.open(self.recovery_key_output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as stream:

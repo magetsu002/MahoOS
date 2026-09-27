@@ -317,6 +317,11 @@ class BaseInstallOps(SystemAssemblyOps):
 
 
 class IdentityOps(SystemAssemblyOps):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.password_enrollment = None
+        self.password_verification = None
+
     def _run(self, command, *, input_bytes=None, check=True):
         if command[0] == "systemd-machine-id-setup":
             root_arg = next(item for item in command if item.startswith("--root="))
@@ -326,6 +331,16 @@ class IdentityOps(SystemAssemblyOps):
         elif command[:3] == ("btrfs", "subvolume", "show"):
             uuid = b"11111111-2222-3333-4444-555555555555" if str(command[3]).endswith("target") else b"66666666-7777-8888-9999-aaaaaaaaaaaa"
             stdout = b"UUID: " + uuid + b"\n"
+        elif command[:2] == ("cryptsetup", "luksAddKey") and command[-1] == "-":
+            self.password_enrollment = input_bytes
+            stdout = b""
+        elif (
+            command[:3] == ("cryptsetup", "open", "--test-passphrase")
+            and "--key-file" in command
+            and command[command.index("--key-file") + 1] == "-"
+        ):
+            self.password_verification = input_bytes
+            stdout = b""
         elif (
             len(command) >= 6
             and command[:3] == ("cryptsetup", "open", "--test-passphrase")
@@ -505,8 +520,16 @@ def main() -> None:
         check("fstab binds exact Btrfs and ESP identities", p["installation_identity"]["btrfs_uuid"] in fstab and f"PARTUUID={p['installation_identity']['esp_partition_uuid']}" in fstab and all(f"subvol={name}" in fstab for name in ("@", "@home", "@snapshots", "@var_log")))
         check("crypttab binds exact LUKS identity", p["installation_identity"]["luks_uuid"] in crypttab and p["encryption_contract"]["mapper_name"] in crypttab)
         check("machine and installation identities remain separate", identity["machine_id"] != p["installation_identity"]["installation_uuid"])
+        recovery_bytes = (tmp / "recovery-key").read_bytes()
         mode = stat.S_IMODE((tmp / "recovery-key").stat().st_mode)
         check("recovery key export is private and explicit", identity["password_slot_added"] is True and identity["password_slot_verified"] is True and identity["recovery_key_exported"] is True and identity["recovery_slot_verified"] is True and mode == 0o600)
+        check(
+            "interactive LUKS credentials are enrolled without newline bytes",
+            ops.password_enrollment == b"correct horse battery staple"
+            and ops.password_verification == ops.password_enrollment
+            and len(recovery_bytes) == 96
+            and not recovery_bytes.endswith((b"\n", b"\r")),
+        )
         check("installer bootstrap LUKS key is revoked", identity["bootstrap_key_revoked"] is True)
         check("identity evidence contains no plaintext password", "correct horse battery staple" not in json.dumps(identity))
 
