@@ -96,7 +96,7 @@ package() {
   local source_root="$srcdir/maho-os-${pkgver}"
 
   install -d "$pkgdir/usr/lib/maho"
-  for dir in adapters apps bin config lib systemd theme; do
+  for dir in adapters apps bin config lib share systemd theme; do
     cp -a "$source_root/$dir" "$pkgdir/usr/lib/maho/$dir"
   done
 
