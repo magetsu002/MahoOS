@@ -283,6 +283,25 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertEqual(current["blockers"], ["repository_generation_drifted"])
         self.assertEqual(next_state["phase"], "INVALIDATED")
 
+    def test_invalidated_transaction_is_not_resumed_after_restart(self):
+        state = {
+            "schema_version": 1,
+            "source_revision": REV,
+            "phase": "INVALIDATED",
+            "active_transaction_id": TXID,
+            "lane": "normal",
+            "blockers": ["repository_generation_drifted"],
+        }
+        resumed = coordinator._resume_owned(
+            state,
+            REV,
+            "magetsu",
+            {"source_revision": REV},
+            {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+            NOW,
+        )
+        self.assertIsNone(resumed)
+
     def test_stale_normal_execution_authority_is_a_real_ready_blocker(self):
         tx = prepared_tx()
         state = {

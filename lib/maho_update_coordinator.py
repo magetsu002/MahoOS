@@ -658,6 +658,8 @@ def _resume_owned(
     repo: Mapping[str, Any],
     now: datetime,
 ) -> dict[str, Any] | None:
+    if state.get("phase") == "INVALIDATED":
+        return None
     transaction_id = state.get("active_transaction_id")
     if not isinstance(transaction_id, str) or _TXID.fullmatch(transaction_id) is None:
         return None
