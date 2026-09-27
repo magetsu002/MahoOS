@@ -117,7 +117,7 @@ maho_dashboard() {
     fi
 
     if (( image_ok && cols >= full_logo_min )); then
-        maho_native_dashboard "$full" "$full_w" "$full_rows" "$cols" 21 "$img"
+        maho_native_dashboard "$full" "$full_w" "$full_rows" "$cols" 19 "$img"
     elif (( image_ok && cols >= compact_logo_min )); then
         maho_native_dashboard "$compact" "$compact_w" "$compact_rows" "$cols" 18 "$img"
     elif (( image_ok && cols >= tiny_logo_min )); then

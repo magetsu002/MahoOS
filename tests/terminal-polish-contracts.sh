@@ -21,7 +21,7 @@ reject_text "$DASH" '\033[3A' "legacy cursor rewind remains"
 reject_text "$DASH" 'script -qfec' "legacy PTY capture path remains"
 reject_text "$DASH" 'sed "s/^/' "legacy fake indentation remains"
 require_text "$DASH" 'MAHO_DASHBOARD_COLUMNS' "dashboard width contract is not testable"
-require_text "$DASH" '"$cols" 21 "$img"' "wide terminal Kurisu size drifted"
+require_text "$DASH" '"$cols" 19 "$img"' "wide terminal Kurisu size drifted"
 pass "dashboard has one measured Fastfetch-native layout path"
 
 require_text "$KITTY" 'include ~/.cache/maho/theme/kitty.conf' "Kitty does not consume generated Maho palette"
