@@ -302,6 +302,47 @@ class CoordinatorContracts(unittest.TestCase):
         )
         self.assertIsNone(resumed)
 
+    def test_normal_authority_must_cover_exact_prepared_plan_scope(self):
+        tx = create_transaction(
+            transaction_id=TXID,
+            source_revision=REV,
+            packages=[{
+                "name": "demo",
+                "installed_version": "1",
+                "candidate_version": "2",
+                "repository": "core",
+                "download_size": 1024,
+                "installed_size": 2048,
+                "security_relevant": False,
+                "roles": [],
+            }],
+            activation_requirements=[],
+            recovery_generation_id=None,
+            now=NOW,
+        )
+        tx = transition_transaction(tx, UpdateState.STAGED, now=NOW)
+        tx = transition_transaction(
+            tx,
+            UpdateState.PREPARED,
+            evidence={
+                "normal_plan": {
+                    "effects": ["ordinary-files-in-place"],
+                    "activation_requirements": [],
+                },
+            },
+            now=NOW,
+        )
+        with patch.object(coordinator, "load_normal_execution_authority", return_value={"authority_id": "fixture"}), \
+             patch.object(coordinator, "authorize_normal_plan", side_effect=ValueError("scope exceeded")) as authorize:
+            observed = coordinator._authority_state(REV, "normal", transaction=tx)
+        self.assertEqual(observed, "scope-mismatch")
+        authorize.assert_called_once_with(
+            {"authority_id": "fixture"},
+            source_revision=REV,
+            effects=("ordinary-files-in-place",),
+            activation_requirements=(),
+        )
+
     def test_stale_normal_execution_authority_is_a_real_ready_blocker(self):
         tx = prepared_tx()
         state = {

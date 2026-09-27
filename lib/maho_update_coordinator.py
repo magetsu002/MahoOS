@@ -33,7 +33,7 @@ from maho_update_discovery import (
 from maho_update_maintenance import MaintenanceContext, evaluate_maintenance
 from maho_update_native import NativeBtrfsOps
 from maho_update_normal import NormalPreparationEvidence, prepare_normal_transaction
-from maho_update_normal_authority import load_normal_execution_authority
+from maho_update_normal_authority import authorize_normal_plan, load_normal_execution_authority
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction, validate_manifest
 from maho_update_state import (
     UpdateState,
@@ -273,15 +273,54 @@ def _runtime_identity(user: str) -> dict[str, Any]:
     return verification.as_dict()
 
 
-def _authority_state(source_revision: str, lane: str | None) -> str:
+def _normal_plan_scope(transaction: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    current = validate_transaction(transaction)
+    for event in reversed(current["history"]):
+        if event.get("state") != UpdateState.PREPARED.value:
+            continue
+        evidence = event.get("evidence")
+        plan = evidence.get("normal_plan") if isinstance(evidence, Mapping) else None
+        if not isinstance(plan, Mapping):
+            break
+        effects = plan.get("effects")
+        activation = plan.get("activation_requirements")
+        if (
+            not isinstance(effects, (list, tuple))
+            or not effects
+            or any(not isinstance(item, str) or not item for item in effects)
+            or not isinstance(activation, (list, tuple))
+            or any(not isinstance(item, str) or not item for item in activation)
+        ):
+            break
+        return tuple(effects), tuple(activation)
+    raise ValueError("prepared normal plan scope is unavailable")
+
+
+def _authority_state(
+    source_revision: str,
+    lane: str | None,
+    *,
+    transaction: Mapping[str, Any] | None = None,
+) -> str:
     if lane == "native":
         return "native-execution-certified"
     try:
-        load_normal_execution_authority(source_revision=source_revision)
+        authority = load_normal_execution_authority(source_revision=source_revision)
     except FileNotFoundError:
         return "absent"
     except (OSError, ValueError):
         return "stale-or-invalid"
+    if transaction is not None:
+        try:
+            effects, activation = _normal_plan_scope(transaction)
+            authorize_normal_plan(
+                authority,
+                source_revision=source_revision,
+                effects=effects,
+                activation_requirements=activation,
+            )
+        except ValueError:
+            return "scope-mismatch"
     return "current"
 
 
@@ -501,7 +540,11 @@ def _maintenance_transition(
     now: datetime,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     current = validate_transaction(transaction)
-    authority_state = _authority_state(current["source_revision"], state.get("lane"))
+    authority_state = _authority_state(
+        current["source_revision"],
+        state.get("lane"),
+        transaction=current,
+    )
     if state.get("lane") == "normal" and authority_state != "current":
         return current, {
             "ready": False,
