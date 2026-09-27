@@ -163,6 +163,28 @@ def main() -> None:
     check("Overview exposes live identities and protection posture", all(value in overview for value in ("gen-fixture", "kgen-fixture", "pkg-fixture", "Firewall Protected", "current + 2")))
     trust = render(identity_model, page="Trust", width=120, height=35)
     check("Trust exposes PackageGeneration and exact runtime identity", "PackageGeneration" in trust and "Runtime" in trust and "aaaaaaaaaaaaaaaa" in trust)
+
+    live_generation_guardian = deepcopy(identity_guardian)
+    live_generation_guardian["world_state"]["guardian"]["trust"]["signals"] = [
+        {
+            "provider_id": "system.generation",
+            "state": "VERIFIED",
+            "reason": "exact live transaction-backed SystemGeneration/KernelGeneration authority verified",
+        },
+        {
+            "provider_id": "boot.authority",
+            "state": "UNKNOWN",
+            "reason": "durable Signed Boot postboot proof is missing",
+        },
+    ]
+    live_generation_model = rebuild(model, guardian=live_generation_guardian)
+    live_generation_trust = render(live_generation_model, page="Trust", width=120, height=35)
+    check(
+        "verified live generation authority stays visible while full chain is unresolved",
+        "SystemGeneration       Verified" in live_generation_trust
+        and "KernelGeneration       Verified" in live_generation_trust
+        and "Overall trust          Unresolved" in live_generation_trust,
+    )
     updates = render(model, page="Updates", width=120, height=35)
     check("Updates exposes disk reserve and reclaimable state", "Storage" in updates and "reclaimable 500" in updates and "reserve ready" in updates)
     recovery = render(model, page="Recovery", width=120, height=35)
@@ -341,6 +363,21 @@ def main() -> None:
     check("Behavior keeps selected preference and safety boundary visible at 80x24", "Thermals:" in narrow_behavior and "cannot be disabled here" in narrow_behavior)
     narrow_recovery = render(model, page="Recovery", width=80, height=24)
     check("Recovery keeps authority, history, and boundary visible at 80x24", all(value in narrow_recovery for value in ("AUTHORITY", "HISTORY", "BOUNDARY", "Guardian Recovery")))
+
+    trust_scroll_output = io.StringIO()
+    interactive(
+        live_generation_model,
+        stdin=io.StringIO("page-down\nq\n"),
+        stdout=trust_scroll_output,
+        width=80,
+        height=24,
+        color=False,
+        page="Trust",
+    )
+    check(
+        "Trust static page scroll reaches content below the viewport",
+        "Historical recovery proof never promotes current trust." in trust_scroll_output.getvalue(),
+    )
     evidence_page = render(model, page="Guardian", evidence=True, height=30)
     check("Evidence view exposes structured data and scrolling when needed", "Structured evidence" in evidence_page and "lines below" in evidence_page)
     selected_evidence = render(model, page="Logs / Evidence", evidence=True, height=35)

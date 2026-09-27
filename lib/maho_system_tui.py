@@ -22,6 +22,7 @@ PAGES = (
 )
 NAV_SHORT = ("Overview", "Doctor", "Guardian", "Trust", "Updates", "Behavior", "Recovery", "Evidence")
 EVIDENCE_FILTERS = ("All", "Guardian", "Updates", "Recovery", "Behavior", "Trust")
+STATIC_SCROLL_PAGES = frozenset(("Overview", "Guardian", "Trust", "Recovery"))
 MIN_WIDTH = 60
 MIN_HEIGHT = 18
 
@@ -35,6 +36,7 @@ class UIState:
     show_help: bool = False
     row_offset: int = 0
     detail_offset: int = 0
+    page_offset: int = 0
     doctor_all: bool = False
     evidence_filter: int = 0
 
@@ -509,13 +511,39 @@ def _boot_authority_display(model: SystemModel) -> str:
     return "Unknown"
 
 
+def _trust_signal_state(model: SystemModel, provider_id: str) -> str:
+    trust = _obj(_obj(_obj(model.guardian.get("world_state")).get("guardian")).get("trust"))
+    signals = trust.get("signals")
+    if not isinstance(signals, list):
+        return "UNKNOWN"
+    for signal in signals:
+        if not isinstance(signal, Mapping):
+            continue
+        if str(signal.get("provider_id") or "") == provider_id:
+            return str(signal.get("state") or "UNKNOWN").upper()
+    return "UNKNOWN"
+
+
 def _generation_link(model: SystemModel, key: str) -> str:
     system = _obj(model.guardian.get("system"))
+    if not system.get(key):
+        return "Awaiting certification"
+
+    # Current SystemGeneration and KernelGeneration have their own live
+    # transaction-backed authority.  Do not collapse that local verification
+    # into overall chain trust: Signed Boot may still keep the full chain
+    # unresolved while these exact generation identities are verified.
+    if key in {"current_system_generation", "current_kernel_generation"}:
+        generation_state = _trust_signal_state(model, "system.generation")
+        if generation_state == "VERIFIED":
+            return "Verified"
+        if generation_state in {"UNTRUSTED", "REVOKED", "CONTAMINATED"}:
+            return "Untrusted"
+        return "Unknown"
+
     current = str(model.recovery.get("current_generation_trust") or "UNRESOLVED").upper()
     if current in {"UNTRUSTED", "REVOKED", "CONTAMINATED"}:
         return "Untrusted"
-    if not system.get(key):
-        return "Awaiting certification"
     if current == "VERIFIED":
         return "Verified"
     return "Unknown"
@@ -934,6 +962,8 @@ def _resize(width: int, height: int) -> str:
 def _footer(page: str, state: UIState) -> str:
     if state.show_evidence:
         return "[↑↓/PgUp/PgDn] Scroll evidence  [Esc/E] Back  [R] Refresh  [?] Help  [Q] Quit"
+    if page in STATIC_SCROLL_PAGES:
+        return "[↑↓/PgUp/PgDn] Scroll  [Home/End] Top/Bottom  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Updates":
         return "[↑↓/PgUp/PgDn] Packages  [E] Evidence  [R] Refresh  [←→/Tab] Sections  [Q] Quit"
     if page == "Behavior":
@@ -981,6 +1011,23 @@ def _tab_at(width: int, page_index: int, x: int, y: int) -> int | None:
     return None
 
 
+def _body_capacity(width: int, height: int, page_index: int) -> int:
+    width = min(width, 180)
+    nav_rows, _ = _nav_layout(width, page_index)
+    return max(1, height - 2 - len(nav_rows) - 1 - 2)
+
+
+def _static_page_scroll_limit(
+    model: SystemModel, state: UIState, *, width: int, height: int,
+) -> tuple[int, int]:
+    page = PAGES[state.page_index]
+    capacity = _body_capacity(width, height, state.page_index)
+    if page not in STATIC_SCROLL_PAGES or state.show_help or state.show_evidence:
+        return 0, capacity
+    lines = _body(model, state, min(width, 180), capacity)
+    return max(0, len(lines) - capacity), capacity
+
+
 def compose(
     model: SystemModel, state: UIState, *, width: int, height: int, color: bool,
     freshness_seconds: int | None = None,
@@ -1000,12 +1047,23 @@ def compose(
     nav_rows, _ = _nav_layout(width, state.page_index)
 
     body_height = height - len(header) - len(nav_rows) - 1 - len(footer)
-    body = bounded_lines(
-        _body(model, state, width, body_height),
-        body_height,
-        width,
-        "… more; use the page controls or enlarge the terminal",
-    )
+    body_lines = _body(model, state, width, body_height)
+    if page in STATIC_SCROLL_PAGES and not state.show_help and not state.show_evidence:
+        max_offset = max(0, len(body_lines) - body_height)
+        start = min(max(state.page_offset, 0), max_offset)
+        body = bounded_lines(
+            body_lines[start:],
+            body_height,
+            width,
+            "… more below; scroll with ↑↓/PgUp/PgDn",
+        )
+    else:
+        body = bounded_lines(
+            body_lines,
+            body_height,
+            width,
+            "… more; use the page controls or enlarge the terminal",
+        )
     lines = header + nav_rows + [""] + body
     while len(lines) < height - len(footer):
         lines.append("")
@@ -1134,7 +1192,7 @@ def interactive(
                 clicked_tab = _tab_at(min(screen_width, 180), state.page_index, mouse_x, mouse_y)
                 if clicked_tab is not None:
                     state.page_index = clicked_tab
-                    state.row_index = state.row_offset = state.detail_offset = 0
+                    state.row_index = state.row_offset = state.detail_offset = state.page_offset = 0
                     state.show_detail = state.show_evidence = False
                     dirty = True
                     continue
@@ -1179,28 +1237,28 @@ def interactive(
                 continue
             if key in {str(i) for i in range(1, 9)}:
                 state.page_index = int(key) - 1
-                state.row_index = state.row_offset = state.detail_offset = 0
+                state.row_index = state.row_offset = state.detail_offset = state.page_offset = 0
                 state.show_detail = state.show_evidence = False
                 continue
             if key in {"right", "tab"}:
                 state.page_index = (state.page_index + 1) % len(PAGES)
-                state.row_index = state.row_offset = state.detail_offset = 0
+                state.row_index = state.row_offset = state.detail_offset = state.page_offset = 0
                 state.show_detail = state.show_evidence = False
                 continue
             if key in {"left", "shift-tab"}:
                 state.page_index = (state.page_index - 1) % len(PAGES)
-                state.row_index = state.row_offset = state.detail_offset = 0
+                state.row_index = state.row_offset = state.detail_offset = state.page_offset = 0
                 state.show_detail = state.show_evidence = False
                 continue
             if key == "d":
-                state.page_index = PAGES.index("Doctor"); state.row_index = state.row_offset = 0; continue
+                state.page_index = PAGES.index("Doctor"); state.row_index = state.row_offset = state.page_offset = 0; continue
             if key == "l":
-                state.page_index = PAGES.index("Logs / Evidence"); state.row_index = state.row_offset = 0; continue
+                state.page_index = PAGES.index("Logs / Evidence"); state.row_index = state.row_offset = state.page_offset = 0; continue
             if key == "e":
                 state.show_evidence = not state.show_evidence; state.detail_offset = 0; continue
             if key == "f" and PAGES[state.page_index] == "Logs / Evidence" and not state.show_evidence:
                 state.evidence_filter = (state.evidence_filter + 1) % len(EVIDENCE_FILTERS)
-                state.row_index = state.row_offset = state.detail_offset = 0
+                state.row_index = state.row_offset = state.detail_offset = state.page_offset = 0
                 state.show_detail = False
                 continue
             if key == "a" and PAGES[state.page_index] == "Doctor":
@@ -1217,6 +1275,26 @@ def interactive(
                 elif key == "home": state.detail_offset = 0
                 continue
             page_name = PAGES[state.page_index]
+            if page_name in STATIC_SCROLL_PAGES:
+                max_offset, capacity = _static_page_scroll_limit(
+                    model, state, width=screen_width, height=screen_height,
+                )
+                current_offset = min(max(state.page_offset, 0), max_offset)
+                page_step = max(1, capacity - 2)
+                if key in {"up", "k"}:
+                    state.page_offset = max(0, current_offset - 1)
+                elif key in {"down", "j"}:
+                    state.page_offset = min(max_offset, current_offset + 1)
+                elif key == "page-up":
+                    state.page_offset = max(0, current_offset - page_step)
+                elif key == "page-down":
+                    state.page_offset = min(max_offset, current_offset + page_step)
+                elif key == "home":
+                    state.page_offset = 0
+                elif key == "end":
+                    state.page_offset = max_offset
+                continue
+
             count = _row_count(model, page_name, state)
             if key in {"up", "k"}: state.row_index = max(0, state.row_index - 1)
             elif key in {"down", "j"}: state.row_index = min(max(0, count - 1), state.row_index + 1)
