@@ -4,12 +4,16 @@ maho_terminal_root() {
     printf '%s\n' "${MAHO_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/maho/runtime/current}"
 }
 
+maho_fastfetch() {
+    "${MAHO_FASTFETCH_BIN:-/usr/bin/fastfetch}" "$@"
+}
+
 maho_ff_metrics() {
     local cfg="$1"
     local probe
     probe="$(mktemp)"
 
-    if ! COLUMNS=500 /usr/bin/fastfetch --config "$cfg" --logo none --pipe > "$probe" 2>/dev/null; then
+    if ! COLUMNS=500 maho_fastfetch --config "$cfg" --logo none --pipe > "$probe" 2>/dev/null; then
         rm -f "$probe"
         return 1
     fi
@@ -63,7 +67,7 @@ maho_native_dashboard() {
     top=$(( (rows - imgh) / 2 ))
     (( top < 0 )) && top=0
 
-    /usr/bin/fastfetch \
+    maho_fastfetch \
         --config "$cfg" \
         --logo "$img" \
         --logo-type kitty-icat \
@@ -117,11 +121,11 @@ maho_dashboard() {
     fi
 
     if (( image_ok && cols >= full_logo_min )); then
-        maho_native_dashboard "$full" "$full_w" "$full_rows" "$cols" 19 "$img"
+        maho_native_dashboard "$full" "$full_w" "$full_rows" "$cols" 16 "$img"
     elif (( image_ok && cols >= compact_logo_min )); then
-        maho_native_dashboard "$compact" "$compact_w" "$compact_rows" "$cols" 18 "$img"
+        maho_native_dashboard "$compact" "$compact_w" "$compact_rows" "$cols" 14 "$img"
     elif (( image_ok && cols >= tiny_logo_min )); then
-        maho_native_dashboard "$tiny" "$tiny_w" "$tiny_rows" "$cols" 16 "$img"
+        maho_native_dashboard "$tiny" "$tiny_w" "$tiny_rows" "$cols" 12 "$img"
     elif (( cols >= full_w )); then
         /usr/bin/fastfetch --config "$full" --logo none
     elif (( cols >= compact_w )); then

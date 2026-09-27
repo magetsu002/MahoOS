@@ -265,18 +265,42 @@ def _diagnostics(
     trust_state = str(trust.get("state", "UNKNOWN")).upper()
     trust_diag = "PASS" if trust_state == "VERIFIED" else "FAIL" if trust_state in {"UNTRUSTED", "REVOKED", "CONTAMINATED"} else "UNKNOWN"
     reasons = trust.get("reasons") if isinstance(trust.get("reasons"), list) else []
+    raw_trust_reason = "; ".join(str(item) for item in reasons[:3]) or "Exact current trust evidence is unavailable."
+    signed_boot_pending = any(
+        "signed boot" in str(item).lower()
+        and ("missing" in str(item).lower() or "unavailable" in str(item).lower())
+        for item in reasons
+    )
+    if trust_state == "UNKNOWN" and signed_boot_pending:
+        trust_reason = (
+            "Signed Boot certification is still pending. Verified generation/runtime evidence remains valid, "
+            "but full-chain trust stays unresolved."
+        )
+        trust_action = "Complete the existing Signed Boot certification when ready; no immediate repair is required."
+    else:
+        trust_reason = raw_trust_reason
+        trust_action = "Establish the missing independent trust evidence." if trust_diag != "PASS" else "No action required."
     records.append(_diag(
-        "trust.current-generation", "Trust", trust_diag, "Current-generation trust",
-        "; ".join(str(item) for item in reasons[:3]) or "Exact current-generation trust evidence is unavailable.",
-        ("guardian.world_state.guardian.trust",), "Establish the missing independent generation and boot evidence." if trust_diag != "PASS" else "No action required.",
+        "trust.current-generation", "Trust", trust_diag, "Overall trust",
+        trust_reason,
+        ("guardian.world_state.guardian.trust",), trust_action,
     ))
     boot = _object(guardian.get("boot"))
     signed = str(boot.get("signed_boot_authority", "UNKNOWN")).upper()
     signed_diag = "PASS" if signed == "VERIFIED" else "FAIL" if signed in {"UNTRUSTED", "REVOKED"} else "UNKNOWN"
+    signed_reason_raw = str(boot.get("trust_reason") or "Durable Signed Boot proof is unavailable.")
+    if signed_diag == "UNKNOWN" and "signed boot" in signed_reason_raw.lower() and (
+        "missing" in signed_reason_raw.lower() or "unavailable" in signed_reason_raw.lower()
+    ):
+        signed_reason = "Signed Boot post-boot proof has not been certified yet."
+        signed_action = "Complete the existing Signed Boot certification when ready."
+    else:
+        signed_reason = signed_reason_raw
+        signed_action = "Produce and verify the existing durable Signed Boot postboot proof." if signed_diag != "PASS" else "No action required."
     records.append(_diag(
         "trust.signed-boot", "Trust", signed_diag, "Signed Boot evidence",
-        str(boot.get("trust_reason") or "Durable Signed Boot proof is unavailable."),
-        ("guardian.boot", "guardian.provider:boot.authority"), "Produce and verify the existing durable Signed Boot postboot proof." if signed_diag != "PASS" else "No action required.",
+        signed_reason,
+        ("guardian.boot", "guardian.provider:boot.authority"), signed_action,
     ))
 
     freshness = _object(guardian.get("evidence_freshness"))
@@ -296,7 +320,7 @@ def _diagnostics(
             summary = f"Provider {provider_id}"
             reason = f"Evidence freshness is {fresh}; provider health is {health}."
             action = "Restore current provider evidence." if state != "PASS" else "No action required."
-            attention = state in {"FAIL", "WARN"} or provider_id == "boot.authority"
+            attention = state in {"FAIL", "WARN"}
         records.append(_diag(
             f"provider.{provider_id}", "Guardian", state, summary, reason,
             (f"guardian.provider:{provider_id}",), action, attention=attention,
@@ -313,10 +337,12 @@ def _diagnostics(
     ))
     certified = update.get("normal_execution_certified") is True
     authority_state = str(update.get("normal_authority_state", "absent"))
+    execution_attention = (not certified) and (update_attention or bool(blockers))
     records.append(_diag(
         "updates.execution-authority", "Updates", "PASS" if certified else "WARN",
         "Normal update execution authority", "Current and certified." if certified else f"Normal execution authority is {authority_state}; this does not grant update mutation.",
         ("update.normal_authority",), "Refresh the existing certified update authority before normal execution." if not certified else "No action required.",
+        attention=execution_attention,
     ))
 
     adaptive_ok = adaptive_doctor.get("healthy") is True

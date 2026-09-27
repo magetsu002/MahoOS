@@ -17,13 +17,36 @@ def main():
     status=run("status")
     check("plain status is automation-safe", status.returncode == 0 and "System health:" in status.stdout and "\x1b[" not in status.stdout)
     doctor=run("doctor")
-    check("plain doctor exposes universal diagnostic states", doctor.returncode == 0 and "Platform" in doctor.stdout and "Trust" in doctor.stdout)
-    generation_line=next(line for line in doctor.stdout.splitlines() if "Current-generation trust:" in line)
+    check(
+        "plain doctor is attention-focused",
+        doctor.returncode == 0
+        and "Overall trust:" in doctor.stdout
+        and "Signed Boot evidence:" in doctor.stdout
+        and "Immutable Maho runtime:" not in doctor.stdout
+        and "Provider guardian.watch:" not in doctor.stdout
+        and "Normal update execution authority:" not in doctor.stdout,
+    )
+    generation_line=next(line for line in doctor.stdout.splitlines() if "Overall trust:" in line)
     signed_boot_line=next(line for line in doctor.stdout.splitlines() if "Signed Boot evidence:" in line)
-    semantic_states=("PASS", "WARN", "FAIL", "Not established", "Awaiting certification", "Verified", "Untrusted", "Unknown", "N/A", "None yet")
-    check("plain doctor translates known trust reasons",
-          generation_line.startswith(semantic_states) and signed_boot_line.startswith(semantic_states))
+    semantic_states=("PASS", "WARN", "FAIL", "Unresolved", "Not established", "Awaiting certification", "Verified", "Untrusted", "Unknown", "N/A", "None yet")
+    check(
+        "plain doctor translates known trust reasons",
+        generation_line.startswith("Unresolved")
+        and signed_boot_line.startswith("Awaiting certification")
+        and generation_line.startswith(semantic_states)
+        and signed_boot_line.startswith(semantic_states),
+    )
     check("plain doctor does not leak explained UNKNOWN", "UNKNOWN Trust" not in doctor.stdout and "UNKNOWN Guardian" not in doctor.stdout)
+    doctor_all=run("doctor", "--all")
+    check(
+        "doctor --all preserves full diagnostics",
+        doctor_all.returncode == 0
+        and "Immutable Maho runtime:" in doctor_all.stdout
+        and "Provider guardian.watch:" in doctor_all.stdout
+        and "Normal update execution authority:" in doctor_all.stdout,
+    )
+    invalid_all=run("status", "--all")
+    check("--all is Doctor-only", invalid_all.returncode == 2)
     structured=run("status", "--json")
     payload=json.loads(structured.stdout)
     check("json status is stable structured output", structured.returncode == 0 and payload["schema_version"] == 1 and payload["view"] == "Overview")

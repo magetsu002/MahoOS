@@ -358,8 +358,21 @@ def _guardian(model: SystemModel, width: int) -> list[str]:
     prevention = _obj(model.guardian.get("prevention"))
     containment = _obj(model.guardian.get("containment"))
     runtime_recovery = _obj(model.guardian.get("runtime_recovery"))
-    active = bool(incidents)
-    if active:
+
+    backend = str(response.get("backend_state") or "NONE").upper()
+    response_identity = bool(response.get("incident_id") or response.get("receipt_id"))
+    active_response = bool(incidents) or response.get("wheel_spinning") is True or backend in {
+        "RECOVERING", "VERIFYING", "NEEDS_AUTHORIZATION", "AUTHORIZATION_REQUIRED",
+    }
+    history_retained = runtime_recovery.get("history_retained") is True
+    last_response = (
+        not active_response
+        and response_identity
+        and backend not in {"", "NONE"}
+        and (history_retained or backend in {"RECOVERED", "VERIFICATION_FAILED", "EVIDENCE_INSUFFICIENT"})
+    )
+
+    if active_response or last_response:
         lifecycle = (
             _stage_symbol(_obj(stages.get("prevent")).get("state")),
             "✓",
@@ -369,48 +382,67 @@ def _guardian(model: SystemModel, width: int) -> list[str]:
         )
     else:
         lifecycle = ("○", "○", "○", "○", "○")
+
     level = severity.get("level", "?")
     label = str(severity.get("label") or "unknown").title()
-    rows = [
-        f"Guardian    L{level} {label} · {_human_state(health.get('state'))}",
+    rows = [f"Guardian    L{level} {label} · {_human_state(health.get('state'))}", ""]
+
+    if active_response:
+        rows.append(f"ACTIVE RESPONSE   {_human_state(backend)}")
+    elif last_response:
+        rows.append(f"LAST RESPONSE     {_human_state(backend)}")
+    else:
+        rows.append("IDLE              No active or retained Guardian response.")
+
+    rows += [
         "",
         "PREVENT      DETECT      CONTAIN      RECOVER      VERIFY",
         f"   {lifecycle[0]}            {lifecycle[1]}           {lifecycle[2]}            {lifecycle[3]}           {lifecycle[4]}",
         "",
     ]
-    if active:
-        incident = incidents[0]
+
+    if active_response:
+        incident = incidents[0] if incidents else {}
         decision = _obj(incident.get("decision"))
         explanation = _obj(incident.get("explanation"))
-        incident_text = explanation.get("incident") or decision.get("reason") or "Guardian incident is active."
+        incident_text = explanation.get("incident") or decision.get("reason") or "Guardian response is active."
         current_stage = next((
             name.title() for name in ("verify", "recover", "contain", "prevent")
-            if str(_obj(stages.get(name)).get("state", "")).lower() in {"active", "running", "pending", "recovering", "verifying", "in-progress"}
+            if str(_obj(stages.get(name)).get("state", "")).lower() in {
+                "active", "running", "pending", "recovering", "verifying", "in-progress"
+            }
         ), str(response.get("backend_state") or "Assessing").replace("_", " ").title())
         rows.extend([
-            f"INCIDENT     {short_id(str(incident.get('incident_id') or 'unknown'), 34)}",
+            f"INCIDENT          {short_id(str(incident.get('incident_id') or response.get('incident_id') or 'unknown'), 34)}",
             str(incident_text),
-            f"CURRENT      {current_stage}",
-            f"RESPONSE     {_human_state(response.get('backend_state'))}",
-            f"AUTHORITY    {'Automatic bounded response' if response.get('automatic_authority') is True else 'No automatic response authority'}",
+            f"CURRENT           {current_stage}",
+            f"WHEEL             {'Spinning' if response.get('wheel_spinning') else 'Idle'}",
+            f"AUTHORITY         {'Automatic bounded response' if response.get('automatic_authority') is True else 'No automatic response authority'}",
         ])
-    else:
+    elif last_response:
         rows.extend([
-            "IDLE         No active Guardian incident.",
-            f"PREVENTION   {str(prevention.get('state') or 'no evidence').replace('-', ' ').title()}",
+            f"INCIDENT          {short_id(str(response.get('incident_id') or 'unknown'), 34)}",
+            f"RECEIPT           {short_id(str(response.get('receipt_id') or 'none'), 34)}",
+            "WHEEL             Idle",
+            f"RESULT            {_human_state(response.get('outcome') or backend)}",
         ])
-        if str(prevention.get("state", "")).lower() in {"inactive-or-no-evidence", "inactive", "none", ""}:
-            rows.append("Production prevention enforcement is not active; the gated boundary is not implied.")
-        rows.append(f"SELF HEALTH  {_human_state(health.get('state'))}")
-        if response.get("receipt_id"):
-            rows.append(f"RECENT       {_human_state(response.get('backend_state'))} · {short_id(str(response.get('receipt_id')), 30)}")
+
+    prevention_state = str(prevention.get("state") or "inactive-or-no-evidence").lower()
+    prevention_display = "Shadow monitoring" if prevention_state in {
+        "inactive-or-no-evidence", "inactive", "none", ""
+    } else _human_state(prevention_state)
+    rows.extend([
+        f"PREVENTION        {prevention_display}",
+        f"SELF HEALTH       {_human_state(health.get('state'))}",
+    ])
+
     operations = _list(model.guardian.get("authorized_operation_evidence"))
     if operations:
         latest = operations[0]
         rows += [
             "",
-            f"AUTHORIZED   {str(latest.get('kind') or 'operation').replace('-', ' ').title()} · {_human_state(latest.get('state'))}",
-            f"              {short_id(str(latest.get('operation_id') or 'unknown'), 42)}",
+            f"AUTHORIZED        {str(latest.get('kind') or 'operation').replace('-', ' ').title()} · {_human_state(latest.get('state'))}",
+            f"                  {short_id(str(latest.get('operation_id') or 'unknown'), 42)}",
         ]
     return box("Guardian lifecycle", rows, width)
 
@@ -480,12 +512,13 @@ def diagnostic_state_label(item: DiagnosticRecord, *, detail: bool = False) -> s
     if item.id in {"provider.environment.power", "provider.environment.thermal"} and not item.attention:
         return "Not available" if detail else "N/A"
     reason = item.reason.lower()
-    if item.id == "trust.current-generation" and (
-        "generation authority" in reason or "systemgeneration/kernelgeneration authority" in reason
-    ):
-        return "Not established"
+    if item.id == "trust.current-generation":
+        if "unavailable" in reason or "not established" in reason:
+            return "Not established"
+        return "Unresolved"
     if item.id == "trust.signed-boot" and (
-        "signed boot" in reason and ("missing" in reason or "unavailable" in reason)
+        "signed boot" in reason
+        and any(marker in reason for marker in ("missing", "unavailable", "awaiting certification", "not been certified"))
     ):
         return "Awaiting certification"
     if item.id == "provider.boot.authority" and "freshness is missing" in reason:
@@ -533,7 +566,7 @@ def _generation_link(model: SystemModel, key: str) -> str:
     # transaction-backed authority.  Do not collapse that local verification
     # into overall chain trust: Signed Boot may still keep the full chain
     # unresolved while these exact generation identities are verified.
-    if key in {"current_system_generation", "current_kernel_generation"}:
+    if key in {"current_system_generation", "current_kernel_generation", "active_package_transaction_generation"}:
         generation_state = _trust_signal_state(model, "system.generation")
         if generation_state == "VERIFIED":
             return "Verified"
