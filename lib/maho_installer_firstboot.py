@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import pwd
 import re
-import spwd
 import subprocess
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -60,6 +59,13 @@ class SystemFirstBootObserver:
         if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], Mapping):
             raise RuntimeError(f"mount observation is ambiguous: {target}")
         return rows[0]
+
+    def _shadow_password_field(self, account: str) -> str:
+        result = self._run(("getent", "shadow", account))
+        fields = result.stdout.rstrip("\n").split(":")
+        if len(fields) < 2 or fields[0] != account or not fields[1]:
+            raise RuntimeError(f"shadow account observation is unavailable: {account}")
+        return fields[1]
 
     def _subvolume_uuid(self, target: str) -> str:
         result = self._run(("btrfs", "subvolume", "show", target))
@@ -127,7 +133,7 @@ class SystemFirstBootObserver:
         account = pwd.getpwnam(user_name)
         groups = {item.gr_name for item in grp.getgrall() if user_name in item.gr_mem}
         groups.add(grp.getgrgid(account.pw_gid).gr_name)
-        root_shadow = spwd.getspnam("root").sp_pwdp
+        root_shadow = self._shadow_password_field("root")
         boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
         firewall = verify_firewall_receipt(expected_boot_id=boot_id)
         failed = [
