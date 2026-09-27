@@ -477,7 +477,9 @@ class SystemAssemblyOps:
             f"rootflags=subvol={subvolume} {mode} console=ttyS0,115200n8"
         )
 
-    def _verify_initramfs(self, root: Path, image: str) -> dict[str, Any]:
+    def _verify_initramfs(
+        self, root: Path, image: str, kernel_release: str,
+    ) -> dict[str, Any]:
         config = self._chroot(root, ("lsinitcpio", "-c", image)).stdout.decode(errors="replace")
         contents = self._chroot(root, ("lsinitcpio", "-l", image)).stdout.decode(errors="replace").splitlines()
         required_hooks = {"base", "systemd", "microcode", "block", "sd-encrypt", "filesystems"}
@@ -486,7 +488,6 @@ class SystemAssemblyOps:
         if not required_hooks.issubset(hooks):
             raise RuntimeError(f"initramfs hook closure is incomplete: {image}")
         required_paths = {
-            "usr/bin/btrfs",
             "usr/lib/systemd/systemd",
             "usr/lib/systemd/systemd-cryptsetup",
             "usr/lib/systemd/system-generators/systemd-cryptsetup-generator",
@@ -497,10 +498,26 @@ class SystemAssemblyOps:
             raise RuntimeError(f"initramfs encryption/filesystem content is incomplete: {image}")
         if not any(re.search(r"(?:^|/)dm-crypt\.ko(?:\.(?:zst|xz|gz))?$", entry) for entry in contents):
             raise RuntimeError(f"initramfs lacks dm-crypt kernel support: {image}")
+        btrfs_module = any(
+            re.search(r"(?:^|/)fs/btrfs/btrfs\.ko(?:\.(?:zst|xz|gz))?$", entry)
+            for entry in contents
+        )
+        builtin = root / "usr/lib/modules" / kernel_release / "modules.builtin"
+        btrfs_builtin = False
+        if builtin.is_file():
+            btrfs_builtin = any(
+                line.strip().endswith("/fs/btrfs/btrfs.ko")
+                or line.strip().endswith("fs/btrfs/btrfs.ko")
+                for line in builtin.read_text(encoding="utf-8", errors="replace").splitlines()
+            )
+        if not (btrfs_module or btrfs_builtin):
+            raise RuntimeError(f"kernel/initramfs lacks proven Btrfs root support: {image}")
         return {
             "hooks": sorted(hooks),
             "required_paths": sorted(required_paths),
             "dm_crypt_present": True,
+            "btrfs_support": "initramfs-module" if btrfs_module else "kernel-built-in",
+            "kernel_release": kernel_release,
         }
 
     def _phase_initramfs_built(self, plan, payload, journal, root) -> Mapping[str, Any]:
@@ -518,8 +535,17 @@ class SystemAssemblyOps:
         }
         if any(not path.is_file() or path.stat().st_size == 0 for path in paths.values()):
             raise RuntimeError("required initramfs artifacts are missing")
-        primary_verify = self._verify_initramfs(root, "/boot/initramfs-linux-cachyos.img")
-        fallback_verify = self._verify_initramfs(root, "/boot/initramfs-linux-cachyos-lts.img")
+        kernel_evidence = (journal.get("phase_evidence") or {}).get("KERNELS_INSTALLED") or {}
+        primary_release = str(kernel_evidence.get("primary_release", ""))
+        fallback_release = str(kernel_evidence.get("fallback_release", ""))
+        if not primary_release or not fallback_release:
+            raise RuntimeError("kernel release evidence is unavailable for initramfs verification")
+        primary_verify = self._verify_initramfs(
+            root, "/boot/initramfs-linux-cachyos.img", primary_release,
+        )
+        fallback_verify = self._verify_initramfs(
+            root, "/boot/initramfs-linux-cachyos-lts.img", fallback_release,
+        )
         return {
             "primary_sha256": _sha256(paths["primary"]),
             "fallback_sha256": _sha256(paths["fallback"]),

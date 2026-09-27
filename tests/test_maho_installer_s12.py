@@ -337,7 +337,7 @@ class InitramfsOps(SystemAssemblyOps):
             stdout = b"HOOKS=(base systemd microcode block sd-encrypt filesystems fsck)\n"
         else:
             rows = [
-                "usr/bin/btrfs", "usr/lib/systemd/systemd",
+                "usr/lib/systemd/systemd",
                 "usr/lib/systemd/systemd-cryptsetup",
                 "usr/lib/systemd/system-generators/systemd-cryptsetup-generator",
                 "etc/crypttab", "usr/lib/modules/x/kernel/dm-crypt.ko.zst",
@@ -492,11 +492,29 @@ def main() -> None:
         recovery = ops._cmdline(p, recovery=True)
         check("normal boot is writable and recovery boot is read-only", " rw " in f" {normal} " and " ro " in f" {recovery} " and " rw " not in f" {recovery} ")
 
+        modules = root / "usr/lib/modules/test-release"
+        modules.mkdir(parents=True)
+        (modules / "modules.builtin").write_text(
+            "kernel/fs/btrfs/btrfs.ko\n",
+            encoding="utf-8",
+        )
         init_ok = make_ops(InitramfsOps, tmp)
-        verified = init_ok._verify_initramfs(root, "/boot/initramfs-test.img")
-        check("initramfs verification requires encryption and Btrfs closure", verified["dm_crypt_present"] is True and "sd-encrypt" in verified["hooks"])
+        verified = init_ok._verify_initramfs(root, "/boot/initramfs-test.img", "test-release")
+        check(
+            "initramfs verification accepts proven built-in Btrfs root support",
+            verified["dm_crypt_present"] is True
+            and "sd-encrypt" in verified["hooks"]
+            and verified["btrfs_support"] == "kernel-built-in",
+        )
         init_bad = make_ops(InitramfsOps, tmp, broken=True)
-        rejected("incomplete initramfs content fails closed", lambda: init_bad._verify_initramfs(root, "/boot/initramfs-test.img"))
+        rejected(
+            "incomplete initramfs encryption content fails closed",
+            lambda: init_bad._verify_initramfs(root, "/boot/initramfs-test.img", "test-release"),
+        )
+        rejected(
+            "missing Btrfs kernel or initramfs proof fails closed",
+            lambda: init_ok._verify_initramfs(root, "/boot/initramfs-test.img", "missing-release"),
+        )
 
         release = root / "home/magetsu/.local/share/maho/runtime/releases/abc"
         release.mkdir(parents=True)
