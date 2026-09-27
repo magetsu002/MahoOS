@@ -25,13 +25,20 @@ class DeploymentPlan:
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ("git", "-C", str(root), *args),
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
+    command = ("git", "-C", str(root), *args)
+    try:
+        return subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        # Production package roots intentionally contain release metadata, not
+        # a Git object graph and not necessarily a Git client.  Treat Git as
+        # unavailable so packaged provenance can be evaluated independently.
+        return subprocess.CompletedProcess(command, 127, stdout="", stderr="")
 
 
 def _release_revision(root: Path) -> str | None:
