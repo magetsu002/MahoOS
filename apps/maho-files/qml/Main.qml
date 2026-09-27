@@ -1434,10 +1434,17 @@ ApplicationWindow {
 
                         ScrollBar.vertical: MahoScrollBar {
                             id: placesScrollBar
+                            viewMoving: placesView.moving
                             thumbColor: root.alpha(root.foreground, 0.24)
                             thumbHoverColor: root.alpha(root.accent, 0.42)
                             thumbPressedColor: root.alpha(root.accent, 0.68)
                             trackColor: root.alpha(root.foreground, 0.045)
+                        }
+
+                        WheelHandler {
+                            target: null
+                            blocking: false
+                            onWheel: placesScrollBar.noteActivity()
                         }
 
                         section.property: "group"
@@ -1636,6 +1643,7 @@ ApplicationWindow {
 
                         ScrollBar.vertical: MahoScrollBar {
                             id: gridScrollBar
+                            viewMoving: grid.moving || gridWheelScroll.running
                             parent: contentArea
                             z: 90
                             anchors.top: grid.top
@@ -1664,6 +1672,7 @@ ApplicationWindow {
                             enabled: !gridScrollBar.pressed
                             blocking: true
                             onWheel: function(wheel) {
+                                gridScrollBar.noteActivity()
                                 root.handleAdaptiveWheel(
                                     grid,
                                     wheel,
@@ -1863,6 +1872,7 @@ ApplicationWindow {
 
                             ScrollBar.vertical: MahoScrollBar {
                                 id: listScrollBar
+                                viewMoving: listView.moving || listWheelScroll.running
                                 parent: contentArea
                                 z: 90
                                 anchors.right: listPanel.right
@@ -1891,6 +1901,7 @@ ApplicationWindow {
                                 enabled: !listScrollBar.pressed
                                 blocking: true
                                 onWheel: function(wheel) {
+                                    listScrollBar.noteActivity()
                                     root.handleAdaptiveWheel(
                                         listView,
                                         wheel,

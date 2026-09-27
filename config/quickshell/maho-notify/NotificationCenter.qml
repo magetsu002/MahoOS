@@ -429,6 +429,7 @@ Item {
                     ScrollBar.vertical: NotifyScrollBar {
                         id: historyScrollBar
                         theme: center.theme
+                        viewMoving: historyList.moving
                         onPressedChanged: {
                             if (pressed) {
                                 center.dismissMenus()
@@ -437,6 +438,12 @@ Item {
                                 Qt.callLater(center.clampHistoryScroll)
                             }
                         }
+                    }
+
+                    WheelHandler {
+                        target: null
+                        blocking: false
+                        onWheel: historyScrollBar.noteActivity()
                     }
 
                     onMovementStarted: {
