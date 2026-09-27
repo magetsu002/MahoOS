@@ -245,10 +245,41 @@ class SystemAssemblyOps:
 
     def _phase_base_installed(self, plan, payload, journal, root) -> Mapping[str, Any]:
         files = [str(self.payload_dir / item["filename"]) for item in payload["packages"]]
-        # Installation is deliberately network-isolated.  The payload must be
-        # a complete dependency closure before the storage transaction reaches
-        # this phase; pacman is not allowed to fill gaps from mirrors here.
-        self._run(("unshare", "--net", "--", "pacstrap", "-K", "-U", str(root), *files))
+        # Every archive was signature-verified before destructive work and is
+        # re-hashed against the immutable payload manifest immediately before
+        # this phase.  A fresh target keyring cannot yet validate those same
+        # archives, so use a single-run pacman config that trusts only the
+        # already-verified local bytes.  Network access is simultaneously
+        # removed.  The relaxed config is never copied into the target.
+        offline_config = root.parent / f".maho-installer-pacman-{os.getpid()}.conf"
+        offline_config.write_text(
+            "[options]\n"
+            "Architecture = auto\n"
+            "SigLevel = Never\n"
+            "LocalFileSigLevel = Never\n",
+            encoding="utf-8",
+        )
+        try:
+            self._run((
+                "unshare", "--net", "--", "pacstrap",
+                "-K", "-C", str(offline_config), "-U", str(root), *files,
+            ))
+        finally:
+            offline_config.unlink(missing_ok=True)
+        # Restore ordinary Arch package trust inside the installed system from
+        # the keyring package that was part of the verified closure.
+        self._chroot(root, ("pacman-key", "--populate", "archlinux"))
+        target_pacman_conf = (root / "etc/pacman.conf").read_text(encoding="utf-8")
+        active_policy = [
+            line.split("#", 1)[0].strip()
+            for line in target_pacman_conf.splitlines()
+            if line.split("#", 1)[0].strip()
+        ]
+        if any(
+            line.startswith(("SigLevel", "LocalFileSigLevel")) and "Never" in line
+            for line in active_policy
+        ):
+            raise RuntimeError("target pacman signature policy remained relaxed after offline bootstrap")
         query = self._chroot(root, ("pacman", "-Q"))
         installed = dict(
             line.split(" ", 1) for line in query.stdout.decode().splitlines() if " " in line
@@ -266,6 +297,9 @@ class SystemAssemblyOps:
             "installed_package_count": len(installed),
             "network_isolated": True,
             "exact_package_set": True,
+            "bootstrap_package_authority": "manifest-preverified-hash-bound",
+            "target_arch_keyring_populated": True,
+            "target_signature_policy_relaxed": False,
             "expected_versions_sha256": hashlib.sha256(canonical_bytes(expected)).hexdigest(),
         }
 

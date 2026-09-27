@@ -275,6 +275,37 @@ def private_file(root: Path, name: str, value: bytes) -> Path:
     return path
 
 
+
+class BaseInstallOps(SystemAssemblyOps):
+    def __init__(self, *args, packages, relaxed_target=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.packages = packages
+        self.relaxed_target = relaxed_target
+        self.commands = []
+        self.offline_config_path = None
+        self.offline_config_text = ""
+
+    def _run(self, command, *, input_bytes=None, check=True):
+        self.commands.append(tuple(command))
+        if tuple(command[:4]) == ("unshare", "--net", "--", "pacstrap"):
+            config_index = command.index("-C") + 1
+            self.offline_config_path = Path(command[config_index])
+            self.offline_config_text = self.offline_config_path.read_text()
+            root_index = command.index("-U") + 1
+            target = Path(command[root_index])
+            (target / "etc").mkdir(parents=True, exist_ok=True)
+            policy = "SigLevel = Never\n" if self.relaxed_target else "SigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\n"
+            (target / "etc/pacman.conf").write_text("[options]\n" + policy)
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+    def _chroot(self, root, command, *, input_bytes=None, check=True):
+        self.commands.append(("chroot", *command))
+        if tuple(command) == ("pacman", "-Q"):
+            rows = "".join(f"{item['name']} {item['version']}\n" for item in self.packages)
+            return subprocess.CompletedProcess(command, 0, stdout=rows.encode(), stderr=b"")
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+
 class IdentityOps(SystemAssemblyOps):
     def _run(self, command, *, input_bytes=None, check=True):
         if command[0] == "systemd-machine-id-setup":
@@ -355,6 +386,20 @@ def main() -> None:
     rejected("missing payload dependency is rejected", lambda: _validate_dependency_closure([
         {"name": "consumer", "provides": [], "depends": ["missing>=1"]},
     ]))
+
+    with tempfile.TemporaryDirectory(prefix="maho-s12-base-") as raw:
+        tmp = Path(raw)
+        target = tmp / "target"
+        target.mkdir()
+        base_ops = make_ops(BaseInstallOps, tmp, packages=pl["packages"])
+        base_result = base_ops._phase_base_installed(p, pl, {}, target)
+        check("offline package bootstrap is network isolated and manifest authoritative", base_result["network_isolated"] is True and base_result["bootstrap_package_authority"] == "manifest-preverified-hash-bound")
+        install_cmd = next(command for command in base_ops.commands if command[:4] == ("unshare", "--net", "--", "pacstrap"))
+        check("offline pacstrap uses ephemeral local-byte trust config", "-K" in install_cmd and "-C" in install_cmd and "-U" in install_cmd and "SigLevel = Never" in base_ops.offline_config_text)
+        check("ephemeral bootstrap pacman config is removed", base_ops.offline_config_path is not None and not base_ops.offline_config_path.exists())
+        check("target Arch keyring is populated after bootstrap", ("chroot", "pacman-key", "--populate", "archlinux") in base_ops.commands)
+        relaxed = make_ops(BaseInstallOps, tmp, packages=pl["packages"], relaxed_target=True)
+        rejected("relaxed signature policy may not persist in target", lambda: relaxed._phase_base_installed(p, pl, {}, tmp / "relaxed-target"))
 
     with tempfile.TemporaryDirectory(prefix="maho-s12-assembly-") as raw:
         tmp = Path(raw)
