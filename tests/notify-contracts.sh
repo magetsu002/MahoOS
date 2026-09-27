@@ -289,6 +289,13 @@ require_text "$NOTIFY_DIR/HistoryRow.qml" '!controller.historyScrollbarDragging'
 require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'interactive: true' "Notify scrollbar is decorative rather than interactive"
 require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'focusPolicy: Qt.NoFocus' "Notify scrollbar can permanently steal focus"
 require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'snapMode: ScrollBar.NoSnap' "Notify scrollbar may snap under direct manipulation"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'id: autoHideTimer' "Notify scrollbar has no deterministic auto-hide timer"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'interval: 700' "Notify scrollbar linger window drifted"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'opacity: control.visualVisible ? 1 : 0' "Notify scrollbar is not fully hidden at rest"
+require_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'function noteActivity()' "Notify scrollbar cannot be revealed by wheel activity"
+reject_text "$NOTIFY_DIR/NotifyScrollBar.qml" 'control.active || control.hovered || control.pressed' "Notify scrollbar still trusts sticky ScrollBar.active for visibility"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'viewMoving: historyList.moving' "Notify scrollbar does not follow real history movement"
+require_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyScrollBar.noteActivity()' "Notify wheel activity does not reveal the scrollbar"
 reject_text "$NOTIFY_DIR/NotificationCenter.qml" 'historyList.height * historyList.height / historyList.contentHeight' "decorative calculated scrollbar thumb still exists"
 echo "PASS"
 
