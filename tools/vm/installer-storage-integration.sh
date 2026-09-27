@@ -19,6 +19,7 @@ fi
 
 state=/run/maho-installer-storage-test
 plan="$state/plan.json"
+attempt="$state/attempt.json"
 journal="$state/journal.json"
 key="$state/key"
 mount_root=/mnt/maho-installer-target
@@ -26,7 +27,7 @@ install -d -m 0700 "$state"
 head -c 64 /dev/urandom > "$key"
 chmod 0600 "$key"
 
-maho-installer plan "$target" --output "$plan" --json > "$state/plan.stdout.json"
+maho-installer plan "$target" --attempt-state "$attempt" --output "$plan" --json > "$state/plan.stdout.json"
 readarray -t authority < <(python - "$plan" <<'PY'
 import json, sys
 plan = json.load(open(sys.argv[1], encoding="utf-8"))

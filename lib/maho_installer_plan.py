@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 import uuid
 
 GIB = 1024 ** 3
@@ -162,6 +163,73 @@ def _uuid(seed: str, label: str) -> str:
     return str(uuid.uuid5(_INSTALL_NAMESPACE, f"{seed}:{label}"))
 
 
+def normalize_install_attempt_id(value: Any) -> str:
+    text = _text(value)
+    try:
+        parsed = uuid.UUID(text)
+    except (AttributeError, ValueError) as exc:
+        raise ValueError("install attempt identity is invalid") from exc
+    if parsed.version != 4 or text != str(parsed):
+        raise ValueError("install attempt identity is invalid")
+    return text
+
+
+def new_install_attempt_id() -> str:
+    """Return the single cryptographically random root identity for a new attempt."""
+    return str(uuid.uuid4())
+
+
+def load_or_create_install_attempt(
+    path: Path, *, id_factory: Callable[[], str] = new_install_attempt_id,
+) -> str:
+    """Durably create one attempt identity, or load the exact existing identity."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        descriptor = None
+    if descriptor is not None:
+        try:
+            attempt_id = normalize_install_attempt_id(id_factory())
+            payload = {
+                "schema_version": 1,
+                "kind": "maho-installer-attempt",
+                "install_attempt_id": attempt_id,
+            }
+            stream = os.fdopen(descriptor, "w", encoding="utf-8")
+            descriptor = None
+            with stream:
+                json.dump(payload, stream, sort_keys=True, separators=(",", ":"))
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+            return attempt_id
+        except BaseException:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("install attempt state is unreadable") from exc
+    if (
+        not isinstance(payload, Mapping)
+        or payload.get("schema_version") != 1
+        or payload.get("kind") != "maho-installer-attempt"
+    ):
+        raise ValueError("install attempt state is incompatible")
+    return normalize_install_attempt_id(payload.get("install_attempt_id"))
+
+
 def _geometry(disk: Mapping[str, Any]) -> dict[str, Any]:
     logical = disk["logical_sector_size"]
     total = disk["size_bytes"] // logical
@@ -202,7 +270,7 @@ def _geometry(disk: Mapping[str, Any]) -> dict[str, Any]:
 
 def _plan_material(plan: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
-        "schema_version", "kind", "source_revision", "target", "geometry", "layout_contract",
+        "schema_version", "kind", "install_attempt_id", "source_revision", "target", "geometry", "layout_contract",
         "installation_identity", "encryption_contract", "space_policy", "execution_scope", "blockers",
     )
     return {key: plan[key] for key in keys}
@@ -214,9 +282,12 @@ def destructive_confirmation(plan_sha256: str) -> str:
     return f"ERASE-MAHO:{plan_sha256}"
 
 
-def build_install_plan(raw_disk: Mapping[str, Any], *, source_revision: str) -> dict[str, Any]:
+def build_install_plan(
+    raw_disk: Mapping[str, Any], *, source_revision: str, install_attempt_id: str,
+) -> dict[str, Any]:
     if _SHA40.fullmatch(source_revision) is None:
         raise ValueError("installer source revision is invalid")
+    attempt_id = normalize_install_attempt_id(install_attempt_id)
     disk = normalize_disk(raw_disk)
     geometry = _geometry(disk)
     blockers: list[str] = []
@@ -239,13 +310,7 @@ def build_install_plan(raw_disk: Mapping[str, Any], *, source_revision: str) -> 
 
     identity = disk_identity_sha256(disk)
     target = dict(disk) | {"identity_sha256": identity}
-    seed_material = {
-        "source_revision": source_revision,
-        "target_identity_sha256": identity,
-        "geometry": geometry,
-        "contract": "maho-v1-storage",
-    }
-    seed = hashlib.sha256(_canonical(seed_material)).hexdigest()
+    seed = attempt_id
     installation_id = _uuid(seed, "installation")
     identifiers = {
         "installation_uuid": installation_id,
@@ -323,8 +388,9 @@ def build_install_plan(raw_disk: Mapping[str, Any], *, source_revision: str) -> 
         },
     }
     material = {
-        "schema_version": 2,
+        "schema_version": 3,
         "kind": "maho-installer-storage-plan",
+        "install_attempt_id": attempt_id,
         "source_revision": source_revision,
         "target": target,
         "geometry": geometry,
@@ -356,12 +422,15 @@ def build_install_plan(raw_disk: Mapping[str, Any], *, source_revision: str) -> 
 
 
 def validate_plan_integrity(plan: Mapping[str, Any]) -> dict[str, Any]:
+    if plan.get("schema_version") != 3 or plan.get("kind") != "maho-installer-storage-plan":
+        raise ValueError("install plan schema is unsupported")
+    attempt_id = normalize_install_attempt_id(plan.get("install_attempt_id"))
+    if plan.get("install_attempt_id") != attempt_id:
+        raise ValueError("install attempt identity is invalid")
     try:
         digest = hashlib.sha256(_canonical(_plan_material(plan))).hexdigest()
     except (KeyError, TypeError) as exc:
         raise ValueError("install plan is incomplete") from exc
-    if plan.get("schema_version") != 2 or plan.get("kind") != "maho-installer-storage-plan":
-        raise ValueError("install plan schema is unsupported")
     if plan.get("plan_sha256") != digest or plan.get("plan_id") != f"install-plan-{digest}":
         raise ValueError("install plan digest does not match its contents")
     ready = not plan.get("blockers") and plan.get("space_policy", {}).get("reserve_valid") is True
@@ -378,7 +447,11 @@ def validate_destructive_confirmation(
     source_revision: str, confirmation: str,
 ) -> dict[str, Any]:
     validated = validate_plan_integrity(plan)
-    rebuilt = build_install_plan(current_disk, source_revision=source_revision)
+    rebuilt = build_install_plan(
+        current_disk,
+        source_revision=source_revision,
+        install_attempt_id=validated["install_attempt_id"],
+    )
     if rebuilt["plan_id"] != validated["plan_id"]:
         raise ValueError("install plan identity drifted")
     if confirmation != rebuilt["destructive_confirmation"]:
@@ -386,7 +459,8 @@ def validate_destructive_confirmation(
     if not rebuilt["ready_for_destructive_confirmation"]:
         raise ValueError("install plan is blocked")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "install_attempt_id": rebuilt["install_attempt_id"],
         "plan_id": rebuilt["plan_id"],
         "target_identity_sha256": rebuilt["target"]["identity_sha256"],
         "source_revision": source_revision,

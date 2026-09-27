@@ -11,7 +11,12 @@ ROOT = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.paren
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_installer_execute import execute_storage_plan  # noqa: E402
-from maho_installer_plan import build_install_plan, probe_disk, runtime_source_revision  # noqa: E402
+from maho_installer_plan import (  # noqa: E402
+    build_install_plan,
+    load_or_create_install_attempt,
+    probe_disk,
+    runtime_source_revision,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -22,6 +27,10 @@ def parser() -> argparse.ArgumentParser:
     sub = command.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan", help="inspect one exact blank whole disk and emit a non-mutating plan")
     plan.add_argument("device")
+    plan.add_argument(
+        "--attempt-state", required=True, type=Path,
+        help="durable install-attempt state; created once or reused exactly",
+    )
     plan.add_argument("--json", action="store_true")
     plan.add_argument("--output", type=Path, help="create an immutable plan input file; refuses overwrite")
 
@@ -66,7 +75,12 @@ def main() -> None:
     try:
         source_revision = runtime_source_revision(ROOT)
         if args.command == "plan":
-            payload = build_install_plan(probe_disk(args.device), source_revision=source_revision)
+            attempt_id = load_or_create_install_attempt(args.attempt_state)
+            payload = build_install_plan(
+                probe_disk(args.device),
+                source_revision=source_revision,
+                install_attempt_id=attempt_id,
+            )
             if args.output is not None:
                 _write_new(args.output, payload)
             if args.json:
@@ -75,6 +89,7 @@ def main() -> None:
                 print("MahoOS deterministic storage plan")
                 print(f"Target: {payload['target']['path']} ({payload['target']['major_minor']})")
                 print(f"Identity: {payload['target']['identity_sha256']}")
+                print(f"Install attempt: {payload['install_attempt_id']}")
                 print(f"Plan: {payload['plan_id']}")
                 geometry = payload["geometry"]
                 print(

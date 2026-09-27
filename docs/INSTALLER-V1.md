@@ -30,9 +30,16 @@ layout.
 
 ## Current implementation boundary
 
-`maho-installer plan` is deliberately read-only. `maho-installer execute` is a
-separate root/PolicyKit boundary that accepts only the exact saved plan ID and
-`ERASE-MAHO:<plan-sha256>` challenge. Execution is limited to provably
+`maho-installer plan` is deliberately read-only. A new attempt is started with
+`--attempt-state PATH`: the command durably creates one private UUIDv4 attempt
+record before probing and planning, or reuses the exact record already at that
+path. The attempt UUID is the deterministic namespace for the installation,
+GPT, LUKS, FAT, and Btrfs identities and is part of the canonical plan digest.
+Reinstalling the same source on the same disk with a new attempt state therefore
+produces new identities and a new confirmation token.
+
+`maho-installer execute` is a separate root/PolicyKit boundary that accepts only
+the exact saved plan ID and `ERASE-MAHO:<plan-sha256>` challenge. Execution is limited to provably
 disposable loop-backed media or QEMU virtio disks whose serial begins with
 `MAHO-DISPOSABLE-`.
 
@@ -82,9 +89,12 @@ The plan also includes the exact Maho source revision, layout contract, assembly
 stages and current blockers. The destructive challenge is derived from the
 whole plan identity, not from a display name such as `/dev/nvme0n1`.
 
-The executor journals `OBSERVED` and `CONFIRMED`, then re-observes and rebuilds
-the plan immediately before creating GPT. Any path, major:minor, size, sector,
-serial, WWN, transport, or loop-backing drift aborts before the first write.
+The executor journals the exact attempt identity with `OBSERVED` and
+`CONFIRMED`, then re-observes and rebuilds the plan with that same identity
+immediately before creating GPT. Any path, major:minor, size, sector, serial,
+WWN, transport, loop-backing, source, plan, or attempt drift aborts before the
+first write. An old or incomplete journal without the attempt identity cannot
+resume.
 
 ## Storage contract
 

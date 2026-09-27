@@ -16,6 +16,7 @@ from typing import Any, Iterator, Mapping, Protocol, Sequence
 
 from maho_installer_plan import (
     build_install_plan,
+    normalize_install_attempt_id,
     normalize_disk,
     probe_disk,
     same_disk_identity,
@@ -78,6 +79,12 @@ def _read_journal(path: Path) -> dict[str, Any]:
         raise RuntimeError("installer journal is unreadable") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("installer journal is invalid")
+    if payload.get("schema_version") != 2 or payload.get("kind") != "maho-installer-storage-journal":
+        raise RuntimeError("installer journal schema is incompatible; start a new install attempt")
+    try:
+        normalize_install_attempt_id(payload.get("install_attempt_id"))
+    except ValueError as exc:
+        raise RuntimeError("installer journal lacks a valid install attempt identity") from exc
     phase = payload.get("phase")
     history = payload.get("history")
     if phase not in PHASES or not isinstance(history, list) or not history:
@@ -159,6 +166,8 @@ def execute_storage_plan(
     with _mutation_lock(journal_path):
         if journal_path.exists():
             journal = _read_journal(journal_path)
+            if journal.get("install_attempt_id") != validated["install_attempt_id"]:
+                raise RuntimeError("journal belongs to another install attempt")
             if journal.get("plan_id") != plan_id:
                 raise RuntimeError("journal belongs to another install plan")
             if journal.get("target_identity_sha256") != validated["target"]["identity_sha256"]:
@@ -190,8 +199,9 @@ def execute_storage_plan(
                 validated, observed, source_revision=source_revision, confirmation=confirmation,
             )
             journal = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "kind": "maho-installer-storage-journal",
+                "install_attempt_id": validated["install_attempt_id"],
                 "plan_id": plan_id,
                 "plan_sha256": validated["plan_sha256"],
                 "target_identity_sha256": validated["target"]["identity_sha256"],

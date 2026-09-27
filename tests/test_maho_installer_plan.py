@@ -17,6 +17,7 @@ from maho_installer_plan import (  # noqa: E402
     MINIMUM_DISK_BYTES,
     build_install_plan,
     disk_from_lsblk_payload,
+    load_or_create_install_attempt,
     probe_disk,
     runtime_source_revision,
     validate_destructive_confirmation,
@@ -24,6 +25,8 @@ from maho_installer_plan import (  # noqa: E402
 )
 
 REV = "a" * 40
+ATTEMPT_A = "11111111-1111-4111-8111-111111111111"
+ATTEMPT_B = "22222222-2222-4222-8222-222222222222"
 
 
 def check(name: str, condition: bool) -> None:
@@ -63,13 +66,29 @@ def disk(*, size: int = MINIMUM_DISK_BYTES, logical: int = 512, physical: int = 
 
 
 def main() -> None:
-    first = build_install_plan(disk(), source_revision=REV)
-    second = build_install_plan(copy.deepcopy(disk()), source_revision=REV)
-    check("exact disk plan is deterministic", first == second)
+    first = build_install_plan(disk(), source_revision=REV, install_attempt_id=ATTEMPT_A)
+    second = build_install_plan(
+        copy.deepcopy(disk()), source_revision=REV, install_attempt_id=ATTEMPT_A,
+    )
+    check("same attempt produces an identical exact disk plan", first == second)
+    check("same attempt preserves installation identity", first["installation_identity"] == second["installation_identity"])
+    check("same attempt preserves plan digest and confirmation", first["plan_sha256"] == second["plan_sha256"] and first["destructive_confirmation"] == second["destructive_confirmation"])
+    new_attempt = build_install_plan(disk(), source_revision=REV, install_attempt_id=ATTEMPT_B)
+    check("new install uses a different attempt identity", first["install_attempt_id"] != new_attempt["install_attempt_id"])
+    check("new install uses a different installation UUID", first["installation_identity"]["installation_uuid"] != new_attempt["installation_identity"]["installation_uuid"])
+    check("new install uses different GPT identities", all(first["installation_identity"][key] != new_attempt["installation_identity"][key] for key in ("gpt_disk_guid", "esp_partition_uuid", "luks_partition_uuid")))
+    check("new install uses different LUKS and Btrfs identities", first["installation_identity"]["luks_uuid"] != new_attempt["installation_identity"]["luks_uuid"] and first["installation_identity"]["btrfs_uuid"] != new_attempt["installation_identity"]["btrfs_uuid"])
+    check("new install changes digest and confirmation", first["plan_sha256"] != new_attempt["plan_sha256"] and first["destructive_confirmation"] != new_attempt["destructive_confirmation"])
+    rejected("confirmation cannot replay across install attempts", lambda: validate_destructive_confirmation(new_attempt, disk(), source_revision=REV, confirmation=first["destructive_confirmation"]))
     check("128 GiB whole disk reaches confirmation", first["ready_for_destructive_confirmation"] is True)
     check("plan digest and exact confirmation agree", first["destructive_confirmation"] == "ERASE-MAHO:" + first["plan_sha256"])
     check("plan ID is the digest identity", first["plan_id"] == "install-plan-" + first["plan_sha256"])
     check("plan integrity independently recomputes", validate_plan_integrity(first)["plan_id"] == first["plan_id"])
+    reobserved = validate_destructive_confirmation(
+        first, copy.deepcopy(disk()), source_revision=REV,
+        confirmation=first["destructive_confirmation"],
+    )
+    check("re-observation reuses the existing attempt identity", reobserved["install_attempt_id"] == ATTEMPT_A and reobserved["plan_id"] == first["plan_id"])
 
     geometry = first["geometry"]
     check("logical and physical geometry is exact", geometry["logical_sector_size_bytes"] == 512 and geometry["physical_sector_size_bytes"] == 4096)
@@ -101,13 +120,13 @@ def main() -> None:
     })
     space = first["space_policy"]
     check("128 GiB plan keeps the 20 GiB reserve floor", space["reserve_required_bytes"] == 20 * GIB and space["reserve_valid"] is True)
-    large = build_install_plan(disk(size=2 * 1024 * GIB), source_revision=REV)
+    large = build_install_plan(disk(size=2 * 1024 * GIB), source_revision=REV, install_attempt_id=ATTEMPT_A)
     check("large-disk reserve uses 15 percent", large["space_policy"]["reserve_required_bytes"] > 20 * GIB)
     check("worst-case staging cannot consume the reserve", space["reserve_after_worst_case_staging_bytes"] >= space["reserve_required_bytes"])
 
-    four_k = build_install_plan(disk(logical=4096, physical=4096), source_revision=REV)
+    four_k = build_install_plan(disk(logical=4096, physical=4096), source_revision=REV, install_attempt_id=ATTEMPT_A)
     check("4Kn geometry has exact GPT boundaries", four_k["geometry"]["gpt"]["first_usable_lba"] == 6 and four_k["geometry"]["esp_first_lba"] == 256)
-    undersized = build_install_plan(disk(size=MINIMUM_DISK_BYTES - 512), source_revision=REV)
+    undersized = build_install_plan(disk(size=MINIMUM_DISK_BYTES - 512), source_revision=REV, install_attempt_id=ATTEMPT_A)
     check("one-sector-below-minimum disk is blocked", "target_below_128_gib_minimum" in undersized["blockers"] and undersized["destructive_confirmation"] is None)
 
     changed = disk()
@@ -124,21 +143,21 @@ def main() -> None:
     rejected("plan content tampering breaks digest", lambda: validate_plan_integrity(tampered))
     mounted = disk()
     mounted["mountpoints"] = ["/"]
-    check("live root target is blocked", "target_or_child_mounted" in build_install_plan(mounted, source_revision=REV)["blockers"])
+    check("live root target is blocked", "target_or_child_mounted" in build_install_plan(mounted, source_revision=REV, install_attempt_id=ATTEMPT_A)["blockers"])
     removable = disk()
     removable["rm"] = 1
-    check("removable target is blocked", "target_removable" in build_install_plan(removable, source_revision=REV)["blockers"])
+    check("removable target is blocked", "target_removable" in build_install_plan(removable, source_revision=REV, install_attempt_id=ATTEMPT_A)["blockers"])
     readonly = disk()
     readonly["ro"] = 1
-    check("read-only target is blocked", "target_read_only" in build_install_plan(readonly, source_revision=REV)["blockers"])
+    check("read-only target is blocked", "target_read_only" in build_install_plan(readonly, source_revision=REV, install_attempt_id=ATTEMPT_A)["blockers"])
     nonblank = disk()
     nonblank["pttype"] = "gpt"
     nonblank["children"] = [{"path": "/dev/vdz1", "type": "part", "mountpoints": [None]}]
-    check("nonblank disk is blocked", "target_not_blank" in build_install_plan(nonblank, source_revision=REV)["blockers"])
+    check("nonblank disk is blocked", "target_not_blank" in build_install_plan(nonblank, source_revision=REV, install_attempt_id=ATTEMPT_A)["blockers"])
     weak = disk()
     weak["serial"] = ""
-    check("ambiguous physical identity is blocked", "target_identity_not_stable" in build_install_plan(weak, source_revision=REV)["blockers"])
-    rejected("slash cannot be a disk path", lambda: build_install_plan(disk() | {"path": "/"}, source_revision=REV))
+    check("ambiguous physical identity is blocked", "target_identity_not_stable" in build_install_plan(weak, source_revision=REV, install_attempt_id=ATTEMPT_A)["blockers"])
+    rejected("slash cannot be a disk path", lambda: build_install_plan(disk() | {"path": "/"}, source_revision=REV, install_attempt_id=ATTEMPT_A))
 
     payload = {"blockdevices": [disk()]}
     check("lsblk parser binds one exact path", disk_from_lsblk_payload(payload, expected_path="/dev/vdz")["serial"] == "MAHO-DISPOSABLE-0001")
@@ -170,6 +189,18 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
+        attempt_path = tmp_path / "attempt.json"
+        persisted = load_or_create_install_attempt(attempt_path, id_factory=lambda: ATTEMPT_A)
+        recovered = load_or_create_install_attempt(
+            attempt_path,
+            id_factory=lambda: (_ for _ in ()).throw(AssertionError("attempt regenerated")),
+        )
+        check("durable attempt identity is created once and recovered", persisted == recovered == ATTEMPT_A)
+        check("durable attempt state is private", attempt_path.stat().st_mode & 0o777 == 0o600)
+        incompatible = tmp_path / "incompatible-attempt.json"
+        incompatible.write_text('{"schema_version":1,"kind":"maho-installer-attempt"}\n', encoding="utf-8")
+        rejected("missing persisted attempt identity fails closed", lambda: load_or_create_install_attempt(incompatible))
+
         packaged_root = tmp_path / "payload"
         (packaged_root / "bin").mkdir(parents=True)
         (packaged_root / "lib").mkdir(parents=True)

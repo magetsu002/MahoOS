@@ -19,6 +19,8 @@ from maho_installer_execute import (  # noqa: E402
 from maho_installer_plan import MINIMUM_DISK_BYTES, build_install_plan  # noqa: E402
 
 REV = "a" * 40
+ATTEMPT_A = "11111111-1111-4111-8111-111111111111"
+ATTEMPT_B = "22222222-2222-4222-8222-222222222222"
 
 
 def check(name: str, condition: bool) -> None:
@@ -109,7 +111,7 @@ def invoke(plan, tmp: Path, ops: FakeOps, *, confirmation: str | None = None, pl
 
 
 def main() -> None:
-    plan = build_install_plan(disk(), source_revision=REV)
+    plan = build_install_plan(disk(), source_revision=REV, install_attempt_id=ATTEMPT_A)
 
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
@@ -127,7 +129,9 @@ def main() -> None:
         tmp = Path(raw)
         physical = disk()
         physical["serial"] = "PHYSICAL-SYSTEM-DISK"
-        physical_plan = build_install_plan(physical, source_revision=REV)
+        physical_plan = build_install_plan(
+            physical, source_revision=REV, install_attempt_id=ATTEMPT_A,
+        )
         ops = FakeOps(physical)
         rejected("non-disposable target is rejected", lambda: invoke(physical_plan, tmp, ops))
         check("physical rejection occurs before journal and writes", not (tmp / "journal.json").exists() and not ops.applied)
@@ -144,6 +148,7 @@ def main() -> None:
                 raise AssertionError(f"missing interruption after {injected_phase}")
             journal = json.loads((tmp / "journal.json").read_text(encoding="utf-8"))
             check(f"journal is durable after {injected_phase}", journal["phase"] == injected_phase)
+            check(f"journal preserves attempt identity after {injected_phase}", journal["install_attempt_id"] == ATTEMPT_A)
             expected_history = list(PHASES[:PHASES.index(injected_phase) + 1])
             check(f"journal history is coherent after {injected_phase}", [row["phase"] for row in journal["history"]] == expected_history)
             resumed = invoke(plan, tmp, ops)
@@ -162,6 +167,50 @@ def main() -> None:
         before = list(ops.applied)
         rejected("wrong disk cannot resume old journal", lambda: invoke(plan, tmp, ops))
         check("wrong-disk resume performs no further mutation", ops.applied == before)
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        ops = FakeOps()
+        try:
+            invoke(plan, tmp, ops, fail_after="GPT_CREATED")
+        except SimulatedInterruption:
+            pass
+        different_attempt = build_install_plan(
+            disk(), source_revision=REV, install_attempt_id=ATTEMPT_B,
+        )
+        before = list(ops.applied)
+        rejected("resume cannot switch persisted install attempt", lambda: invoke(different_attempt, tmp, ops))
+        check("attempt mismatch performs no further mutation", ops.applied == before)
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        ops = FakeOps()
+        try:
+            invoke(plan, tmp, ops, fail_after="GPT_CREATED")
+        except SimulatedInterruption:
+            pass
+        journal_path = tmp / "journal.json"
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        journal.pop("install_attempt_id")
+        journal_path.write_text(json.dumps(journal) + "\n", encoding="utf-8")
+        before = list(ops.applied)
+        rejected("journal missing install attempt identity fails closed", lambda: invoke(plan, tmp, ops))
+        check("missing attempt identity performs no further mutation", ops.applied == before)
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        ops = FakeOps()
+        try:
+            invoke(plan, tmp, ops, fail_after="GPT_CREATED")
+        except SimulatedInterruption:
+            pass
+        journal_path = tmp / "journal.json"
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        journal["schema_version"] = 1
+        journal_path.write_text(json.dumps(journal) + "\n", encoding="utf-8")
+        before = list(ops.applied)
+        rejected("incompatible old journal fails closed", lambda: invoke(plan, tmp, ops))
+        check("incompatible journal performs no further mutation", ops.applied == before)
 
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
