@@ -72,6 +72,45 @@ def security_row(state_root: pathlib.Path, incident_id: str) -> dict[str, Any] |
     return None
 
 
+def latest_retained_response(state_root: pathlib.Path) -> dict[str, Any] | None:
+    root = state_root / "guardian" / "live-recovery" / "active"
+    if not root.is_dir():
+        return None
+    terminal = {"recovered", "verification-failed", "evidence-insufficient"}
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for path in root.glob("inc-*.json"):
+        row = read_json(path)
+        if not row or str(row.get("state") or "") not in terminal or not row.get("incident_id"):
+            continue
+        try:
+            modified = path.stat().st_mtime
+        except OSError:
+            modified = 0.0
+        candidates.append((modified, row))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def render_retained_response(row: Mapping[str, Any]) -> None:
+    state = str(row.get("state") or "unknown")
+    label = state.replace("-", " ").title()
+    incident_id = str(row.get("incident_id") or "unknown")
+    receipt_id = str(row.get("receipt_id") or "none")
+    trigger = row.get("trigger") if isinstance(row.get("trigger"), Mapping) else {}
+    trigger_kind = str(trigger.get("kind") or "recorded-response").replace("-", " ")
+    print(f"Last completed response · {label}")
+    print(f"Incident   {incident_id}")
+    print(f"Receipt    {receipt_id}")
+    print("Wheel      Idle")
+    print(f"Why        {trigger_kind.title()} triggered the retained response.")
+    if state == "recovered" and row.get("verified") is True:
+        print("Result     Recovery completed and independent verification succeeded.")
+    elif state == "verification-failed":
+        print("Result     Recovery verification failed; review is required.")
+    else:
+        print("Result     Recovery could not proceed from the available evidence.")
+    print("Active     None; this is retained history, not a live response.")
+
+
 def package_owner(path: str) -> str | None:
     if not path.startswith("/"):
         return None
@@ -503,7 +542,11 @@ def main() -> int:
     print("Maho Guardian")
     print("─────────────")
     if not rows:
-        print("Guardian is quiet. No active assessment is driving the wheel.")
+        retained = latest_retained_response(state_root)
+        if retained is not None:
+            render_retained_response(retained)
+        else:
+            print("Guardian is quiet. No active assessment is driving the wheel.")
         return 0
 
     highest = max(severity(row) for row in rows)

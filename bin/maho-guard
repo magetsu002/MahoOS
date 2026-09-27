@@ -204,10 +204,11 @@ guardian_status_command() {
     python - "$rows" <<'PY'
 import json,sys
 rows=json.loads(sys.argv[1])
-print("Maho Guardian status")
+print("Maho Guardian active assessments")
 print()
 if not rows:
     print("No active Guardian assessments.")
+    print("This view is active-only; completed response history remains available via maho guard or maho-guard recovery status.")
 else:
     for row in rows:
         decision=row.get("decision") or {}
@@ -239,6 +240,25 @@ guardian_world_status_command() {
 
 response_command() {
     [ -r "$GUARDIAN_RESPONSE" ] || { echo "maho-guard: live response coordinator unavailable" >&2; return 1; }
+    if [ "${1:-}" = "status" ] && [ "$#" -eq 1 ]; then
+        local payload
+        payload="$(python "$GUARDIAN_RESPONSE" \
+            --state-root "$SEC_STATE" \
+            --db-root "$DB_ROOT" \
+            --proc-root "$PROC_ROOT" \
+            --fs-root "$FS_ROOT" \
+            --uid "$(id -u)" \
+            status)" || return 1
+        python - "$payload" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["scope"] = "active-only"
+if not payload.get("active"):
+    payload["history_hint"] = "Completed response history may remain available from maho-guard recovery status or maho guard."
+print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+PY
+        return
+    fi
     python "$GUARDIAN_RESPONSE" \
         --state-root "$SEC_STATE" \
         --db-root "$DB_ROOT" \
@@ -250,6 +270,24 @@ response_command() {
 
 recovery_command() {
     [ -r "$GUARDIAN_RECOVERY" ] || { echo "maho-guard: live runtime recovery coordinator unavailable" >&2; return 1; }
+    if [ "${1:-}" = "status" ] && [ "$#" -eq 1 ]; then
+        local payload
+        payload="$(python "$GUARDIAN_RECOVERY" \
+            --state-root "$SEC_STATE" \
+            --db-root "$DB_ROOT" \
+            --proc-root "$PROC_ROOT" \
+            --fs-root "$FS_ROOT" \
+            --runtime-root "$RUNTIME_ROOT" \
+            --uid "$(id -u)" \
+            status)" || return 1
+        python - "$payload" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["scope"] = "active-and-retained-history"
+print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+PY
+        return
+    fi
     python "$GUARDIAN_RECOVERY" \
         --state-root "$SEC_STATE" \
         --db-root "$DB_ROOT" \

@@ -138,4 +138,44 @@ rm -f "$STATE/guardian/active/"*.json
 QUIET="$(XDG_STATE_HOME="$TMP/state" MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-guard" why)"
 grep -Fq 'Guardian is quiet. No active assessment is driving the wheel.' <<<"$QUIET"
 
+mkdir -p "$STATE/guardian/live-recovery/active"
+cat >"$STATE/guardian/live-recovery/active/inc-runtime-retained.json" <<'EOF_RETAINED'
+{
+  "schema_version": 1,
+  "kind": "guardian-live-runtime-recovery",
+  "incident_id": "inc-runtime-retained",
+  "receipt_id": "recovery-receipt-retained",
+  "state": "recovered",
+  "verified": true,
+  "automatic_authority": false,
+  "trigger": {"kind": "immutable-runtime-integrity"}
+}
+EOF_RETAINED
+RETAINED="$(XDG_STATE_HOME="$TMP/state" MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-guard" why)"
+grep -Fq 'Last completed response · Recovered' <<<"$RETAINED"
+grep -Fq 'Incident   inc-runtime-retained' <<<"$RETAINED"
+grep -Fq 'Receipt    recovery-receipt-retained' <<<"$RETAINED"
+grep -Fq 'Wheel      Idle' <<<"$RETAINED"
+grep -Fq 'Active     None; this is retained history, not a live response.' <<<"$RETAINED"
+
+ACTIVE_ONLY="$(XDG_STATE_HOME="$TMP/state" MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-guard" guardian-status)"
+grep -Fq 'Maho Guardian active assessments' <<<"$ACTIVE_ONLY"
+grep -Fq 'This view is active-only' <<<"$ACTIVE_ONLY"
+
+RESPONSE_STATUS="$(XDG_STATE_HOME="$TMP/state" MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-guard" response status)"
+python - "$RESPONSE_STATUS" <<'PY_RESPONSE'
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["scope"] == "active-only"
+assert "history_hint" in payload
+PY_RESPONSE
+
+RECOVERY_STATUS="$(XDG_STATE_HOME="$TMP/state" MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-guard" recovery status)"
+python - "$RECOVERY_STATUS" <<'PY_RECOVERY'
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["scope"] == "active-and-retained-history"
+assert payload["history_retained"] is True
+PY_RECOVERY
+
 echo 'ALL GUARDIAN EXPLAIN CONTRACTS PASS'

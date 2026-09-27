@@ -21,7 +21,9 @@ reject_text "$DASH" '\033[3A' "legacy cursor rewind remains"
 reject_text "$DASH" 'script -qfec' "legacy PTY capture path remains"
 reject_text "$DASH" 'sed "s/^/' "legacy fake indentation remains"
 require_text "$DASH" 'MAHO_DASHBOARD_COLUMNS' "dashboard width contract is not testable"
-require_text "$DASH" '"$cols" 19 "$img"' "wide terminal Kurisu size drifted"
+require_text "$DASH" '"$cols" 16 "$img"' "wide terminal Kurisu size drifted"
+require_text "$DASH" '"$cols" 14 "$img"' "compact terminal Kurisu size drifted"
+require_text "$DASH" '"$cols" 12 "$img"' "tiny terminal Kurisu size drifted"
 pass "dashboard has one measured Fastfetch-native layout path"
 
 require_text "$KITTY" 'include ~/.cache/maho/theme/kitty.conf' "Kitty does not consume generated Maho palette"
@@ -43,6 +45,42 @@ pass "runtime setup owns terminal wiring narrowly"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+
+echo "=== dashboard Fastfetch argument contract ==="
+DASHROOT="$TMP/dashboard-root"
+FFLOG="$TMP/fastfetch.args"
+mkdir -p "$DASHROOT/config/fastfetch" "$DASHROOT/share/maho/terminal"
+cp "$ROOT/config/fastfetch/config.jsonc" "$DASHROOT/config/fastfetch/config.jsonc"
+cp "$ROOT/config/fastfetch/config-narrow.jsonc" "$DASHROOT/config/fastfetch/config-narrow.jsonc"
+cp "$ROOT/config/fastfetch/config-tiny.jsonc" "$DASHROOT/config/fastfetch/config-tiny.jsonc"
+: >"$DASHROOT/share/maho/terminal/kurisu-transparent.apng"
+cat >"$TMP/fastfetch-stub" <<'EOF_FASTFETCH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$MAHO_FASTFETCH_LOG"
+EOF_FASTFETCH
+chmod +x "$TMP/fastfetch-stub"
+source "$DASH"
+maho_ff_metrics() {
+    case "$1" in
+        */config.jsonc) printf '80\n20\n' ;;
+        */config-narrow.jsonc) printf '50\n16\n' ;;
+        */config-tiny.jsonc) printf '40\n14\n' ;;
+        *) return 1 ;;
+    esac
+}
+run_dashboard_contract() {
+    local cols="$1" width="$2" height="$3"
+    : >"$FFLOG"
+    MAHO_ROOT="$DASHROOT" MAHO_DASHBOARD_COLUMNS="$cols" KITTY_WINDOW_ID=1 \
+        MAHO_FASTFETCH_BIN="$TMP/fastfetch-stub" MAHO_FASTFETCH_LOG="$FFLOG" maho_dashboard
+    grep -Fq -- "--logo-width $width --logo-height $height" "$FFLOG" \
+        || fail "dashboard generated wrong Fastfetch size for ${cols} columns"
+}
+run_dashboard_contract 100 16 13
+run_dashboard_contract 66 14 12
+run_dashboard_contract 54 12 10
+pass "wide/compact/tiny layouts generate exact Fastfetch logo width and height"
+
 mkdir -p "$TMP/config" "$TMP/cache"
 HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/config" XDG_CACHE_HOME="$TMP/cache" MAHO_ROOT="$ROOT" bash "$INSTALL" install
 HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/config" XDG_CACHE_HOME="$TMP/cache" MAHO_ROOT="$ROOT" bash "$INSTALL" verify

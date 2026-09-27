@@ -183,8 +183,42 @@ def main() -> None:
         "verified live generation authority stays visible while full chain is unresolved",
         "SystemGeneration       Verified" in live_generation_trust
         and "KernelGeneration       Verified" in live_generation_trust
+        and "PackageGeneration      Verified" in live_generation_trust
         and "Overall trust          Unresolved" in live_generation_trust,
     )
+    completed_guardian = render(fixture(severity_level=0, incident=False), page="Guardian", width=120, height=35)
+    check(
+        "Guardian retains the last completed response without presenting it as active",
+        "LAST RESPONSE     Recovered" in completed_guardian
+        and "RECEIPT           recovery-receipt-fixture" in completed_guardian
+        and "WHEEL             Idle" in completed_guardian
+        and "RESULT            Recovered" in completed_guardian
+        and "PREVENTION        Shadow monitoring" in completed_guardian
+        and "Inactive Or No Evidence" not in completed_guardian,
+    )
+    idle_guardian_data = deepcopy(fixture(severity_level=0, incident=False).guardian)
+    idle_guardian_data["runtime_recovery"] = {"state": "none", "history_retained": False}
+    idle_guardian_data["response"] = {
+        "backend_state": "NONE",
+        "incident_id": None,
+        "receipt_id": None,
+        "wheel_spinning": False,
+        "automatic_authority": False,
+        "stages": {
+            "prevent": {"state": "not-applicable"},
+            "contain": {"state": "not-applicable"},
+            "recover": {"state": "waiting"},
+            "verify": {"state": "waiting"},
+        },
+    }
+    idle_guardian_model = rebuild(fixture(severity_level=0, incident=False), guardian=idle_guardian_data)
+    idle_guardian = render(idle_guardian_model, page="Guardian", width=120, height=35)
+    check(
+        "Guardian true idle state is distinct from retained history",
+        "IDLE              No active or retained Guardian response." in idle_guardian
+        and "LAST RESPONSE" not in idle_guardian,
+    )
+
     updates = render(model, page="Updates", width=120, height=35)
     check("Updates exposes disk reserve and reclaimable state", "Storage" in updates and "reclaimable 500" in updates and "reserve ready" in updates)
     recovery = render(model, page="Recovery", width=120, height=35)
@@ -320,7 +354,7 @@ def main() -> None:
     check("recovery summary describes capability, not generic readiness", fixture(incident=False).summary.recovery == "Runtime certified")
     grouped = attention_groups(model)
     trust_group = next(group for group in grouped if group.title == "Physical trust certification incomplete")
-    check("attention grouping preserves underlying diagnostics", set(trust_group.diagnostic_ids) == {"trust.current-generation", "trust.signed-boot", "provider.boot.authority"})
+    check("attention grouping preserves user-actionable trust diagnostics", set(trust_group.diagnostic_ids) == {"trust.current-generation", "trust.signed-boot"})
     overview = render(model)
     check("overview keeps system, Guardian, and trust distinct", all(value in overview for value in ("SYSTEM", "GUARDIAN", "TRUST", "Healthy", "Unresolved")))
     check("overview groups repeated trust symptoms", "Physical trust" in overview and "certification incomplete" in overview and "UNKNOWN" not in overview)
@@ -339,12 +373,18 @@ def main() -> None:
     guardian_active = render(model, page="Guardian", height=35)
     check("Guardian renders response lifecycle", all(value in guardian_active for value in ("PREVENT", "DETECT", "CONTAIN", "RECOVER", "VERIFY", "CURRENT", "Recover")))
     guardian_idle = render(fixture(severity_level=0, incident=False), page="Guardian", height=35)
-    check("Guardian idle view is calm L0 and does not invent prevention enforcement", "L0 Normal" in guardian_idle and "No active Guardian incident" in guardian_idle and "not active" in guardian_idle)
+    check(
+        "Guardian completed-response view is calm L0 and does not invent prevention enforcement",
+        "L0 Normal" in guardian_idle
+        and "LAST RESPONSE" in guardian_idle
+        and "Shadow monitoring" in guardian_idle
+        and "Production prevention enforcement" not in guardian_idle,
+    )
     optional = [item for item in model.diagnostics if item.id in {"provider.environment.power", "provider.environment.thermal"}]
     check("optional telemetry absence does not request attention", len(optional) == 2 and all(not item.attention and "Not available" in item.reason for item in optional))
     doctor = render(model, page="Doctor", height=40)
     check("Doctor defaults to attention-focused checks", "Doctor · Attention" in doctor and "PASS" not in doctor)
-    check("Doctor translates known trust reasons", "Not established" in doctor and "Awaiting certification" in doctor and "UNKNOWN" not in doctor)
+    check("Doctor translates known trust reasons", "Unresolved" in doctor and "Awaiting certification" in doctor and "UNKNOWN" not in doctor)
     ambiguous = DiagnosticRecord("fixture.ambiguous", "Fixture", "UNKNOWN", "Ambiguous evidence", "No exact reason is available.", (), "Inspect evidence.", False)
     check("genuinely ambiguous evidence remains Unknown", diagnostic_state_label(ambiguous) == "Unknown")
     check("Trust page refuses historical promotion", "Historical recovery proof" in render(model, page="Trust", height=35))
