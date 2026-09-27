@@ -648,9 +648,7 @@ class SystemAssemblyOps:
         if not microcode_source.is_file():
             raise RuntimeError("bound CPU microcode boot artifact is missing")
         microcode_target = normal / microcode_source.name
-        recovery_microcode_target = recovery / microcode_source.name
         shutil.copyfile(microcode_source, microcode_target)
-        shutil.copyfile(microcode_source, recovery_microcode_target)
         shutil.copyfile(sources["fallback-kernel"], recovery / "vmlinuz-linux-cachyos-lts")
         shutil.copyfile(sources["fallback-initramfs"], recovery / "initramfs-linux-cachyos-lts.img")
         primary_kernel = self._boot_artifact(destinations["primary-kernel"], "/EFI/MahoOS/Normal/vmlinuz-linux-cachyos", "kernel")
@@ -660,17 +658,12 @@ class SystemAssemblyOps:
         microcode = self._boot_artifact(microcode_target, f"/EFI/MahoOS/Normal/{microcode_target.name}", "microcode")
         recovery_kernel = self._boot_artifact(recovery / "vmlinuz-linux-cachyos-lts", "/EFI/MahoOS/Recovery/vmlinuz-linux-cachyos-lts", "kernel")
         recovery_initramfs = self._boot_artifact(recovery / "initramfs-linux-cachyos-lts.img", "/EFI/MahoOS/Recovery/initramfs-linux-cachyos-lts.img", "initramfs")
-        recovery_microcode = self._boot_artifact(
-            recovery_microcode_target,
-            f"/EFI/MahoOS/Recovery/{recovery_microcode_target.name}",
-            "microcode",
-        )
         normal_config = self._limine_config((
             ("MahoOS Primary", primary_kernel, (microcode, primary_initramfs), self._cmdline(plan)),
             ("MahoOS Fallback", fallback_kernel, (microcode, fallback_initramfs), self._cmdline(plan)),
         ))
         recovery_config = self._limine_config((
-            ("MahoOS Recovery", recovery_kernel, (recovery_microcode, recovery_initramfs), self._cmdline(plan, recovery=True)),
+            ("MahoOS Recovery", recovery_kernel, (recovery_initramfs,), self._cmdline(plan, recovery=True)),
         ))
         run_key = root / "var/lib/maho/installer/.boot-signing.key"
         run_cert = root / "var/lib/maho/installer/.boot-signing.crt"
@@ -700,7 +693,7 @@ class SystemAssemblyOps:
             recovery_loader, recovery_config_art = self._sign_loader(
                 root, clean, recovery_config, recovery / "limine.efi",
                 config_path="/EFI/MahoOS/Recovery/limine.conf",
-                required=(recovery_kernel, recovery_microcode, recovery_initramfs), signer=signer,
+                required=(recovery_kernel, recovery_initramfs), signer=signer,
             )
             # UEFI removable-media discovery avoids changing any firmware boot
             # variable. It is a byte-for-byte alias of the canonical normal
@@ -743,7 +736,6 @@ class SystemAssemblyOps:
         boot_paths = [
             normal / "limine.efi", normal / "limine.conf", recovery / "limine.efi",
             recovery / "limine.conf", *destinations.values(), microcode_target,
-            recovery_microcode_target,
             recovery / "vmlinuz-linux-cachyos-lts", recovery / "initramfs-linux-cachyos-lts.img",
             removable / "BOOTX64.EFI", removable / "limine.conf",
         ]
