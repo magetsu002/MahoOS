@@ -1,0 +1,17 @@
+[Unit]
+Description=Maho automatic maintenance coordinator
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator run
+UMask=0022
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

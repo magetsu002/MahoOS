@@ -1,0 +1,21 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+case "$ROOT" in
+  /usr/lib/maho/update-campaign/[0-9a-f][0-9a-f]*) ;;
+  *)
+    echo "maho-update-coordinator: refusing non-root-owned campaign payload: $ROOT" >&2
+    exit 1
+    ;;
+esac
+
+REV="$(cat "$ROOT/SOURCE_REVISION" 2>/dev/null || true)"
+if [[ ! "$REV" =~ ^[0-9a-f]{40}$ ]] || [[ "$ROOT" != "/usr/lib/maho/update-campaign/$REV" ]]; then
+  echo "maho-update-coordinator: installed source identity is invalid" >&2
+  exit 1
+fi
+
+unset PYTHONPATH PYTHONHOME
+export MAHO_UPDATE_CAMPAIGN_ROOT="$ROOT"
+exec /usr/bin/python "$ROOT/lib/maho_update_coordinator.py" "$@"

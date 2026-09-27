@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule Maho automatic maintenance coordination
+
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=true
+Unit=maho-update-coordinator.service
+
+[Install]
+WantedBy=timers.target
