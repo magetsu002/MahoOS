@@ -157,7 +157,7 @@ class SystemFirstBootObserver:
                 "btrfs_uuid": str(root_mount.get("uuid", "")),
                 "root_fsroot": str(root_mount.get("fsroot", "")),
                 "root_subvolume_uuid": self._subvolume_uuid("/"),
-                "home_subvolume_uuid": self._subvolume_uuid(f"/home/{user_name}"),
+                "home_subvolume_uuid": self._subvolume_uuid("/home"),
                 "luks_uuid": luks_uuid,
                 "mapper_name": mapper if str(root_mount.get("source", "")).split("[", 1)[0].endswith(mapper) else "",
                 "installation_uuid": identity.get("installation_uuid"),

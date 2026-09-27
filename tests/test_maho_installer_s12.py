@@ -616,6 +616,12 @@ def main() -> None:
     check("first-boot StartLimit directives are valid Unit directives", "StartLimitIntervalSec=" in unit_part and "StartLimitBurst=" in unit_part and "StartLimitIntervalSec=" not in service_part)
     check("first-boot service stops retrying after durable health", "ConditionPathExists=!/var/lib/maho/installer/installation-healthy.json" in unit_part)
 
+    firstboot_source = (ROOT / "lib/maho_installer_firstboot.py").read_text()
+    check(
+        "first boot binds @home identity from the /home mountpoint",
+        '"home_subvolume_uuid": self._subvolume_uuid("/home")' in firstboot_source
+        and 'self._subvolume_uuid(f"/home/{user_name}")' not in firstboot_source,
+    )
     system_source = (ROOT / "lib/maho_installer_system.py").read_text()
     cli_source = (ROOT / "bin/maho-installer").read_text()
     check("installer has no hidden reboot command", '("reboot"' not in system_source and '("systemctl", "reboot"' not in system_source and '"reboot"' not in cli_source)
