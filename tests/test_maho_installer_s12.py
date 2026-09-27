@@ -19,6 +19,7 @@ from maho_installer_execute import ASSEMBLY_PHASES, PHASES, STORAGE_PHASES
 from maho_installer_payload import (
     REQUIRED_PACKAGES,
     _canonical,
+    _repository_records,
     _validate_dependency_closure,
     validate_payload_manifest,
 )
@@ -95,8 +96,9 @@ def payload() -> dict:
             "provides": [],
         })
     material = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "maho-installer-payload",
+        "metadata_authority": "verified-package-archives",
         "source_revision": REV,
         "package_version": "1-1",
         "runtime_archive_sha256": "f" * 64,
@@ -104,9 +106,11 @@ def payload() -> dict:
             "name": "core",
             "database_file": "core.db",
             "database_sha256": "1" * 64,
-            "signature_file": "core.db.sig",
-            "signature_sha256": "2" * 64,
+            "signature_status": "upstream-unsigned-non-authoritative",
+            "signature_file": None,
+            "signature_sha256": None,
             "verification_evidence_sha256": "3" * 64,
+            "authoritative_for_payload": False,
         }],
         "packages": packages,
     }
@@ -325,6 +329,18 @@ def main() -> None:
     changed = copy.deepcopy(pl)
     changed["packages"][0]["version"] = "2-1"
     rejected("payload content tampering breaks exact identity", lambda: validate_payload_manifest(changed))
+    repository_authority = copy.deepcopy(pl)
+    repository_authority["repositories"][0]["authoritative_for_payload"] = True
+    rejected("unsigned repository database can never become payload authority", lambda: validate_payload_manifest(repository_authority))
+    with tempfile.TemporaryDirectory(prefix="maho-s12-repo-") as raw:
+        repo_dir = Path(raw)
+        core_db = repo_dir / "core.db"
+        core_db.write_bytes(b"exact solver metadata")
+        record = _repository_records({"core": core_db})[0]
+        check("official unsigned Arch DB is recorded as non-authoritative provenance", record["signature_status"] == "upstream-unsigned-non-authoritative" and record["authoritative_for_payload"] is False)
+        other_db = repo_dir / "other.db"
+        other_db.write_bytes(b"unsigned")
+        rejected("unsigned non-Arch repository database is rejected", lambda: _repository_records({"other": other_db}))
     _validate_dependency_closure([
         {"name": "provider", "provides": ["virtual=1"], "depends": []},
         {"name": "consumer", "provides": [], "depends": ["virtual>=1"]},

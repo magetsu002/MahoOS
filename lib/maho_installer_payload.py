@@ -20,6 +20,7 @@ REQUIRED_PACKAGES = {
     "linux-cachyos-lts", "linux-cachyos-lts-headers",
 }
 MICROCODE_PACKAGES = {"amd-ucode", "intel-ucode"}
+UNSIGNED_UPSTREAM_REPOSITORIES = {"core", "extra", "multilib"}
 
 
 def _canonical(value: Any) -> bytes:
@@ -90,28 +91,47 @@ def _validate_dependency_closure(packages: Sequence[Mapping[str, Any]]) -> None:
         raise ValueError(f"installer payload dependency closure is incomplete: {missing}")
 
 
-def _repository_records(repositories: Mapping[str, Path], *, run=_run) -> list[dict[str, str]]:
-    records: list[dict[str, str]] = []
+def _repository_records(repositories: Mapping[str, Path], *, run=_run) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     for name, path in sorted(repositories.items()):
         if not re.fullmatch(r"[a-zA-Z0-9._-]+", name) or not path.is_file():
             raise ValueError("repository database identity is invalid")
+        database_sha256 = _sha256_file(path)
         signature = path.with_name(path.name + ".sig")
-        if not signature.is_file():
-            raise ValueError(f"repository database signature is missing: {name}")
-        result = run(("pacman-key", "--verify", str(signature), str(path)))
-        if result.returncode != 0:
-            raise ValueError(f"repository database signature verification failed: {name}")
-        evidence = (result.stdout + "\n" + result.stderr).encode()
+        if signature.is_file():
+            result = run(("pacman-key", "--verify", str(signature), str(path)))
+            if result.returncode != 0:
+                raise ValueError(f"repository database signature verification failed: {name}")
+            evidence = (result.stdout + "\n" + result.stderr).encode()
+            signature_status = "verified-detached"
+            signature_file: str | None = signature.name
+            signature_sha256: str | None = _sha256_file(signature)
+        else:
+            if name not in UNSIGNED_UPSTREAM_REPOSITORIES:
+                raise ValueError(f"repository database signature is missing: {name}")
+            # Arch's official repository databases are unsigned upstream. They
+            # are solver/acquisition provenance only; exact package archives
+            # and their detached signatures remain the payload authority.
+            signature_status = "upstream-unsigned-non-authoritative"
+            signature_file = None
+            signature_sha256 = None
+            evidence = _canonical({
+                "status": signature_status,
+                "name": name,
+                "database_sha256": database_sha256,
+            })
         records.append({
             "name": name,
             "database_file": path.name,
-            "database_sha256": _sha256_file(path),
-            "signature_file": signature.name,
-            "signature_sha256": _sha256_file(signature),
+            "database_sha256": database_sha256,
+            "signature_status": signature_status,
+            "signature_file": signature_file,
+            "signature_sha256": signature_sha256,
             "verification_evidence_sha256": hashlib.sha256(evidence).hexdigest(),
+            "authoritative_for_payload": False,
         })
     if not records:
-        raise ValueError("at least one signed repository database is required")
+        raise ValueError("at least one repository database identity is required")
     return records
 
 
@@ -169,8 +189,9 @@ def build_payload_manifest(
         })
     _validate_dependency_closure(packages)
     material = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "maho-installer-payload",
+        "metadata_authority": "verified-package-archives",
         "source_revision": source_revision,
         "package_version": maho_version,
         "runtime_archive_sha256": runtime_archive_sha256,
@@ -189,14 +210,16 @@ def validate_payload_manifest(
     payload: Mapping[str, Any], *, package_dir: Path | None = None,
 ) -> dict[str, Any]:
     fields = {
-        "schema_version", "kind", "source_revision", "package_version",
+        "schema_version", "kind", "metadata_authority", "source_revision", "package_version",
         "runtime_archive_sha256", "repositories", "packages", "payload_sha256",
         "package_generation_id",
     }
     if not isinstance(payload, Mapping) or set(payload) != fields:
         raise ValueError("installer payload fields are invalid")
-    if payload.get("schema_version") != 1 or payload.get("kind") != "maho-installer-payload":
+    if payload.get("schema_version") != 2 or payload.get("kind") != "maho-installer-payload":
         raise ValueError("installer payload schema is unsupported")
+    if payload.get("metadata_authority") != "verified-package-archives":
+        raise ValueError("installer payload metadata authority is invalid")
     if _SHA40.fullmatch(str(payload.get("source_revision", ""))) is None:
         raise ValueError("payload source revision is invalid")
     if not payload.get("package_version") or _SHA256.fullmatch(str(payload.get("runtime_archive_sha256", ""))) is None:
@@ -210,8 +233,9 @@ def validate_payload_manifest(
     repository_names: set[str] = set()
     for item in repositories:
         required = {
-            "name", "database_file", "database_sha256", "signature_file",
-            "signature_sha256", "verification_evidence_sha256",
+            "name", "database_file", "database_sha256", "signature_status",
+            "signature_file", "signature_sha256", "verification_evidence_sha256",
+            "authoritative_for_payload",
         }
         if not isinstance(item, Mapping) or set(item) != required:
             raise ValueError("payload repository record is invalid")
@@ -219,13 +243,27 @@ def validate_payload_manifest(
         if not re.fullmatch(r"[a-zA-Z0-9._-]+", name) or name in repository_names:
             raise ValueError("payload repository identity is invalid")
         repository_names.add(name)
-        for field in ("database_sha256", "signature_sha256", "verification_evidence_sha256"):
-            if _SHA256.fullmatch(str(item[field])) is None:
-                raise ValueError("payload repository digest is invalid")
-        for field in ("database_file", "signature_file"):
-            value = str(item[field])
-            if PurePath(value).name != value:
-                raise ValueError("payload repository filename is invalid")
+        if _SHA256.fullmatch(str(item["database_sha256"])) is None or _SHA256.fullmatch(str(item["verification_evidence_sha256"])) is None:
+            raise ValueError("payload repository digest is invalid")
+        database_file = str(item["database_file"])
+        if PurePath(database_file).name != database_file:
+            raise ValueError("payload repository filename is invalid")
+        if item.get("authoritative_for_payload") is not False:
+            raise ValueError("repository database must not become payload authority")
+        status = item.get("signature_status")
+        if status == "verified-detached":
+            signature_file = item.get("signature_file")
+            if (
+                not isinstance(signature_file, str)
+                or PurePath(signature_file).name != signature_file
+                or _SHA256.fullmatch(str(item.get("signature_sha256", ""))) is None
+            ):
+                raise ValueError("signed repository database evidence is invalid")
+        elif status == "upstream-unsigned-non-authoritative":
+            if name not in UNSIGNED_UPSTREAM_REPOSITORIES or item.get("signature_file") is not None or item.get("signature_sha256") is not None:
+                raise ValueError("unsigned repository database provenance is invalid")
+        else:
+            raise ValueError("repository database signature status is invalid")
     if repositories != sorted(repositories, key=lambda item: str(item["name"])):
         raise ValueError("payload repository inventory is not canonical")
     names: set[str] = set()
@@ -267,7 +305,7 @@ def validate_payload_manifest(
         raise ValueError("payload required CPU microcode package is missing")
     _validate_dependency_closure(packages)
     material = {key: payload[key] for key in (
-        "schema_version", "kind", "source_revision", "package_version",
+        "schema_version", "kind", "metadata_authority", "source_revision", "package_version",
         "runtime_archive_sha256", "repositories", "packages",
     )}
     digest = hashlib.sha256(_canonical(material)).hexdigest()
