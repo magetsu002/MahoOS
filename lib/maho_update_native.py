@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ctypes
 import hashlib
 import json
 import os
@@ -507,6 +508,194 @@ class NativeBtrfsOps:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+    @staticmethod
+    def _rename_exchange(first: Path, second: Path) -> None:
+        """Atomically exchange two directory entries using renameat2(2)."""
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise RuntimeError("atomic rename exchange is unavailable")
+        renameat2.argtypes = (
+            ctypes.c_int, ctypes.c_char_p,
+            ctypes.c_int, ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        renameat2.restype = ctypes.c_int
+        at_fdcwd = -100
+        rename_exchange = 2
+        result = renameat2(
+            at_fdcwd, os.fsencode(first),
+            at_fdcwd, os.fsencode(second),
+            rename_exchange,
+        )
+        if result != 0:
+            err = ctypes.get_errno()
+            raise OSError(err, os.strerror(err), f"{first} <-> {second}")
+
+    def live_boot_hashes(self) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for artifact in BOOT_ARTIFACTS:
+            path = self.boot_root / Path(artifact).relative_to("/boot")
+            if path.is_symlink() or not path.is_file() or path.stat().st_size <= 0:
+                raise RuntimeError(f"live boot artifact is unsafe: {artifact}")
+            hashes[artifact] = sha256_file(path)
+        return hashes
+
+    def normal_activation_topology(
+        self,
+        *,
+        expected_candidate_uuid: str,
+        expected_parent_root_uuid: str,
+    ) -> str:
+        """Return PREPARED, ARMED, or UNSAFE for one normal activation handoff."""
+        self.require_root()
+        identity = self.root_identity()
+        self._mount_top(identity)
+        candidate = self.top / self.candidate
+        current = self.top / "@"
+        previous = self.top / self.backup
+        if current.exists() and candidate.exists() and not previous.exists():
+            current_uuid = self._show_uuid(current)
+            candidate_uuid = self._show_uuid(candidate)
+            if (
+                current_uuid == expected_parent_root_uuid
+                and candidate_uuid == expected_candidate_uuid
+                and self._read_only(candidate)
+            ):
+                return "PREPARED"
+            if (
+                current_uuid == expected_candidate_uuid
+                and candidate_uuid == expected_parent_root_uuid
+            ):
+                return "EXCHANGED_PENDING_BACKUP"
+            return "UNSAFE"
+        if current.exists() and previous.exists() and not candidate.exists():
+            if (
+                self._show_uuid(current) == expected_candidate_uuid
+                and self._show_uuid(previous) == expected_parent_root_uuid
+                and self._read_only(previous)
+            ):
+                return "ARMED"
+            return "UNSAFE"
+        return "UNSAFE"
+
+    def finalize_normal_activation_exchange(
+        self,
+        *,
+        expected_candidate_uuid: str,
+        expected_parent_root_uuid: str,
+        expected_boot_hashes: Mapping[str, str],
+    ) -> dict[str, Any]:
+        """Finish the exact post-exchange/pre-backup crash topology."""
+        self.require_root()
+        identity = self.root_identity()
+        self._mount_top(identity)
+        candidate = self.top / self.candidate
+        current = self.top / "@"
+        previous = self.top / self.backup
+        if (
+            not current.exists() or not candidate.exists() or previous.exists()
+            or self._show_uuid(current) != expected_candidate_uuid
+            or self._show_uuid(candidate) != expected_parent_root_uuid
+        ):
+            raise RuntimeError("normal activation exchange topology is not exact")
+        if self.live_boot_hashes() != dict(expected_boot_hashes):
+            raise RuntimeError("normal activation boot identity drifted during exchange reconciliation")
+        os.rename(candidate, previous)
+        self._set_read_only(previous, True)
+        if (
+            self._show_uuid(previous) != expected_parent_root_uuid
+            or not self._read_only(previous)
+            or self._show_uuid(current) != expected_candidate_uuid
+        ):
+            raise RuntimeError("normal activation exchange reconciliation failed")
+        if self.live_boot_hashes() != dict(expected_boot_hashes):
+            raise RuntimeError("normal activation unexpectedly changed boot artifacts")
+        return {
+            "candidate_uuid": expected_candidate_uuid,
+            "previous_root_uuid": expected_parent_root_uuid,
+            "previous_root_name": self.backup,
+            "boot_sha256": dict(expected_boot_hashes),
+            "boot_unchanged": True,
+            "package_manager_invoked": False,
+            "reboot_performed": False,
+            "firmware_mutated": False,
+            "reconciled_after_exchange_interruption": True,
+        }
+
+    def arm_root_activation(
+        self,
+        *,
+        expected_candidate_uuid: str,
+        expected_parent_root_uuid: str,
+    ) -> dict[str, Any]:
+        """Atomically select a frozen normal candidate as the next /@ root.
+
+        No package command and no boot publication occurs here.  The previous
+        known-good root is retained under the transaction-bound backup name.
+        """
+        self.require_root()
+        if _UUID.fullmatch(expected_candidate_uuid) is None or _UUID.fullmatch(expected_parent_root_uuid) is None:
+            raise ValueError("normal activation root identity is invalid")
+        identity = self.root_identity()
+        if identity.subvolume_uuid != expected_parent_root_uuid:
+            raise RuntimeError("live root identity drifted before normal activation")
+        self._mount_top(identity)
+        candidate = self.top / self.candidate
+        current = self.top / "@"
+        previous = self.top / self.backup
+        if not candidate.exists() or not current.exists() or previous.exists():
+            raise RuntimeError("normal activation subvolume topology is not exact")
+        if self._show_uuid(current) != expected_parent_root_uuid:
+            raise RuntimeError("normal activation current root UUID drifted")
+        if self._show_uuid(candidate) != expected_candidate_uuid or not self._read_only(candidate):
+            raise RuntimeError("normal activation candidate is not the exact frozen subvolume")
+
+        boot_before = self.live_boot_hashes()
+        exchanged = False
+        try:
+            self._set_read_only(candidate, False)
+            self._rename_exchange(current, candidate)
+            exchanged = True
+            # After exchange, candidate-name holds the previous known-good root.
+            if self._show_uuid(current) != expected_candidate_uuid:
+                raise RuntimeError("normal activation exchange did not select exact candidate")
+            if self._show_uuid(candidate) != expected_parent_root_uuid:
+                raise RuntimeError("normal activation exchange lost previous root identity")
+            os.rename(candidate, previous)
+            self._set_read_only(previous, True)
+            if self._show_uuid(previous) != expected_parent_root_uuid or not self._read_only(previous):
+                raise RuntimeError("normal activation previous root preservation failed")
+            boot_after = self.live_boot_hashes()
+            if boot_after != boot_before:
+                raise RuntimeError("normal activation unexpectedly changed boot artifacts")
+        except Exception:
+            # Best-effort rollback is safe only while the old root is still at
+            # the transaction candidate name.  Power-loss reconciliation is
+            # handled by the durable activation handoff, not by blind replay.
+            if exchanged and candidate.exists() and current.exists() and not previous.exists():
+                try:
+                    self._rename_exchange(current, candidate)
+                    self._set_read_only(candidate, True)
+                except Exception:
+                    pass
+            elif candidate.exists() and not exchanged:
+                try:
+                    self._set_read_only(candidate, True)
+                except Exception:
+                    pass
+            raise
+        return {
+            "candidate_uuid": expected_candidate_uuid,
+            "previous_root_uuid": expected_parent_root_uuid,
+            "previous_root_name": self.backup,
+            "boot_sha256": boot_before,
+            "boot_unchanged": True,
+            "package_manager_invoked": False,
+            "reboot_performed": False,
+            "firmware_mutated": False,
+        }
 
     def arm_activation(
         self,

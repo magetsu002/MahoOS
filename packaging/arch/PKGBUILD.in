@@ -143,9 +143,14 @@ package() {
     "$pkgdir/usr/lib/systemd/system/maho-update-coordinator.service"
   install -Dm644 "$source_root/config/systemd/system/maho-update-coordinator.timer" \
     "$pkgdir/usr/lib/systemd/system/maho-update-coordinator.timer"
+  install -Dm644 "$source_root/config/systemd/system/maho-update-activate-on-reboot.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-update-activate-on-reboot.service"
   install -d "$pkgdir/usr/lib/systemd/system/timers.target.wants"
   ln -s ../maho-update-coordinator.timer \
     "$pkgdir/usr/lib/systemd/system/timers.target.wants/maho-update-coordinator.timer"
+  install -d "$pkgdir/usr/lib/systemd/system/reboot.target.wants"
+  ln -s ../maho-update-activate-on-reboot.service \
+    "$pkgdir/usr/lib/systemd/system/reboot.target.wants/maho-update-activate-on-reboot.service"
   install -Dm644 "$source_root/config/tmpfiles.d/maho-firewall.conf" \
     "$pkgdir/usr/lib/tmpfiles.d/maho-firewall.conf"
   install -Dm644 "$source_root/config/polkit-1/actions/io.maho.prevention.policy" \

@@ -36,6 +36,9 @@ FILES=(
   lib/maho_update_normal.py
   lib/maho_update_normal_host.py
   lib/maho_update_normal_campaign.py
+  lib/maho_update_execution_authority.py
+  lib/maho_update_candidate_generation.py
+  lib/maho_update_automatic_execution.py
   lib/maho_update_preparation.py
   lib/maho_update_transaction.py
   lib/maho_update_receipts.py
@@ -50,6 +53,7 @@ FILES=(
   bin/maho-update-coordinator
   config/systemd/system/maho-update-coordinator.service
   config/systemd/system/maho-update-coordinator.timer
+  config/systemd/system/maho-update-activate-on-reboot.service
 )
 
 fail() { echo "maho-update-campaign-install: $*" >&2; exit 1; }

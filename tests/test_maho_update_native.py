@@ -304,6 +304,38 @@ def main() -> None:
         check("native query never uses legacy root or host dbpath", "--root" not in query and "--dbpath" not in query)
         check("native local payload path is preserved under sysroot", install[-1] == str(payload.resolve()))
 
+    with tempfile.TemporaryDirectory(prefix="maho-normal-root-activation-") as temporary:
+        base = Path(temporary)
+        ops = FixtureBtrfs(TX1, base)
+        _expected, old = seed_fixture(ops)
+        result = ops.arm_root_activation(
+            expected_candidate_uuid=CANDIDATE_UUID,
+            expected_parent_root_uuid=CURRENT_UUID,
+        )
+        check("normal activation atomically selects exact candidate /@", (ops.top / "@/.uuid").read_text().strip() == CANDIDATE_UUID)
+        check("normal activation retains exact previous known-good root", (ops.top / backup_name(TX1) / ".uuid").read_text().strip() == CURRENT_UUID)
+        check("normal activation consumes candidate topology", not (ops.top / candidate_name(TX1)).exists())
+        check("normal activation leaves every boot artifact unchanged", all((ops.boot_root / Path(a).relative_to('/boot')).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
+        check("normal root swap invokes no package manager or hidden reboot", result["package_manager_invoked"] is False and result["reboot_performed"] is False and result["firmware_mutated"] is False)
+
+    with tempfile.TemporaryDirectory(prefix="maho-normal-root-activation-rollback-") as temporary:
+        base = Path(temporary)
+        ops = FixtureBtrfs(TX2, base, fail_after_swap=True)
+        _expected, old = seed_fixture(ops)
+        try:
+            ops.arm_root_activation(
+                expected_candidate_uuid=CANDIDATE_UUID,
+                expected_parent_root_uuid=CURRENT_UUID,
+            )
+        except RuntimeError as exc:
+            check("normal root-swap verification failure is surfaced", "exchange did not select" in str(exc))
+        else:
+            raise AssertionError("forced normal root-swap failure unexpectedly succeeded")
+        check("failed normal root swap restores current known-good /@", (ops.top / "@/.uuid").read_text().strip() == CURRENT_UUID)
+        failed_candidate = ops.top / candidate_name(TX2)
+        check("failed normal root swap re-freezes candidate", failed_candidate.is_dir() and (failed_candidate / ".ro").exists())
+        check("failed normal root swap never changes boot artifacts", all((ops.boot_root / Path(a).relative_to('/boot')).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
+
     with tempfile.TemporaryDirectory(prefix="maho-m4b-native-") as temporary:
         base = Path(temporary)
         ops = FixtureBtrfs(TX1, base)

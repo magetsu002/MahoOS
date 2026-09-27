@@ -140,6 +140,59 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertIn("/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator run", service)
         self.assertIn("timers.target.wants/maho-update-coordinator.timer", package)
 
+    def test_explicit_reboot_hook_arms_activation_without_initiating_reboot(self):
+        service = (ROOT / "config/systemd/system/maho-update-activate-on-reboot.service").read_text()
+        package = (ROOT / "packaging/arch/PKGBUILD.in").read_text()
+        self.assertIn("activate-current", service)
+        self.assertIn("Before=shutdown.target umount.target final.target systemd-reboot.service", service)
+        self.assertIn("WantedBy=reboot.target", service)
+        self.assertNotIn("systemctl reboot", service)
+        self.assertNotIn("/sbin/reboot", service)
+        self.assertIn("reboot.target.wants/maho-update-activate-on-reboot.service", package)
+
+    def test_native_ready_fails_closed_before_mutation_without_exact_boot_generation_publication(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            env = {"MAHO_UPDATE_STATE_ROOT": state_tmp}
+            ready = transition_transaction(
+                prepared_tx(),
+                UpdateState.MAINTENANCE_READY,
+                reason="fixture native maintenance ready",
+                now=NOW,
+            )
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": ready["package_generation"]["id"],
+                "lane": "native",
+                "phase": "MAINTENANCE_READY",
+                "repository_hashes": {"core": "1" * 64},
+                "repository_observed_at": coordinator.stamp(NOW),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                publish_transaction(Path(state_tmp), ready)
+                result = coordinator._resume_owned(
+                    state,
+                    REV,
+                    "magetsu",
+                    {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+                stored = read_transaction(transaction_path(Path(state_tmp), TXID))
+            self.assertIsNotNone(result)
+            self.assertEqual(result["phase"], "BLOCKED")
+            self.assertEqual(
+                result["blockers"],
+                ["native_boot_generation_publication_unavailable"],
+            )
+            self.assertFalse(result["live_root_mutation_started"])
+            self.assertFalse(result["reboot_performed"])
+            self.assertEqual(stored["state"], "BLOCKED")
+            self.assertEqual(
+                stored["blockers"],
+                ["native_boot_generation_publication_unavailable"],
+            )
+
     def test_discovery_uses_isolated_database_not_live_pacman_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             backend = IsolatedPacmanDiscovery(Path(tmp) / "discovery")
