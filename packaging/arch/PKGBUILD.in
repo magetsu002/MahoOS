@@ -11,6 +11,8 @@ depends=(
   'python-cryptography'
   'systemd'
   'util-linux'
+  'cryptsetup'
+  'dosfstools'
   'libbpf'
   'polkit'
   'gnome-keyring'

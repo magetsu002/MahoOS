@@ -52,6 +52,8 @@ jobs:
           bsdtar -tf "$package" | sed 's#^\./##' > /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-install' /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-installer' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/lib/maho_installer_plan.py' /tmp/maho-package-files.txt
+          grep -Fxq 'usr/lib/maho/lib/maho_installer_execute.py' /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-files' /tmp/maho-package-files.txt
           grep -Fxq 'usr/share/applications/io.maho.Files.desktop' /tmp/maho-package-files.txt
           grep -Fxq 'usr/bin/maho-platform' /tmp/maho-package-files.txt

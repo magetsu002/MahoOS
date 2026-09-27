@@ -84,6 +84,7 @@ jobs:
             tests/session-contracts.sh \
             tests/shell-contracts.sh \
             tests/qemu-secure-boot-certification.sh \
+            tools/vm/installer-storage-integration.sh \
             packaging/arch/maho-installer-wrapper
 
       - name: Python syntax
@@ -131,7 +132,9 @@ jobs:
             tests/test_guardian_reliability.py \
             tests/test_guardian_completion_status.py \
             lib/maho_installer_plan.py \
+            lib/maho_installer_execute.py \
             tests/test_maho_installer_plan.py \
+            tests/test_maho_installer_execute.py \
             bin/maho-installer \
             config/quickshell/maho-shell/state.py \
             config/quickshell/maho-notify/state.py
@@ -269,6 +272,7 @@ jobs:
         run: |
           set -euo pipefail
           python tests/test_maho_installer_plan.py
+          python tests/test_maho_installer_execute.py
 
   setup-lifecycle:
     runs-on: ubuntu-latest

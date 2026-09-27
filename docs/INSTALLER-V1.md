@@ -30,7 +30,11 @@ layout.
 
 ## Current implementation boundary
 
-`maho-installer plan` is deliberately read-only.
+`maho-installer plan` is deliberately read-only. `maho-installer execute` is a
+separate root/PolicyKit boundary that accepts only the exact saved plan ID and
+`ERASE-MAHO:<plan-sha256>` challenge. Execution is limited to provably
+disposable loop-backed media or QEMU virtio disks whose serial begins with
+`MAHO-DISPOSABLE-`.
 
 It may:
 
@@ -40,7 +44,7 @@ It may:
 - describe the intended GPT/VFAT/Btrfs layout and ordered Maho assembly stages;
 - emit a plan identity and confirmation challenge.
 
-It may not:
+The planner may not:
 
 - repartition or format a device;
 - mount a target;
@@ -49,12 +53,13 @@ It may not:
 - enroll Secure Boot keys;
 - enable the Prevention Boundary;
 - manufacture SystemGeneration/KernelGeneration trust;
-- grant an execution authority.
+- grant mutation authority by itself.
 
-The read-only planner therefore reports:
+The read-only planner therefore reports the explicit privilege boundary while
+performing no mutation:
 
 ```text
-execution_authority = none
+execution_authority = root-or-policykit-required
 mutation_performed  = false
 ```
 
@@ -77,39 +82,50 @@ The plan also includes the exact Maho source revision, layout contract, assembly
 stages and current blockers. The destructive challenge is derived from the
 whole plan identity, not from a display name such as `/dev/nvme0n1`.
 
-Immediately before a future execution layer performs any mutation it must
-re-observe the device and rebuild the plan. Any identity or plan drift invalidates
-the old confirmation.
+The executor journals `OBSERVED` and `CONFIRMED`, then re-observes and rebuilds
+the plan immediately before creating GPT. Any path, major:minor, size, sector,
+serial, WWN, transport, or loop-backing drift aborts before the first write.
 
 ## Storage contract
 
-The planning contract currently requires:
+The V1 planning contract fixes:
 
 - GPT;
-- a VFAT ESP mounted at `/boot`;
-- Btrfs for the remaining root storage;
+- an exactly 4 GiB FAT32 ESP mounted at `/boot`;
+- LUKS2 over every remaining usable GPT sector;
+- Btrfs inside LUKS2;
 - Maho subvolumes `@`, `@home`, `@snapshots`, and `@var_log`.
 
-The current planner intentionally leaves the exact ESP size as an execution-time
-policy value. **That means the current read-only confirmation is not yet a
-partition-write authority.** Before destructive execution is implemented, the
-layout must become concrete (partition boundaries/sizes and identifiers) and the
-final destructive authority must bind that concrete layout.
+The plan records logical and physical sector sizes, primary and backup GPT
+boundaries, exact inclusive partition LBAs, GPT/partition/LUKS/Btrfs UUIDs,
+encryption parameters, the 128 GiB minimum, and the post-staging reserve limit
+`max(20 GiB, 15% of usable filesystem space)`. Disk swap, hibernation,
+multi-disk installation, and removable targets are forbidden.
+
+The durable execution journal advances only through:
+
+```text
+OBSERVED -> CONFIRMED -> GPT_CREATED -> ESP_FORMATTED -> LUKS_CREATED
+  -> LUKS_OPENED -> BTRFS_CREATED -> SUBVOLUMES_CREATED -> MOUNTED
+```
+
+On restart, every journaled postcondition is independently checked. A mutation
+that is ahead of the journal, a changed target, or an unverifiable phase aborts
+for manual inspection instead of repeating a destructive command.
 
 ## V1 safety rules
 
-A future execution layer must fail closed unless all of the following remain
-true at the mutation boundary:
+The execution layer fails closed unless all of the following remain true at the
+mutation boundary:
 
 1. the exact source revision is still the intended V1 candidate;
 2. the exact target disk observation still matches the confirmed plan;
 3. no target partition became mounted;
-4. the concrete partition layout is bound into the execution authority;
-5. required installation payloads are locally staged and verified;
-6. power/storage prerequisites are satisfied;
-7. no unrelated physical disk is writable through the installer;
-8. boot, generation and recovery evidence are created from facts produced by
-   the new installation rather than copied from another machine.
+4. the concrete partition layout is bound into the plan digest;
+5. the 128 GiB minimum and reserve calculation pass;
+6. the media is explicitly classified as disposable test media;
+7. the key arrives through a root-readable file rather than command arguments;
+8. the single journal lock proves one mutation owner.
 
 Physical firmware key enrollment and production Prevention activation remain
 separate explicit administrative certification steps.
