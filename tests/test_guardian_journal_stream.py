@@ -6,7 +6,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'lib'))
 from guardian_journal_stream import CursorProbe,StreamContinuity,begin_stream,mark_dropped,mark_event,mark_failed
-from guardian_service_watcher import _classify_cursor_probe
+from guardian_service_watcher import _classify_cursor_probe, _journal_bootstrap_argv, _parse_show_cursor
 
 def check(name,condition):
     if not condition: raise AssertionError(name)
@@ -32,4 +32,8 @@ check('probe classifier accepts valid resume',_classify_cursor_probe('cursor-a',
 check('probe classifier treats cursor seek error as invalid',_classify_cursor_probe('cursor-a',returncode=1,stderr='Failed to seek to cursor') is CursorProbe.INVALID)
 check('probe classifier treats source execution error as source failure',_classify_cursor_probe('cursor-a',source_error=True) is CursorProbe.SOURCE_FAILED)
 check('explicit stream failure remains failed',mark_failed(resumed,reason='event_source_eof').continuity is StreamContinuity.FAILED)
+tail_cursor='s=abc;i=123;b=' + BOOT + ';m=1;t=2;x=3'
+check('journal tail cursor is parsed even when no matching entries exist',_parse_show_cursor('-- No entries --\n-- cursor: '+tail_cursor+'\n')==tail_cursor)
+bootstrap_argv=_journal_bootstrap_argv()
+check('bootstrap cursor request is non-following and requests a durable cursor','--show-cursor' in bootstrap_argv and '--lines=0' in bootstrap_argv and '--follow' not in bootstrap_argv)
 print('ALL GUARDIAN JOURNAL STREAM TESTS PASS')
