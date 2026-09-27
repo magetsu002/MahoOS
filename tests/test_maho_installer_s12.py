@@ -398,6 +398,10 @@ def main() -> None:
         check("offline pacstrap uses ephemeral local-byte trust config", "-K" in install_cmd and "-C" in install_cmd and "-U" in install_cmd and "SigLevel = Never" in base_ops.offline_config_text)
         check("ephemeral bootstrap pacman config is removed", base_ops.offline_config_path is not None and not base_ops.offline_config_path.exists())
         check("target Arch keyring is populated after bootstrap", ("chroot", "pacman-key", "--populate", "archlinux") in base_ops.commands)
+        check(
+            "target-scoped pacman gpg-agent is quiesced before later unmount",
+            any(command[:2] == ("gpgconf", "--homedir") and command[-2:] == ("--kill", "gpg-agent") for command in base_ops.commands),
+        )
         relaxed = make_ops(BaseInstallOps, tmp, packages=pl["packages"], relaxed_target=True)
         rejected("relaxed signature policy may not persist in target", lambda: relaxed._phase_base_installed(p, pl, {}, tmp / "relaxed-target"))
 

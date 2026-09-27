@@ -269,6 +269,14 @@ class SystemAssemblyOps:
         # Restore ordinary Arch package trust inside the installed system from
         # the keyring package that was part of the verified closure.
         self._chroot(root, ("pacman-key", "--populate", "archlinux"))
+        # pacman-key may leave a target-scoped gpg-agent alive in the live
+        # environment. Its open homedir pins the target mount and can make the
+        # final clean unmount fail. Quiesce that helper as soon as keyring
+        # population is complete; the installed keyring contents are durable.
+        self._run((
+            "gpgconf", "--homedir", str(root / "etc/pacman.d/gnupg"),
+            "--kill", "gpg-agent",
+        ), check=False)
         target_pacman_conf = (root / "etc/pacman.conf").read_text(encoding="utf-8")
         active_policy = [
             line.split("#", 1)[0].strip()
