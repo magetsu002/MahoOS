@@ -61,6 +61,7 @@ def evaluate_maintenance(
     *,
     idle_threshold_seconds: int = 30 * 60,
     debt_attention_days: int = 30,
+    authority_evidence: Mapping[str, Any] | None = None,
     now=None,
 ) -> MaintenanceDecision:
     current = validate_transaction(transaction)
@@ -116,10 +117,17 @@ def evaluate_maintenance(
         authority = "certified-unattended-maintenance"
 
     if authority != "none":
+        evidence: dict[str, Any] = {
+            "authority": authority,
+            "idle_seconds": context.idle_seconds,
+            "locked": context.locked,
+        }
+        if authority_evidence is not None:
+            evidence["coordinator"] = dict(authority_evidence)
         ready = transition_transaction(
             current, UpdateState.MAINTENANCE_READY,
             reason="explicit or certified unattended maintenance authority granted",
-            evidence={"authority": authority, "idle_seconds": context.idle_seconds, "locked": context.locked},
+            evidence=evidence,
             now=now,
         )
         return MaintenanceDecision(

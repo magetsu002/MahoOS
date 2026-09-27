@@ -104,9 +104,32 @@ def _attach_normal_authority(
     return status
 
 
+def _coordinator_status(root: Path) -> dict[str, Any] | None:
+    path = root / "coordinator.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        return None
+    return value
+
+
+def _attach_coordinator(status: dict[str, Any], root: Path) -> dict[str, Any]:
+    coordinator = _coordinator_status(root)
+    status["coordinator"] = coordinator
+    status["coordinator_phase"] = coordinator.get("phase") if coordinator else None
+    status["update_debt_seconds"] = coordinator.get("update_debt_seconds", 0) if coordinator else 0
+    return status
+
+
 def _presentation_status(status: dict[str, Any]) -> str:
     blockers = status.get("blockers") if isinstance(status.get("blockers"), list) else []
+    coordinator = status.get("coordinator") if isinstance(status.get("coordinator"), dict) else {}
+    coordinator_blockers = coordinator.get("blockers") if isinstance(coordinator.get("blockers"), list) else []
     if blockers or status.get("attention_required") is True:
+        if coordinator_blockers:
+            return "Blocked: " + str(coordinator_blockers[0])
         return "Review required"
     receipt = status.get("receipt") if isinstance(status.get("receipt"), dict) else {}
     state = str(receipt.get("state") or status.get("authority_state") or "").upper()
@@ -116,12 +139,25 @@ def _presentation_status(status: dict[str, Any]) -> str:
         return "Recovering"
     if state == "RECOVERED":
         return "Recovered"
-    if state == "HEALTHY":
-        return "Healthy"
     if state == "ACTIVE_VERIFYING":
         return "Verifying"
     if state in {"INSTALLING", "INSTALLED_PENDING_ACTIVATION"}:
         return "Installing"
+    coordinator_phase = str(coordinator.get("phase") or "")
+    if coordinator_phase == "UP_TO_DATE":
+        return "Up to date"
+    if coordinator_phase in {"CHECKING", "COALESCED"}:
+        return "Checking"
+    if coordinator_phase in {"PREPARING", "WAITING_PREPARATION"}:
+        return "Preparing" if not coordinator_blockers else "Blocked: " + str(coordinator_blockers[0])
+    if coordinator_phase == "WAITING_MAINTENANCE":
+        return "Waiting for maintenance opportunity"
+    if coordinator_phase == "MAINTENANCE_READY":
+        return "Ready when safe"
+    if coordinator_phase in {"BLOCKED", "INVALIDATED", "RETRY_DEFERRED"}:
+        return "Blocked: " + str(coordinator_blockers[0] if coordinator_blockers else "automatic maintenance unavailable")
+    if state == "HEALTHY":
+        return "Healthy"
     if state in {"DISCOVERED", "STAGED"}:
         return "Preparing"
     if state in {"PREPARED", "MAINTENANCE_READY"}:
@@ -143,6 +179,7 @@ def status_payload(
             status = _attach_normal_authority(
                 unavailable_status(root), maho_root=maho_root, authority_path=authority_path,
             )
+            status = _attach_coordinator(status, root)
             status["presentation_status"] = _presentation_status(status)
             return status
         status = product_status(transaction, history=history)
@@ -150,6 +187,7 @@ def status_payload(
         status = _attach_normal_authority(
             status, maho_root=maho_root, authority_path=authority_path,
         )
+        status = _attach_coordinator(status, root)
         status["presentation_status"] = _presentation_status(status)
         return status
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
@@ -157,6 +195,7 @@ def status_payload(
             failed_closed_status("authoritative_update_state_unreadable"),
             maho_root=maho_root, authority_path=authority_path,
         )
+        status = _attach_coordinator(status, root)
         status["presentation_status"] = _presentation_status(status)
         return status
 
