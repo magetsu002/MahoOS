@@ -567,6 +567,29 @@ def main() -> None:
         current.symlink_to("/home/magetsu/.local/share/maho/runtime/releases/abc")
         check("target absolute runtime symlink resolves inside installed root", ops._target_symlink_release(root, current) == release.resolve())
 
+    with tempfile.TemporaryDirectory(prefix="maho-s12-wrapper-") as raw:
+        fake_root = Path(raw) / "packaged"
+        (fake_root / "bin").mkdir(parents=True)
+        fake_installer = fake_root / "bin/maho-installer"
+        fake_installer.write_text(
+            "import os,sys\nprint(os.environ.get('MAHO_ROOT',''))\nprint(' '.join(sys.argv[1:]))\n",
+            encoding="utf-8",
+        )
+        wrapper = ROOT / "packaging/arch/maho-installer-wrapper"
+        env = dict(os.environ)
+        env.pop("HOME", None)
+        env.pop("XDG_DATA_HOME", None)
+        env["MAHO_PACKAGED_ROOT"] = str(fake_root)
+        probe = subprocess.run(
+            ["bash", str(wrapper), "--system-service-probe"],
+            env=env, text=True, capture_output=True, check=False,
+        )
+        check(
+            "packaged installer wrapper works without HOME in system service environment",
+            probe.returncode == 0
+            and probe.stdout.splitlines() == [str(fake_root), "--system-service-probe"],
+        )
+
     firstboot_unit = (ROOT / "config/systemd/system/maho-installer-firstboot.service").read_text()
     unit_part, service_part = firstboot_unit.split("[Service]", 1)
     check("first-boot StartLimit directives are valid Unit directives", "StartLimitIntervalSec=" in unit_part and "StartLimitBurst=" in unit_part and "StartLimitIntervalSec=" not in service_part)
