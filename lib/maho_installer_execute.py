@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,11 +25,20 @@ from maho_installer_plan import (
     validate_plan_integrity,
 )
 
-PHASES = (
+STORAGE_PHASES = (
     "OBSERVED", "CONFIRMED", "GPT_CREATED", "ESP_FORMATTED", "LUKS_CREATED",
     "LUKS_OPENED", "BTRFS_CREATED", "SUBVOLUMES_CREATED", "MOUNTED",
 )
-MUTATING_PHASES = PHASES[2:]
+ASSEMBLY_PHASES = (
+    "PAYLOAD_VERIFIED", "BASE_INSTALLED", "IDENTITIES_CREATED", "USERS_CREATED",
+    "RUNTIME_INSTALLED", "KERNELS_INSTALLED", "INITRAMFS_BUILT",
+    "BOOT_GENERATION_PUBLISHED", "RECOVERY_INSTALLED", "SERVICES_INSTALLED",
+    "SYSTEM_GENERATION_PUBLISHED", "INSTALL_RECEIPT_WRITTEN",
+    "PENDING_FIRST_BOOT", "UNMOUNTED",
+)
+FIRST_BOOT_PHASES = ("FIRST_BOOT_VERIFYING", "INSTALLATION_HEALTHY")
+PHASES = STORAGE_PHASES + ASSEMBLY_PHASES + FIRST_BOOT_PHASES
+MUTATING_PHASES = STORAGE_PHASES[2:]
 
 
 class SimulatedInterruption(RuntimeError):
@@ -96,14 +106,24 @@ def _read_journal(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _checkpoint(path: Path, journal: Mapping[str, Any], phase: str) -> dict[str, Any]:
+def _checkpoint(
+    path: Path, journal: Mapping[str, Any], phase: str,
+    *, evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     previous = str(journal["phase"])
     if PHASES.index(phase) != PHASES.index(previous) + 1:
         raise RuntimeError(f"illegal installer phase transition: {previous} -> {phase}")
     updated = dict(journal)
     updated["phase"] = phase
     updated.pop("in_progress_phase", None)
-    updated["history"] = list(journal["history"]) + [{"phase": phase, "recorded_at": _now()}]
+    event: dict[str, Any] = {"phase": phase, "recorded_at": _now()}
+    if evidence is not None:
+        evidence_bytes = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+        event["evidence_sha256"] = hashlib.sha256(evidence_bytes).hexdigest()
+        records = dict(journal.get("phase_evidence") or {})
+        records[phase] = dict(evidence)
+        updated["phase_evidence"] = records
+    updated["history"] = list(journal["history"]) + [event]
     _write_json_durable(path, updated)
     return updated
 
@@ -218,8 +238,10 @@ def execute_storage_plan(
             )
             journal = _checkpoint(journal_path, journal, "CONFIRMED")
 
-        start_index = PHASES.index(journal["phase"])
-        for phase in PHASES[start_index + 1:]:
+        if journal["phase"] not in STORAGE_PHASES:
+            return journal
+        start_index = STORAGE_PHASES.index(journal["phase"])
+        for phase in STORAGE_PHASES[start_index + 1:]:
             if phase == "GPT_CREATED":
                 # This is deliberately adjacent to the first write.
                 observed = owner.observe(device)

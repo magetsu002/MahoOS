@@ -144,6 +144,10 @@ package() {
     "$pkgdir/usr/lib/systemd/system/maho-firewall-observer.service"
   install -Dm644 "$source_root/config/systemd/system/maho-firewall-observer.timer" \
     "$pkgdir/usr/lib/systemd/system/maho-firewall-observer.timer"
+  install -Dm644 "$source_root/config/systemd/system/maho-firewall.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-firewall.service"
+  install -Dm644 "$source_root/config/systemd/system/maho-installer-firstboot.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-installer-firstboot.service"
   install -Dm644 "$source_root/config/systemd/system/maho-update-coordinator.service" \
     "$pkgdir/usr/lib/systemd/system/maho-update-coordinator.service"
   install -Dm644 "$source_root/config/systemd/system/maho-update-coordinator.timer" \

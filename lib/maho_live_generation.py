@@ -7,7 +7,7 @@ promoted into an invented parent lineage.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
@@ -264,6 +264,112 @@ def publish_live_generations(
     _write_atomic(root / "manifests/kernel" / f"{kernel.kernel_generation_id}.json", (kernel.canonical_manifest() + "\n").encode())
     _write_atomic(root / "evidence/compatibility" / f"{system.generation_id}--{kernel.kernel_generation_id}.json", _json_bytes(compatibility_payload) + b"\n")
     _write_atomic(root / "publications" / f"{txid}.json", _json_bytes(publication) + b"\n")
+    _write_atomic(root / "live.json", _json_bytes(publication) + b"\n")
+    return publication
+
+
+def publish_initial_live_generations(
+    receipt: Mapping[str, Any], observation: Mapping[str, Any], *,
+    root: Path = GENERATION_ROOT,
+) -> dict[str, Any]:
+    """Promote an independently observed initial install without update lineage.
+
+    This uses the same SystemGeneration, KernelGeneration, compatibility, and
+    live-publication contracts as post-update publication.  The identities do
+    not change when UNKNOWN becomes VERIFIED because trust is deliberately not
+    identity material.
+    """
+    required_receipt = {
+        "system_generation_id", "kernel_generation_id", "package_generation_id",
+        "source_revision", "installation_uuid", "install_attempt_id", "recovery_identity",
+    }
+    if not required_receipt.issubset(receipt):
+        raise ValueError("initial generation receipt is incomplete")
+    generations = observation.get("generations")
+    storage = observation.get("storage")
+    boot = observation.get("boot")
+    if not all(isinstance(item, Mapping) for item in (generations, storage, boot)):
+        raise ValueError("initial generation observation is incomplete")
+    assert isinstance(generations, Mapping) and isinstance(storage, Mapping) and isinstance(boot, Mapping)
+    for key in ("system_generation_id", "kernel_generation_id", "package_generation_id", "boot_generation_id"):
+        if generations.get(key) != receipt.get(key):
+            raise ValueError(f"initial live {key} does not match receipt")
+    if storage.get("btrfs_uuid") != receipt.get("storage", {}).get("btrfs_uuid") or storage.get("root_fsroot") != "/@":
+        raise ValueError("initial live root does not match receipt")
+    if boot.get("running_kernel") != receipt.get("kernel", {}).get("primary_release"):
+        raise ValueError("initial live kernel does not match receipt")
+    if boot.get("boot_sha256") != receipt.get("boot", {}).get("boot_sha256"):
+        raise ValueError("initial live boot artifacts do not match receipt")
+
+    system_path = root / "manifests/system" / f"{receipt['system_generation_id']}.json"
+    kernel_path = root / "manifests/kernel" / f"{receipt['kernel_generation_id']}.json"
+    try:
+        system = SystemGeneration.parse(json.loads(system_path.read_text(encoding="utf-8")))
+        kernel = KernelGeneration.parse(json.loads(kernel_path.read_text(encoding="utf-8")))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError("initial generation manifests are invalid") from exc
+    if str(system.generation_id) != receipt["system_generation_id"] or str(kernel.kernel_generation_id) != receipt["kernel_generation_id"]:
+        raise ValueError("initial generation manifest identity drifted")
+    if system.kernel_generation_id != kernel.kernel_generation_id:
+        raise ValueError("initial system/kernel generation pair is incoherent")
+    verified_system = replace(system, trust_state=TrustState.VERIFIED)
+    verified_kernel = replace(kernel, trust_state=TrustState.VERIFIED)
+    compatibility = CompatibilityEvidence(
+        system_generation_id=verified_system.generation_id,
+        kernel_generation_id=verified_kernel.kernel_generation_id,
+        root_manifest_sha256=verified_system.root_identity.root_manifest_sha256,
+        filesystem_identity=verified_system.root_identity.filesystem_identity,
+        kernel_abi=verified_kernel.kernel_abi,
+        modules_abi=verified_kernel.modules_abi,
+        verifier_identity=f"maho-installer-firstboot:{receipt['source_revision']}",
+        independently_verified=True,
+    )
+    if not can_boot(verified_kernel, verified_system, compatibility):
+        raise ValueError("initial generation compatibility evidence is invalid")
+    pending_path = root / "initial-pending.json"
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("initial generation pending publication is unavailable") from exc
+    root_artifact = str(pending.get("root_manifest_artifact_id", ""))
+    artifact_id = ArtifactID(root_artifact)
+    digest = str(artifact_id).removeprefix("art-")
+    try:
+        root_bytes = (root / "artifacts/sha256" / digest[:2] / digest[2:]).read_bytes()
+    except OSError as exc:
+        raise ValueError("initial root manifest artifact is unavailable") from exc
+    if ArtifactID.from_content(root_bytes) != artifact_id or _sha256(root_bytes) != verified_system.root_identity.root_manifest_sha256:
+        raise ValueError("initial root manifest artifact does not match SystemGeneration")
+    compatibility_payload = {
+        "schema_version": 1, **compatibility.__dict__,
+        "system_generation_id": str(compatibility.system_generation_id),
+        "kernel_generation_id": str(compatibility.kernel_generation_id),
+    }
+    cmdline = str(boot.get("cmdline", ""))
+    publication = {
+        "schema_version": 1, "kind": "maho-live-generation-publication",
+        "system_generation_id": str(verified_system.generation_id),
+        "kernel_generation_id": str(verified_kernel.kernel_generation_id),
+        "transaction_id": receipt["install_attempt_id"],
+        "native_transaction_id": str(verified_system.transaction_id),
+        "source_revision": receipt["source_revision"],
+        "publisher_source_revision": receipt["source_revision"],
+        "package_generation_id": receipt["package_generation_id"],
+        "filesystem_uuid": storage["btrfs_uuid"],
+        "root_subvolume_uuid": str(storage.get("root_subvolume_uuid", "")),
+        "fsroot": storage["root_fsroot"],
+        "running_kernel": boot["running_kernel"],
+        "cmdline_sha256": _sha256(cmdline.encode()),
+        "boot_sha256": dict(sorted(boot["boot_sha256"].items())),
+        "root_manifest_artifact_id": root_artifact,
+        "recovery_generation_id": receipt["recovery_identity"],
+        "initial_installation_uuid": receipt["installation_uuid"],
+    }
+    publication["publication_id"] = str(ArtifactID.from_content(_json_bytes(publication)))
+    _write_atomic(system_path, (verified_system.canonical_manifest() + "\n").encode())
+    _write_atomic(kernel_path, (verified_kernel.canonical_manifest() + "\n").encode())
+    _write_atomic(root / "evidence/compatibility" / f"{verified_system.generation_id}--{verified_kernel.kernel_generation_id}.json", _json_bytes(compatibility_payload) + b"\n")
+    _write_atomic(root / "publications" / f"install-{receipt['install_attempt_id']}.json", _json_bytes(publication) + b"\n")
     _write_atomic(root / "live.json", _json_bytes(publication) + b"\n")
     return publication
 

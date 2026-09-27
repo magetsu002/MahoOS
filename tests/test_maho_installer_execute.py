@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 from maho_installer_execute import (  # noqa: E402
     MUTATING_PHASES,
     PHASES,
+    STORAGE_PHASES,
     SimulatedInterruption,
     execute_storage_plan,
 )
@@ -247,7 +248,7 @@ def main() -> None:
         tmp = Path(raw)
         ops = FakeOps()
         journal = invoke(plan, tmp, ops)
-        check("clean run records every required phase", [row["phase"] for row in journal["history"]] == list(PHASES))
+        check("clean storage run records every required phase", [row["phase"] for row in journal["history"]] == list(STORAGE_PHASES))
         check("target is observed at planning gate, confirmation gate, and immediately pre-write", ops.observations >= 3)
 
     print("ALL MAHO INSTALLER EXECUTION CONTRACTS PASS")

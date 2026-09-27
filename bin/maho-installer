@@ -11,6 +11,9 @@ ROOT = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.paren
 sys.path.insert(0, str(ROOT / "lib"))
 
 from maho_installer_execute import execute_storage_plan  # noqa: E402
+from maho_installer_assembly import assemble_installed_system  # noqa: E402
+from maho_installer_firstboot import run_first_boot  # noqa: E402
+from maho_installer_payload import build_payload_manifest, load_payload_manifest  # noqa: E402
 from maho_installer_plan import (  # noqa: E402
     build_install_plan,
     load_or_create_install_attempt,
@@ -45,6 +48,25 @@ def parser() -> argparse.ArgumentParser:
         "--via-polkit", action="store_true",
         help="cross the explicit PolicyKit boundary with pkexec when not already root",
     )
+
+    payload = sub.add_parser("payload", help="verify and bind one fully downloaded installation payload")
+    payload.add_argument("package_dir", type=Path)
+    payload.add_argument("--repository", action="append", required=True, metavar="NAME=DATABASE")
+    payload.add_argument("--output", required=True, type=Path)
+
+    assemble = sub.add_parser("assemble", help="continue one mounted storage transaction into an installed system")
+    assemble.add_argument("plan", type=Path)
+    assemble.add_argument("--payload", required=True, type=Path)
+    assemble.add_argument("--payload-dir", required=True, type=Path)
+    assemble.add_argument("--journal", required=True, type=Path)
+    assemble.add_argument("--mount-root", required=True, type=Path)
+    assemble.add_argument("--user", required=True)
+    assemble.add_argument("--hostname", required=True)
+    assemble.add_argument("--password-file", required=True, type=Path)
+    assemble.add_argument("--storage-key-file", required=True, type=Path)
+    assemble.add_argument("--recovery-key-output", required=True, type=Path)
+
+    sub.add_parser("first-boot", help="observe and certify the exact installed system")
     return command
 
 
@@ -70,10 +92,32 @@ def _polkit_reexec() -> None:
     os.execvp("pkexec", ["pkexec", sys.executable, "-B", str(Path(__file__).resolve()), *arguments])
 
 
+def _repositories(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for value in values:
+        name, separator, raw_path = value.partition("=")
+        if not separator or not name or name in result:
+            raise ValueError("repository arguments must be unique NAME=DATABASE pairs")
+        result[name] = Path(raw_path)
+    return result
+
+
 def main() -> None:
     args = parser().parse_args()
     try:
         source_revision = runtime_source_revision(ROOT)
+        if args.command == "payload":
+            payload = build_payload_manifest(
+                args.package_dir, source_revision=source_revision,
+                repositories=_repositories(args.repository),
+            )
+            _write_new(args.output, payload)
+            print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+            return
+        if args.command == "first-boot":
+            result = run_first_boot()
+            print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+            raise SystemExit(0 if result["state"] == "INSTALLATION_HEALTHY" else 1)
         if args.command == "plan":
             attempt_id = load_or_create_install_attempt(args.attempt_state)
             payload = build_install_plan(
@@ -106,6 +150,22 @@ def main() -> None:
                     print("Confirmation: " + payload["destructive_confirmation"])
                 print("Execution scope: disposable test media only; root/PolicyKit required")
             raise SystemExit(0 if payload["ready_for_destructive_confirmation"] else 1)
+
+        if args.command == "assemble":
+            from maho_installer_system import SystemAssemblyOps
+            plan = _read_plan(args.plan)
+            payload = load_payload_manifest(args.payload, package_dir=args.payload_dir)
+            journal = assemble_installed_system(
+                plan, payload, journal_path=args.journal,
+                mount_root=args.mount_root,
+                ops=SystemAssemblyOps(
+                    payload_dir=args.payload_dir, user_name=args.user, host_name=args.hostname,
+                    password_file=args.password_file, storage_key_file=args.storage_key_file,
+                    recovery_key_output=args.recovery_key_output,
+                ),
+            )
+            print(json.dumps(journal, sort_keys=True, separators=(",", ":")))
+            return
 
         if os.geteuid() != 0 and args.via_polkit:
             _polkit_reexec()
