@@ -67,6 +67,15 @@ class SystemFirstBootObserver:
             raise RuntimeError(f"shadow account observation is unavailable: {account}")
         return fields[1]
 
+    def _luks_uuid(self, device: str) -> str:
+        if not device.startswith("/dev/"):
+            raise RuntimeError("active LUKS backing device identity is invalid")
+        result = self._run(("blkid", "-s", "UUID", "-o", "value", device))
+        value = result.stdout.strip()
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", value):
+            raise RuntimeError("active LUKS UUID observation is unavailable")
+        return value.lower()
+
     def _subvolume_uuid(self, target: str) -> str:
         result = self._run(("btrfs", "subvolume", "show", target))
         value = next(
@@ -121,7 +130,7 @@ class SystemFirstBootObserver:
              if line.strip().startswith("device:")),
             "",
         )
-        luks_uuid = self._run(("cryptsetup", "luksUUID", device)).stdout.strip() if device else ""
+        luks_uuid = self._luks_uuid(device) if device else ""
         pending = json.loads((GENERATION_ROOT / "initial-pending.json").read_text(encoding="utf-8"))
         user_name = expected["user"]["name"]
         runtime_root = Path(f"/home/{user_name}/.local/share/maho/runtime")

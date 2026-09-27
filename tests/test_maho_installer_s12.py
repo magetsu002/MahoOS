@@ -30,6 +30,7 @@ from maho_installer_receipt import (
     certify_first_boot,
     validate_install_receipt,
 )
+from maho_installer_firstboot import SystemFirstBootObserver
 from maho_installer_system import SystemAssemblyOps
 
 REV = "a" * 40
@@ -277,6 +278,19 @@ def private_file(root: Path, name: str, value: bytes) -> Path:
 
 
 
+class LuksUUIDObserver(SystemFirstBootObserver):
+    def __init__(self):
+        self.commands = []
+
+    def _run(self, command, *, check=True):
+        self.commands.append(tuple(command))
+        if command[0] == "cryptsetup" and "luksUUID" in command:
+            raise AssertionError("first boot must not lock the active LUKS backing device")
+        if command[0] == "blkid":
+            return subprocess.CompletedProcess(command, 0, stdout="C9B82242-6104-56BB-840D-D1D31D117743\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+
 class UnmountProbeOps(SystemAssemblyOps):
     def _run(self, command, *, input_bytes=None, check=True):
         if command[:2] == ("findmnt", "--mountpoint"):
@@ -477,6 +491,13 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="maho-s12-mount-") as raw:
         rejected("wrong mounted target identity blocks before mutation", lambda: invoke_assembly(Path(raw), p, pl, FakeAssemblyOps(mount_ok=False)))
+
+    luks_observer = LuksUUIDObserver()
+    check(
+        "first boot observes active LUKS UUID without taking a cryptsetup metadata lock",
+        luks_observer._luks_uuid("/dev/vda2") == "c9b82242-6104-56bb-840d-d1d31d117743"
+        and luks_observer.commands == [("blkid", "-s", "UUID", "-o", "value", "/dev/vda2")],
+    )
 
     evidence = receipt_evidence(p, pl)
     receipt = build_install_receipt(p, pl, evidence)
