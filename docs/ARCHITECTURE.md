@@ -54,6 +54,19 @@ Important system changes are tied to exact identities and expected effects.
 When Maho cannot prove that a change is safe or that recovery succeeded, it
 stops instead of guessing.
 
+## V1 status boundary
+
+The 2026-09-25 pre-installer architecture freeze records frozen design decisions,
+not the current project gate. That historical gate was subsequently completed and
+`v1-preinstaller-rc0` now exists.
+
+Current V1 product work continues on installer + certified first boot, automatic
+maintenance/update coordination, bad-update recovery closure, production
+Prevention VM certification after the installer VM exists, fresh-install
+reproducibility, and physical Signed Boot/hardware release gates. None of those
+lanes weaken the fail-closed trust model described above.
+
 For deeper implementation details, see
-[Prevention Boundary](PREVENTION-BOUNDARY.md) and
-[Signed Boot Authority](SIGNED-BOOT-AUTHORITY.md).
+[Prevention Boundary](PREVENTION-BOUNDARY.md),
+[Signed Boot Authority](SIGNED-BOOT-AUTHORITY.md), and the
+[V1 pre-installer architecture freeze](V1-PREINSTALLER-ARCHITECTURE-FREEZE.md).

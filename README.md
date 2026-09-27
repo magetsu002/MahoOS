@@ -48,12 +48,20 @@ so the whole system stays visually consistent without manual tweaking.
 
 MahoOS is still pre-V1.
 
-The desktop is usable. Recovery has extensive automated and VM failure testing,
-and the production kernel update path is currently going through physical
-certification.
+The historical pre-installer gate is complete. The `v1-preinstaller-rc0` tag
+points to `2d138aa930031f63b4c15a9234a11ce69a26f5e3`, and current main is
+`4fedab78d31109025855eb30f425f677f97b6b7d`.
 
-The installer and ISO are not ready yet. Physical signed-boot certification and
-final release hardening are also unfinished.
+The desktop is usable, recovery has extensive automated and VM failure testing,
+and the production kernel update path has transaction-backed physical
+certification. Immutable runtime deployment, persistence baseline transition
+authority, and the boot-bound firewall receipt path are no longer pre-installer
+blockers.
+
+Current V1 work is the installer and certified first boot, automatic
+maintenance/update coordination, bad-update recovery closure, production
+Prevention VM certification after the installer VM exists, fresh-install
+reproducibility, and the physical Signed Boot/hardware release gates.
 
 ## Learn more
 

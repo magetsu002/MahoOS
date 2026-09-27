@@ -1,12 +1,38 @@
 # MahoOS V1 pre-installer architecture freeze
 
-Status: **architecture decisions frozen; installer start gate NOT MET**
+Status: **historical pre-installer architecture freeze; gate subsequently met; RC0 exists**
 
 Decision date: 2026-09-25
 
 Baseline source: `09f2eddc91c8480698afe1dcc4493c72f0b1b6b8`
 
-This is the canonical V1 contract an installer must implement. It does not authorize installer execution and does not claim final-source VM or physical certification.
+Closure milestone: `v1-preinstaller-rc0` →
+`2d138aa930031f63b4c15a9234a11ce69a26f5e3` (2026-09-26)
+
+This is the canonical V1 architecture contract the installer must preserve. It is
+not a current execution gate and does not by itself claim final physical release
+certification. The original 2026-09-25 gate result is historical; the frozen
+architecture decisions below remain authoritative.
+
+## Historical pre-installer freeze vs current V1 product requirements
+
+The pre-installer gate associated with this freeze was later closed and RC0 was
+created. The historical certification report remains a point-in-time evidence
+record and must not be read as the current blocker list.
+
+Current active V1 lanes are:
+
+- installer + certified first boot
+- automatic maintenance/update coordination
+- bad-update recovery closure
+- production Prevention VM certification after the installer VM exists
+- fresh-install reproducibility
+- physical Signed Boot/hardware release gates
+
+Verified persistence baseline transitions, production immutable runtime
+deployment, and the boot-bound firewall receipt/activation path are no longer
+pre-installer blockers. Their fail-closed semantics remain part of the frozen
+architecture.
 
 ## Frozen V1 architecture
 
@@ -20,7 +46,7 @@ This is the canonical V1 contract an installer must implement. It does not autho
 - **Runtime:** source or signed packaged provenance builds a content-addressed immutable runtime. Production checkout deployment requires a clean source and same/forward ancestry relative to the current runtime. Dirty, divergent, or older source requires explicit `--development` and is permanently not production-trust-eligible. Switches are atomic, interrupted activation restores the prior verified runtime, and rollback is explicit/auditable. Guardian consumes but cannot create runtime trust.
 - **Guardian/trust:** Guardian detects, explains, recovers and verifies. Providers own their evidence; Guardian does not rewrite facts. Missing or stale evidence is `UNKNOWN`. Root privilege alone, command success, package success, and historical proof grant no trust. One exact, identity-bound, expiring mutation owner exists per operation.
 - **Recovery:** the smallest eligible known-good state wins: runtime before kernel, kernel before system root. Recovery selection requires intact current evidence and an exact certified executor. `/home` is outside root rollback. Failed verification remains unresolved and loop protection prevents repeated automatic recovery.
-- **Prevention:** V1 choice is **B: physical BPF-LSM enforcement ships disabled/inactive**. For V1, PREVENT means Admission and transaction preflight reject unsafe Maho-owned candidates before mutation; it is not a claim of host-wide command interception. The tested Mutation Boundary remains available for future certification and must not be weakened or casually enabled.
+- **Prevention (historical pre-installer staging decision):** at the 2026-09-25 freeze and through RC0, physical BPF-LSM Mutation Boundary enforcement remained disabled/inactive on the daily driver. PREVENT at that stage meant Admission and transaction preflight rejecting unsafe Maho-owned candidates before mutation; RC0 did not claim host-wide command interception or activate production enforcement. Daily-driver activation remains forbidden until the existing protected-state Mutation Boundary passes hostile, bypass, false-positive, and break-glass certification in fresh disposable installed Maho VMs. That production certification is now an active V1 release gate; after it passes, the certified Mutation Boundary may graduate into the V1 installed product without expanding its accepted protected-state scope.
 - **Signed Boot:** design is frozen, physical trust is not claimed. Per-device keys are distinct from Maho release signing roots. Provisioning is an explicit user/admin ceremony; the installer may stage signed normal/recovery artifacts but reports `SECURE_BOOT_PENDING` until firmware enrollment and first-boot evidence prove BootAuthority and BootEnvironmentIdentity. Rotation retains a bounded prior key/generation; reset or cloned/restored hardware requires reprovisioning. Microsoft/OEM keys remain unless the user explicitly chooses otherwise. `fwupd` changes firmware evidence and therefore requires re-observation.
 - **Machine identity:** every install creates a unique installation UUID, `/etc/machine-id`, device key and device-binding record. Release, source, generation, machine and installation identities are distinct. A disk clone or restored image that does not match its device binding enters `REPROVISION_REQUIRED`; it never silently becomes the same trusted machine.
 - **Users:** V1 creates one initial UID 1000 desktop user in `wheel`; root password login is locked. Password hashes are handled only by the target system tools; plaintext is never journaled. Sudo and PolicyKit actions remain explicit. Additional Unix users are not forbidden, but multi-seat/multi-user Maho surface ownership is outside V1 certification. Reinstall preserves `@home` only after exact identity match and explicit consent.
@@ -31,14 +57,14 @@ This is the canonical V1 contract an installer must implement. It does not autho
 
 ## Explicit V1 limitations
 
-- No hibernation, multi-disk install, removable target, BIOS/CSM, ARM, multi-seat certification, TPM auto-unlock, automatic AUR installation, or active production BPF-LSM enforcement.
+- No hibernation, multi-disk install, removable target, BIOS/CSM, ARM, multi-seat certification, TPM auto-unlock, or automatic AUR installation. RC0/current daily-driver operation may remain Mutation Boundary inactive while installer development continues; V1 release graduation requires the disposable installed-VM Prevention certification gate above.
 - Physical Secure Boot enrollment and trust are not yet certified; current status must remain `UNKNOWN`/pending.
-- Full-disk encryption, reinstall-with-home-preservation, installer resume/abort, and certified first boot are frozen contracts but not implemented or destructively certified. Retention GC is implemented as an identity/dependency planner plus journaled executor and has an adversarial fixture matrix; its final-source destructive VM campaign remains required.
+- Full-disk encryption, reinstall-with-home-preservation, installer resume/abort, and certified first boot remain active V1 installer/fresh-install requirements until their certification closes. Retention GC is implemented as an identity/dependency planner plus journaled executor and has an adversarial fixture matrix; production Prevention VM certification remains an active lane once the installer VM exists.
 - Hardware support is bounded to devices passing exact preflight. “Linux supports it” is not a certification result.
 
 ## Deferred post-V1
 
-TPM-sealed unlock, hibernation, multi-disk/RAID, removable installs, broader multi-user surface ownership, production BPF-LSM enforcement, and reproducible bit-for-bit release claims are post-V1 work.
+TPM-sealed unlock, hibernation, multi-disk/RAID, removable installs, broader multi-user surface ownership, broader prevention/EDR/application-control expansion beyond the accepted protected-state Mutation Boundary, and reproducible bit-for-bit release claims are post-V1 work.
 
 ## Installer invariants
 
@@ -57,4 +83,12 @@ These must be machine-tested:
 
 ## Certification status
 
-The decisions above are frozen enough to prevent installer design drift, but the installer start gate remains closed. The concrete blockers are maintained in `docs/reports/v1-preinstaller-certification-2026-09-25.md`. No `v1-preinstaller-rc0` tag may be created until that report reaches zero blockers.
+At the 2026-09-25 freeze point, the installer start gate was still closed. That
+statement is historical. The closure work subsequently landed and
+`v1-preinstaller-rc0` was created at
+`2d138aa930031f63b4c15a9234a11ce69a26f5e3`.
+
+The report at `docs/reports/v1-preinstaller-certification-2026-09-25.md` is
+intentionally preserved as historical certification evidence; its old blocker
+language does not override current main or the active V1 product requirements
+listed above.
