@@ -102,10 +102,12 @@ def _repository_records(repositories: Mapping[str, Path], *, run=_run) -> list[d
             result = run(("pacman-key", "--verify", str(signature), str(path)))
             if result.returncode != 0:
                 raise ValueError(f"repository database signature verification failed: {name}")
-            evidence = (result.stdout + "\n" + result.stderr).encode()
             signature_status = "verified-detached"
             signature_file: str | None = signature.name
             signature_sha256: str | None = _sha256_file(signature)
+            # Successful verification is the boolean gate; the exact detached
+            # signature bytes are the deterministic evidence identity.
+            evidence = signature.read_bytes()
         else:
             if name not in UNSIGNED_UPSTREAM_REPOSITORIES:
                 raise ValueError(f"repository database signature is missing: {name}")
@@ -168,12 +170,13 @@ def build_payload_manifest(
             if not signature.is_file():
                 raise ValueError(f"detached package signature is missing: {package.name}")
             result = run(("pacman-key", "--verify", str(signature), str(package)))
-            evidence = (result.stdout + "\n" + result.stderr).encode()
             if result.returncode != 0:
                 raise ValueError(f"package signature verification failed: {package.name}")
             verification = {
                 "status": "verified",
-                "evidence_sha256": hashlib.sha256(evidence).hexdigest(),
+                # Bind the exact detached signature, not verifier console
+                # wording, locale, or warning text.
+                "evidence_sha256": _sha256_file(signature),
             }
             repository = "signed-pacman-repository"
         packages.append({
