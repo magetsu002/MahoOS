@@ -285,6 +285,12 @@ class IdentityOps(SystemAssemblyOps):
         elif command[:3] == ("btrfs", "subvolume", "show"):
             uuid = b"11111111-2222-3333-4444-555555555555" if str(command[3]).endswith("target") else b"66666666-7777-8888-9999-aaaaaaaaaaaa"
             stdout = b"UUID: " + uuid + b"\n"
+        elif (
+            len(command) >= 6
+            and command[:3] == ("cryptsetup", "open", "--test-passphrase")
+            and str(self.storage_key_file) in command
+        ):
+            return subprocess.CompletedProcess(command, 1, stdout=b"", stderr=b"retired")
         else:
             stdout = b""
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
@@ -433,7 +439,8 @@ def main() -> None:
         check("crypttab binds exact LUKS identity", p["installation_identity"]["luks_uuid"] in crypttab and p["encryption_contract"]["mapper_name"] in crypttab)
         check("machine and installation identities remain separate", identity["machine_id"] != p["installation_identity"]["installation_uuid"])
         mode = stat.S_IMODE((tmp / "recovery-key").stat().st_mode)
-        check("recovery key export is private and explicit", identity["password_slot_added"] is True and identity["recovery_key_exported"] is True and mode == 0o600)
+        check("recovery key export is private and explicit", identity["password_slot_added"] is True and identity["password_slot_verified"] is True and identity["recovery_key_exported"] is True and identity["recovery_slot_verified"] is True and mode == 0o600)
+        check("installer bootstrap LUKS key is revoked", identity["bootstrap_key_revoked"] is True)
         check("identity evidence contains no plaintext password", "correct horse battery staple" not in json.dumps(identity))
 
         normal = ops._cmdline(p)

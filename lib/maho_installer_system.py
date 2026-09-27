@@ -321,6 +321,26 @@ class SystemAssemblyOps:
             "--key-file", str(self.storage_key_file),
             "--new-keyfile", str(self.recovery_key_output),
         ))
+        # The live installer bootstrap key must not survive as an unlock path.
+        # First verify both intended post-install credentials, then remove the
+        # bootstrap keyslot and prove the retired key no longer authenticates.
+        self._run((
+            "cryptsetup", "open", "--test-passphrase", "--key-file", "-",
+            luks_partition,
+        ), input_bytes=password)
+        self._run((
+            "cryptsetup", "open", "--test-passphrase",
+            "--key-file", str(self.recovery_key_output), luks_partition,
+        ))
+        self._run((
+            "cryptsetup", "luksRemoveKey", luks_partition, str(self.storage_key_file),
+        ))
+        retired = self._run((
+            "cryptsetup", "open", "--test-passphrase",
+            "--key-file", str(self.storage_key_file), luks_partition,
+        ), check=False)
+        if retired.returncode == 0:
+            raise RuntimeError("installer bootstrap LUKS key remained valid after revocation")
         root_subvolume_uuid = self._subvolume_uuid(root)
         home_subvolume_uuid = self._subvolume_uuid(root / "home")
         return {
@@ -330,7 +350,10 @@ class SystemAssemblyOps:
             "root_subvolume_uuid": root_subvolume_uuid,
             "home_subvolume_uuid": home_subvolume_uuid,
             "password_slot_added": True,
+            "password_slot_verified": True,
             "recovery_key_exported": self.recovery_key_output.is_file(),
+            "recovery_slot_verified": True,
+            "bootstrap_key_revoked": True,
         }
 
     def _phase_users_created(self, plan, payload, journal, root) -> Mapping[str, Any]:
