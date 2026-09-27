@@ -193,6 +193,51 @@ class CoordinatorContracts(unittest.TestCase):
                 ["native_boot_generation_publication_unavailable"],
             )
 
+    def test_post_reboot_pending_state_restores_handoff_and_reports_verifying(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            pending = transition_transaction(
+                transition_transaction(
+                    transition_transaction(
+                        prepared_tx(),
+                        UpdateState.MAINTENANCE_READY,
+                        reason="fixture maintenance ready",
+                        now=NOW,
+                    ),
+                    UpdateState.INSTALLING,
+                    now=NOW,
+                ),
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                now=NOW,
+            )
+            publish_transaction(root, pending)
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": pending["package_generation"]["id"],
+                "lane": "normal",
+                "phase": "MAINTENANCE_READY",
+            }
+            record = {
+                "phase": "ACTIVATION_ARMED",
+                "activation_handoff": {"handoff_id": "art-" + "a" * 64},
+                "candidate_generation": {"system_generation_id": "gen-" + "b" * 64},
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record):
+                result = coordinator._resume_owned(
+                    state,
+                    REV,
+                    "magetsu",
+                    {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "VERIFYING_AFTER_RESTART")
+            self.assertFalse(result["reboot_required"])
+            self.assertTrue(result["reboot_performed"])
+            self.assertEqual(result["user_status"], "Verifying after restart.")
+
     def test_discovery_uses_isolated_database_not_live_pacman_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             backend = IsolatedPacmanDiscovery(Path(tmp) / "discovery")

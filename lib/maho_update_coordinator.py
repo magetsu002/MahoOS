@@ -862,8 +862,9 @@ def _resume_owned(
             return _save(_with_debt(value, now))
         value = dict(state)
         handoff = record.get("activation_handoff") if isinstance(record, Mapping) else None
+        already_armed = record.get("phase") == "ACTIVATION_ARMED"
         value.update({
-            "phase": "READY_TO_RESTART",
+            "phase": "VERIFYING_AFTER_RESTART" if already_armed else "READY_TO_RESTART",
             "blockers": [],
             "last_success_at": stamp(now),
             "execution": record,
@@ -872,9 +873,12 @@ def _resume_owned(
                 record.get("candidate_generation", {}).get("system_generation_id")
                 if isinstance(record.get("candidate_generation"), Mapping) else None
             ),
-            "reboot_required": True,
-            "reboot_performed": False,
-            "user_status": "Update is ready. Restart to finish.",
+            "reboot_required": not already_armed,
+            "reboot_performed": already_armed,
+            "user_status": (
+                "Verifying after restart."
+                if already_armed else "Update is ready. Restart to finish."
+            ),
         })
         return _save(_with_debt(value, now))
 

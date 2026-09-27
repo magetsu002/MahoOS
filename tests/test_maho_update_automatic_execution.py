@@ -118,6 +118,7 @@ class FakeBtrfs:
     instances = []
     offline_base: Path | None = None
     topology = "PREPARED"
+    previous_record: bytes | None = None
 
     def __init__(self, transaction_id: str):
         self.transaction_id = transaction_id
@@ -174,6 +175,18 @@ class FakeBtrfs:
             "base_read_only": True,
             "base_root": str(self.base_root),
             "candidate_root": str(self.candidate_root),
+        }
+
+    def read_previous_root_file(self, relative, *, expected_active_uuid=None):
+        if self.previous_record is None:
+            raise RuntimeError("previous record unavailable")
+        if expected_active_uuid is not None and expected_active_uuid != CANDIDATE_UUID:
+            raise RuntimeError("active root is not the expected update candidate")
+        return {
+            "content": self.previous_record,
+            "previous_root_uuid": PARENT_UUID,
+            "active_root_uuid": CANDIDATE_UUID,
+            "relative_path": relative,
         }
 
     def arm_root_activation(self, **kwargs):
@@ -234,6 +247,7 @@ class AutomaticExecutionContracts(unittest.TestCase):
         FakeOps.instances.clear()
         FakeOps.fail_install = False
         FakeBtrfs.topology = "PREPARED"
+        FakeBtrfs.previous_record = None
         self.state_tmp = tempfile.TemporaryDirectory()
         self.work_tmp = tempfile.TemporaryDirectory()
         self.gen_tmp = tempfile.TemporaryDirectory()
@@ -727,6 +741,76 @@ class AutomaticExecutionContracts(unittest.TestCase):
                     now=NOW + timedelta(days=2),
                 )
         self.assertFalse(FakeBtrfs.instances)
+
+    def test_post_reboot_restores_exact_handoff_record_and_candidate_generation(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        authority = FakeAuthority().as_dict()
+        candidate = {
+            "name": "@maho-update-candidate-abcdefabcdef",
+            "uuid": CANDIDATE_UUID,
+            "parent_root_uuid": PARENT_UUID,
+            "filesystem_uuid": FSUUID,
+            "admission_base_name": "@maho-update-admission-base-abcdefabcdef",
+            "admission_base_uuid": BASE_UUID,
+        }
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True, "generation_id": "g3-fixture"},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        previous_record = {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "ACTIVATION_ARMED",
+            "candidate": candidate,
+            "activation_authority": authority,
+            "recovery_evidence": {"ready": True, "generation_id": "g3-fixture"},
+            "candidate_boot_identity": {"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            "candidate_generation": {
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+            },
+            "activation_handoff": handoff.as_dict(),
+        }
+        FakeBtrfs.previous_record = (
+            json.dumps(previous_record, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+        reconstructed = {
+            "system_generation_id": CANDIDATE_SYSTEM,
+            "kernel_generation_id": CURRENT_KERNEL,
+            "candidate_uuid": CANDIDATE_UUID,
+        }
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(automatic, "read_candidate_publication", return_value=None), \
+             patch.object(automatic, "publish_normal_candidate_generation", return_value=reconstructed):
+            record = automatic.finalize_pending_normal(
+                TXID,
+                state_root=self.state,
+                generation_root=self.generations,
+                now=NOW,
+            )
+        self.assertEqual(record["phase"], "ACTIVATION_ARMED")
+        self.assertTrue(record["post_activation_evidence_restored"])
+        self.assertEqual(record["candidate_generation"]["system_generation_id"], CANDIDATE_SYSTEM)
+        restored = automatic.read_execution_record(self.state, TXID)
+        self.assertEqual(restored["activation_handoff"]["handoff_id"], handoff.handoff_id)
 
     def test_activate_current_is_noop_without_pending_transaction(self):
         healthy = transition_transaction(

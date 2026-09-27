@@ -469,6 +469,47 @@ class NativeBtrfsOps:
         removed = self._run(("btrfs", "subvolume", "delete", str(base))).returncode == 0
         return {"ok": removed, "admission_base_removed": removed}
 
+    def read_previous_root_file(
+        self,
+        relative: str,
+        *,
+        expected_active_uuid: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one bounded evidence file from the retained transaction backup root."""
+        self.require_root()
+        if not isinstance(relative, str) or not relative or relative.startswith("/"):
+            raise ValueError("previous-root evidence path must be relative")
+        parts = Path(relative).parts
+        if not parts or any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("previous-root evidence path is unbounded")
+        identity = self.root_identity()
+        if expected_active_uuid is not None and identity.subvolume_uuid != expected_active_uuid:
+            raise RuntimeError("active root is not the expected update candidate")
+        self._mount_top(identity)
+        previous = self.top / self.backup
+        if not previous.exists() or not self._read_only(previous):
+            raise RuntimeError("previous known-good root is absent or mutable")
+        previous_uuid = self._show_uuid(previous)
+        root = previous.resolve(strict=True)
+        raw = previous
+        for part in parts:
+            raw = raw / part
+            if raw.is_symlink():
+                raise RuntimeError("previous-root evidence path contains a symlink")
+        path = raw.resolve(strict=True)
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError("previous-root evidence path escaped retained root") from exc
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("previous-root evidence is not a regular file")
+        return {
+            "content": path.read_bytes(),
+            "previous_root_uuid": previous_uuid,
+            "active_root_uuid": identity.subvolume_uuid,
+            "relative_path": relative,
+        }
+
     def freeze_previous_root(self, previous_root_name: str, expected_uuid: str, active_candidate_uuid: str) -> dict[str, Any]:
         """Freeze the exact previous /@ only after the candidate is the live normal root."""
         self.require_root()

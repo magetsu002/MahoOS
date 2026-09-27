@@ -24,6 +24,7 @@ from maho_update_admission import (
 from maho_update_candidate_generation import (
     load_current_verified_generations,
     publish_normal_candidate_generation,
+    read_candidate_publication,
 )
 from maho_update_execution_authority import (
     consume_activation_handoff,
@@ -669,6 +670,97 @@ def execute_ready_normal(
 
 
 
+def _restore_record_from_previous_root(
+    transaction: Mapping[str, Any],
+    *,
+    state_root: Path,
+    generation_root: Path,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = validate_transaction(transaction)
+    relative = (
+        f"var/lib/maho/update/automatic-executions/"
+        f"{current['transaction_id']}.json"
+    )
+    btrfs = NativeBtrfsOps(current["transaction_id"])
+    try:
+        evidence = btrfs.read_previous_root_file(relative)
+    finally:
+        btrfs.close()
+    try:
+        value = json.loads(bytes(evidence["content"]).decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, TypeError) as exc:
+        raise ValueError("previous-root automatic execution record is invalid") from exc
+    if not isinstance(value, Mapping):
+        raise ValueError("previous-root automatic execution record is not an object")
+    record = dict(value)
+    candidate = record.get("candidate")
+    handoff = record.get("activation_handoff")
+    if (
+        record.get("schema_version") != 1
+        or record.get("kind") != "maho-automatic-normal-execution"
+        or record.get("transaction_id") != current["transaction_id"]
+        or record.get("source_revision") != current["source_revision"]
+        or record.get("phase") not in {
+            "INSTALLED_PENDING_ACTIVATION", "ACTIVATION_ARMED",
+        }
+        or not isinstance(candidate, Mapping)
+        or not isinstance(handoff, Mapping)
+        or candidate.get("uuid") != evidence.get("active_root_uuid")
+        or candidate.get("parent_root_uuid") != evidence.get("previous_root_uuid")
+    ):
+        raise ValueError("previous-root automatic execution record binding mismatch")
+    _live, system, _kernel = load_current_verified_generations(generation_root)
+    parsed_handoff = verify_activation_handoff(
+        handoff,
+        current,
+        current_system_generation_id=str(system.generation_id),
+        now=now,
+    )
+    if (
+        parsed_handoff.candidate_uuid != candidate.get("uuid")
+        or parsed_handoff.previous_root_uuid != candidate.get("parent_root_uuid")
+    ):
+        raise ValueError("previous-root activation handoff binding mismatch")
+    _atomic_json(record_path(state_root, current["transaction_id"]), record)
+    return record
+
+
+def _ensure_candidate_generation_after_activation(
+    transaction: Mapping[str, Any],
+    record: Mapping[str, Any],
+    *,
+    generation_root: Path,
+) -> dict[str, Any]:
+    current = validate_transaction(transaction)
+    expected = record.get("candidate_generation")
+    candidate = record.get("candidate")
+    authority = record.get("activation_authority")
+    recovery = record.get("recovery_evidence")
+    boot = record.get("candidate_boot_identity")
+    if not all(isinstance(item, Mapping) for item in (
+        expected, candidate, authority, recovery, boot,
+    )):
+        raise ValueError("post-activation candidate generation evidence is incomplete")
+    publication = read_candidate_publication(current["transaction_id"], generation_root)
+    if publication is None:
+        publication = publish_normal_candidate_generation(
+            current,
+            candidate=candidate,
+            activation_authority=authority,
+            recovery_evidence=recovery,
+            candidate_boot_identity=boot,
+            root=generation_root,
+        )
+    if (
+        publication.get("system_generation_id") != expected.get("system_generation_id")
+        or publication.get("kernel_generation_id") != expected.get("kernel_generation_id")
+        or publication.get("candidate_uuid") != candidate.get("uuid")
+    ):
+        raise ValueError("reconstructed candidate generation identity mismatch")
+    return publication
+
+
 def _finalize_pending_record(
     transaction: Mapping[str, Any],
     record: Mapping[str, Any],
@@ -768,11 +860,25 @@ def finalize_pending_normal(
     transaction = read_transaction(transaction_path(state_root, transaction_id))
     record = read_execution_record(state_root, transaction_id)
     if not record:
-        raise ValueError("normal automatic execution record is unavailable")
+        record = _restore_record_from_previous_root(
+            transaction,
+            state_root=state_root,
+            generation_root=generation_root,
+            now=now,
+        )
     if (
-        record.get("phase") == "INSTALLED_PENDING_ACTIVATION"
+        record.get("phase") in {"INSTALLED_PENDING_ACTIVATION", "ACTIVATION_ARMED"}
         and isinstance(record.get("activation_handoff"), Mapping)
     ):
+        if record.get("phase") == "ACTIVATION_ARMED":
+            publication = _ensure_candidate_generation_after_activation(
+                transaction, record, generation_root=generation_root,
+            )
+            updated = dict(record)
+            updated["candidate_generation"] = publication
+            updated["post_activation_evidence_restored"] = True
+            _atomic_json(record_path(state_root, transaction_id), updated)
+            return updated
         return record
     return _finalize_pending_record(
         transaction,

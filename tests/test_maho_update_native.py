@@ -317,6 +317,20 @@ def main() -> None:
         check("normal activation consumes candidate topology", not (ops.top / candidate_name(TX1)).exists())
         check("normal activation leaves every boot artifact unchanged", all((ops.boot_root / Path(a).relative_to('/boot')).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
         check("normal root swap invokes no package manager or hidden reboot", result["package_manager_invoked"] is False and result["reboot_performed"] is False and result["firmware_mutated"] is False)
+        previous = ops.top / backup_name(TX1) / "var/lib/maho/update/automatic-executions"
+        previous.mkdir(parents=True)
+        evidence_path = previous / f"{TX1}.json"
+        evidence_path.write_bytes(b'{"phase":"ACTIVATION_ARMED"}\n')
+        evidence = ops.read_previous_root_file(
+            f"var/lib/maho/update/automatic-executions/{TX1}.json",
+            expected_active_uuid=CANDIDATE_UUID,
+        )
+        check(
+            "post-reboot evidence can be recovered only from the exact retained previous root",
+            evidence["content"] == b'{"phase":"ACTIVATION_ARMED"}\n'
+            and evidence["previous_root_uuid"] == CURRENT_UUID
+            and evidence["active_root_uuid"] == CANDIDATE_UUID,
+        )
 
     with tempfile.TemporaryDirectory(prefix="maho-normal-root-activation-rollback-") as temporary:
         base = Path(temporary)

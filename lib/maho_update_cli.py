@@ -127,6 +127,7 @@ def _presentation_status(status: dict[str, Any]) -> str:
     blockers = status.get("blockers") if isinstance(status.get("blockers"), list) else []
     coordinator = status.get("coordinator") if isinstance(status.get("coordinator"), dict) else {}
     coordinator_blockers = coordinator.get("blockers") if isinstance(coordinator.get("blockers"), list) else []
+    coordinator_phase = str(coordinator.get("phase") or "")
     if blockers or status.get("attention_required") is True:
         if coordinator_blockers:
             return "Blocked: " + str(coordinator_blockers[0])
@@ -144,8 +145,9 @@ def _presentation_status(status: dict[str, Any]) -> str:
     if state == "INSTALLING":
         return "Installing"
     if state == "INSTALLED_PENDING_ACTIVATION":
+        if coordinator_phase == "VERIFYING_AFTER_RESTART":
+            return "Verifying after restart"
         return "Ready to restart"
-    coordinator_phase = str(coordinator.get("phase") or "")
     if coordinator_phase == "UP_TO_DATE":
         return "Up to date"
     if coordinator_phase in {"CHECKING", "COALESCED"}:
@@ -158,6 +160,8 @@ def _presentation_status(status: dict[str, Any]) -> str:
         return "Ready when safe"
     if coordinator_phase == "READY_TO_RESTART":
         return "Ready to restart"
+    if coordinator_phase == "VERIFYING_AFTER_RESTART":
+        return "Verifying after restart"
     if coordinator_phase in {"BLOCKED", "INVALIDATED", "RETRY_DEFERRED"}:
         return "Blocked: " + str(coordinator_blockers[0] if coordinator_blockers else "automatic maintenance unavailable")
     if state == "HEALTHY":
