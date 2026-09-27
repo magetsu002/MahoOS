@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CURRENT=""
+if [ -n "${XDG_DATA_HOME:-}" ]; then
+  CURRENT="$XDG_DATA_HOME/maho/runtime/current"
+elif [ -n "${HOME:-}" ]; then
+  CURRENT="$HOME/.local/share/maho/runtime/current"
+fi
+if [ -n "$CURRENT" ] && [ -r "$CURRENT/bin/maho-installer" ]; then
+  export MAHO_ROOT="$CURRENT"
+  exec python -B "$CURRENT/bin/maho-installer" "$@"
+fi
+
+export MAHO_ROOT="${MAHO_PACKAGED_ROOT:-/usr/lib/maho}"
+exec python -B "$MAHO_ROOT/bin/maho-installer" "$@"

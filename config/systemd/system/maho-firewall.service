@@ -1,0 +1,31 @@
+[Unit]
+Description=Apply the Maho-owned host firewall table
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=network-pre.target
+Wants=network-pre.target
+ConditionPathExists=/usr/lib/maho/config/platform/maho-host-firewall.nft
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/maho/bin/maho-firewall apply --json
+ExecStartPost=/usr/bin/python /usr/lib/maho/lib/maho_firewall_receipt.py publish
+RemainAfterExit=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_NETLINK AF_UNIX
+RuntimeDirectory=maho/firewall
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ReadWritePaths=/run/maho/firewall
+
+[Install]
+WantedBy=multi-user.target

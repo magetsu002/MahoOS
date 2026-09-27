@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -59,6 +60,35 @@ def main() -> None:
         new_runtime = release(base, new, "new-runtime")
         forward = plan_deployment(repo, old_runtime)
         check("clean descendant transition is admitted", forward.allowed and forward.transition == "fast-forward")
+
+        package_root = base / "package-root"
+        (package_root / "share/maho").mkdir(parents=True)
+        (package_root / "share/maho/release.json").write_text(
+            json.dumps({"source_revision": new}) + "\n",
+            encoding="utf-8",
+        )
+        previous_path = os.environ.get("PATH")
+        os.environ["PATH"] = ""
+        try:
+            packaged_bootstrap = plan_deployment(package_root, None)
+            packaged_transition = plan_deployment(package_root, old_runtime)
+        finally:
+            if previous_path is None:
+                os.environ.pop("PATH", None)
+            else:
+                os.environ["PATH"] = previous_path
+        check(
+            "packaged production source needs no Git client or object graph",
+            packaged_bootstrap.allowed
+            and packaged_bootstrap.trust_eligible
+            and packaged_bootstrap.source_revision == new
+            and packaged_bootstrap.source_dirty is None
+            and packaged_bootstrap.transition == "bootstrap",
+        )
+        check(
+            "packaged production transition is distribution-authorized",
+            packaged_transition.allowed and packaged_transition.transition == "packaged-release",
+        )
 
         git(repo, "checkout", "-q", old)
         downgrade = plan_deployment(repo, new_runtime)

@@ -70,7 +70,7 @@ def _service_health(contract, control_group: str) -> tuple[bool, tuple[str, ...]
     return ok, tuple(evidence)
 
 def _boot_id() -> str:
-    return Path("/proc/sys/kernel/random/boot_id").read_text().strip().replace("-", "")
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
 
 def _cursor_path(root: Path) -> Path:
     return root / "guardian" / "service-events" / "journal.cursor"
@@ -94,6 +94,31 @@ def _journal_probe_argv(cursor: str) -> list[str]:
         argv.extend(["--unit", unit])
     argv.extend([f"--after-cursor={cursor}", "--lines=0"])
     return argv
+
+def _journal_bootstrap_argv() -> list[str]:
+    argv = _journal_base()
+    argv.extend(["--lines=0", "--show-cursor", "--no-pager"])
+    return argv
+
+def _parse_show_cursor(stdout: str) -> str:
+    prefix = "-- cursor: "
+    for line in reversed(stdout.splitlines()):
+        if line.startswith(prefix):
+            value = line[len(prefix):].strip()
+            return value if value and not any(ch.isspace() for ch in value) else ""
+    return ""
+
+def _bootstrap_cursor() -> tuple[str, CursorProbe]:
+    try:
+        result = subprocess.run(
+            _journal_bootstrap_argv(), check=False, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "", CursorProbe.SOURCE_FAILED
+    if result.returncode != 0:
+        return "", CursorProbe.SOURCE_FAILED
+    cursor = _parse_show_cursor(result.stdout)
+    return (cursor, CursorProbe.VALID) if cursor else ("", CursorProbe.MISSING)
 
 def _classify_cursor_probe(cursor: str, *, returncode: int | None = None, stderr: str = "", source_error: bool = False) -> CursorProbe:
     if not cursor:
@@ -218,11 +243,16 @@ def watch(root: Path) -> int:
     except (OSError, ValueError, json.JSONDecodeError):
         previous = None; previous_invalid = True
     boot_id = _boot_id()
-    probe = _probe_cursor(cursor)
+    if cursor:
+        probe = _probe_cursor(cursor)
+    else:
+        cursor, probe = _bootstrap_cursor()
     stream = begin_stream(previous, cursor=cursor or None, probe=probe, boot_id=boot_id, now=datetime.now(timezone.utc))
     if previous_invalid:
         stream = mark_failed(stream, reason="historical_stream_state_invalid")
     persist_stream(root, stream)
+    if probe is CursorProbe.VALID and cursor:
+        _atomic_private(cursor_path, cursor + "\n")
     _record_stream_health(root, stream, boot_id)
     _reconcile_service_state(store, boot_id)
     reconcile_service_session(root)

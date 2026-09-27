@@ -10,6 +10,9 @@ depends=(
   'python'
   'python-cryptography'
   'systemd'
+  'util-linux'
+  'cryptsetup'
+  'dosfstools'
   'libbpf'
   'polkit'
   'gnome-keyring'
@@ -93,7 +96,7 @@ package() {
   local source_root="$srcdir/maho-os-${pkgver}"
 
   install -d "$pkgdir/usr/lib/maho"
-  for dir in adapters apps bin config lib systemd theme; do
+  for dir in adapters apps bin config lib share systemd theme; do
     cp -a "$source_root/$dir" "$pkgdir/usr/lib/maho/$dir"
   done
 
@@ -103,6 +106,8 @@ package() {
     "$pkgdir/usr/lib/maho/share/maho/release.json"
   install -Dm755 "$source_root/packaging/arch/maho-install" \
     "$pkgdir/usr/bin/maho-install"
+  install -Dm755 "$source_root/packaging/arch/maho-installer-wrapper" \
+    "$pkgdir/usr/bin/maho-installer"
   install -Dm755 "$source_root/packaging/arch/maho-files-wrapper" \
     "$pkgdir/usr/bin/maho-files"
   install -d "$pkgdir/usr/share/applications"
@@ -139,6 +144,10 @@ package() {
     "$pkgdir/usr/lib/systemd/system/maho-firewall-observer.service"
   install -Dm644 "$source_root/config/systemd/system/maho-firewall-observer.timer" \
     "$pkgdir/usr/lib/systemd/system/maho-firewall-observer.timer"
+  install -Dm644 "$source_root/config/systemd/system/maho-firewall.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-firewall.service"
+  install -Dm644 "$source_root/config/systemd/system/maho-installer-firstboot.service" \
+    "$pkgdir/usr/lib/systemd/system/maho-installer-firstboot.service"
   install -Dm644 "$source_root/config/systemd/system/maho-update-coordinator.service" \
     "$pkgdir/usr/lib/systemd/system/maho-update-coordinator.service"
   install -Dm644 "$source_root/config/systemd/system/maho-update-coordinator.timer" \
