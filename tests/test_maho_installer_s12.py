@@ -276,6 +276,16 @@ def private_file(root: Path, name: str, value: bytes) -> Path:
 
 
 
+
+class UnmountProbeOps(SystemAssemblyOps):
+    def _run(self, command, *, input_bytes=None, check=True):
+        if command[:2] == ("findmnt", "--mountpoint"):
+            return subprocess.CompletedProcess(command, 1, stdout=b"", stderr=b"not a mountpoint")
+        if command[:2] == ("findmnt", "--target"):
+            return subprocess.CompletedProcess(command, 0, stdout=b"/dev/root\n", stderr=b"")
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+
 class BaseInstallOps(SystemAssemblyOps):
     def __init__(self, *args, packages, relaxed_target=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -404,6 +414,14 @@ def main() -> None:
         )
         relaxed = make_ops(BaseInstallOps, tmp, packages=pl["packages"], relaxed_target=True)
         rejected("relaxed signature policy may not persist in target", lambda: relaxed._phase_base_installed(p, pl, {}, tmp / "relaxed-target"))
+
+    with tempfile.TemporaryDirectory(prefix="maho-s12-unmount-probe-") as raw:
+        tmp = Path(raw)
+        probe = make_ops(UnmountProbeOps, tmp)
+        check(
+            "clean-unmount verifier tests the exact mountpoint, not its containing filesystem",
+            probe.phase_complete("UNMOUNTED", p, pl, {}, tmp / "target") is True,
+        )
 
     with tempfile.TemporaryDirectory(prefix="maho-s12-assembly-") as raw:
         tmp = Path(raw)

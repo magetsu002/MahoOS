@@ -200,7 +200,7 @@ class SystemAssemblyOps:
         journal: Mapping[str, Any], mount_root: Path,
     ) -> bool:
         if phase == "UNMOUNTED":
-            mounted = self._run(("findmnt", "--target", str(mount_root)), check=False).returncode == 0
+            mounted = self._run(("findmnt", "--mountpoint", str(mount_root)), check=False).returncode == 0
             mapper = Path("/dev/mapper") / plan["encryption_contract"]["mapper_name"]
             return not mounted and not mapper.exists()
         marker = self._read_marker(mount_root, phase)
