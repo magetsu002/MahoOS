@@ -1,0 +1,22 @@
+[Unit]
+Description=Certify the exact MahoOS installation on first boot
+After=local-fs.target NetworkManager.service maho-firewall.service user@1000.service
+Wants=NetworkManager.service maho-firewall.service user@1000.service
+ConditionPathExists=/var/lib/maho/installer/install-receipt.json
+ConditionPathExists=!/var/lib/maho/installer/installation-healthy.json
+StartLimitIntervalSec=180
+StartLimitBurst=8
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/maho-installer first-boot
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ReadWritePaths=/var/lib/maho/installer /var/lib/maho/generations
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parent.parent)
+sys.path.insert(0, str(ROOT / "lib"))
+
+from maho_installer_execute import execute_storage_plan  # noqa: E402
+from maho_installer_assembly import assemble_installed_system  # noqa: E402
+from maho_installer_firstboot import run_first_boot  # noqa: E402
+from maho_installer_payload import build_payload_manifest, load_payload_manifest  # noqa: E402
+from maho_installer_plan import (  # noqa: E402
+    build_install_plan,
+    load_or_create_install_attempt,
+    probe_disk,
+    runtime_source_revision,
+)
+
+
+def parser() -> argparse.ArgumentParser:
+    command = argparse.ArgumentParser(
+        prog="maho-installer",
+        description="Deterministic storage planner and disposable-media executor for MahoOS.",
+    )
+    sub = command.add_subparsers(dest="command", required=True)
+    plan = sub.add_parser("plan", help="inspect one exact blank whole disk and emit a non-mutating plan")
+    plan.add_argument("device")
+    plan.add_argument(
+        "--attempt-state", required=True, type=Path,
+        help="durable install-attempt state; created once or reused exactly",
+    )
+    plan.add_argument("--json", action="store_true")
+    plan.add_argument("--output", type=Path, help="create an immutable plan input file; refuses overwrite")
+
+    execute = sub.add_parser("execute", help="apply one exact plan to provably disposable test media")
+    execute.add_argument("plan", type=Path)
+    execute.add_argument("--plan-id", required=True)
+    execute.add_argument("--confirmation", required=True)
+    execute.add_argument("--journal", required=True, type=Path)
+    execute.add_argument("--mount-root", required=True, type=Path)
+    execute.add_argument("--key-file", required=True, type=Path)
+    execute.add_argument(
+        "--via-polkit", action="store_true",
+        help="cross the explicit PolicyKit boundary with pkexec when not already root",
+    )
+
+    payload = sub.add_parser("payload", help="verify and bind one fully downloaded installation payload")
+    payload.add_argument("package_dir", type=Path)
+    payload.add_argument("--repository", action="append", required=True, metavar="NAME=DATABASE")
+    payload.add_argument("--output", required=True, type=Path)
+
+    assemble = sub.add_parser("assemble", help="continue one mounted storage transaction into an installed system")
+    assemble.add_argument("plan", type=Path)
+    assemble.add_argument("--payload", required=True, type=Path)
+    assemble.add_argument("--payload-dir", required=True, type=Path)
+    assemble.add_argument("--journal", required=True, type=Path)
+    assemble.add_argument("--mount-root", required=True, type=Path)
+    assemble.add_argument("--user", required=True)
+    assemble.add_argument("--hostname", required=True)
+    assemble.add_argument("--password-file", required=True, type=Path)
+    assemble.add_argument("--storage-key-file", required=True, type=Path)
+    assemble.add_argument("--recovery-key-output", required=True, type=Path)
+
+    sub.add_parser("first-boot", help="observe and certify the exact installed system")
+    return command
+
+
+def _write_new(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, sort_keys=True, separators=(",", ":"))
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _read_plan(path: Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("plan file is not a JSON object")
+    return payload
+
+
+def _polkit_reexec() -> None:
+    arguments = [item for item in sys.argv[1:] if item != "--via-polkit"]
+    os.execvp("pkexec", ["pkexec", sys.executable, "-B", str(Path(__file__).resolve()), *arguments])
+
+
+def _repositories(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for value in values:
+        name, separator, raw_path = value.partition("=")
+        if not separator or not name or name in result:
+            raise ValueError("repository arguments must be unique NAME=DATABASE pairs")
+        result[name] = Path(raw_path)
+    return result
+
+
+def main() -> None:
+    args = parser().parse_args()
+    try:
+        source_revision = runtime_source_revision(ROOT)
+        if args.command == "payload":
+            payload = build_payload_manifest(
+                args.package_dir, source_revision=source_revision,
+                repositories=_repositories(args.repository),
+            )
+            _write_new(args.output, payload)
+            print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+            return
+        if args.command == "first-boot":
+            result = run_first_boot()
+            print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+            raise SystemExit(0 if result["state"] == "INSTALLATION_HEALTHY" else 1)
+        if args.command == "plan":
+            attempt_id = load_or_create_install_attempt(args.attempt_state)
+            payload = build_install_plan(
+                probe_disk(args.device),
+                source_revision=source_revision,
+                install_attempt_id=attempt_id,
+            )
+            if args.output is not None:
+                _write_new(args.output, payload)
+            if args.json:
+                print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+            else:
+                print("MahoOS deterministic storage plan")
+                print(f"Target: {payload['target']['path']} ({payload['target']['major_minor']})")
+                print(f"Identity: {payload['target']['identity_sha256']}")
+                print(f"Install attempt: {payload['install_attempt_id']}")
+                print(f"Plan: {payload['plan_id']}")
+                geometry = payload["geometry"]
+                print(
+                    "Geometry: "
+                    f"{geometry['logical_sector_size_bytes']}/{geometry['physical_sector_size_bytes']} byte sectors; "
+                    f"GPT usable {geometry['gpt']['first_usable_lba']}..{geometry['gpt']['last_usable_lba']}"
+                )
+                print(f"ESP: {geometry['esp_first_lba']}..{geometry['esp_last_lba']} (exactly 4 GiB FAT32 at /boot)")
+                print(f"LUKS2: {geometry['luks_first_lba']}..{geometry['luks_last_lba']} (Btrfs)")
+                print("Subvolumes: @, @home, @snapshots, @var_log")
+                if payload["blockers"]:
+                    print("Blocked: " + ", ".join(payload["blockers"]))
+                else:
+                    print("Confirmation: " + payload["destructive_confirmation"])
+                print("Execution scope: disposable test media only; root/PolicyKit required")
+            raise SystemExit(0 if payload["ready_for_destructive_confirmation"] else 1)
+
+        if args.command == "assemble":
+            from maho_installer_system import SystemAssemblyOps
+            plan = _read_plan(args.plan)
+            payload = load_payload_manifest(args.payload, package_dir=args.payload_dir)
+            journal = assemble_installed_system(
+                plan, payload, journal_path=args.journal,
+                mount_root=args.mount_root,
+                ops=SystemAssemblyOps(
+                    payload_dir=args.payload_dir, user_name=args.user, host_name=args.hostname,
+                    password_file=args.password_file, storage_key_file=args.storage_key_file,
+                    recovery_key_output=args.recovery_key_output,
+                ),
+            )
+            print(json.dumps(journal, sort_keys=True, separators=(",", ":")))
+            return
+
+        if os.geteuid() != 0 and args.via_polkit:
+            _polkit_reexec()
+        plan = _read_plan(args.plan)
+        journal = execute_storage_plan(
+            plan,
+            plan_id=args.plan_id,
+            confirmation=args.confirmation,
+            journal_path=args.journal,
+            mount_root=args.mount_root,
+            key_file=args.key_file,
+            source_revision=source_revision,
+        )
+        print(json.dumps(journal, sort_keys=True, separators=(",", ":")))
+    except (OSError, ValueError, RuntimeError, PermissionError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"maho-installer: {exc}") from exc
+
+
+if __name__ == "__main__":
+    main()
