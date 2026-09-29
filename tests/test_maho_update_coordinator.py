@@ -143,16 +143,49 @@ class CoordinatorContracts(unittest.TestCase):
     def test_explicit_reboot_hook_arms_activation_without_initiating_reboot(self):
         service = (ROOT / "config/systemd/system/maho-update-activate-on-reboot.service").read_text()
         package = (ROOT / "packaging/arch/PKGBUILD.in").read_text()
+        installer = (ROOT / "bin/maho-update-campaign-install").read_text()
         self.assertIn("activate-current", service)
-        self.assertIn(
-            "Before=local-fs.target shutdown.target umount.target final.target systemd-reboot.service",
-            service,
-        )
-        self.assertNotIn("After=local-fs.target", service)
-        self.assertIn("WantedBy=reboot.target", service)
+        self.assertIn("DefaultDependencies=no", service)
+        self.assertIn("After=local-fs.target", service)
+        self.assertIn("Conflicts=reboot.target", service)
+        self.assertIn("Before=reboot.target", service)
+        self.assertIn("RefuseManualStop=yes", service)
+        self.assertIn("ExecStart=/usr/bin/true", service)
+        self.assertIn("ExecStop=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator activate-current", service)
+        self.assertIn("RemainAfterExit=yes", service)
+        self.assertIn("TimeoutStopSec=45s", service)
+        self.assertNotIn("TimeoutStartSec=", service)
+        self.assertIn("WantedBy=multi-user.target reboot.target", service)
         self.assertNotIn("systemctl reboot", service)
         self.assertNotIn("/sbin/reboot", service)
         self.assertIn("reboot.target.wants/maho-update-activate-on-reboot.service", package)
+        self.assertIn("multi-user.target.wants/maho-update-activate-on-reboot.service", package)
+        self.assertIn("systemctl start maho-update-activate-on-reboot.service", installer)
+        self.assertIn("systemctl is-active --quiet maho-update-activate-on-reboot.service", installer)
+
+    def test_reboot_activation_is_an_active_stop_hook_before_filesystem_teardown(self):
+        service = (ROOT / "config/systemd/system/maho-update-activate-on-reboot.service").read_text()
+        unit = {
+            key: value
+            for key, value in (
+                line.split("=", 1)
+                for line in service.splitlines()
+                if "=" in line and not line.lstrip().startswith("#")
+            )
+        }
+        self.assertEqual(unit["DefaultDependencies"], "no")
+        self.assertEqual(unit["After"], "local-fs.target")
+        self.assertEqual(unit["Conflicts"], "reboot.target")
+        self.assertEqual(unit["Before"], "reboot.target")
+        self.assertEqual(unit["ExecStart"], "/usr/bin/true")
+        self.assertEqual(
+            unit["ExecStop"],
+            "/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator activate-current",
+        )
+        self.assertEqual(unit["RemainAfterExit"], "yes")
+        self.assertNotIn("shutdown.target", unit["Conflicts"])
+        self.assertNotIn("poweroff.target", unit["Conflicts"])
+        self.assertNotIn("umount.target", unit["Conflicts"])
 
     def test_native_ready_fails_closed_before_mutation_without_exact_boot_generation_publication(self):
         with tempfile.TemporaryDirectory() as state_tmp:

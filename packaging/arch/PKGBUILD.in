@@ -160,6 +160,9 @@ package() {
   install -d "$pkgdir/usr/lib/systemd/system/reboot.target.wants"
   ln -s ../maho-update-activate-on-reboot.service \
     "$pkgdir/usr/lib/systemd/system/reboot.target.wants/maho-update-activate-on-reboot.service"
+  install -d "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
+  ln -s ../maho-update-activate-on-reboot.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/maho-update-activate-on-reboot.service"
   install -Dm644 "$source_root/config/tmpfiles.d/maho-firewall.conf" \
     "$pkgdir/usr/lib/tmpfiles.d/maho-firewall.conf"
   install -Dm644 "$source_root/config/polkit-1/actions/io.maho.prevention.policy" \

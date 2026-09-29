@@ -135,6 +135,13 @@ install_command() {
   ln -s "$rev" "$link_tmp"
   mv -Tf -- "$link_tmp" "$BASE/current"
   "$dest/bin/maho-update-campaign" --help >/dev/null
+  cmp -s "$dest/config/systemd/system/maho-update-activate-on-reboot.service" \
+    /usr/lib/systemd/system/maho-update-activate-on-reboot.service \
+    || fail "installed restart activation unit does not match campaign revision"
+  /usr/bin/systemctl daemon-reload
+  /usr/bin/systemctl start maho-update-activate-on-reboot.service
+  /usr/bin/systemctl is-active --quiet maho-update-activate-on-reboot.service \
+    || fail "reboot activation sentinel did not become active"
   echo "PASS  root-owned M4B update campaign payload installed"
   echo "Revision: $rev"
   echo "Command:  $BASE/current/bin/maho-update-campaign"

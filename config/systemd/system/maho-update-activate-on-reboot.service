@@ -1,14 +1,19 @@
 [Unit]
 Description=Maho arm pending update before explicit reboot
 DefaultDependencies=no
-Before=local-fs.target shutdown.target umount.target final.target systemd-reboot.service
+After=local-fs.target
+Conflicts=reboot.target
+Before=reboot.target
+RefuseManualStop=yes
 ConditionPathExists=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator activate-current
-TimeoutStartSec=45s
+ExecStart=/usr/bin/true
+ExecStop=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator activate-current
+RemainAfterExit=yes
+TimeoutStopSec=45s
 UMask=0077
 
 [Install]
-WantedBy=reboot.target
+WantedBy=multi-user.target reboot.target
