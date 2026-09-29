@@ -287,7 +287,12 @@ class AutomaticExecutionContracts(unittest.TestCase):
                 "source_revision": REV,
                 "modules": {"fixture.py": "d" * 64},
             }),
-            patch.object(automatic, "issue_activation_authority", return_value=FakeAuthority()),
+            patch.object(automatic, "_freeze_normal_activation_bundle", return_value={
+                "activation_authority": FakeAuthority().as_dict(),
+                "admission_payload": {"kind": "fixture-admission"},
+                "frozen_admission": {"evidence_id": "art-" + "c" * 64},
+                "admission_approval": {"frozen_admission_evidence_id": "art-" + "c" * 64},
+            }),
             patch.object(automatic, "_boot_identity", return_value={
                 "unchanged": True,
                 "sha256": dict(BOOT_HASHES),
@@ -613,6 +618,9 @@ class AutomaticExecutionContracts(unittest.TestCase):
             "phase": "INSTALLED_PENDING_ACTIVATION",
             "candidate": candidate,
             "activation_authority": authority,
+            "admission_payload": {"kind": "fixture-admission"},
+            "frozen_admission": {"evidence_id": "art-" + "c" * 64},
+            "admission_approval": {"frozen_admission_evidence_id": "art-" + "c" * 64},
             "candidate_generation": {
                 "system_generation_id": CANDIDATE_SYSTEM,
                 "kernel_generation_id": CURRENT_KERNEL,
@@ -623,7 +631,7 @@ class AutomaticExecutionContracts(unittest.TestCase):
              patch.object(automatic, "load_current_verified_generations", return_value=live_context()), \
              patch.object(
                  automatic,
-                 "verify_normal_activation_authority",
+                 "verify_frozen_activation_authority",
                  return_value=SimpleNamespace(authority_id=FakeAuthority.authority_id),
              ):
             result = automatic.arm_normal_activation(
@@ -832,6 +840,67 @@ class AutomaticExecutionContracts(unittest.TestCase):
         )
         self.assertFalse(result["activation_attempted"])
         self.assertEqual(result["phase"], "ATTENTION_REQUIRED")
+
+    def test_reboot_activation_consumes_frozen_admission_without_rescan(self):
+        source = (ROOT / "lib/maho_update_automatic_execution.py").read_text()
+        start = source.index("def arm_normal_activation(")
+        end = source.index("def activate_current_pending(", start)
+        activation = source[start:end]
+        self.assertIn("verify_frozen_activation_authority(", activation)
+        self.assertNotIn("verify_normal_activation_authority(", activation)
+        self.assertNotIn("evaluate_normal_production_candidate(", activation)
+
+    def test_missing_frozen_admission_fails_before_root_swap(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        candidate = {
+            "name": "@maho-update-candidate-abcdefabcdef",
+            "uuid": CANDIDATE_UUID,
+            "parent_root_uuid": PARENT_UUID,
+            "filesystem_uuid": FSUUID,
+            "admission_base_name": "@maho-update-admission-base-abcdefabcdef",
+            "admission_base_uuid": BASE_UUID,
+        }
+        authority = FakeAuthority().as_dict()
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        automatic._atomic_json(automatic.record_path(self.state, TXID), {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "INSTALLED_PENDING_ACTIVATION",
+            "candidate": candidate,
+            "activation_authority": authority,
+            "candidate_generation": {
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+            },
+            "activation_handoff": handoff.as_dict(),
+        })
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()):
+            with self.assertRaisesRegex(ValueError, "frozen Admission evidence is incomplete"):
+                automatic.arm_normal_activation(
+                    TXID, state_root=self.state, generation_root=self.generations, now=NOW,
+                )
+        self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
 
     def test_source_contains_no_hidden_reboot_or_postboot_health_promotion(self):
         source = (ROOT / "lib/maho_update_automatic_execution.py").read_text()

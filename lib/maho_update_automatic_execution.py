@@ -17,9 +17,10 @@ from guardian_native_admission import CandidateRoots
 from maho_live_generation import GENERATION_ROOT
 from maho_update_admission import (
     evaluate_normal_production_candidate,
+    freeze_admission_evidence,
     guardian_transaction_id,
-    issue_activation_authority,
-    verify_normal_activation_authority,
+    issue_frozen_activation_authority,
+    verify_frozen_activation_authority,
 )
 from maho_update_candidate_generation import (
     load_current_verified_generations,
@@ -340,6 +341,51 @@ class _OneShotNormalOps:
         return self.delegate.guardian_admit(plan)
 
 
+
+def _freeze_normal_activation_bundle(
+    admission: Any,
+    *,
+    transaction: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    source_revision: str,
+    boot_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind one already-scanned immutable normal candidate for bounded reboot activation."""
+    if admission.decision.outcome.value != "ALLOW" or admission.promotion_authority is None:
+        raise RuntimeError("normal Guardian Admission did not authorize activation")
+    boot_hashes = boot_identity.get("sha256")
+    if not isinstance(boot_hashes, Mapping) or not boot_hashes:
+        raise ValueError("normal activation boot identity is incomplete")
+    payload = admission.as_dict()
+    frozen = freeze_admission_evidence(
+        admission,
+        update_transaction_id=transaction["transaction_id"],
+        transaction=transaction,
+        source_revision=source_revision,
+        candidate_btrfs_uuid=str(candidate["uuid"]),
+        base_btrfs_uuid=str(candidate["admission_base_uuid"]),
+        candidate_boot_sha256=boot_hashes,
+        admission_payload=payload,
+    )
+    authority = issue_frozen_activation_authority(
+        admission,
+        frozen.as_dict(),
+        update_transaction_id=transaction["transaction_id"],
+        transaction=transaction,
+        source_revision=source_revision,
+    )
+    approval = {
+        "decision": admission.decision.as_dict(),
+        "promotion_authority": admission.promotion_authority.as_dict(),
+        "frozen_admission_evidence_id": str(frozen.evidence_id),
+    }
+    return {
+        "activation_authority": authority.as_dict(),
+        "admission_payload": payload,
+        "frozen_admission": frozen.as_dict(),
+        "admission_approval": approval,
+    }
+
 def execute_ready_normal(
     transaction: Mapping[str, Any],
     *,
@@ -516,17 +562,19 @@ def execute_ready_normal(
 
         if delegate.admission is None or delegate.roots is None:
             raise RuntimeError("normal Guardian Admission result is unavailable")
-        activation_authority = issue_activation_authority(
-            delegate.admission,
-            update_transaction_id=current["transaction_id"],
-            transaction=result.transaction,
-            source_revision=current["source_revision"],
-        )
         boot_identity = _boot_identity(btrfs)
+        frozen_bundle = _freeze_normal_activation_bundle(
+            delegate.admission,
+            transaction=result.transaction,
+            candidate=candidate,
+            source_revision=current["source_revision"],
+            boot_identity=boot_identity,
+        )
+        activation_authority = frozen_bundle["activation_authority"]
         candidate_publication = publish_normal_candidate_generation(
             result.transaction,
             candidate=candidate,
-            activation_authority=activation_authority.as_dict(),
+            activation_authority=activation_authority,
             recovery_evidence=recovery,
             candidate_boot_identity=boot_identity,
             root=generation_root,
@@ -538,7 +586,7 @@ def execute_ready_normal(
             candidate_kernel_generation_id=candidate_publication["kernel_generation_id"],
             candidate_uuid=candidate["uuid"],
             previous_root_uuid=candidate["parent_root_uuid"],
-            activation_authority=activation_authority.as_dict(),
+            activation_authority=activation_authority,
             recovery_evidence=recovery,
             candidate_boot_identity=boot_identity,
             reboot_required=True,
@@ -549,7 +597,10 @@ def execute_ready_normal(
         record.update({
             "phase": "INSTALLED_PENDING_ACTIVATION",
             "transaction_state": result.transaction["state"],
-            "activation_authority": activation_authority.as_dict(),
+            "activation_authority": activation_authority,
+            "admission_payload": frozen_bundle["admission_payload"],
+            "frozen_admission": frozen_bundle["frozen_admission"],
+            "admission_approval": frozen_bundle["admission_approval"],
             "candidate_generation": candidate_publication,
             "activation_handoff": handoff.as_dict(),
             "reboot_performed": False,
@@ -804,17 +855,19 @@ def _finalize_pending_record(
         )
         if admission.decision.outcome.value != "ALLOW" or admission.promotion_authority is None:
             raise RuntimeError("frozen normal candidate no longer has Guardian ALLOW")
-        activation_authority = issue_activation_authority(
-            admission,
-            update_transaction_id=current["transaction_id"],
-            transaction=current,
-            source_revision=current["source_revision"],
-        )
         boot_identity = _boot_identity(btrfs)
+        frozen_bundle = _freeze_normal_activation_bundle(
+            admission,
+            transaction=current,
+            candidate=candidate,
+            source_revision=current["source_revision"],
+            boot_identity=boot_identity,
+        )
+        activation_authority = frozen_bundle["activation_authority"]
         candidate_publication = publish_normal_candidate_generation(
             current,
             candidate=candidate,
-            activation_authority=activation_authority.as_dict(),
+            activation_authority=activation_authority,
             recovery_evidence=recovery,
             candidate_boot_identity=boot_identity,
             root=generation_root,
@@ -826,7 +879,7 @@ def _finalize_pending_record(
             candidate_kernel_generation_id=str(kernel.kernel_generation_id),
             candidate_uuid=str(candidate["uuid"]),
             previous_root_uuid=str(candidate["parent_root_uuid"]),
-            activation_authority=activation_authority.as_dict(),
+            activation_authority=activation_authority,
             recovery_evidence=recovery,
             candidate_boot_identity=boot_identity,
             reboot_required=True,
@@ -840,7 +893,10 @@ def _finalize_pending_record(
     updated.update({
         "phase": "INSTALLED_PENDING_ACTIVATION",
         "transaction_state": current["state"],
-        "activation_authority": activation_authority.as_dict(),
+        "activation_authority": activation_authority,
+        "admission_payload": frozen_bundle["admission_payload"],
+        "frozen_admission": frozen_bundle["frozen_admission"],
+        "admission_approval": frozen_bundle["admission_approval"],
         "candidate_generation": candidate_publication,
         "activation_handoff": handoff.as_dict(),
         "reboot_performed": False,
@@ -1015,14 +1071,28 @@ def arm_normal_activation(
                 base_root=paths["base_root"],
                 candidate_root=paths["candidate_root"],
             )
-            verified = verify_normal_activation_authority(
+            frozen_admission = record.get("frozen_admission")
+            admission_payload = record.get("admission_payload")
+            admission_approval = record.get("admission_approval")
+            if not all(isinstance(item, Mapping) for item in (
+                frozen_admission, admission_payload, admission_approval,
+            )):
+                raise ValueError("normal activation frozen Admission evidence is incomplete")
+            expected_boot_hashes = dict(handoff.candidate_boot_identity.get("sha256", {}))
+            verified = verify_frozen_activation_authority(
                 authority,
+                frozen_admission,
+                admission_payload,
+                admission_approval,
                 roots=roots,
                 update_transaction_id=transaction_id,
                 transaction=transaction,
                 source_revision=transaction["source_revision"],
+                candidate_btrfs_uuid=str(paths["candidate_uuid"]),
+                base_btrfs_uuid=str(paths["base_uuid"]),
+                candidate_boot_sha256=expected_boot_hashes,
             )
-            if btrfs.live_boot_hashes() != dict(handoff.candidate_boot_identity.get("sha256", {})):
+            if btrfs.live_boot_hashes() != expected_boot_hashes:
                 raise ValueError("live boot identity drifted before normal activation")
             activation = btrfs.arm_root_activation(
                 expected_candidate_uuid=handoff.candidate_uuid,

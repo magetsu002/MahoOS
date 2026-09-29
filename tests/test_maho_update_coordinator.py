@@ -144,7 +144,11 @@ class CoordinatorContracts(unittest.TestCase):
         service = (ROOT / "config/systemd/system/maho-update-activate-on-reboot.service").read_text()
         package = (ROOT / "packaging/arch/PKGBUILD.in").read_text()
         self.assertIn("activate-current", service)
-        self.assertIn("Before=shutdown.target umount.target final.target systemd-reboot.service", service)
+        self.assertIn(
+            "Before=local-fs.target shutdown.target umount.target final.target systemd-reboot.service",
+            service,
+        )
+        self.assertNotIn("After=local-fs.target", service)
         self.assertIn("WantedBy=reboot.target", service)
         self.assertNotIn("systemctl reboot", service)
         self.assertNotIn("/sbin/reboot", service)
