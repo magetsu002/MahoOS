@@ -33,9 +33,14 @@ Bundled material:
 - `config/quickshell/maho-shell/sounds/guardian-stage.wav`
 - `config/quickshell/maho-shell/sounds/guardian-catastrophic.wav`
 
-The existing source note is preserved at `config/quickshell/maho-shell/sounds/SOURCE.txt`. It records the original local filenames used for the prototypes.
+Both bundled WAVs are processed derivatives of CC0 sounds by **ani_music** on Freesound:
 
-The exact source URLs, authors, and licenses have **not yet been verified in the repository**. This notice intentionally does not guess them. Before public release, management must either complete the attribution from a trustworthy source or replace/remove the affected samples.
+- `guardian-stage.wav` derives from **“Steel chain dragged, shower reverb”**, Freesound sound 167914: https://freesound.org/people/ani_music/sounds/167914/
+- `guardian-catastrophic.wav` derives from **“Hard steel chain plate drop”**, Freesound sound 167917: https://freesound.org/people/ani_music/sounds/167917/
+
+License: **Creative Commons CC0**.
+
+The conversion/source record is also stored at `config/quickshell/maho-shell/sounds/SOURCE.txt`.
 
 ## Bundled visual assets with provenance still to confirm
 
