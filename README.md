@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/brand/mahoos-banner.png" alt="MahoOS" width="100%">
+</p>
+
 # MahoOS
 
 **MahoOS — Linux built to recover.**
@@ -16,28 +20,15 @@ Traditional Linux desktops give you powerful tools, but they often leave the use
 
 The system prefers the smallest known-good recovery path. If it does not have enough current evidence to act safely, it stops rather than guessing.
 
-## The shape of MahoOS
+## How MahoOS fits together
 
-```text
-                         MahoOS
-                ┌────────────────────┐
-                │     MahoShell      │
-                │ desktop + controls │
-                └─────────┬──────────┘
-                          │ presents / requests
-                ┌─────────▼──────────┐
-                │     MahoSystem     │
-                │ truth + reliability│
-                └─────────┬──────────┘
-                          │ consumes
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-   observers         mutation owners   Linux authorities
-   evidence          exact effects     NM / BlueZ / KIO /
-   Guardian          Update / Recovery PipeWire / XDG / …
-```
+| Layer | Responsibility |
+| --- | --- |
+| **MahoShell** | Visible desktop, controls, and presentation. |
+| **MahoSystem** | Guardian truth, trust, updates, recovery, and bounded system authority. |
+| **Linux authorities** | Real subsystem state through NetworkManager, BlueZ, KIO/Solid, PipeWire/WirePlumber, XDG, and other platform owners. |
 
-**MahoShell** owns the visible desktop experience. **MahoSystem** is the system/reliability domain that presents bounded status and coordinates existing subsystem contracts; it is not a second Linux underneath Linux.
+MahoShell presents and requests. MahoSystem decides and coordinates. Existing Linux subsystem owners remain authoritative for the state they already own.
 
 The canonical model is in [Architecture](docs/ARCHITECTURE.md).
 
