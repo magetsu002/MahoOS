@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc='Adaptive MahoOS desktop runtime and native system surfaces'
 arch=('x86_64')
 url='https://github.com/magetsu002/MahoOS'
-# Project-wide license metadata intentionally remains unset until management selects the license.
+license=('GPL-3.0-only' 'GPL-3.0-or-later' 'GPL-2.0-only' 'MIT' 'OFL-1.1' 'LGPL-3.0-only' 'CC0-1.0')
 depends=(
   'bash'
   'python'
@@ -167,4 +167,16 @@ package() {
     "$pkgdir/usr/share/doc/maho-os/README.md"
   install -Dm644 "$source_root/THIRD_PARTY_NOTICES.md" \
     "$pkgdir/usr/share/doc/maho-os/THIRD_PARTY_NOTICES.md"
+  install -Dm644 "$source_root/LICENSE" \
+    "$pkgdir/usr/share/licenses/maho-os/LICENSE"
+  install -Dm644 "$source_root/LICENSES/GPL-2.0-only.txt" \
+    "$pkgdir/usr/share/licenses/maho-os/GPL-2.0-only.txt"
+  install -Dm644 "$source_root/LICENSES/LGPL-3.0-only.txt" \
+    "$pkgdir/usr/share/licenses/maho-os/LGPL-3.0-only.txt"
+  install -Dm644 "$source_root/LICENSES/CC0-1.0.txt" \
+    "$pkgdir/usr/share/licenses/maho-os/CC0-1.0.txt"
+  install -Dm644 "$source_root/LICENSES/Adwaita-COPYING.txt" \
+    "$pkgdir/usr/share/licenses/maho-os/Adwaita-COPYING.txt"
+  install -Dm644 "$source_root/config/quickshell/maho-lock/assets/Nunito-OFL.txt" \
+    "$pkgdir/usr/share/licenses/maho-os/OFL-1.1.txt"
 }

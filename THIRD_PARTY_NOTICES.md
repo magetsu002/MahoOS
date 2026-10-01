@@ -32,7 +32,9 @@ Verified source family:
 - the Maho copies match the geometry shipped by Arch Linux `adwaita-icon-theme 50.0-1`, sourced from upstream tag `50.0` (peeled commit `551245ae75fdc42cde42a8cf24ca2ccab9d3a815`), with formatting/foreground adaptation for the Maho SDDM theme
 - Arch Linux declares the upstream package license expression as **CC-BY-SA-3.0 OR LGPL-3.0-only**
 
-The exact upstream Git commit used for the original adaptation was not recorded when the Maho files were added. Before public release, maintainers must choose the applicable upstream license branch and include any license/notice material required by that choice rather than silently relicensing the adapted icons.
+MahoOS selects the **LGPL-3.0-only** option for redistribution of these two adapted icons. The upstream dual-license notice is preserved in `LICENSES/Adwaita-COPYING.txt`, and the canonical LGPL v3 text is preserved in `LICENSES/LGPL-3.0-only.txt`. The repository root `LICENSE` provides the GNU GPL v3 text incorporated by LGPL v3. Attribution: **GNOME Project** — https://www.gnome.org/.
+
+The exact historical upstream commit used at the moment of the original Maho adaptation was not recorded. For reproducible provenance, the current verification binds the matching icon geometry to upstream tag `50.0`, peeled commit `551245ae75fdc42cde42a8cf24ca2ccab9d3a815`.
 
 ## Guardian prototype sounds
 
@@ -77,4 +79,6 @@ The original animation/artwork source, creator, and redistribution license are n
 
 ## Project license
 
-These notices are separate from the MahoOS project license. The project-wide license is intentionally still pending management selection.
+Unless otherwise stated, original MahoOS code is licensed under the **GNU General Public License version 3 only (GPL-3.0-only)**. The canonical license text is in the repository root `LICENSE`.
+
+That default does not override file-specific or third-party terms. In particular, existing Prevention C/BPF files carrying `SPDX-License-Identifier: GPL-2.0` retain that existing GPL v2-only declaration; the VM root-destruction verifier remains MIT; SDDM metadata carrying `GPL-3.0-or-later` remains under that declaration; Nunito remains SIL OFL 1.1; the Guardian sounds remain CC0; and the Adwaita-derived icons use the LGPL-3.0-only redistribution option recorded above.
