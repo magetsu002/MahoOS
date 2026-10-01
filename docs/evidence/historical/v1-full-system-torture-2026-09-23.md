@@ -1,9 +1,14 @@
+> **HISTORICAL EVIDENCE**
+>
+> This document records point-in-time certification or design history.
+> It is not current project status and does not override current source or canonical architecture documentation.
+
 # MahoOS V1 full-system torture report
 
 - Mission start: `3ec29441bf33c77af47249fc6273cba5f79c504a`
 - Certified campaign source: `dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8`
 - Ending source before this report commit: `dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8`
-- Campaign evidence: `/home/magetsu/.local/state/maho/certification/vm-torture/20260923T173853Z-dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8`
+- Campaign evidence: `<local path omitted>`
 - Verdict: **PASS**
 - Distinct scenarios: 35
 - Iterations: 66

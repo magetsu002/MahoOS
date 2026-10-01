@@ -1,0 +1,9 @@
+# Initial public ownership policy.
+# The repository owner is the safe default until explicit maintainer/component
+# ownership is established. Do not infer team ownership from component names.
+
+* @magetsu002
+/docs/ @magetsu002
+/.github/ @magetsu002
+/SECURITY.md @magetsu002
+/AGENTS.md @magetsu002

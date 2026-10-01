@@ -1,3 +1,8 @@
+> **HISTORICAL EVIDENCE**
+>
+> This document records point-in-time certification or design history.
+> It is not current project status and does not override current source or canonical architecture documentation.
+
 # MahoOS V1 pre-installer architecture freeze
 
 Status: **historical pre-installer architecture freeze; gate subsequently met; RC0 exists**

@@ -1,3 +1,8 @@
+> **HISTORICAL EVIDENCE**
+>
+> This document records point-in-time certification or design history.
+> It is not current project status and does not override current source or canonical architecture documentation.
+
 # MahoOS V1 architecture ownership map
 
 Status: current-facing ownership map. Architecture was audited/frozen on 2026-09-25; status findings below are converged to current main `4fedab78d31109025855eb30f425f677f97b6b7d`. This document describes the one intended owner for each state and does not claim completion of the active installer/first-boot lane.

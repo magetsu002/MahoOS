@@ -1,0 +1,57 @@
+name: Architecture proposal
+description: Review a change to ownership, trust, recovery, or mutation authority before implementation
+title: "[Architecture] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this before coding when a proposal creates/transfers authority, changes trust semantics, expands protected state, or changes installer/boot/recovery ownership.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Architecture problem
+      description: What existing boundary cannot express the required behavior?
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current owner and authority
+      description: What component/backend owns the state today? Include source locations.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed ownership
+      description: Who would observe, decide, mutate, and verify after the change?
+    validations:
+      required: true
+  - type: textarea
+    id: authority
+    attributes:
+      label: Authority scope
+      description: List effects, targets, process/transaction binding, lifetime/expiry, and attribution.
+    validations:
+      required: true
+  - type: textarea
+    id: failure
+    attributes:
+      label: Failure / stale / interruption semantics
+      description: What happens with missing/stale evidence, partial mutation, replay, wrong target, or failed verification?
+    validations:
+      required: true
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery and rollback
+      description: What is the smallest known-good recovery state and who owns it?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required proof
+      description: Which unit, integration, VM, and/or physical evidence is required before acceptance?
+    validations:
+      required: true

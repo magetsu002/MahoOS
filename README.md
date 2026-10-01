@@ -1,74 +1,87 @@
 # MahoOS
 
-**Linux that takes responsibility for itself without taking control away from you.**
+**MahoOS — Linux built to recover.**
 
-MahoOS is an Arch-based desktop for people who want the control of Linux without
-having to babysit it every time something changes.
+MahoOS is a Pre-V1 Arch-based operating system and desktop platform for people who want Linux control without having to babysit the machine after every update, service failure, driver change, or configuration mistake.
 
-A bad update, broken service, driver problem, or bad configuration can turn into
-hours of manual repair. MahoOS is being built so the system can check important
-changes, keep a recovery path, and verify that recovery actually worked.
+Its core promise is simple:
 
-## Why MahoOS exists
+> **Own the system. Trust the system. Stop babysitting the system.**
 
-The goal is to make daily use simple.
+MahoOS is not a theme pack or an Arch rice. It combines a native desktop with a reliability layer designed around explicit authority, current evidence, reversible change, and verified recovery.
 
-You should be able to update the system, connect your devices, change your
-desktop, and get on with what you were doing without maintaining a pile of
-separate scripts and tools.
+## What problem it solves
 
-When Maho knows how to recover from a problem, it can do that and check the
-result. When it does not have enough information to act safely, it stops instead
-of guessing.
+Traditional Linux desktops give you powerful tools, but they often leave the user to connect the pieces when something breaks. MahoOS is being built so important changes have an identified owner, recovery state exists before risky mutation, and success is verified instead of assumed.
 
-Updates are being built around a separate candidate system so a failed update
-does not have to damage the system you are currently using.
+The system prefers the smallest known-good recovery path. If it does not have enough current evidence to act safely, it stops rather than guessing.
 
-**Use your computer. Maho takes care of Maho.**
+## The shape of MahoOS
 
-## The desktop
+```text
+                         MahoOS
+                ┌────────────────────┐
+                │     MahoShell      │
+                │ desktop + controls │
+                └─────────┬──────────┘
+                          │ presents / requests
+                ┌─────────▼──────────┐
+                │     MahoSystem     │
+                │ truth + reliability│
+                └─────────┬──────────┘
+                          │ consumes
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+   observers         mutation owners   Linux authorities
+   evidence          exact effects     NM / BlueZ / KIO /
+   Guardian          Update / Recovery PipeWire / XDG / …
+```
 
-MahoOS has its own shell and system controls, designed to feel like one product.
+**MahoShell** owns the visible desktop experience. **MahoSystem** is the system/reliability domain that presents bounded status and coordinates existing subsystem contracts; it is not a second Linux underneath Linux.
 
-**Maho Edge** gives you quick system controls and status.
+The canonical model is in [Architecture](docs/ARCHITECTURE.md).
 
-**Maho Link** handles Wi-Fi and Bluetooth.
+## Desktop
 
-**Maho Notify** handles notifications and Do Not Disturb.
+The desktop is built around Hyprland, Quickshell, Qt/QML, and native integrations.
 
-**Maho Launcher** opens apps, files, and commands.
+Current broad surfaces include Maho Edge, Link, Notify, Launcher, Files, Dock, Lock, Power, Clipboard, wallpaper/theme integration, Guardian status, and system/update controls.
 
-**Maho Files** is the native file manager.
+Maho surfaces reuse the platform authorities that already own the real state. NetworkManager still owns networking. BlueZ still owns Bluetooth. KIO and Solid still own file/device operations. PipeWire/WirePlumber still own audio. XDG desktop and MIME data still own application identity and associations.
 
-MahoOS also includes its own lock screen, dock, power controls, clipboard
-history, and wallpaper system. The desktop colors adapt to the active wallpaper
-so the whole system stays visually consistent without manual tweaking.
+See [Components](docs/COMPONENTS.md) for the routing map.
 
-## Current status
+## Reliability philosophy
 
-MahoOS is still pre-V1.
+MahoOS is fail-safe by default:
 
-The historical pre-installer gate is complete. The `v1-preinstaller-rc0` tag
-points to `2d138aa930031f63b4c15a9234a11ce69a26f5e3`, and current main is
-`4fedab78d31109025855eb30f425f677f97b6b7d`.
+- unknown, stale, or missing evidence is not healthy evidence;
+- operational health is not the same thing as trust;
+- root privilege is not sufficient mutation authority;
+- observers observe and mutation owners mutate;
+- authority is exact, bounded, scoped, expiring, and attributable;
+- historical proof never establishes current trust;
+- Maho Update owns system-update mutation;
+- automatic AUR installation is forbidden;
+- reboot, shutdown, firmware mutation, and destructive user-disk actions must never be hidden.
 
-The desktop is usable, recovery has extensive automated and VM failure testing,
-and the production kernel update path has transaction-backed physical
-certification. Immutable runtime deployment, persistence baseline transition
-authority, and the boot-bound firewall receipt path are no longer pre-installer
-blockers.
+The full semantics live in [Architecture](docs/ARCHITECTURE.md).
 
-Current V1 work is the installer and certified first boot, automatic
-maintenance/update coordination, bad-update recovery closure, production
-Prevention VM certification after the installer VM exists, fresh-install
-reproducibility, and the physical Signed Boot/hardware release gates.
+## Pre-V1
 
-## Learn more
+MahoOS is still **Pre-V1**. The repository already contains substantial desktop, Guardian, generation, update/recovery, prevention, installer, first-boot, and boot-trust work, but Pre-V1 is not a claim of general release readiness.
 
-[Desktop](docs/DESKTOP.md)
+Broad unfinished work includes fresh-install and release convergence, bounded hardware certification, physical trust/provisioning gates, broader failure certification, and final public-release governance. Interfaces and guarantees may still change before V1.
 
-[Recovery](docs/RECOVERY.md)
+Historical certification is retained under `docs/history/` and `docs/evidence/`, but it is not part of the normal contributor reading path and does not override current source.
 
-[Architecture](docs/ARCHITECTURE.md)
+## Start here
 
-[Roadmap](docs/ROADMAP.md)
+1. [Architecture](docs/ARCHITECTURE.md) — the canonical mental model.
+2. [Components](docs/COMPONENTS.md) — where a change belongs.
+3. [Contributing](CONTRIBUTING.md) — how to change MahoOS safely.
+4. [Development](docs/DEVELOPMENT.md) — build, test, package, and diagnose.
+5. [Roadmap](docs/ROADMAP.md) — broad Pre-V1 → V1 direction.
+6. [Security](SECURITY.md) — security reporting and disclosure policy.
+
+Machine and AI contributors should also read [AGENTS.md](AGENTS.md).
