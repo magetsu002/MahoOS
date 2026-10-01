@@ -24,7 +24,15 @@ Bundled material:
 
 The files identify themselves as adaptations of GNOME Adwaita `system-reboot-symbolic` and `video-display-symbolic` respectively.
 
-The exact upstream revision and applicable redistributed license text are not yet recorded in this repository. Before public release, maintainers must pin the upstream source/revision and include the notice/license material required by that upstream source. This file intentionally does not guess the exact historical revision used to create the adaptations.
+Verified source family:
+
+- upstream project: https://gitlab.gnome.org/GNOME/adwaita-icon-theme
+- `restart.svg` follows `symbolic/actions/system-reboot-symbolic.svg`
+- `session.svg` follows `symbolic/devices/video-display-symbolic.svg`
+- the Maho copies match the geometry shipped by Arch Linux `adwaita-icon-theme 50.0-1`, with formatting/foreground adaptation for the Maho SDDM theme
+- Arch Linux declares the upstream package license expression as **CC-BY-SA-3.0 OR LGPL-3.0-only**
+
+The exact upstream Git commit used for the original adaptation was not recorded when the Maho files were added. Before public release, maintainers must choose the applicable upstream license branch and include any license/notice material required by that choice rather than silently relicensing the adapted icons.
 
 ## Guardian prototype sounds
 
