@@ -93,7 +93,7 @@ maho_dashboard() {
 
     cols="${MAHO_DASHBOARD_COLUMNS:-$(tput cols 2>/dev/null || printf '80')}"
     root="$(maho_terminal_root)"
-    img="$root/share/maho/terminal/kurisu-transparent.apng"
+    img="$root/share/maho/terminal/maho-orbit.apng"
     full="$root/config/fastfetch/config.jsonc"
     compact="$root/config/fastfetch/config-narrow.jsonc"
     tiny="$root/config/fastfetch/config-tiny.jsonc"
