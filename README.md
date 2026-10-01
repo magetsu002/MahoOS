@@ -4,43 +4,13 @@
 
 # MahoOS
 
-**MahoOS — Linux built to recover.**
+**Linux built to recover.**
 
-MahoOS is a Pre-V1 Arch-based operating system and desktop platform for people who want Linux control without having to babysit the machine after every update, service failure, driver change, or configuration mistake.
-
-Its core promise is simple:
+MahoOS is a Pre-V1 Arch-based operating system and desktop platform built around one rule: important changes should be **owned, reversible, and verified**.
 
 > **Own the system. Trust the system. Stop babysitting the system.**
 
-MahoOS is not a theme pack or an Arch rice. It combines a native desktop with a reliability layer designed around explicit authority, current evidence, reversible change, and verified recovery.
-
-## What problem it solves
-
-Traditional Linux desktops give you powerful tools, but they often leave the user to connect the pieces when something breaks. MahoOS is being built so important changes have an identified owner, recovery state exists before risky mutation, and success is verified instead of assumed.
-
-The system prefers the smallest known-good recovery path. If it does not have enough current evidence to act safely, it stops rather than guessing.
-
-## How MahoOS fits together
-
-| Layer | Responsibility |
-| --- | --- |
-| **MahoShell** | Visible desktop, controls, and presentation. |
-| **MahoSystem** | Guardian truth, trust, updates, recovery, and bounded system authority. |
-| **Linux authorities** | Real subsystem state through NetworkManager, BlueZ, KIO/Solid, PipeWire/WirePlumber, XDG, and other platform owners. |
-
-MahoShell presents and requests. MahoSystem decides and coordinates. Existing Linux subsystem owners remain authoritative for the state they already own.
-
-The canonical model is in [Architecture](docs/ARCHITECTURE.md).
-
-## Desktop
-
-The desktop is built around Hyprland, Quickshell, Qt/QML, and native integrations.
-
-Current broad surfaces include Maho Edge, Link, Notify, Launcher, Files, Dock, Lock, Power, Clipboard, wallpaper/theme integration, Guardian status, and system/update controls.
-
-Maho surfaces reuse the platform authorities that already own the real state. NetworkManager still owns networking. BlueZ still owns Bluetooth. KIO and Solid still own file/device operations. PipeWire/WirePlumber still own audio. XDG desktop and MIME data still own application identity and associations.
-
-See [Components](docs/COMPONENTS.md) for the routing map.
+**Pre-V1:** active development. Interfaces and guarantees may still change before V1.
 
 ## Preview
 
@@ -146,41 +116,54 @@ See [Components](docs/COMPONENTS.md) for the routing map.
 <p align="center"><sub>Wallpaper-driven palettes keep the shell visually coherent with the active desktop.</sub></p>
 </details>
 
-## Reliability philosophy
+## Why MahoOS
 
-MahoOS is fail-safe by default:
+- **Recover deliberately.** Risky system changes are tied to known-good recovery state and verified afterward.
+- **Trust current evidence.** Missing or stale evidence never silently becomes healthy or trusted state.
+- **Bound authority.** Privilege alone is not enough; mutation authority is explicit, scoped, and attributable.
+- **Stay native.** MahoOS coordinates Linux authorities such as NetworkManager, BlueZ, KIO/Solid, PipeWire/WirePlumber, and XDG instead of replacing them with parallel state.
+
+MahoOS is not a theme pack or an Arch rice. The desktop and reliability system are built as one product.
+
+## Architecture in one minute
+
+- **MahoShell** — the visible desktop, controls, and presentation.
+- **MahoSystem** — Guardian truth, trust, updates, generations, recovery, and bounded system authority.
+- **Linux authorities** — the existing subsystem owners that remain authoritative for networking, Bluetooth, files, audio, application identity, and related state.
+
+MahoShell presents and requests. MahoSystem decides and coordinates.
+
+Read the full model in [Architecture](docs/ARCHITECTURE.md) or use [Components](docs/COMPONENTS.md) to find where a change belongs.
+
+<details>
+<summary><strong>Reliability contract</strong></summary>
+<br>
 
 - unknown, stale, or missing evidence is not healthy evidence;
 - operational health is not the same thing as trust;
 - root privilege is not sufficient mutation authority;
-- observers observe and mutation owners mutate;
 - authority is exact, bounded, scoped, expiring, and attributable;
-- historical proof never establishes current trust;
-- Maho Update owns system-update mutation;
-- automatic AUR installation is forbidden;
-- reboot, shutdown, firmware mutation, and destructive user-disk actions must never be hidden.
+- Maho Update owns system-update mutation and automatic AUR installation is forbidden;
+- reboot, shutdown, firmware mutation, and destructive user-disk actions are never hidden.
 
-The full semantics live in [Architecture](docs/ARCHITECTURE.md).
+</details>
 
-## Pre-V1
+## Project status
 
-MahoOS is still **Pre-V1**. The repository already contains substantial desktop, Guardian, generation, update/recovery, prevention, installer, first-boot, and boot-trust work, but Pre-V1 is not a claim of general release readiness.
+MahoOS is **Pre-V1**, not a general-release claim. The repository already contains substantial desktop, Guardian, generation, update/recovery, prevention, installer, first-boot, and boot-trust work. Fresh-install convergence, broader certification, physical trust/provisioning gates, and release governance are still being completed.
 
-Broad unfinished work includes fresh-install and release convergence, bounded hardware certification, physical trust/provisioning gates, broader failure certification, and final public-release governance. Interfaces and guarantees may still change before V1.
+See the [Roadmap](docs/ROADMAP.md). Historical certification remains under `docs/history/` and `docs/evidence/` as evidence, not current authority.
 
-Historical certification is retained under `docs/history/` and `docs/evidence/`, but it is not part of the normal contributor reading path and does not override current source.
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — canonical system model
+- [Components](docs/COMPONENTS.md) — ownership and routing map
+- [Development](docs/DEVELOPMENT.md) — build, test, package, diagnose
+- [Contributing](CONTRIBUTING.md) — contribution rules
+- [Roadmap](docs/ROADMAP.md) — Pre-V1 → V1 direction
+- [Security](SECURITY.md) — disclosure and reporting policy
+- [AGENTS.md](AGENTS.md) — machine and AI contributor contract
 
 ## License
 
-Unless otherwise stated, original MahoOS code is licensed under the **GNU General Public License version 3 only (GPL-3.0-only)**. Files and third-party material carrying their own license notices remain governed by those terms. See [LICENSE](LICENSE) and [Third-party notices](THIRD_PARTY_NOTICES.md).
-
-## Start here
-
-1. [Architecture](docs/ARCHITECTURE.md) — the canonical mental model.
-2. [Components](docs/COMPONENTS.md) — where a change belongs.
-3. [Contributing](CONTRIBUTING.md) — how to change MahoOS safely.
-4. [Development](docs/DEVELOPMENT.md) — build, test, package, and diagnose.
-5. [Roadmap](docs/ROADMAP.md) — broad Pre-V1 → V1 direction.
-6. [Security](SECURITY.md) — security reporting and disclosure policy.
-
-Machine and AI contributors should also read [AGENTS.md](AGENTS.md).
+Unless otherwise stated, original MahoOS code is licensed under **GPL-3.0-only**. Files and third-party material carrying their own license notices remain governed by those terms. See [LICENSE](LICENSE) and [Third-party notices](THIRD_PARTY_NOTICES.md).
