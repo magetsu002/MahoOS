@@ -165,4 +165,6 @@ package() {
     "$pkgdir/usr/share/doc/maho/PREVENTION-BOUNDARY.md"
   install -Dm644 "$source_root/README.md" \
     "$pkgdir/usr/share/doc/maho-os/README.md"
+  install -Dm644 "$source_root/THIRD_PARTY_NOTICES.md" \
+    "$pkgdir/usr/share/doc/maho-os/THIRD_PARTY_NOTICES.md"
 }
