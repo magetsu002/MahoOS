@@ -174,7 +174,7 @@ class CoordinatorContracts(unittest.TestCase):
                      side_effect=LookupError("no coherent update candidates were discovered"),
                  ),                  patch.object(coordinator, "_authority_state", return_value="stale-or-invalid"):
                 state = coordinator._new_discovery(
-                    None, REV, "magetsu", {"source_revision": REV}, repo, NOW,
+                    None, REV, "testuser", {"source_revision": REV}, repo, NOW,
                 )
             self.assertEqual(state["phase"], "UP_TO_DATE")
             self.assertEqual(state["candidate_count"], 0)
@@ -295,7 +295,7 @@ class CoordinatorContracts(unittest.TestCase):
         resumed = coordinator._resume_owned(
             state,
             REV,
-            "magetsu",
+            "testuser",
             {"source_revision": REV},
             {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
             NOW,
@@ -353,7 +353,7 @@ class CoordinatorContracts(unittest.TestCase):
         }
         with patch.object(coordinator, "_authority_state", return_value="stale-or-invalid"):
             current, evidence = coordinator._maintenance_transition(
-                tx, state, "magetsu", {"source_revision": REV}, NOW,
+                tx, state, "testuser", {"source_revision": REV}, NOW,
             )
         self.assertEqual(current["state"], "PREPARED")
         self.assertFalse(evidence["ready"])
@@ -381,7 +381,7 @@ class CoordinatorContracts(unittest.TestCase):
             cache.mkdir(parents=True)
             with patch.dict(os.environ, {"MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}, clear=False),                  patch.object(coordinator, "_authority_state", return_value="current"),                  patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()),                  patch.object(coordinator, "_generation_is_current", return_value=True),                  patch.object(coordinator, "_candidate_capability", return_value=True),                  patch.object(coordinator.shutil, "disk_usage", return_value=fake_usage):
                 current, evidence = coordinator._maintenance_transition(
-                    tx, state, "magetsu", runtime, NOW,
+                    tx, state, "testuser", runtime, NOW,
                 )
         self.assertEqual(current["state"], "MAINTENANCE_READY")
         self.assertTrue(evidence["ready"])
@@ -410,7 +410,7 @@ class CoordinatorContracts(unittest.TestCase):
             (Path(work_tmp) / TXID / "staging").mkdir(parents=True)
             with patch.dict(os.environ, {"MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}, clear=False),                  patch.object(coordinator, "_authority_state", return_value="current"),                  patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()),                  patch.object(coordinator, "_generation_is_current", return_value=True),                  patch.object(coordinator, "_candidate_capability", return_value=False),                  patch.object(coordinator.shutil, "disk_usage", return_value=fake_usage):
                 current, evidence = coordinator._maintenance_transition(
-                    tx, state, "magetsu", {"source_revision": REV}, NOW,
+                    tx, state, "testuser", {"source_revision": REV}, NOW,
                 )
         self.assertEqual(current["state"], "PREPARED")
         self.assertIn("disk_headroom_unconfirmed", evidence["reasons"])
@@ -437,7 +437,7 @@ class CoordinatorContracts(unittest.TestCase):
                     resumed = coordinator._resume_owned(
                         state,
                         REV,
-                        "magetsu",
+                        "testuser",
                         {"source_revision": REV},
                         {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
                         NOW,

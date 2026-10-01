@@ -50,7 +50,7 @@ What happens on missing evidence, interruption, failed verification, or partial 
 
 ## Security and privacy
 
-- [ ] No secrets, private keys, personal data, private machine paths, or unrelated logs are included.
+- [ ] No credentials, private keys, recovery secrets, personal data, private machine paths, or raw private logs are included.
 - [ ] Destructive/reboot/firmware behavior is explicit.
 - [ ] Security-sensitive claims match the evidence level performed.
 

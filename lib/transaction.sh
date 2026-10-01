@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-MAHO_TRANSACTION_ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+MAHO_TRANSACTION_ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 MAHO_TRANSACTION_EVENTS="$MAHO_TRANSACTION_ROOT/lib/events.sh"
 MAHO_TRANSACTION_CYCLES="$MAHO_TRANSACTION_ROOT/lib/cycle.sh"
 

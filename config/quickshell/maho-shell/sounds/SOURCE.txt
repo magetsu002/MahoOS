@@ -1,13 +1,24 @@
-Maho Guardian sound prototype
+Maho Guardian sound prototypes
 
 guardian-stage.wav
-Original local filename:
-freesound_community-steel-chain-dragged-shower-reverb-106252.mp3
+Derived from:
+  "Steel chain dragged, shower reverb" by ani_music
+Original source:
+  https://freesound.org/people/ani_music/sounds/167914/
+License:
+  Creative Commons CC0
+Local prototype source filename:
+  freesound_community-steel-chain-dragged-shower-reverb-106252.mp3
 
 guardian-catastrophic.wav
-Original local filename:
-freesound_community-hard-steel-chain-plate-drop-106251.mp3
+Derived from:
+  "Hard steel chain plate drop" by ani_music
+Original source:
+  https://freesound.org/people/ani_music/sounds/167917/
+License:
+  Creative Commons CC0
+Local prototype source filename:
+  freesound_community-hard-steel-chain-plate-drop-106251.mp3
 
-NOTE:
-Before public release, confirm and record the exact source URLs,
-authors, and licenses for both samples.
+The bundled WAV files are processed prototype derivatives of the source sounds
+rather than byte-for-byte copies of the upstream WAV files.

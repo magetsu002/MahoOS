@@ -3,8 +3,28 @@ name: ux-cleanup
 on:
   push:
     branches:
-      - 'fix/ux-cleanup-launcher-clipboard'
+      - main
+    paths:
+      - 'bin/maho-launcher'
+      - 'bin/maho-clipboard'
+      - 'bin/maho-clipboard-history'
+      - 'systemd/user/maho-clipboard-history.service'
+      - 'lib/maho_launcher_backend.py'
+      - 'config/hypr/maho/core/binds.lua'
+      - 'config/quickshell/maho-launcher/**'
+      - 'config/quickshell/maho-clipboard/**'
+      - 'tests/launcher-qml-contracts.sh'
+      - 'tests/clipboard-contracts.sh'
+      - 'tests/clipboard-bind-contracts.sh'
+      - 'tests/clipboard-history-contracts.sh'
+      - 'tests/clipboard-runtime-path-contracts.sh'
+      - 'tests/tst-clipboard-pin-glyph.qml'
+      - 'tests/tst-clipboard-pin-row.qml'
+      - 'tests/ux-cleanup-contracts.sh'
+      - '.github/workflows/ux-cleanup.yml'
   pull_request:
+    branches:
+      - main
     paths:
       - 'bin/maho-launcher'
       - 'bin/maho-clipboard'
@@ -24,12 +44,17 @@ on:
       - 'tests/ux-cleanup-contracts.sh'
       - '.github/workflows/ux-cleanup.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     container: archlinux:latest
     steps:
       - name: Install Arch test dependencies

@@ -4,8 +4,31 @@ on:
   push:
     branches:
       - main
-      - 'feat/**'
+    paths:
+      - 'lib/guardian_causality.py'
+      - 'lib/guardian_causal_projection.py'
+      - 'lib/guardian_causal_status.py'
+      - 'lib/guardian_live_cli.py'
+      - 'tests/test_guardian_causality.py'
+      - 'tests/test_guardian_causal_projection.py'
+      - 'tests/test_guardian_causal_status.py'
+      - '.github/workflows/guardian-causality.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'lib/guardian_causality.py'
+      - 'lib/guardian_causal_projection.py'
+      - 'lib/guardian_causal_status.py'
+      - 'lib/guardian_live_cli.py'
+      - 'tests/test_guardian_causality.py'
+      - 'tests/test_guardian_causal_projection.py'
+      - 'tests/test_guardian_causal_status.py'
+      - '.github/workflows/guardian-causality.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +36,7 @@ permissions:
 jobs:
   causality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:

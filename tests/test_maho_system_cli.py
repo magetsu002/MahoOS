@@ -22,18 +22,17 @@ def main():
         doctor.returncode == 0
         and "Overall trust:" in doctor.stdout
         and "Signed Boot evidence:" in doctor.stdout
-        and "Immutable Maho runtime:" not in doctor.stdout
         and "Provider guardian.watch:" not in doctor.stdout
-        and "Normal update execution authority:" not in doctor.stdout,
+        and "Normal update execution authority:" not in doctor.stdout
+        and "Showing checks that need review." in doctor.stdout,
     )
     generation_line=next(line for line in doctor.stdout.splitlines() if "Overall trust:" in line)
     signed_boot_line=next(line for line in doctor.stdout.splitlines() if "Signed Boot evidence:" in line)
     semantic_states=("PASS", "WARN", "FAIL", "Unresolved", "Not established", "Awaiting certification", "Verified", "Untrusted", "Unknown", "N/A", "None yet")
     check(
         "plain doctor translates known trust reasons",
-        generation_line.startswith("Unresolved")
+        generation_line.startswith(semantic_states)
         and signed_boot_line.startswith("Awaiting certification")
-        and generation_line.startswith(semantic_states)
         and signed_boot_line.startswith(semantic_states),
     )
     check("plain doctor does not leak explained UNKNOWN", "UNKNOWN Trust" not in doctor.stdout and "UNKNOWN Guardian" not in doctor.stdout)

@@ -130,6 +130,7 @@ legacy_link() {
   { grep -Fqx '# managed-by: maho-link-final-motion' "$path" && grep -Fqx 'exec "$HOME/.local/share/maho-link/current/bin/maho-link" "$@"' "$path"; } ||
   { grep -Fqx 'RUNTIME="${XDG_DATA_HOME:-$HOME/.local/share}/maho-link-bluetooth"' "$path" && grep -Fqx 'exec bash "$RUNTIME/bin/maho-link" "$@"' "$path"; }
 }
+# Exact historical runtime path below is a bounded migration recognizer only; new installs never create it.
 legacy_launcher() {
   local path="$1"
   sha_is "$path" "5de3a0a3bb4a3e298fd7555d53d81c05f3f7c720a86b3dcbef70805da369cf78" && return 0
@@ -163,6 +164,7 @@ legacy_power() {
   [ -f "$path" ] || return 1
   grep -Fqx '# managed-by: maho-power-install v1' "$path" && grep -Fq '/.local/share/maho-power/current/bin/maho-power' "$path"
 }
+# Exact historical runtime path below is a bounded migration recognizer only; new installs never create it.
 legacy_clipboard() {
   local path="$1"
   sha_is "$path" "875615a7ba3654826e54372ece70296580dd0afa2ad0f67feb445f29c2165e03" && return 0
@@ -306,7 +308,6 @@ preflight() {
     apps/maho-files/CMakeLists.txt lib/maho_app_model.py lib/maho_launcher_backend.py
     lib/maho_terminal_theme.py config/kitty/maho.conf config/zshrc/maho-dashboard.zsh config/zshrc/30-maho-dashboard
     config/fastfetch/config.jsonc config/fastfetch/config-narrow.jsonc config/fastfetch/config-tiny.jsonc
-    share/maho/terminal/kurisu-transparent.apng
   )
   for name in "${COMMANDS[@]}"; do [ -r "$ROOT/bin/$name" ] || { echo "FAIL  source $name"; failed=1; }; done
   for name in "${UNITS[@]}"; do [ -r "$ROOT/systemd/user/$name" ] || { echo "FAIL  unit $name"; failed=1; }; done

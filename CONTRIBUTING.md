@@ -94,6 +94,10 @@ A pull request should explain:
 
 Use the repository pull request template.
 
+### Contributor licensing governance
+
+Contributor licensing governance is being finalized during Pre-V1. Do not merge external contributions requiring alternative relicensing rights until that policy is established. Ordinary GPL contributions do **not** automatically grant MahoOS proprietary or alternative relicensing rights, and the project does not currently claim a contributor copyright assignment or CLA.
+
 The completion model is:
 
 ```text

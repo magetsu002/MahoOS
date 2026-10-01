@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing, check docs/COMPONENTS.md so the report names the affected owner when possible. Remove secrets and private machine paths from logs.
+        Before filing, check docs/COMPONENTS.md so the report names the affected owner when possible. Never post credentials, private keys, recovery secrets, or raw private logs. Redact logs and private machine paths before attaching them.
   - type: dropdown
     id: area
     attributes:
@@ -59,4 +59,4 @@ body:
     id: context
     attributes:
       label: Sanitized context
-      description: Relevant source revision, component state, and sanitized logs. Do not include secrets or personal/private paths.
+      description: Relevant source revision, component state, and only the minimum sanitized log lines needed. Do not include credentials, private keys, recovery secrets, raw private logs, or personal/private paths.

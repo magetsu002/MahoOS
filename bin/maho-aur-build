@@ -2,7 +2,7 @@
 
 set -u
 
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/maho/security/aur-builds"
 PREFLIGHT="$ROOT/lib/security_preflight.py"

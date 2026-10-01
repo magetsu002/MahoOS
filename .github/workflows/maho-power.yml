@@ -3,10 +3,32 @@ name: maho-power
 on:
   push:
     branches:
-      - 'feat/maho-power-session'
-      - 'feat/maho-power-session-*'
-      - 'fix/maho-power-*'
+      - main
+    paths:
+      - 'bin/maho-power'
+      - 'config/quickshell/maho-power/**'
+      - 'config/quickshell/maho-shell/MahoPowerView.qml'
+      - 'config/quickshell/maho-shell/MahoUpdateState.qml'
+      - 'config/hypr/maho/core/binds.lua'
+      - 'tests/maho-power*.sh'
+      - 'tests/shell-contracts.sh'
+      - '.github/workflows/maho-power.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'bin/maho-power'
+      - 'config/quickshell/maho-power/**'
+      - 'config/quickshell/maho-shell/MahoPowerView.qml'
+      - 'config/quickshell/maho-shell/MahoUpdateState.qml'
+      - 'config/hypr/maho/core/binds.lua'
+      - 'tests/maho-power*.sh'
+      - 'tests/shell-contracts.sh'
+      - '.github/workflows/maho-power.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,6 +36,7 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4

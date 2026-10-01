@@ -3,8 +3,24 @@ name: maho-lock
 on:
   push:
     branches:
-      - 'feat/maho-lock'
+      - main
+    paths:
+      - 'bin/maho-lock'
+      - 'bin/maho-lock-install'
+      - 'bin/maho-lock-sddm-install'
+      - 'config/quickshell/maho-lock/**'
+      - 'config/sddm/maho-lock/**'
+      - 'config/hypr/maho/core/binds.lua'
+      - 'bin/maho-setup'
+      - 'tests/maho-lock-contracts.sh'
+      - 'tests/maho-lock-status-targets.sh'
+      - 'tests/maho-lock-install-contracts.sh'
+      - 'tests/maho-lock-personalization-contracts.sh'
+      - 'tests/maho-lock-sddm-contracts.sh'
+      - '.github/workflows/maho-lock.yml'
   pull_request:
+    branches:
+      - main
     paths:
       - 'bin/maho-lock'
       - 'bin/maho-lock-install'
@@ -20,12 +36,17 @@ on:
       - 'tests/maho-lock-sddm-contracts.sh'
       - '.github/workflows/maho-lock.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: archlinux:latest
     steps:
       - name: Install Arch test dependencies

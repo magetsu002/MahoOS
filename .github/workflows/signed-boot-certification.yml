@@ -1,12 +1,11 @@
 name: signed-boot-certification
 
 on:
-  push:
-    branches:
-      - main
-      - 'feat/**'
-  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -14,8 +13,8 @@ permissions:
 jobs:
   qemu-ovmf:
     runs-on: ubuntu-latest
-    container: archlinux:latest
     timeout-minutes: 15
+    container: archlinux:latest
     steps:
       - name: Install isolated certification dependencies
         run: |

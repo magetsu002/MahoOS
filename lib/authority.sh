@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-MAHO_AUTHORITY_ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+MAHO_AUTHORITY_ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 MAHO_OWNERSHIP_DEFAULTS="$MAHO_AUTHORITY_ROOT/config/ownership.json"
 MAHO_OWNERSHIP_OVERRIDES="${XDG_CONFIG_HOME:-$HOME/.config}/maho/ownership.json"
 

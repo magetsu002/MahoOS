@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
 NOTIFY="${MAHO_NOTIFY_BIN:-$ROOT/bin/maho-notify}"
 
 die() { echo "adaptive-quiet-adapter: $*" >&2; return 1; }

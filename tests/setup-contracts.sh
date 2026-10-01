@@ -130,6 +130,7 @@ chmod +x "$HOME/.local/bin/maho-link"
 cat >"$HOME/.local/bin/maho-launcher" <<'EOF_LAUNCHER'
 #!/usr/bin/env bash
 set -euo pipefail
+# Exact legacy wrapper path is intentional: this fixture verifies bounded migration compatibility.
 RUNTIME="/home/magetsu/.local/share/maho-ux-cleanup-aafda5fd8843eb7bb06eeb51d25b8662dfd55252"
 export MAHO_ROOT="$RUNTIME"
 exec bash "$RUNTIME/bin/maho-launcher" "$@"
@@ -443,7 +444,7 @@ if grep -Eq -- '--now|(^| )restart( |$)|(^| )try-restart( |$)' "$SYSTEMCTL_LOG";
 echo '=== effective Notify execution authority ==='
 export MAHO_TEST_NOTIFY_EXECSTART="$HOME/.local/bin/maho-notify run"
 "$HOME/.local/bin/maho-setup" status >/dev/null || fail 'canonical Notify wrapper was rejected'
-export MAHO_TEST_NOTIFY_EXECSTART="$HOME/Projects/Maho-OS/bin/maho-notify run"
+export MAHO_TEST_NOTIFY_EXECSTART="$TMP/unmanaged-checkout/bin/maho-notify run"
 if "$HOME/.local/bin/maho-setup" status >/dev/null 2>&1; then
   fail 'setup status accepted repository-checkout Notify execution authority'
 fi

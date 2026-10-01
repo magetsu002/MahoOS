@@ -4,9 +4,31 @@ on:
   push:
     branches:
       - main
-      - integration/v1-cleanup
-      - 'integration/**'
+    paths:
+      - 'config/platform/**'
+      - 'config/platform.json'
+      - 'lib/maho_platform_install.py'
+      - 'bin/maho-platform*'
+      - 'tests/platform*.sh'
+      - 'tests/test_maho_platform_install.py'
+      - 'packaging/arch/maho-platform-wrapper'
+      - '.github/workflows/platform-contracts.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'config/platform/**'
+      - 'config/platform.json'
+      - 'lib/maho_platform_install.py'
+      - 'bin/maho-platform*'
+      - 'tests/platform*.sh'
+      - 'tests/test_maho_platform_install.py'
+      - 'packaging/arch/maho-platform-wrapper'
+      - '.github/workflows/platform-contracts.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,6 +36,7 @@ permissions:
 jobs:
   policy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 

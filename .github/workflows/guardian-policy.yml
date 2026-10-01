@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - 'integration/**'
-      - 'feat/guardian-severity-policy-prep'
     paths:
       - 'bin/maho-guard'
       - 'lib/guardian_severity.py'
@@ -48,6 +46,8 @@ on:
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
   pull_request:
+    branches:
+      - main
     paths:
       - 'bin/maho-guard'
       - 'lib/guardian_severity.py'
@@ -90,12 +90,17 @@ on:
       - 'tests/recovery-policy.py'
       - '.github/workflows/guardian-policy.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   guardian-policy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

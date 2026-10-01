@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
 exec python "$ROOT/lib/maho_adaptive_maintenance_state.py" "$@"

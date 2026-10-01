@@ -4,8 +4,29 @@ on:
   push:
     branches:
       - main
-      - 'feat/**'
+    paths:
+      - 'lib/guardian_*.py'
+      - 'lib/maho_recovery_*.py'
+      - 'tests/test_guardian_*.py'
+      - 'tests/security-*.sh'
+      - 'tests/recovery-*.py'
+      - 'tests/recovery-*.sh'
+      - '.github/workflows/guardian-completion.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'lib/guardian_*.py'
+      - 'lib/maho_recovery_*.py'
+      - 'tests/test_guardian_*.py'
+      - 'tests/security-*.sh'
+      - 'tests/recovery-*.py'
+      - 'tests/recovery-*.sh'
+      - '.github/workflows/guardian-completion.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +34,7 @@ permissions:
 jobs:
   guardian-completion:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:

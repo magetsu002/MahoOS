@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 SOURCE="$ROOT/apps/maho-files"
 PACKAGED_BINARY="$SOURCE/prebuilt/maho-files"
 CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"

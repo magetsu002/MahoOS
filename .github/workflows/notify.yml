@@ -4,8 +4,27 @@ on:
   push:
     branches:
       - main
-      - 'feat/**'
+    paths:
+      - 'bin/maho-notify'
+      - 'config/quickshell/maho-notify/**'
+      - 'config/quickshell/maho-shell/NotifyStatus.qml'
+      - 'tests/notify-contracts.sh'
+      - 'tests/glass-contracts.sh'
+      - '.github/workflows/notify.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'bin/maho-notify'
+      - 'config/quickshell/maho-notify/**'
+      - 'config/quickshell/maho-shell/NotifyStatus.qml'
+      - 'tests/notify-contracts.sh'
+      - 'tests/glass-contracts.sh'
+      - '.github/workflows/notify.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +32,7 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

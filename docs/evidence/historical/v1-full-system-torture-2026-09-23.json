@@ -1,7 +1,7 @@
 {
   "bugs_found": [],
   "campaign": {
-    "evidence_path": "/home/magetsu/.local/state/maho/certification/vm-torture/20260923T173853Z-dea7c54b709b8770ef7ad8d46a50f0d9d17eaae8",
+    "evidence_path": "<local evidence path omitted for public repository>",
     "total_destructive_injections": 66,
     "total_iterations": 66,
     "total_scenarios": 35

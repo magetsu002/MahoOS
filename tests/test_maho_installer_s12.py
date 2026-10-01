@@ -177,7 +177,7 @@ def receipt_evidence(p: dict, pl: dict) -> dict:
             "home_subvolume_uuid": "66666666-7777-8888-9999-aaaaaaaaaaaa",
         },
         "USERS_CREATED": {
-            "name": "magetsu", "uid": 1000, "wheel": True,
+            "name": "testuser", "uid": 1000, "wheel": True,
             "root_locked": True, "home_fsroot": "/@home",
         },
         "RUNTIME_INSTALLED": {
@@ -391,7 +391,7 @@ def make_ops(cls, tmp: Path, **kwargs):
     password = private_file(tmp, "password", b"correct horse battery staple\n")
     storage = private_file(tmp, "storage", b"storage-key\n")
     return cls(
-        payload_dir=tmp, user_name="magetsu", host_name="maho-test",
+        payload_dir=tmp, user_name="testuser", host_name="maho-test",
         password_file=password, storage_key_file=storage,
         recovery_key_output=tmp / "recovery-key", **kwargs,
     )
@@ -582,10 +582,10 @@ def main() -> None:
             lambda: init_ok._verify_initramfs(root, "/boot/initramfs-test.img", "missing-release"),
         )
 
-        release = root / "home/magetsu/.local/share/maho/runtime/releases/abc"
+        release = root / "home/testuser/.local/share/maho/runtime/releases/abc"
         release.mkdir(parents=True)
         current = release.parents[1] / "current"
-        current.symlink_to("/home/magetsu/.local/share/maho/runtime/releases/abc")
+        current.symlink_to("/home/testuser/.local/share/maho/runtime/releases/abc")
         check("target absolute runtime symlink resolves inside installed root", ops._target_symlink_release(root, current) == release.resolve())
 
     with tempfile.TemporaryDirectory(prefix="maho-s12-wrapper-") as raw:
@@ -631,7 +631,7 @@ def main() -> None:
     pkgbuild = (ROOT / "packaging/arch/PKGBUILD.in").read_text()
     check("S2.1 coordinator package/systemd wiring is preserved", "maho-update-coordinator.service" in pkgbuild and "maho-update-coordinator.timer" in pkgbuild and "timers.target.wants/maho-update-coordinator.timer" in pkgbuild)
     check("S1.2 firstboot and firewall services are package-owned", "maho-installer-firstboot.service" in pkgbuild and "maho-firewall.service" in pkgbuild)
-    check("runtime preflight share assets are package-owned", "for dir in adapters apps bin config lib share systemd theme; do" in pkgbuild and (ROOT / "share/maho/terminal/kurisu-transparent.apng").is_file())
+    check("runtime payload packaging remains complete without terminal artwork", "for dir in adapters apps bin config lib systemd theme; do" in pkgbuild and 'if [[ -d "$source_root/share" ]]; then' in pkgbuild and (ROOT / "config/quickshell/maho-lock/assets/maho-lock-dusk.jpg").is_file())
 
     print("ALL MAHO INSTALLER S1.2 CONTRACTS PASS")
 
