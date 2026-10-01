@@ -15,15 +15,16 @@ reject_text() { ! grep -Fq -- "$2" "$1" || fail "$3"; }
 
 python "$ROOT/tests/test_terminal_theme.py"
 
-require_text "$DASH" '--logo arch --logo-type builtin' "dashboard no longer uses Fastfetch's built-in full Arch logo"
-reject_text "$DASH" 'kitty-icat' "dashboard still depends on Kitty image rendering"
-reject_text "$DASH" 'maho-orbit.apng' "removed terminal artwork is still referenced"
+require_text "$DASH" '--logo-type kitty-icat' "dashboard no longer delegates image layout to Fastfetch"
 reject_text "$DASH" '28x18@-4x3' "legacy negative icat placement remains"
 reject_text "$DASH" '\033[3A' "legacy cursor rewind remains"
 reject_text "$DASH" 'script -qfec' "legacy PTY capture path remains"
 reject_text "$DASH" 'sed "s/^/' "legacy fake indentation remains"
 require_text "$DASH" 'MAHO_DASHBOARD_COLUMNS' "dashboard width contract is not testable"
-pass "dashboard uses one measured Fastfetch-native full Arch ASCII path"
+require_text "$DASH" '"$cols" 16 "$img"' "wide terminal animation size drifted"
+require_text "$DASH" '"$cols" 14 "$img"' "compact terminal animation size drifted"
+require_text "$DASH" '"$cols" 12 "$img"' "tiny terminal animation size drifted"
+pass "dashboard has one measured Fastfetch-native layout path"
 
 require_text "$KITTY" 'include ~/.cache/maho/theme/kitty.conf' "Kitty does not consume generated Maho palette"
 reject_text "$KITTY" 'current-theme.conf' "stale static Kitty theme remains authoritative"
@@ -48,10 +49,11 @@ trap 'rm -rf "$TMP"' EXIT
 echo "=== dashboard Fastfetch argument contract ==="
 DASHROOT="$TMP/dashboard-root"
 FFLOG="$TMP/fastfetch.args"
-mkdir -p "$DASHROOT/config/fastfetch"
+mkdir -p "$DASHROOT/config/fastfetch" "$DASHROOT/share/maho/terminal"
 cp "$ROOT/config/fastfetch/config.jsonc" "$DASHROOT/config/fastfetch/config.jsonc"
 cp "$ROOT/config/fastfetch/config-narrow.jsonc" "$DASHROOT/config/fastfetch/config-narrow.jsonc"
 cp "$ROOT/config/fastfetch/config-tiny.jsonc" "$DASHROOT/config/fastfetch/config-tiny.jsonc"
+: >"$DASHROOT/share/maho/terminal/maho-orbit.apng"
 cat >"$TMP/fastfetch-stub" <<'EOF_FASTFETCH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$MAHO_FASTFETCH_LOG"
@@ -67,20 +69,17 @@ maho_ff_metrics() {
     esac
 }
 run_dashboard_contract() {
-    local cols="$1" expected_config="$2" expected_logo="$3"
+    local cols="$1" width="$2" height="$3"
     : >"$FFLOG"
-    MAHO_ROOT="$DASHROOT" MAHO_DASHBOARD_COLUMNS="$cols" \
+    MAHO_ROOT="$DASHROOT" MAHO_DASHBOARD_COLUMNS="$cols" KITTY_WINDOW_ID=1 \
         MAHO_FASTFETCH_BIN="$TMP/fastfetch-stub" MAHO_FASTFETCH_LOG="$FFLOG" maho_dashboard
-    grep -Fq -- "--config $DASHROOT/config/fastfetch/$expected_config" "$FFLOG" \
-        || fail "dashboard selected wrong Fastfetch config for ${cols} columns"
-    grep -Fq -- "$expected_logo" "$FFLOG" \
-        || fail "dashboard generated wrong logo mode for ${cols} columns"
+    grep -Fq -- "--logo-width $width --logo-height $height" "$FFLOG" \
+        || fail "dashboard generated wrong Fastfetch size for ${cols} columns"
 }
-run_dashboard_contract 130 config.jsonc "--logo arch --logo-type builtin"
-run_dashboard_contract 100 config-narrow.jsonc "--logo arch --logo-type builtin"
-run_dashboard_contract 90 config-tiny.jsonc "--logo arch --logo-type builtin"
-run_dashboard_contract 70 config-narrow.jsonc "--logo none"
-pass "responsive layouts use the full Arch ASCII logo whenever width permits"
+run_dashboard_contract 100 16 13
+run_dashboard_contract 66 14 12
+run_dashboard_contract 54 12 10
+pass "wide/compact/tiny layouts generate exact Fastfetch logo width and height"
 
 mkdir -p "$TMP/config" "$TMP/cache"
 HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/config" XDG_CACHE_HOME="$TMP/cache" MAHO_ROOT="$ROOT" bash "$INSTALL" install
