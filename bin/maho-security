@@ -2,7 +2,7 @@
 
 set -u
 
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"
 FS_ROOT="${MAHO_FS_ROOT:-/}"
 PROC_ROOT="${MAHO_PROC_ROOT:-/proc}"

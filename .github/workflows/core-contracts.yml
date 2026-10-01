@@ -4,8 +4,43 @@ on:
   push:
     branches:
       - main
-      - 'feat/**'
+    paths:
+      - 'adapters/**'
+      - 'apps/**'
+      - 'bin/**'
+      - 'bpf/**'
+      - 'config/**'
+      - 'lib/**'
+      - 'packaging/**'
+      - 'share/**'
+      - 'src/**'
+      - 'systemd/**'
+      - 'tests/**'
+      - 'theme/**'
+      - 'tools/**'
+      - '.github/workflows/core-contracts.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'adapters/**'
+      - 'apps/**'
+      - 'bin/**'
+      - 'bpf/**'
+      - 'config/**'
+      - 'lib/**'
+      - 'packaging/**'
+      - 'share/**'
+      - 'src/**'
+      - 'systemd/**'
+      - 'tests/**'
+      - 'theme/**'
+      - 'tools/**'
+      - '.github/workflows/core-contracts.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +48,7 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -284,6 +320,7 @@ jobs:
 
   setup-lifecycle:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container: archlinux:latest
     steps:
       - name: Install Arch setup dependencies

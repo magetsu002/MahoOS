@@ -1,8 +1,59 @@
+# Editor and OS noise
 *.swp
 *.swo
 *~
 .DS_Store
+.idea/
+.vscode/
+
+# Python/tool caches
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.key
+*.pem
+*.p12
+*.pfx
+!tests/fixtures/**/*.key
+!tests/fixtures/**/*.pem
+!tests/fixtures/**/*.p12
+!tests/fixtures/**/*.pfx
+
+# Build and coverage output
+/build/
+/build-*/
+/dist/
+/coverage/
+/htmlcov/
+.coverage
+CMakeFiles/
+CMakeCache.txt
+*.o
+*.pkg.tar.*
+
+# VM and installer output
+*.qcow
+*.qcow2
+*.vdi
+*.vmdk
+*.ova
+*.iso
+*.raw
+
+# Runtime/test evidence generated locally
+*.log
+*.pid
+*.sock
+/cert-receipts/
+/security-validation/
+/artifacts/
 .cert-tools/
 .cert-work/

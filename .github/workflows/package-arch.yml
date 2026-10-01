@@ -4,8 +4,35 @@ on:
   push:
     branches:
       - main
-      - integration/v1-cleanup
+    paths:
+      - 'packaging/**'
+      - 'tools/build-arch-package.sh'
+      - 'apps/maho-files/**'
+      - 'bpf/**'
+      - 'src/**'
+      - 'config/systemd/**'
+      - 'config/polkit-1/**'
+      - 'config/tmpfiles.d/**'
+      - 'share/maho/release.json'
+      - '.github/workflows/package-arch.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'packaging/**'
+      - 'tools/build-arch-package.sh'
+      - 'apps/maho-files/**'
+      - 'bpf/**'
+      - 'src/**'
+      - 'config/systemd/**'
+      - 'config/polkit-1/**'
+      - 'config/tmpfiles.d/**'
+      - 'share/maho/release.json'
+      - '.github/workflows/package-arch.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +40,7 @@ permissions:
 jobs:
   build-package:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container: archlinux:base-devel
     steps:
       - name: Bootstrap checkout and native build dependencies

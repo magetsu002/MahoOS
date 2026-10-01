@@ -3,11 +3,26 @@ name: maho-files-qml
 on:
   push:
     branches:
-      - 'feat/maho-files-qml'
-      - 'feat/maho-files-qml-*'
-      - 'fix/maho-files-qml-*'
-      - 'fix/maho-files-*'
+      - main
+    paths:
+      - 'apps/maho-files/**'
+      - 'bin/maho-files'
+      - 'packaging/arch/maho-files-wrapper'
+      - 'tests/maho-files*.sh'
+      - '.github/workflows/maho-files-qml.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'apps/maho-files/**'
+      - 'bin/maho-files'
+      - 'packaging/arch/maho-files-wrapper'
+      - 'tests/maho-files*.sh'
+      - '.github/workflows/maho-files-qml.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -15,6 +30,7 @@ permissions:
 jobs:
   contracts-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: archlinux:latest
 
     steps:

@@ -4,11 +4,42 @@ on:
   push:
     branches:
       - main
-      - integration/v1-cleanup
+    paths:
+      - 'bin/maho-security*'
+      - 'lib/security_*.py'
+      - 'lib/guardian_*.py'
+      - 'lib/maho_prevention_*.py'
+      - 'lib/maho_mutation_authority.py'
+      - 'src/maho_prevention_*'
+      - 'bpf/**'
+      - 'tests/security-*.sh'
+      - 'tests/test_guardian_*.py'
+      - 'tests/test_maho_prevention_*.py'
+      - 'tests/test_maho_mutation_authority.py'
+      - 'tools/security-validation-report.sh'
+      - '.github/workflows/security-validation.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'bin/maho-security*'
+      - 'lib/security_*.py'
+      - 'lib/guardian_*.py'
+      - 'lib/maho_prevention_*.py'
+      - 'lib/maho_mutation_authority.py'
+      - 'src/maho_prevention_*'
+      - 'bpf/**'
+      - 'tests/security-*.sh'
+      - 'tests/test_guardian_*.py'
+      - 'tests/test_maho_prevention_*.py'
+      - 'tests/test_maho_mutation_authority.py'
+      - 'tools/security-validation-report.sh'
+      - '.github/workflows/security-validation.yml'
   workflow_dispatch:
-  schedule:
-    - cron: '23 3 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -16,6 +47,7 @@ permissions:
 jobs:
   deterministic-security-evidence:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -47,4 +79,4 @@ jobs:
         with:
           name: maho-security-validation
           path: security-validation/
-          retention-days: 30
+          retention-days: 7

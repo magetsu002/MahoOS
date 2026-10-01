@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-MAHO_INTENT_ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+MAHO_INTENT_ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 MAHO_INTENT_DEFAULTS="$MAHO_INTENT_ROOT/config/intent.json"
 MAHO_INTENT_OVERRIDES="${XDG_CONFIG_HOME:-$HOME/.config}/maho/intent.json"
 

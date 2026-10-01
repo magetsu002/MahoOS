@@ -96,7 +96,7 @@ install_fresh() {
   eq "$REV" "$(tr -d '\n' <"$cur/share/maho/runtime-source-revision")" "runtime provenance"
   need "$HOME_VM/.local/bin/maho-session"; need "$HOME_VM/.local/bin/maho-power"
   need "$HOME_VM/.config/systemd/user/maho-shell.service"
-  ! grep -RIl '/home/magetsu' "$HOME_VM/.local/bin" "$HOME_VM/.config/systemd/user" 2>/dev/null | grep -q .
+  ! grep -RIlE '/home/[^/]+/(Projects/Maho-OS|\.local/share/maho-ux-cleanup-)' "$HOME_VM/.local/bin" "$HOME_VM/.config/systemd/user" 2>/dev/null | grep -q .
 }
 
 update_tests() {

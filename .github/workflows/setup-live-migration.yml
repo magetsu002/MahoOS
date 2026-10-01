@@ -4,8 +4,35 @@ on:
   push:
     branches:
       - main
-      - integration/v1-cleanup
+    paths:
+      - 'bin/maho-setup'
+      - 'lib/maho_runtime_*.py'
+      - 'lib/guardian_runtime_recovery*.py'
+      - 'systemd/user/**'
+      - 'config/hypr/**'
+      - 'config/quickshell/**'
+      - 'apps/maho-files/**'
+      - 'tests/setup-*.sh'
+      - 'tests/setup-contracts.sh'
+      - '.github/workflows/setup-live-migration.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'bin/maho-setup'
+      - 'lib/maho_runtime_*.py'
+      - 'lib/guardian_runtime_recovery*.py'
+      - 'systemd/user/**'
+      - 'config/hypr/**'
+      - 'config/quickshell/**'
+      - 'apps/maho-files/**'
+      - 'tests/setup-*.sh'
+      - 'tests/setup-contracts.sh'
+      - '.github/workflows/setup-live-migration.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +40,7 @@ permissions:
 jobs:
   migration-contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     container: archlinux:latest
     steps:
       - name: Install Arch setup dependencies

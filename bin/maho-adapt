@@ -2,7 +2,7 @@
 
 set -u
 
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 REGISTRY="${MAHO_ADAPTER_REGISTRY:-$ROOT/config/adapters.json}"
 DECISION_LIB="$ROOT/lib/decision.sh"
 AUTHORITY_LIB="$ROOT/lib/authority.sh"

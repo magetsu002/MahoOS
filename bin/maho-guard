@@ -7,7 +7,7 @@ if [ -n "${MAHO_ROOT:-}" ]; then
 elif [ -r "$HOME/.local/share/maho/runtime/current/lib/guardian_incident.py" ]; then
     ROOT="$(readlink -f "$HOME/.local/share/maho/runtime/current")"
 else
-    ROOT="$HOME/Projects/Maho-OS"
+    ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 SEC_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/maho/security"
 DB_ROOT="${MAHO_PACMAN_DB_ROOT:-/var/lib/pacman/local}"

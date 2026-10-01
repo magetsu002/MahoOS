@@ -3,9 +3,28 @@ name: maho-link
 on:
   push:
     branches:
-      - 'feat/**'
-      - 'fix/**'
+      - main
+    paths:
+      - 'bin/maho-link'
+      - 'config/quickshell/maho-link/**'
+      - 'config/quickshell/maho-shell/BluetoothAutoConnect.qml'
+      - 'tests/maho-link*.sh'
+      - 'tests/maho-link*.py'
+      - '.github/workflows/maho-link.yml'
   pull_request:
+    branches:
+      - main
+    paths:
+      - 'bin/maho-link'
+      - 'config/quickshell/maho-link/**'
+      - 'config/quickshell/maho-shell/BluetoothAutoConnect.qml'
+      - 'tests/maho-link*.sh'
+      - 'tests/maho-link*.py'
+      - '.github/workflows/maho-link.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +32,7 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

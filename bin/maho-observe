@@ -2,7 +2,7 @@
 
 set -u
 
-ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 SYSFS="${MAHO_SYSFS_ROOT:-/sys}"
 STATE_LIB="$ROOT/lib/state.sh"
 EVENTS="$ROOT/lib/events.sh"

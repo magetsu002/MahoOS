@@ -3,8 +3,16 @@ name: launcher-qml
 on:
   push:
     branches:
-      - 'feat/maho-launcher-qml'
+      - main
+    paths:
+      - 'bin/maho-launcher'
+      - 'lib/maho_launcher_backend.py'
+      - 'config/quickshell/maho-launcher/**'
+      - 'tests/launcher-qml-contracts.sh'
+      - '.github/workflows/launcher-qml.yml'
   pull_request:
+    branches:
+      - main
     paths:
       - 'bin/maho-launcher'
       - 'lib/maho_launcher_backend.py'
@@ -12,12 +20,17 @@ on:
       - 'tests/launcher-qml-contracts.sh'
       - '.github/workflows/launcher-qml.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     container: archlinux:latest
     steps:
       - name: Install Arch test dependencies

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-MAHO_POLICY_ROOT="${MAHO_ROOT:-$HOME/Projects/Maho-OS}"
+MAHO_POLICY_ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 MAHO_POLICY_AUTHORITY="$MAHO_POLICY_ROOT/lib/authority.sh"
 MAHO_POLICY_INTENT="$MAHO_POLICY_ROOT/lib/intent.sh"
 MAHO_POLICY_DECISION="$MAHO_POLICY_ROOT/lib/decision.sh"

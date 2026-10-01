@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc='Adaptive MahoOS desktop runtime and native system surfaces'
 arch=('x86_64')
 url='https://github.com/magetsu002/MahoOS'
-# Public V1 release is blocked on an explicit project license decision.
+# Project-wide license metadata intentionally remains unset until management selects the license.
 depends=(
   'bash'
   'python'
