@@ -53,106 +53,107 @@ See [Components](docs/COMPONENTS.md) for the routing map.
 
 ## Preview
 
-Public preview images below reflect current MahoOS desktop surfaces. Personal network/device identifiers and notification contents are replaced with demo-safe values. Every image links to its full-resolution file.
+<p align="center"><sub>Current Pre-V1 surfaces. Demo-safe values replace personal network, device, and notification data. Click any image for the full-resolution file.</sub></p>
 
-### Desktop and Dock
+### Maho Lock / SDDM
 
+<p align="center">
+  <a href="docs/assets/preview/maho-lock.png">
+    <img src="docs/assets/preview/maho-lock.png" alt="Maho Lock and SDDM screen" width="100%">
+  </a>
+</p>
+
+<details>
+<summary><strong>Desktop &amp; Dock</strong> — window previews, dock, and desktop composition</summary>
+<br>
 <p align="center">
   <a href="docs/assets/preview/maho-dock.png">
     <img src="docs/assets/preview/maho-dock.png" alt="MahoOS desktop, window preview, and dock" width="100%">
   </a>
 </p>
+</details>
 
-### Maho Lock
-
+<details>
+<summary><strong>Maho Edge</strong> — system controls, health, media, and entry points</summary>
+<br>
 <p align="center">
-  <a href="docs/assets/preview/maho-lock.png">
-    <img src="docs/assets/preview/maho-lock.png" alt="Maho Lock screen" width="100%">
+  <a href="docs/assets/preview/maho-edge.png">
+    <img src="docs/assets/preview/maho-edge.png" alt="Maho Edge quick controls" width="58%">
+  </a>
+</p>
+</details>
+
+<details>
+<summary><strong>Maho Launcher</strong> — apps, files, commands, and quick actions</summary>
+<br>
+<p align="center">
+  <a href="docs/assets/preview/maho-launcher.png">
+    <img src="docs/assets/preview/maho-launcher.png" alt="Maho Launcher" width="82%">
+  </a>
+</p>
+</details>
+
+<details>
+<summary><strong>Maho Link</strong> — Wi-Fi and Bluetooth connectivity</summary>
+<br>
+<p align="center">
+  <strong>Wi-Fi</strong><br><br>
+  <a href="docs/assets/preview/maho-link-wifi.png">
+    <img src="docs/assets/preview/maho-link-wifi.png" alt="Maho Link Wi-Fi view" width="54%">
   </a>
 </p>
 
-### Edge and Launcher
-
-<table>
-<tr>
-<td width="50%" align="center" valign="top">
-  <a href="docs/assets/preview/maho-edge.png">
-    <img src="docs/assets/preview/maho-edge.png" alt="Maho Edge quick controls" width="100%">
-  </a>
-  <br><strong>Maho Edge</strong><br>
-  <sub>System controls, health, media, and entry points.</sub>
-</td>
-<td width="50%" align="center" valign="top">
-  <a href="docs/assets/preview/maho-launcher.png">
-    <img src="docs/assets/preview/maho-launcher.png" alt="Maho Launcher" width="100%">
-  </a>
-  <br><strong>Maho Launcher</strong><br>
-  <sub>Apps, files, commands, and quick actions.</sub>
-</td>
-</tr>
-</table>
-
-### Maho Link
-
-<table>
-<tr>
-<td width="50%" align="center" valign="top">
-  <a href="docs/assets/preview/maho-link-wifi.png">
-    <img src="docs/assets/preview/maho-link-wifi.png" alt="Maho Link Wi-Fi view" width="100%">
-  </a>
-  <br><strong>Wi-Fi</strong>
-</td>
-<td width="50%" align="center" valign="top">
+<p align="center">
+  <strong>Bluetooth</strong><br><br>
   <a href="docs/assets/preview/maho-link-bluetooth.png">
-    <img src="docs/assets/preview/maho-link-bluetooth.png" alt="Maho Link Bluetooth view" width="100%">
+    <img src="docs/assets/preview/maho-link-bluetooth.png" alt="Maho Link Bluetooth view" width="54%">
   </a>
-  <br><strong>Bluetooth</strong>
-</td>
-</tr>
-</table>
+</p>
 
-Maho Link presents connectivity through the system authorities that own the real state: NetworkManager for networking and BlueZ for Bluetooth.
+<p align="center"><sub>NetworkManager owns networking state. BlueZ owns Bluetooth state.</sub></p>
+</details>
 
-### Maho Files
-
+<details>
+<summary><strong>Maho Files</strong> — native Qt/KIO file management</summary>
+<br>
 <p align="center">
   <a href="docs/assets/preview/maho-files.png">
     <img src="docs/assets/preview/maho-files.png" alt="Maho Files" width="100%">
   </a>
 </p>
+<p align="center"><sub>Places, devices, search, context actions, and filesystem operations.</sub></p>
+</details>
 
-Native Qt/KIO file management with places, devices, search, and filesystem operations.
-
-### Notify and Power
-
-<table>
-<tr>
-<td width="50%" align="center" valign="top">
+<details>
+<summary><strong>Maho Notify</strong> — held delivery, Adaptive Focus, and notification history</summary>
+<br>
+<p align="center">
   <a href="docs/assets/preview/maho-notify.png">
-    <img src="docs/assets/preview/maho-notify.png" alt="Maho Notify notification center" width="100%">
+    <img src="docs/assets/preview/maho-notify.png" alt="Maho Notify notification center" width="58%">
   </a>
-  <br><strong>Maho Notify</strong><br>
-  <sub>Held delivery, Adaptive Focus, and notification history.</sub>
-</td>
-<td width="50%" align="center" valign="top">
+</p>
+</details>
+
+<details>
+<summary><strong>Power &amp; Session</strong> — explicit session and power actions</summary>
+<br>
+<p align="center">
   <a href="docs/assets/preview/maho-power.png">
     <img src="docs/assets/preview/maho-power.png" alt="Maho Power and Session dialog" width="100%">
   </a>
-  <br><strong>Power &amp; Session</strong><br>
-  <sub>Explicit session and power actions.</sub>
-</td>
-</tr>
-</table>
+</p>
+</details>
 
-### Dynamic wallpaper palette
-
+<details>
+<summary><strong>Wallpaper Picker &amp; Dynamic Palette</strong> — wallpaper selection and palette adaptation</summary>
+<br>
 <p align="center">
   <a href="docs/assets/preview/maho-wallpaper.png">
-    <img src="docs/assets/preview/maho-wallpaper.png" alt="Maho wallpaper and dynamic palette picker" width="100%">
+    <img src="docs/assets/preview/maho-wallpaper.png" alt="Maho wallpaper picker and dynamic palette controls" width="100%">
   </a>
 </p>
-
-Wallpaper-driven dynamic palettes keep the shell visually coherent with the active desktop.
+<p align="center"><sub>Wallpaper-driven palettes keep the shell visually coherent with the active desktop.</sub></p>
+</details>
 
 ## Reliability philosophy
 
