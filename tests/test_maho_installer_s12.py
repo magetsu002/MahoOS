@@ -585,7 +585,7 @@ def main() -> None:
         release = root / "home/testuser/.local/share/maho/runtime/releases/abc"
         release.mkdir(parents=True)
         current = release.parents[1] / "current"
-        current.symlink_to("/home/fixture-user/.local/share/maho/runtime/releases/abc")
+        current.symlink_to("/home/testuser/.local/share/maho/runtime/releases/abc")
         check("target absolute runtime symlink resolves inside installed root", ops._target_symlink_release(root, current) == release.resolve())
 
     with tempfile.TemporaryDirectory(prefix="maho-s12-wrapper-") as raw:
