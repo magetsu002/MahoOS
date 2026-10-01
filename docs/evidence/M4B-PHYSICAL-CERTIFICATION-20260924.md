@@ -1,3 +1,8 @@
+> **HISTORICAL EVIDENCE**
+>
+> This document records point-in-time certification or design history.
+> It is not current project status and does not override current source or canonical architecture documentation.
+
 # M4B physical certification — 2026-09-24
 
 This record certifies the first real Maho boot-critical update transaction. It

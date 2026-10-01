@@ -1,3 +1,8 @@
+> **HISTORICAL EVIDENCE**
+>
+> This document records point-in-time certification or design history.
+> It is not current project status and does not override current source or canonical architecture documentation.
+
 # V1 generation retention and GC implementation evidence — 2026-09-25
 
 ## Source

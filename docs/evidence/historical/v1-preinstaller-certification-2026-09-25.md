@@ -1,16 +1,18 @@
+> **HISTORICAL EVIDENCE**
+>
+> This document records point-in-time certification or design history.
+> It is not current project status and does not override current source or canonical architecture documentation.
+
 # MahoOS V1 pre-installer certification report — 2026-09-25
 
 Verdict: **NOT READY FOR INSTALLER**
 
 This report is evidence for the architecture-freeze candidate, not a release certification. No installer was started, no host storage or firmware was mutated, no key was enrolled, and no reboot or destructive physical test was performed.
 
-## Exact source and workspace
+## Exact source
 
 - Observed `origin/main`: `09f2eddc91c8480698afe1dcc4493c72f0b1b6b8`.
-- Campaign worktree: `/home/magetsu/Projects/Maho-OS-preinstaller-freeze`.
 - Campaign branch: `feat/preinstaller-architecture-freeze`, based exactly on that main revision.
-- Protected TUI worktree `/home/magetsu/Projects/Maho-OS-system-tui-v1-polish` was read-only and untouched.
-- The primary checkout was stale at `dcea6e3c584c9d7ae95c46e3b0f07c97c921c48e`, 38 commits behind main, and had a local Vesktop edit. It was not reset, cleaned, or modified.
 
 ## Physical read-only baseline
 
@@ -24,12 +26,12 @@ This report is evidence for the architecture-freeze candidate, not a release cer
 - Signed Boot remained `UNKNOWN`: firmware Secure Boot was disabled/setup mode. Limine booted successfully, but no physical enrolled-key trust proof existed.
 - Prevention enforcement was disabled/inactive, matching its documented physical boundary.
 - Unprivileged firewall inspection returned insufficient netlink visibility and correctly remained unusable, not healthy.
-- Vesktop was installed as `vesktop-bin 1.6.7-4` under `/opt/vesktop`. Main still expected `/usr/lib/vesktop`; the observed “could not build bounded runtime” was a confirmed package-layout regression. A correct `/opt/vesktop` edit exists only in the unrelated dirty primary checkout and was deliberately not copied or claimed.
+- Vesktop was installed as `vesktop-bin 1.6.7-4` under `/opt/vesktop`. The certified source still expected `/usr/lib/vesktop`; the observed “could not build bounded runtime” was a confirmed package-layout regression. A corresponding correction was not part of the certified source and was therefore not claimed.
 - Listener review found Vesktop only on loopback port 6463, plus pre-existing local development/tunnel listeners and a service on 9993; this campaign did not establish ownership/trust for the non-Maho listeners.
 
 ## Runtime regression root cause and fix
 
-The live `runtime/current` manifest named stale source `dcea6e3`; `runtime/previous` named current main `09f2edd`. Filesystem timestamps align the switch with `bin/maho-setup install` from the stale primary checkout immediately after its local Vesktop edit. The old setup recorded source revision and content hash but had no Git cleanliness check, ancestry check, or downgrade authority. A dirty checkout could therefore deploy bytes whose manifest named only its HEAD.
+The live `runtime/current` manifest named stale source `dcea6e3`; `runtime/previous` named the then-current main `09f2edd`. Evidence aligned the switch with `bin/maho-setup install` from stale/dirty source. The old setup recorded source revision and content hash but had no Git cleanliness check, ancestry check, or downgrade authority. A dirty checkout could therefore deploy bytes whose manifest named only its HEAD.
 
 The campaign adds a fail-closed deployment planner:
 

@@ -161,7 +161,7 @@ package() {
     "$pkgdir/usr/share/polkit-1/actions/io.maho.prevention.policy"
   install -Dm644 "$source_root/config/tmpfiles.d/maho-prevention.conf" \
     "$pkgdir/usr/lib/tmpfiles.d/maho-prevention.conf"
-  install -Dm644 "$source_root/docs/PREVENTION-BOUNDARY.md" \
+  install -Dm644 "$source_root/docs/architecture/prevention-security.md" \
     "$pkgdir/usr/share/doc/maho/PREVENTION-BOUNDARY.md"
   install -Dm644 "$source_root/README.md" \
     "$pkgdir/usr/share/doc/maho-os/README.md"

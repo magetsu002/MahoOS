@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a bounded MahoOS capability
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Features should extend an existing owner when possible. Read docs/ARCHITECTURE.md and docs/COMPONENTS.md before proposing a new subsystem.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user/system problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the behavior, not an implementation wishlist.
+    validations:
+      required: true
+  - type: textarea
+    id: owner
+    attributes:
+      label: Existing owner / authority
+      description: Which Maho component or Linux backend should own the state?
+    validations:
+      required: true
+  - type: textarea
+    id: duplication
+    attributes:
+      label: Non-duplication check
+      description: What existing database, daemon, registry, or authority must this feature avoid duplicating?
+    validations:
+      required: true
+  - type: dropdown
+    id: level
+    attributes:
+      label: Expected contribution level
+      options:
+        - Level A — presentation / isolated behavior
+        - Level B — platform integration
+        - Level C — trust / mutation authority
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Validation idea
+      description: What unit, integration, VM, or physical evidence would prove the feature works?

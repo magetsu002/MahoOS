@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible MahoOS defect
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check docs/COMPONENTS.md so the report names the affected owner when possible. Remove secrets and private machine paths from logs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop / MahoShell
+        - MahoSystem / Guardian
+        - Update / Recovery / Generations
+        - Prevention / Security
+        - Installer / Boot
+        - Platform integration
+        - Packaging / Development
+        - Documentation
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest reproducible sequence.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Highest evidence level actually reproduced
+      options:
+        - unit
+        - integration
+        - VM
+        - physical
+        - not yet reproduced
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Sanitized context
+      description: Relevant source revision, component state, and sanitized logs. Do not include secrets or personal/private paths.
