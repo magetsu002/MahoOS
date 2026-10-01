@@ -14,11 +14,20 @@ MahoOS is Pre-V1. There is not yet a stable public release support matrix. Secur
 
 ## Reporting a vulnerability
 
-**PRE-PUBLIC-LAUNCH REQUIREMENT: a private vulnerability-reporting endpoint has not yet been configured.**
+**PUBLIC-LAUNCH REQUIREMENT: a private vulnerability-reporting endpoint has not yet been activated.**
 
-No email address or reporting URL is intentionally invented here. Before the repository is made public, maintainers must configure and document an approved private reporting mechanism.
+No email address or reporting URL is intentionally invented here. On GitHub.com, Private Vulnerability Reporting can only be enabled for a public repository, so it cannot be activated while this repository remains private.
 
-Until that exists, do **not** place sensitive vulnerability details in a public issue, discussion, or pull request.
+If GitHub Private Vulnerability Reporting is the selected channel, treat repository publication and reporting setup as one controlled launch sequence:
+
+1. make the repository public only after the other launch gates pass;
+2. immediately enable Private Vulnerability Reporting;
+3. verify that the public repository exposes the private **Report a vulnerability** flow;
+4. update this section if any reporter-facing instruction changes.
+
+Do not announce the public repository as ready for external security reports until that sequence is verified. If maintainers approve a different private contact before launch, document that real contact here instead.
+
+Until a verified private channel exists, do **not** place sensitive vulnerability details in a public issue, discussion, or pull request.
 
 Non-sensitive architecture questions may use the architecture issue template, but a vulnerability report needs a private channel.
 
