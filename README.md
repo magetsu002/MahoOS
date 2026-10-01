@@ -53,15 +53,15 @@ See [Components](docs/COMPONENTS.md) for the routing map.
 
 ## Preview
 
-<p align="center"><sub>Current Pre-V1 surfaces. Demo-safe values replace personal network, device, and notification data. Click any image for the full-resolution file.</sub></p>
-
-### Maho Lock / SDDM
-
+<details open>
+<summary><strong>Maho Lock / SDDM</strong></summary>
+<br>
 <p align="center">
   <a href="docs/assets/preview/maho-lock.png">
     <img src="docs/assets/preview/maho-lock.png" alt="Maho Lock and SDDM screen" width="100%">
   </a>
 </p>
+</details>
 
 <details>
 <summary><strong>Desktop &amp; Dock</strong> — window previews, dock, and desktop composition</summary>
