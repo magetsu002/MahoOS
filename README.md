@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/brand/mahoos-banner.png" alt="MahoOS" width="92%">
+  <img src="docs/assets/brand/mahoos-banner.png" alt="MahoOS" width="100%" height="240">
 </p>
 
 # MahoOS
