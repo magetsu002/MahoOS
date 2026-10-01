@@ -1,0 +1,20 @@
+Kurisu terminal animation conversion record
+
+Bundled output:
+  kurisu-transparent.apng
+
+Known local conversion lineage:
+  source filename: kurisu-spinning-Picsart-BackgroundRemover.webm
+  conversion: extracted PNG frames -> FFmpeg APNG encoder
+  recorded frame count during conversion: 182
+
+This record proves only how the bundled APNG was produced locally.
+It does NOT establish the original artwork/animation creator, source URL,
+or redistribution license.
+
+Before a public MahoOS release/repository publication, either:
+  1. establish and record a redistribution source/license for the original
+     animation/artwork, or
+  2. replace/remove the bundled Kurisu animation.
+
+Do not infer redistribution permission merely from the local conversion.
