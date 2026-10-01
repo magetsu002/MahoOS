@@ -631,7 +631,7 @@ def main() -> None:
     pkgbuild = (ROOT / "packaging/arch/PKGBUILD.in").read_text()
     check("S2.1 coordinator package/systemd wiring is preserved", "maho-update-coordinator.service" in pkgbuild and "maho-update-coordinator.timer" in pkgbuild and "timers.target.wants/maho-update-coordinator.timer" in pkgbuild)
     check("S1.2 firstboot and firewall services are package-owned", "maho-installer-firstboot.service" in pkgbuild and "maho-firewall.service" in pkgbuild)
-    check("runtime preflight share assets are package-owned", "for dir in adapters apps bin config lib share systemd theme; do" in pkgbuild and (ROOT / "share/maho/terminal/maho-orbit.apng").is_file())
+    check("runtime payload packaging remains complete without terminal artwork", "for dir in adapters apps bin config lib systemd theme; do" in pkgbuild and 'if [[ -d "$source_root/share" ]]; then' in pkgbuild and (ROOT / "config/quickshell/maho-lock/assets/maho-lock-dusk.jpg").is_file())
 
     print("ALL MAHO INSTALLER S1.2 CONTRACTS PASS")
 
