@@ -170,6 +170,10 @@ Broad unfinished work includes fresh-install and release convergence, bounded ha
 
 Historical certification is retained under `docs/history/` and `docs/evidence/`, but it is not part of the normal contributor reading path and does not override current source.
 
+## License
+
+Unless otherwise stated, original MahoOS code is licensed under the **GNU General Public License version 3 only (GPL-3.0-only)**. Files and third-party material carrying their own license notices remain governed by those terms. See [LICENSE](LICENSE) and [Third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Start here
 
 1. [Architecture](docs/ARCHITECTURE.md) — the canonical mental model.

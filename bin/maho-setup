@@ -308,7 +308,7 @@ preflight() {
     apps/maho-files/CMakeLists.txt lib/maho_app_model.py lib/maho_launcher_backend.py
     lib/maho_terminal_theme.py config/kitty/maho.conf config/zshrc/maho-dashboard.zsh config/zshrc/30-maho-dashboard
     config/fastfetch/config.jsonc config/fastfetch/config-narrow.jsonc config/fastfetch/config-tiny.jsonc
-    share/maho/terminal/kurisu-transparent.apng
+    share/maho/terminal/maho-orbit.apng
   )
   for name in "${COMMANDS[@]}"; do [ -r "$ROOT/bin/$name" ] || { echo "FAIL  source $name"; failed=1; }; done
   for name in "${UNITS[@]}"; do [ -r "$ROOT/systemd/user/$name" ] || { echo "FAIL  unit $name"; failed=1; }; done

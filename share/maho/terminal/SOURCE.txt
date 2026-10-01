@@ -1,20 +1,17 @@
-Kurisu terminal animation conversion record
+MahoOS terminal default animation
 
 Bundled output:
-  kurisu-transparent.apng
+  maho-orbit.apng
 
-Known local conversion lineage:
-  source filename: kurisu-spinning-Picsart-BackgroundRemover.webm
-  conversion: extracted PNG frames -> FFmpeg APNG encoder
-  recorded frame count during conversion: 182
+Ownership/provenance:
+  Original MahoOS project artwork generated entirely from geometric primitives.
+  No third-party image, character artwork, or source animation is used.
 
-This record proves only how the bundled APNG was produced locally.
-It does NOT establish the original artwork/animation creator, source URL,
-or redistribution license.
+Generator:
+  tools/assets/generate-maho-owned-defaults.py
 
-Before a public MahoOS release/repository publication, either:
-  1. establish and record a redistribution source/license for the original
-     animation/artwork, or
-  2. replace/remove the bundled Kurisu animation.
+Output contract:
+  260x215 transparent APNG, 24 frames, 12 fps, infinite loop.
 
-Do not infer redistribution permission merely from the local conversion.
+The generator also produces the Maho Lock fallback wallpaper from independent
+MahoOS-owned vector geometry.
