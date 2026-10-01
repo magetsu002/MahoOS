@@ -51,6 +51,109 @@ Maho surfaces reuse the platform authorities that already own the real state. Ne
 
 See [Components](docs/COMPONENTS.md) for the routing map.
 
+## Preview
+
+Public preview images below reflect current MahoOS desktop surfaces. Personal network/device identifiers and notification contents are replaced with demo-safe values. Every image links to its full-resolution file.
+
+### Desktop and Dock
+
+<p align="center">
+  <a href="docs/assets/preview/maho-dock.png">
+    <img src="docs/assets/preview/maho-dock.png" alt="MahoOS desktop, window preview, and dock" width="100%">
+  </a>
+</p>
+
+### Maho Lock
+
+<p align="center">
+  <a href="docs/assets/preview/maho-lock.png">
+    <img src="docs/assets/preview/maho-lock.png" alt="Maho Lock screen" width="100%">
+  </a>
+</p>
+
+### Edge and Launcher
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+  <a href="docs/assets/preview/maho-edge.png">
+    <img src="docs/assets/preview/maho-edge.png" alt="Maho Edge quick controls" width="100%">
+  </a>
+  <br><strong>Maho Edge</strong><br>
+  <sub>System controls, health, media, and entry points.</sub>
+</td>
+<td width="50%" align="center" valign="top">
+  <a href="docs/assets/preview/maho-launcher.png">
+    <img src="docs/assets/preview/maho-launcher.png" alt="Maho Launcher" width="100%">
+  </a>
+  <br><strong>Maho Launcher</strong><br>
+  <sub>Apps, files, commands, and quick actions.</sub>
+</td>
+</tr>
+</table>
+
+### Maho Link
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+  <a href="docs/assets/preview/maho-link-wifi.png">
+    <img src="docs/assets/preview/maho-link-wifi.png" alt="Maho Link Wi-Fi view" width="100%">
+  </a>
+  <br><strong>Wi-Fi</strong>
+</td>
+<td width="50%" align="center" valign="top">
+  <a href="docs/assets/preview/maho-link-bluetooth.png">
+    <img src="docs/assets/preview/maho-link-bluetooth.png" alt="Maho Link Bluetooth view" width="100%">
+  </a>
+  <br><strong>Bluetooth</strong>
+</td>
+</tr>
+</table>
+
+Maho Link presents connectivity through the system authorities that own the real state: NetworkManager for networking and BlueZ for Bluetooth.
+
+### Maho Files
+
+<p align="center">
+  <a href="docs/assets/preview/maho-files.png">
+    <img src="docs/assets/preview/maho-files.png" alt="Maho Files" width="100%">
+  </a>
+</p>
+
+Native Qt/KIO file management with places, devices, search, and filesystem operations.
+
+### Notify and Power
+
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+  <a href="docs/assets/preview/maho-notify.png">
+    <img src="docs/assets/preview/maho-notify.png" alt="Maho Notify notification center" width="100%">
+  </a>
+  <br><strong>Maho Notify</strong><br>
+  <sub>Held delivery, Adaptive Focus, and notification history.</sub>
+</td>
+<td width="50%" align="center" valign="top">
+  <a href="docs/assets/preview/maho-power.png">
+    <img src="docs/assets/preview/maho-power.png" alt="Maho Power and Session dialog" width="100%">
+  </a>
+  <br><strong>Power &amp; Session</strong><br>
+  <sub>Explicit session and power actions.</sub>
+</td>
+</tr>
+</table>
+
+### Dynamic wallpaper palette
+
+<p align="center">
+  <a href="docs/assets/preview/maho-wallpaper.png">
+    <img src="docs/assets/preview/maho-wallpaper.png" alt="Maho wallpaper and dynamic palette picker" width="100%">
+  </a>
+</p>
+
+Wallpaper-driven dynamic palettes keep the shell visually coherent with the active desktop.
+
 ## Reliability philosophy
 
 MahoOS is fail-safe by default:
