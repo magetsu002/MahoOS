@@ -5,14 +5,19 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.sound ? bridge.state.sound : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function defaultIndex(rows) {
         if (!rows)
@@ -26,52 +31,55 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Sound"
-                subtitle: "Output, input and volume controls"
-                foreground: root.foreground
-                muted: root.muted
+                subtitle: "Choose audio devices and adjust their levels"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Audio backend unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Output"
-                description: "Choose the default sink and adjust its current volume."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Output device"
+                description: "Choose where MahoOS plays audio"
+                iconName: "audio-volume-high"
+                theme: theme
 
                 MahoComboBox {
-                    Layout.fillWidth: true
+                    id: outputSelector
+                    Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.outputs || []
                     textRole: "name"
                     currentIndex: root.defaultIndex(root.state.outputs)
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                     enabled: count > 0 && !root.bridge.actionBusy
                     onActivated: {
                         const row = root.state.outputs[index]
@@ -79,72 +87,80 @@ Item {
                             root.bridge.perform("sound.default", { direction: "output", id: row.id })
                     }
                 }
+            }
 
-                Text {
-                    visible: root.state.output && !root.state.output.available
-                    Layout.fillWidth: true
-                    text: root.state.output ? (root.state.output.error || "Default output state unavailable.") : ""
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Output volume"
+                description: root.state.output && !root.state.output.available
+                    ? (root.state.output.error || "Current output state is unavailable")
+                    : "Adjust the current output level"
+                iconName: "audio-volume-high"
+                theme: theme
+
+                MahoSlider {
+                    Layout.preferredWidth: Math.min(260, Math.max(150, root.width * 0.26))
+                    from: 0
+                    to: 100
+                    value: root.state.output && root.state.output.available ? root.state.output.volume : 0
+                    enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    onPressedChanged: {
+                        if (!pressed && enabled)
+                            root.bridge.perform("sound.volume", {
+                                direction: "output",
+                                percent: Math.round(value)
+                            })
+                    }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Volume"
-                        color: root.foreground
-                        font.pixelSize: 12
-                    }
-                    MahoSlider {
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 100
-                        value: root.state.output && root.state.output.available ? root.state.output.volume : 0
-                        enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        onPressedChanged: {
-                            if (!pressed)
-                                root.bridge.perform("sound.volume", { direction: "output", percent: Math.round(value) })
-                        }
-                    }
-                    Text {
-                        text: (root.state.output ? root.state.output.volume : 0) + "%"
-                        color: root.muted
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 38
-                    }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: root.state.output && root.state.output.available ? !!root.state.output.muted : false
-                        enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("sound.mute", { direction: "output", muted: checked })
-                    }
+                Text {
+                    text: (root.state.output ? root.state.output.volume : 0) + "%"
+                    color: theme.textSecondary
+                    font.pixelSize: 11
+                    Layout.preferredWidth: 38
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                Text {
+                    text: "Mute"
+                    color: theme.textSecondary
+                    font.pixelSize: 11
+                }
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: root.state.output && root.state.output.available
+                        ? !!root.state.output.muted : false
+                    enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("sound.mute", {
+                        direction: "output",
+                        muted: checked
+                    })
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Input"
-                description: "Choose the default source and adjust microphone gain."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Input device"
+                description: "Choose the microphone MahoOS uses"
+                iconName: "audio-input-microphone"
+                theme: theme
 
                 MahoComboBox {
-                    Layout.fillWidth: true
+                    id: inputSelector
+                    Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.inputs || []
                     textRole: "name"
                     currentIndex: root.defaultIndex(root.state.inputs)
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                     enabled: count > 0 && !root.bridge.actionBusy
                     onActivated: {
                         const row = root.state.inputs[index]
@@ -152,51 +168,64 @@ Item {
                             root.bridge.perform("sound.default", { direction: "input", id: row.id })
                     }
                 }
+            }
 
-                Text {
-                    visible: root.state.input && !root.state.input.available
-                    Layout.fillWidth: true
-                    text: root.state.input ? (root.state.input.error || "Default input state unavailable.") : ""
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Input level"
+                description: root.state.input && !root.state.input.available
+                    ? (root.state.input.error || "Current input state is unavailable")
+                    : "Adjust microphone gain"
+                iconName: "audio-input-microphone"
+                theme: theme
+
+                MahoSlider {
+                    Layout.preferredWidth: Math.min(260, Math.max(150, root.width * 0.26))
+                    from: 0
+                    to: 100
+                    value: root.state.input && root.state.input.available ? root.state.input.volume : 0
+                    enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    onPressedChanged: {
+                        if (!pressed && enabled)
+                            root.bridge.perform("sound.volume", {
+                                direction: "input",
+                                percent: Math.round(value)
+                            })
+                    }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Input level"; color: root.foreground; font.pixelSize: 12 }
-                    MahoSlider {
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 100
-                        value: root.state.input && root.state.input.available ? root.state.input.volume : 0
-                        enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        onPressedChanged: {
-                            if (!pressed)
-                                root.bridge.perform("sound.volume", { direction: "input", percent: Math.round(value) })
-                        }
-                    }
-                    Text {
-                        text: (root.state.input ? root.state.input.volume : 0) + "%"
-                        color: root.muted
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 38
-                    }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: root.state.input && root.state.input.available ? !!root.state.input.muted : false
-                        enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("sound.mute", { direction: "input", muted: checked })
-                    }
+                Text {
+                    text: (root.state.input ? root.state.input.volume : 0) + "%"
+                    color: theme.textSecondary
+                    font.pixelSize: 11
+                    Layout.preferredWidth: 38
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                Text {
+                    text: "Mute"
+                    color: theme.textSecondary
+                    font.pixelSize: 11
+                }
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: root.state.input && root.state.input.available
+                        ? !!root.state.input.muted : false
+                    enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("sound.mute", {
+                        direction: "input",
+                        muted: checked
+                    })
                 }
             }
 
-            Item { Layout.preferredHeight: 6 }
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }
