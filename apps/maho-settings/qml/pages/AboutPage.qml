@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -128,6 +130,7 @@ Item {
                         model: ["Network & Bluetooth", "Users", "Accessibility", "Updates", "Recovery", "Guardian", "Storage"]
 
                         Rectangle {
+                            id: deferredChip
                             required property string modelData
                             width: label.implicitWidth + 20
                             height: 30
@@ -139,7 +142,7 @@ Item {
                             Text {
                                 id: label
                                 anchors.centerIn: parent
-                                text: modelData
+                                text: deferredChip.modelData
                                 color: theme.textSecondary
                                 font.pixelSize: 10
                             }

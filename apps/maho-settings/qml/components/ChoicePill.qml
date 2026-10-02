@@ -25,9 +25,11 @@ Button {
 
     background: Rectangle {
         radius: 11
-        color: root.selected
-            ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14)
-            : (root.hovered ? Qt.lighter(root.surface, 1.08) : root.surface)
+        color: root.down
+            ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
+            : root.selected
+                ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14)
+                : (root.hovered ? Qt.lighter(root.surface, 1.08) : root.surface)
         border.width: 1
         border.color: root.selected
             ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.48)

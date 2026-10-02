@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 
@@ -26,26 +28,32 @@ Rectangle {
             model: root.options
 
             delegate: Rectangle {
+                id: segment
                 required property var modelData
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: 11
-                color: root.currentValue === modelData.value
-                    ? root.theme.controlActive
-                    : (hover.hovered ? root.theme.controlHover : "transparent")
+                color: tap.pressed
+                    ? root.theme.controlPressed
+                    : root.currentValue === segment.modelData.value
+                        ? root.theme.controlActive
+                        : (hover.hovered ? root.theme.controlHover : "transparent")
 
                 Text {
                     anchors.centerIn: parent
-                    text: modelData.label
-                    color: root.currentValue === modelData.value
+                    text: segment.modelData.label
+                    color: root.currentValue === segment.modelData.value
                         ? root.theme.textPrimary
                         : root.theme.textSecondary
                     font.pixelSize: 12
-                    font.weight: root.currentValue === modelData.value ? Font.Medium : Font.Normal
+                    font.weight: root.currentValue === segment.modelData.value ? Font.Medium : Font.Normal
                 }
 
                 HoverHandler { id: hover }
-                TapHandler { onTapped: root.selected(modelData.value) }
+                TapHandler {
+                    id: tap
+                    onTapped: root.selected(segment.modelData.value)
+                }
 
                 Behavior on color {
                     ColorAnimation { duration: root.theme.reducedMotion ? 0 : 110 }

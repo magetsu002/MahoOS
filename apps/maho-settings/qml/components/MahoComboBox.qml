@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 
@@ -33,6 +35,7 @@ ComboBox {
     implicitHeight: 38
     leftPadding: 12
     rightPadding: 30
+    hoverEnabled: true
 
     contentItem: Text {
         text: root.displayText
@@ -62,10 +65,12 @@ ComboBox {
 
     background: Rectangle {
         radius: 11
-        color: root.surface
+        color: root.down
+            ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.085)
+            : (root.hovered ? Qt.lighter(root.surface, 1.05) : root.surface)
         border.width: 1
-        border.color: root.activeFocus
-            ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.48)
+        border.color: root.activeFocus || root.popup.visible
+            ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.40)
             : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
     }
 
@@ -100,7 +105,7 @@ ComboBox {
         highlighted: root.highlightedIndex === index
 
         contentItem: Text {
-            text: root.textRole && modelData ? modelData[root.textRole] : modelData
+            text: root.textRole && delegateItem.modelData ? delegateItem.modelData[root.textRole] : delegateItem.modelData
             color: root.foreground
             font.pixelSize: 12
             verticalAlignment: Text.AlignVCenter

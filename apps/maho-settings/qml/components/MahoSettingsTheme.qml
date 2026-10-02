@@ -55,6 +55,7 @@ QtObject {
     readonly property color searchFocusRim: alpha(accent, 0.26)
 
     readonly property color navHover: alpha(foreground, 0.055)
+    readonly property color navPressed: alpha(foreground, lightMode ? 0.11 : 0.085)
     readonly property color navSelected: alpha(mix(surfaceElevated, accent, 0.16), lightMode ? 0.62 : 0.50)
     readonly property color navSelectedHover: alpha(mix(surfaceElevated, accent, 0.20), lightMode ? 0.70 : 0.58)
     readonly property color navSelectedRim: alpha(foreground, 0.045)

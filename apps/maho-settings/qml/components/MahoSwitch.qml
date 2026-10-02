@@ -17,7 +17,7 @@ Switch {
     implicitWidth: 46
     implicitHeight: 26
     padding: 0
-    opacity: root.enabled ? 1.0 : 0.46
+    opacity: root.enabled ? (root.down ? 0.86 : 1.0) : 0.46
 
     onClicked: root.toggleRequested(!root.checked)
 

@@ -14,9 +14,11 @@ Rectangle {
     width: parent ? parent.width : 220
     height: 35
     radius: 12
-    color: root.selected
-        ? (hover.hovered ? root.theme.navSelectedHover : root.theme.navSelected)
-        : (hover.hovered ? root.theme.navHover : "transparent")
+    color: tap.pressed
+        ? (root.selected ? root.theme.navSelectedHover : root.theme.navPressed)
+        : root.selected
+            ? (hover.hovered ? root.theme.navSelectedHover : root.theme.navSelected)
+            : (hover.hovered ? root.theme.navHover : "transparent")
     border.width: root.selected ? 1 : 0
     border.color: root.selected ? root.theme.navSelectedRim : "transparent"
     antialiasing: true
@@ -47,7 +49,10 @@ Rectangle {
     }
 
     HoverHandler { id: hover }
-    TapHandler { onTapped: root.activated(root.route) }
+    TapHandler {
+        id: tap
+        onTapped: root.activated(root.route)
+    }
 
     Behavior on color {
         ColorAnimation { duration: root.theme.reducedMotion ? 0 : 110 }

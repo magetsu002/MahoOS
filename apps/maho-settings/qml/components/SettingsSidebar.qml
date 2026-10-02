@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -116,6 +118,7 @@ Rectangle {
                     spacing: 2
 
                     delegate: Rectangle {
+                        id: resultRow
                         required property var modelData
                         width: resultList.width
                         height: 52
@@ -132,7 +135,7 @@ Rectangle {
 
                             Text {
                                 width: parent.width
-                                text: modelData.title || modelData.label
+                                text: resultRow.modelData.title || resultRow.modelData.label
                                 color: root.theme.textPrimary
                                 font.pixelSize: 13
                                 font.weight: Font.Medium
@@ -141,7 +144,7 @@ Rectangle {
 
                             Text {
                                 width: parent.width
-                                text: modelData.category || "Settings"
+                                text: resultRow.modelData.category || "Settings"
                                 color: root.theme.textSecondary
                                 font.pixelSize: 11
                                 elide: Text.ElideRight
@@ -151,8 +154,11 @@ Rectangle {
                         HoverHandler { id: resultHover }
                         TapHandler {
                             onTapped: {
+                                const route = resultRow.modelData.route
+                                const target = resultRow.modelData.target || route
                                 searchPopup.close()
-                                root.searchResultSelected(modelData.route, modelData.target || modelData.route)
+                                searchField.text = ""
+                                root.searchResultSelected(route, target)
                             }
                         }
                     }
@@ -195,6 +201,7 @@ Rectangle {
                     model: root.sections
 
                     delegate: Column {
+                        id: sectionGroup
                         required property var modelData
                         required property int index
                         width: navColumn.width
@@ -203,12 +210,12 @@ Rectangle {
                         MahoSectionLabel {
                             width: parent.width
                             height: 15
-                            text: modelData.label
+                            text: sectionGroup.modelData.label
                             textColor: root.theme.textSecondary
                         }
 
                         Repeater {
-                            model: modelData.items
+                            model: sectionGroup.modelData.items
 
                             delegate: MahoSidebarItem {
                                 required property var modelData
@@ -229,13 +236,13 @@ Rectangle {
                             height: 1
                             x: 9
                             color: root.theme.divider
-                            visible: index < root.sections.length - 1
+                            visible: sectionGroup.index < root.sections.length - 1
                         }
 
                         Item {
                             width: 1
                             height: visible ? 6 : 0
-                            visible: index < root.sections.length - 1
+                            visible: sectionGroup.index < root.sections.length - 1
                         }
                     }
                 }

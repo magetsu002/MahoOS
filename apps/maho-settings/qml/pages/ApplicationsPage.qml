@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -134,6 +136,7 @@ Item {
                     model: root.pageState.mimeAssociations || []
 
                     ColumnLayout {
+                        id: associationRow
                         required property var modelData
                         required property int index
                         Layout.fillWidth: true
@@ -148,7 +151,7 @@ Item {
                                 spacing: 2
 
                                 Text {
-                                    text: modelData.label
+                                    text: associationRow.modelData.label
                                     color: theme.textPrimary
                                     font.pixelSize: 12
                                     font.weight: Font.Medium
@@ -157,7 +160,7 @@ Item {
                                 }
 
                                 Text {
-                                    text: modelData.mime
+                                    text: associationRow.modelData.mime
                                     color: theme.textFaint
                                     font.pixelSize: 10
                                     Layout.fillWidth: true
@@ -167,20 +170,20 @@ Item {
 
                             MahoComboBox {
                                 Layout.preferredWidth: Math.min(300, Math.max(190, root.width * 0.34))
-                                model: modelData.candidates || []
+                                model: associationRow.modelData.candidates || []
                                 textRole: "name"
                                 backendOwned: true
-                                backendIndex: root.candidateIndex(model, modelData.default || "")
+                                backendIndex: root.candidateIndex(model, associationRow.modelData.default || "")
                                 enabled: count > 0 && !root.bridge.actionBusy
                                 surface: theme.controlFill
                                 foreground: theme.textPrimary
                                 muted: theme.textSecondary
                                 accent: theme.accent
                                 onIndexRequested: function(index) {
-                                    const row = modelData.candidates[index]
+                                    const row = associationRow.modelData.candidates[index]
                                     if (row)
                                         root.bridge.perform("applications.mimeDefault", {
-                                            mime: modelData.mime,
+                                            mime: associationRow.modelData.mime,
                                             desktopId: row.id
                                         })
                                 }
@@ -188,7 +191,7 @@ Item {
                         }
 
                         Rectangle {
-                            visible: index < (root.pageState.mimeAssociations || []).length - 1
+                            visible: associationRow.index < (root.pageState.mimeAssociations || []).length - 1
                             Layout.fillWidth: true
                             Layout.preferredHeight: 1
                             color: theme.divider
