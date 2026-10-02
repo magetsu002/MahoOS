@@ -12,9 +12,9 @@ Rectangle {
     default property alias content: slot.data
 
     radius: 18
-    color: root.surface
+    color: Qt.rgba(root.surface.r, root.surface.g, root.surface.b, 0.58)
     border.width: 1
-    border.color: root.borderColor
+    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.075)
     implicitHeight: contentColumn.implicitHeight + 32
     Layout.fillWidth: true
 

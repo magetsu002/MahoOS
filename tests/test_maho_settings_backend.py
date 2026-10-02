@@ -94,6 +94,23 @@ Video
         self.assertNotIn(104, [row["id"] for row in inputs])
         self.assertNotIn(86, [row["id"] for row in inputs])
 
+    def test_video_wallpaper_uses_palette_frame_for_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            preview = cache / "video-frame.jpg"
+            preview.write_bytes(b"jpeg")
+            palette = {"source": {"path": str(preview)}}
+            with (
+                mock.patch.object(settings, "CACHE_HOME", cache),
+                mock.patch.object(settings, "read_json", return_value=palette),
+                mock.patch.object(settings, "wallpaper_state", return_value={"kind": "video", "path": "/tmp/live.mp4"}),
+                mock.patch.object(settings, "hypr_prefix", return_value=(("hyprctl",), "")),
+                mock.patch.object(settings, "root_command", return_value="/bin/true"),
+                mock.patch.object(settings, "intent_get", side_effect=lambda key, default=None: default),
+            ):
+                snapshot = settings.snapshot_appearance()
+        self.assertEqual(snapshot["wallpaper"]["previewPath"], str(preview))
+
     def test_display_candidate_requires_advertised_mode(self) -> None:
         current = {
             "name": "DP-1",

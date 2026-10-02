@@ -39,13 +39,16 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        ScrollBar.vertical: MahoScrollBar {
+            foreground: root.foreground
+        }
 
         ColumnLayout {
             width: Math.max(0, root.width - 14)
             spacing: 14
 
             PageHeader {
-                title: "Keyboard & Pointer"
+                title: "Input"
                 subtitle: "Only controls with a real Hyprland backend are exposed. Current device identity comes from the compositor."
                 foreground: root.foreground
                 muted: root.muted

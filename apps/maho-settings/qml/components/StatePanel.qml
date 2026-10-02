@@ -15,9 +15,9 @@ Rectangle {
     signal retryRequested()
 
     radius: 18
-    color: root.surface
+    color: Qt.rgba(root.surface.r, root.surface.g, root.surface.b, 0.62)
     border.width: 1
-    border.color: root.borderColor
+    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
     implicitHeight: column.implicitHeight + 40
     Layout.fillWidth: true
 
@@ -47,9 +47,32 @@ Rectangle {
         }
 
         Button {
+            id: retryButton
             text: "Retry"
             visible: root.retryVisible
             Layout.alignment: Qt.AlignHCenter
+            implicitHeight: 34
+            leftPadding: 15
+            rightPadding: 15
+            hoverEnabled: true
+            contentItem: Text {
+                text: retryButton.text
+                color: root.foreground
+                font.pixelSize: 12
+                font.weight: Font.Medium
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 10
+                color: retryButton.down
+                    ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.13)
+                    : retryButton.hovered
+                        ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
+                        : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
+                border.width: 1
+                border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
+            }
             onClicked: root.retryRequested()
         }
     }

@@ -27,7 +27,14 @@ qt_add_qml_module(maho-settings
     QML_FILES
         qml/Main.qml
         qml/components/ChoicePill.qml
+        qml/components/AppearanceRow.qml
+        qml/components/MahoSegmentedControl.qml
         qml/components/MahoComboBox.qml
+        qml/components/MahoIcon.qml
+        qml/components/MahoSectionLabel.qml
+        qml/components/MahoScrollBar.qml
+        qml/components/MahoSettingsTheme.qml
+        qml/components/MahoSidebarItem.qml
         qml/components/MahoSlider.qml
         qml/components/MahoSwitch.qml
         qml/components/PageHeader.qml

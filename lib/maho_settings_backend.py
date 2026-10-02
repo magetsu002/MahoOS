@@ -285,6 +285,15 @@ def wallpaper_state() -> dict[str, Any]:
 def snapshot_appearance() -> dict[str, Any]:
     palette = read_json(CACHE_HOME / "maho" / "theme" / "active.json")
     wallpaper = wallpaper_state()
+    if isinstance(wallpaper, dict):
+        path = wallpaper.get("path")
+        preview_path = path if isinstance(path, str) and Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"} else ""
+        if not preview_path and isinstance(palette, dict):
+            source = palette.get("source", {})
+            candidate = source.get("path") if isinstance(source, dict) else ""
+            if isinstance(candidate, str) and Path(candidate).is_file():
+                preview_path = candidate
+        wallpaper = {**wallpaper, "previewPath": preview_path}
     hypr_available = hypr_prefix()[0] is not None
     return {
         "available": True,

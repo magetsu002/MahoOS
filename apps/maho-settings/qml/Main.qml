@@ -7,44 +7,64 @@ import "components"
 ApplicationWindow {
     id: root
 
-    width: 1120
-    height: 760
+    width: 1200
+    height: 840
     minimumWidth: 700
-    minimumHeight: 500
+    minimumHeight: 440
     visible: true
     title: "Maho Settings"
     color: "transparent"
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    readonly property color baseBackground: mahoPalette.background
-    readonly property color surface: mahoPalette.surface
-    readonly property color surfaceElevated: mahoPalette.surfaceElevated
-    readonly property color foreground: mahoPalette.foreground
-    readonly property color muted: mahoPalette.muted
-    readonly property color accent: mahoPalette.accent
-    readonly property color borderColor: mahoPalette.border
     readonly property bool reducedTransparency: {
         const appearance = settingsBridge.state.appearance
         return appearance ? !!appearance.reducedTransparency : false
     }
-    readonly property bool narrow: width < 820
+    readonly property real sidebarWidth: width < 980 ? 232 : 272
     property string currentRoute: "appearance"
     property string currentTarget: "appearance"
 
-    property var categories: [
-        { route: "appearance", label: "Appearance", glyph: "A" },
-        { route: "displays", label: "Displays", glyph: "D" },
-        { route: "sound", label: "Sound", glyph: "S" },
-        { route: "input", label: "Keyboard & Pointer", glyph: "K" },
-        { route: "power", label: "Power", glyph: "P" },
-        { route: "notifications", label: "Notifications", glyph: "N" },
-        { route: "region", label: "Region & Time", glyph: "R" },
-        { route: "applications", label: "Applications", glyph: "A" },
-        { route: "system", label: "System", glyph: "i" }
+    property var sections: [
+        {
+            label: "Core",
+            items: [
+                { route: "appearance", label: "Appearance", icon: "preferences-desktop-theme" },
+                { route: "displays", label: "Displays", icon: "video-display" },
+                { route: "sound", label: "Sound", icon: "audio-volume-high" },
+                { route: "input", label: "Input", icon: "input-keyboard" },
+                { route: "power", label: "Power", icon: "battery" },
+                { route: "notifications", label: "Notifications", icon: "preferences-system-notifications" },
+                { route: "applications", label: "Applications", icon: "applications-other" },
+                { route: "region", label: "Region & Time", icon: "preferences-desktop-locale" }
+            ]
+        },
+        {
+            label: "Desktop",
+            items: [
+                { route: "shortcuts", label: "Shortcuts", icon: "preferences-desktop-keyboard-shortcuts" },
+                { route: "rules", label: "Rules", icon: "preferences-system-windows" },
+                { route: "motion", label: "Motion", icon: "preferences-desktop-effects" },
+                { route: "session", label: "Session", icon: "system-run" }
+            ]
+        },
+        {
+            label: "System",
+            items: [
+                { route: "configuration", label: "Configuration", icon: "preferences-system" },
+                { route: "diagnostics", label: "Diagnostics", icon: "utilities-system-monitor" },
+                { route: "about", label: "About", icon: "help-about" }
+            ]
+        }
     ]
 
-    function alpha(color, amount) {
-        return Qt.rgba(color.r, color.g, color.b, amount)
+    MahoSettingsTheme {
+        id: theme
+        palette: mahoPalette
+        reducedTransparency: root.reducedTransparency
+    }
+
+    function canonicalRoute(route) {
+        return route === "system" ? "about" : route
     }
 
     function pageSource(route) {
@@ -55,230 +75,127 @@ ApplicationWindow {
         case "input": return "pages/InputPage.qml"
         case "power": return "pages/PowerPage.qml"
         case "notifications": return "pages/NotificationsPage.qml"
-        case "region": return "pages/RegionPage.qml"
         case "applications": return "pages/ApplicationsPage.qml"
-        case "system": return "pages/AboutPage.qml"
+        case "region": return "pages/RegionPage.qml"
+        case "about": return "pages/AboutPage.qml"
         default: return "pages/DeferredPage.qml"
         }
     }
 
     function selectRoute(route, target) {
-        currentRoute = route
-        currentTarget = target || route
-        searchField.text = ""
-        searchPopup.close()
+        const canonical = canonicalRoute(route)
+        currentRoute = canonical
+        currentTarget = target || canonical
     }
 
+
     Rectangle {
+        id: shell
         anchors.fill: parent
-        radius: 24
-        color: root.reducedTransparency
-            ? root.baseBackground
-            : root.alpha(root.baseBackground, 0.965)
+        radius: 26
+        clip: true
+        color: theme.shellFill
         border.width: 1
-        border.color: root.alpha(root.foreground, 0.10)
+        border.color: theme.shellRim
+        antialiasing: true
 
-        ColumnLayout {
+        DragHandler {
+            target: null
+            acceptedButtons: Qt.LeftButton
+            onActiveChanged: {
+                if (active)
+                    root.startSystemMove()
+            }
+        }
+
+        Rectangle {
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 12
+            anchors.margins: 1
+            radius: 25
+            color: "transparent"
+            border.width: 1
+            border.color: theme.shellInnerRim
+            antialiasing: true
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
+        SettingsSidebar {
+            id: sidebar
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: root.sidebarWidth
+            sections: root.sections
+            currentRoute: root.currentRoute
+            theme: theme
+            searchResults: settingsBridge.searchResults
+            onRouteSelected: function(route) { root.selectRoute(route) }
+            onSearchRequested: function(query) { settingsBridge.search(query) }
+            onSearchResultSelected: function(route, target) { root.selectRoute(route, target) }
+        }
 
-                DragHandler {
-                    target: null
-                    acceptedButtons: Qt.LeftButton
-                    onActiveChanged: {
-                        if (active)
-                            root.startSystemMove()
-                    }
-                }
+        Rectangle {
+            id: divider
+            anchors.left: sidebar.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 1
+            color: theme.divider
+        }
 
-                Text {
-                    text: "Settings"
-                    color: root.foreground
-                    font.pixelSize: 18
-                    font.weight: Font.DemiBold
-                }
+        Rectangle {
+            id: contentSurface
+            anchors.left: divider.right
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            color: theme.contentFill
 
-                Item { Layout.fillWidth: true }
+            Loader {
+                id: pageLoader
+                anchors.fill: parent
+                anchors.leftMargin: root.width < 980 ? 28 : 38
+                anchors.rightMargin: root.width < 980 ? 28 : 38
+                anchors.topMargin: root.height < 700 ? 26 : 36
+                anchors.bottomMargin: 28
+                source: root.pageSource(root.currentRoute)
 
-                TextField {
-                    id: searchField
-                    Layout.preferredWidth: root.narrow ? Math.min(330, root.width * 0.47) : 360
-                    placeholderText: "Search settings"
-                    color: root.foreground
-                    placeholderTextColor: root.alpha(root.muted, 0.72)
-                    selectByMouse: true
-                    leftPadding: 14
-                    rightPadding: 14
-
-                    background: Rectangle {
-                        radius: 13
-                        color: root.alpha(root.surfaceElevated, root.reducedTransparency ? 1.0 : 0.78)
-                        border.width: 1
-                        border.color: searchField.activeFocus
-                            ? root.alpha(root.accent, 0.50)
-                            : root.alpha(root.foreground, 0.08)
-                    }
-
-                    onTextChanged: searchDebounce.restart()
-                    onActiveFocusChanged: {
-                        if (activeFocus && text.trim().length > 0)
-                            searchPopup.open()
-                    }
-                    Keys.onEscapePressed: {
-                        text = ""
-                        searchPopup.close()
-                    }
-
-                    Popup {
-                        id: searchPopup
-                        x: 0
-                        y: searchField.height + 8
-                        width: searchField.width
-                        padding: 6
-                        modal: false
-                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-                        background: Rectangle {
-                            radius: 16
-                            color: root.surfaceElevated
-                            border.width: 1
-                            border.color: root.alpha(root.foreground, 0.10)
-                        }
-
-                        contentItem: ListView {
-                            implicitHeight: Math.min(contentHeight, 360)
-                            model: settingsBridge.searchResults
-                            clip: true
-
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: ListView.view.width
-                                height: 52
-                                radius: 11
-                                color: resultHover.hovered
-                                    ? root.alpha(root.foreground, 0.065)
-                                    : "transparent"
-
-                                Column {
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 10
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 2
-
-                                    Text {
-                                        text: modelData.label
-                                        color: root.foreground
-                                        font.pixelSize: 12
-                                        font.weight: Font.Medium
-                                    }
-                                    Text {
-                                        text: modelData.deferred ? "Designed for a later V1 page" : "Open setting"
-                                        color: root.muted
-                                        font.pixelSize: 10
-                                    }
-                                }
-
-                                HoverHandler { id: resultHover }
-                                TapHandler {
-                                    onTapped: root.selectRoute(modelData.route, modelData.target)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Timer {
-                    id: searchDebounce
-                    interval: 90
-                    onTriggered: {
-                        settingsBridge.search(searchField.text.trim())
-                        if (searchField.text.trim().length > 0)
-                            searchPopup.open()
-                        else
-                            searchPopup.close()
-                    }
+                onLoaded: {
+                    if (!item)
+                        return
+                    item.bridge = settingsBridge
+                    item.themePalette = mahoPalette
+                    if (item.hasOwnProperty("targetRoute"))
+                        item.targetRoute = root.currentTarget
                 }
             }
+        }
 
-            ComboBox {
-                id: narrowRoute
-                visible: root.narrow
-                Layout.fillWidth: true
-                model: root.categories.map(function(item) { return item.label })
-                currentIndex: root.categories.findIndex(function(item) { return item.route === root.currentRoute })
-                onActivated: root.selectRoute(root.categories[currentIndex].route)
-            }
+        Rectangle {
+            id: errorToast
+            visible: settingsBridge.error.length > 0 && !settingsBridge.loading
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: 22
+            anchors.bottomMargin: 20
+            width: Math.min(440, root.width - root.sidebarWidth - 54)
+            height: visible ? Math.max(44, errorMessage.implicitHeight + 20) : 0
+            radius: 13
+            color: theme.reducedTransparency
+                ? theme.surfaceElevated
+                : theme.alpha(theme.surfaceElevated, 0.94)
+            border.width: 1
+            border.color: theme.alpha(mahoPalette.accent, 0.22)
+            z: 50
 
-            Rectangle {
-                visible: settingsBridge.error.length > 0 && !settingsBridge.loading
-                Layout.fillWidth: true
-                Layout.preferredHeight: visible ? Math.max(38, errorText.implicitHeight + 16) : 0
-                radius: 12
-                color: root.alpha(root.accent, 0.09)
-                border.width: 1
-                border.color: root.alpha(root.accent, 0.26)
-
-                Text {
-                    id: errorText
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    text: settingsBridge.error
-                    color: root.foreground
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 12
-
-                SettingsSidebar {
-                    visible: !root.narrow
-                    Layout.preferredWidth: 228
-                    Layout.fillHeight: true
-                    model: root.categories
-                    currentRoute: root.currentRoute
-                    surface: root.alpha(root.surface, root.reducedTransparency ? 1.0 : 0.82)
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
-                    borderColor: root.alpha(root.foreground, 0.08)
-                    onRouteSelected: function(route) { root.selectRoute(route) }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    radius: 20
-                    color: root.alpha(root.surface, root.reducedTransparency ? 1.0 : 0.62)
-                    border.width: 1
-                    border.color: root.alpha(root.foreground, 0.07)
-                    clip: true
-
-                    Loader {
-                        id: pageLoader
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        source: root.pageSource(root.currentRoute)
-
-                        onLoaded: {
-                            if (!item)
-                                return
-                            item.bridge = settingsBridge
-                            item.themePalette = mahoPalette
-                            if (item.hasOwnProperty("targetRoute"))
-                                item.targetRoute = root.currentTarget
-                        }
-                    }
-                }
+            Text {
+                id: errorMessage
+                anchors.fill: parent
+                anchors.margins: 10
+                text: settingsBridge.error
+                color: theme.textBody
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
             }
         }
     }

@@ -1,87 +1,245 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
     id: root
-    property var model: []
-    property string currentRoute: "appearance"
-    property color surface: "#211f26"
-    property color foreground: "#f3eef8"
-    property color muted: "#aaa3af"
-    property color accent: "#d0bcff"
-    property color borderColor: "#3d3942"
-    signal routeSelected(string route)
 
-    color: root.surface
-    radius: 20
-    border.width: 1
-    border.color: root.borderColor
+    property var sections: []
+    property string currentRoute: "appearance"
+    property var theme
+    property var searchResults: []
+    signal routeSelected(string route)
+    signal searchRequested(string query)
+    signal searchResultSelected(string route, string target)
+
+    color: root.theme.sidebarFill
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 10
-        spacing: 4
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.topMargin: 30
+        anchors.bottomMargin: 20
+        spacing: 0
 
-        Repeater {
-            model: root.model
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 10
+            spacing: 1
 
-            delegate: Rectangle {
-                required property var modelData
-                Layout.fillWidth: true
-                implicitHeight: 44
-                radius: 13
-                color: root.currentRoute === modelData.route
-                    ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.13)
-                    : (hover.hovered
-                        ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.055)
-                        : "transparent")
+            Text {
+                text: "MahoOS"
+                color: root.theme.textPrimary
+                font.pixelSize: 20
+                font.weight: Font.Medium
+                font.letterSpacing: -0.25
+            }
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    spacing: 10
-
-                    Rectangle {
-                        width: 25
-                        height: 25
-                        radius: 8
-                        color: root.currentRoute === modelData.route
-                            ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.17)
-                            : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.055)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: modelData.glyph
-                            color: root.currentRoute === modelData.route ? root.accent : root.muted
-                            font.pixelSize: 11
-                            font.weight: Font.DemiBold
-                        }
-                    }
-
-                    Text {
-                        text: modelData.label
-                        color: root.currentRoute === modelData.route ? root.foreground : root.muted
-                        font.pixelSize: 13
-                        font.weight: root.currentRoute === modelData.route ? Font.DemiBold : Font.Medium
-                        Layout.fillWidth: true
-                    }
-                }
-
-                HoverHandler { id: hover }
-                TapHandler { onTapped: root.routeSelected(modelData.route) }
+            Text {
+                text: "Settings"
+                color: root.theme.textSecondary
+                font.pixelSize: 13
             }
         }
 
-        Item { Layout.fillHeight: true }
+        Item { Layout.preferredHeight: 18 }
 
-        Text {
-            text: "MahoOS Settings"
-            color: root.muted
-            opacity: 0.55
-            font.pixelSize: 10
-            Layout.leftMargin: 10
-            Layout.bottomMargin: 4
+        TextField {
+            id: searchField
+            Layout.fillWidth: true
+            implicitHeight: 41
+            leftPadding: 39
+            rightPadding: 12
+            topPadding: 0
+            bottomPadding: 0
+            placeholderText: "Search settings..."
+            placeholderTextColor: root.theme.textFaint
+            color: root.theme.textPrimary
+            font.pixelSize: 13
+            selectByMouse: true
+            background: Rectangle {
+                radius: 12
+                color: searchField.hovered
+                    ? root.theme.mix(root.theme.searchFill, root.theme.foreground, 0.025)
+                    : root.theme.searchFill
+                border.width: 1
+                border.color: searchField.activeFocus
+                    ? root.theme.searchFocusRim
+                    : root.theme.rowRim
+            }
+
+            MahoIcon {
+                anchors.left: parent.left
+                anchors.leftMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                width: 17
+                height: 17
+                name: "system-search"
+                tone: root.theme.textSecondary
+                opacity: 0.78
+            }
+
+            onTextChanged: searchDelay.restart()
+            onActiveFocusChanged: {
+                if (activeFocus && text.trim().length > 0)
+                    searchPopup.open()
+            }
+            Keys.onEscapePressed: {
+                text = ""
+                searchPopup.close()
+            }
+
+            Popup {
+                id: searchPopup
+                x: 0
+                y: searchField.height + 8
+                width: Math.max(searchField.width, 300)
+                padding: 6
+                modal: false
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                background: Rectangle {
+                    radius: 14
+                    color: root.theme.reducedTransparency
+                        ? root.theme.surfaceElevated
+                        : root.theme.alpha(root.theme.surfaceElevated, 0.94)
+                    border.width: 1
+                    border.color: root.theme.shellRim
+                }
+
+                contentItem: ListView {
+                    id: resultList
+                    clip: true
+                    implicitHeight: Math.min(contentHeight, 340)
+                    model: root.searchResults
+                    spacing: 2
+
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: resultList.width
+                        height: 52
+                        radius: 10
+                        color: resultHover.hovered ? root.theme.navHover : "transparent"
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 11
+                            anchors.right: parent.right
+                            anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            Text {
+                                width: parent.width
+                                text: modelData.title || modelData.label
+                                color: root.theme.textPrimary
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: modelData.category || "Settings"
+                                color: root.theme.textSecondary
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        HoverHandler { id: resultHover }
+                        TapHandler {
+                            onTapped: {
+                                searchPopup.close()
+                                root.searchResultSelected(modelData.route, modelData.target || modelData.route)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Timer {
+            id: searchDelay
+            interval: 90
+            repeat: false
+            onTriggered: {
+                const query = searchField.text.trim()
+                root.searchRequested(query)
+                if (query.length > 0)
+                    searchPopup.open()
+                else
+                    searchPopup.close()
+            }
+        }
+
+        Item { Layout.preferredHeight: 12 }
+
+        Flickable {
+            id: navFlick
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentWidth: width
+            contentHeight: navColumn.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            flickDeceleration: 3000
+
+            Column {
+                id: navColumn
+                width: navFlick.width
+                spacing: 0
+
+                Repeater {
+                    model: root.sections
+
+                    delegate: Column {
+                        required property var modelData
+                        required property int index
+                        width: navColumn.width
+                        spacing: 1
+
+                        MahoSectionLabel {
+                            width: parent.width
+                            height: 15
+                            text: modelData.label
+                            textColor: root.theme.textSecondary
+                        }
+
+                        Repeater {
+                            model: modelData.items
+
+                            delegate: MahoSidebarItem {
+                                required property var modelData
+                                width: parent.width
+                                theme: root.theme
+                                label: modelData.label
+                                route: modelData.route
+                                iconName: modelData.icon
+                                selected: root.currentRoute === modelData.route
+                                onActivated: function(route) { root.routeSelected(route) }
+                            }
+                        }
+
+                        Item { width: 1; height: 5 }
+
+                        Rectangle {
+                            width: parent.width - 18
+                            height: 1
+                            x: 9
+                            color: root.theme.divider
+                            visible: index < root.sections.length - 1
+                        }
+
+                        Item {
+                            width: 1
+                            height: visible ? 6 : 0
+                            visible: index < root.sections.length - 1
+                        }
+                    }
+                }
+            }
         }
     }
 }

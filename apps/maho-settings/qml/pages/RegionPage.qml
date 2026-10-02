@@ -23,6 +23,9 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        ScrollBar.vertical: MahoScrollBar {
+            foreground: root.foreground
+        }
 
         ColumnLayout {
             width: Math.max(0, root.width - 14)

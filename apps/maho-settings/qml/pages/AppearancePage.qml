@@ -5,155 +5,149 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.appearance ? bridge.state.appearance : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+    readonly property bool reducedTransparency: !!root.state.reducedTransparency
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.reducedTransparency
+    }
+
+    function wallpaperSource() {
+        const wall = root.state.wallpaper || ({})
+        return wall.previewPath ? "file://" + wall.previewPath : ""
+    }
 
     ScrollView {
         anchors.fill: parent
         clip: true
+        ScrollBar.vertical: MahoScrollBar {
+            foreground: theme.textPrimary
+        }
+        contentWidth: availableWidth
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Appearance"
-                subtitle: "Maho Settings requests changes through the existing Maho theme and compositor infrastructure."
-                foreground: root.foreground
-                muted: root.muted
+                subtitle: "Customize the visual experience of MahoOS"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Appearance state unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Color mode"
-                description: "Light and dark reuse the active wallpaper palette. Automatic is shown only when a real scheduling backend exists."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Appearance mode"
+                description: "Choose how MahoOS looks"
+                iconName: "preferences-desktop-theme"
+                theme: theme
 
-                RowLayout {
-                    spacing: 8
-
-                    ChoicePill {
-                        text: "Dark"
-                        selected: root.state.mode === "dark"
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("appearance.mode", { mode: "dark" })
+                MahoSegmentedControl {
+                    theme: theme
+                    currentValue: root.state.mode || "dark"
+                    options: [
+                        { label: "Dark", value: "dark" },
+                        { label: "Light", value: "light" }
+                    ]
+                    onSelected: function(value) {
+                        if (!root.bridge.actionBusy && value !== root.state.mode)
+                            root.bridge.perform("appearance.mode", { mode: value })
                     }
-                    ChoicePill {
-                        text: "Light"
-                        selected: root.state.mode === "light"
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("appearance.mode", { mode: "light" })
-                    }
-                    ChoicePill {
-                        text: "Automatic"
-                        selected: root.state.mode === "automatic"
-                        enabled: !!root.state.automaticSupported && !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                    }
-                    Item { Layout.fillWidth: true }
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Current wallpaper"
-                description: "Palette integration follows the wallpaper owner; Settings does not replace it."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Wallpaper"
+                description: "Current wallpaper and derived color palette"
+                iconName: "image-x-generic"
+                theme: theme
+
+                Rectangle {
+                    width: 150
+                    height: 62
+                    radius: 10
+                    clip: true
+                    color: theme.controlFill
+                    border.width: 1
+                    border.color: theme.controlRim
+
+                    Image {
+                        anchors.fill: parent
+                        source: root.wallpaperSource()
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                        smooth: true
+                        visible: source.toString().length > 0
+                    }
+                }
 
                 Text {
-                    Layout.fillWidth: true
-                    text: root.state.wallpaper && root.state.wallpaper.path
-                        ? root.state.wallpaper.path
-                        : "No authoritative wallpaper state is currently available."
-                    color: root.state.wallpaper && root.state.wallpaper.path ? root.foreground : root.muted
-                    font.pixelSize: 12
-                    elide: Text.ElideMiddle
+                    text: "›"
+                    color: theme.textSecondary
+                    font.pixelSize: 24
+                    font.weight: Font.Light
+                    verticalAlignment: Text.AlignVCenter
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Comfort"
-                description: "These are user preferences, not system-health or Guardian authority."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Reduce motion"
+                description: "Minimize animations across MahoOS"
+                iconName: "preferences-desktop-effects"
+                theme: theme
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Reduce motion"
-                        color: root.foreground
-                        font.pixelSize: 13
-                        Layout.fillWidth: true
-                    }
-                    MahoSwitch {
-                        checked: !!root.state.reducedMotion
-                        enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("appearance.reducedMotion", { enabled: checked })
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Reduce transparency"
-                        color: root.foreground
-                        font.pixelSize: 13
-                        Layout.fillWidth: true
-                    }
-                    MahoSwitch {
-                        checked: !!root.state.reducedTransparency
-                        enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("appearance.reducedTransparency", { enabled: checked })
-                    }
+                MahoSwitch {
+                    checked: !!root.state.reducedMotion
+                    enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("appearance.reducedMotion", { enabled: checked })
                 }
             }
 
-            Item { Layout.preferredHeight: 6 }
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Reduce transparency"
+                description: "Reduce blur and transparency effects"
+                iconName: "preferences-desktop-effects"
+                theme: theme
+
+                MahoSwitch {
+                    checked: !!root.state.reducedTransparency
+                    enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("appearance.reducedTransparency", { enabled: checked })
+                }
+            }
+
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }

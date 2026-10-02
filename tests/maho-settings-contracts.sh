@@ -22,14 +22,15 @@ reject_text() {
 }
 
 echo "=== native persistent application structure ==="
-for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
+for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/MahoSettingsTheme.qml"     "$QML/components/MahoSidebarItem.qml"     "$QML/components/MahoSegmentedControl.qml"     "$QML/components/MahoScrollBar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
     require_file "$file"
 done
 require_text "$APP/src/main.cpp" 'loadFromModule(QStringLiteral("Maho.Settings")' "Settings is not a native Qt/QML module"
-require_text "$QML/Main.qml" 'readonly property bool narrow: width < 820' "responsive layout breakpoint missing"
+require_text "$QML/Main.qml" 'readonly property real sidebarWidth: width < 980' "responsive sidebar breakpoint missing"
 require_text "$QML/Main.qml" 'SettingsSidebar {' "category sidebar missing"
 require_text "$QML/Main.qml" 'Loader {' "route/page loader missing"
-require_text "$QML/Main.qml" 'searchDebounce' "deterministic search input missing"
+require_text "$QML/components/SettingsSidebar.qml" 'Timer {' "deterministic search debounce missing"
+require_text "$QML/components/SettingsSidebar.qml" 'root.searchRequested(query)' "deterministic search input missing"
 require_text "$QML/Main.qml" 'route: "appearance"' "Appearance navigation route missing"
 require_text "$QML/Main.qml" 'route: "displays"' "Displays navigation route missing"
 require_text "$QML/Main.qml" 'route: "sound"' "Sound navigation route missing"
@@ -38,7 +39,9 @@ require_text "$QML/Main.qml" 'route: "power"' "Power navigation route missing"
 require_text "$QML/Main.qml" 'route: "notifications"' "Notifications navigation route missing"
 require_text "$QML/Main.qml" 'route: "region"' "Region & Time navigation route missing"
 require_text "$QML/Main.qml" 'route: "applications"' "Applications navigation route missing"
-require_text "$QML/Main.qml" 'route: "system"' "System navigation route missing"
+require_text "$QML/Main.qml" 'route: "configuration"' "Configuration navigation route missing"
+require_text "$QML/Main.qml" 'route: "diagnostics"' "Diagnostics navigation route missing"
+require_text "$QML/Main.qml" 'route: "about"' "About navigation route missing"
 echo PASS
 
 echo "=== deterministic search contract ==="
