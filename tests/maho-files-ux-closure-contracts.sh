@@ -101,9 +101,16 @@ require_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction | Qt::MoveAction, naturalDra
 reject_text "$MODEL_CPP" 'drag.exec(Qt::CopyAction);'     'drag source is hard-forced to copy'
 require_text "$MODEL_CPP" 'KIO::move(urls, destination, KIO::HideProgressInfo)'     'MoveAction does not delegate to KIO at the chosen destination'
 require_text "$MODEL_CPP" 'KIO::copy(urls, destination, KIO::HideProgressInfo)'     'CopyAction does not delegate to KIO at the chosen destination'
+require_text "$MODEL_H" 'preferredDropAction('     'drop target does not own ordinary drag action selection'
+require_text "$MODEL_CPP" '!internalDrag'     'external drag payloads do not default safely to copy'
+require_text "$MODEL_CPP" 'sourceDevice != destinationDevice'     'cross-filesystem local drags do not default safely to copy'
+require_text "$MODEL_CPP" 'Qt::ShiftModifier'     'explicit user Move selection is not preserved'
+require_text "$MODEL_CPP" 'kInternalDragMimeType'     'internal native drags are not distinguished from external payloads'
+reject_text "$QML" 'if ((drop.supportedActions & Qt.MoveAction) !== 0)'     'QML still infers destructive Move merely because the source supports it'
 require_text "$MODEL_CPP" 'dropAction != Qt::CopyAction && dropAction != Qt::MoveAction'     'unsupported drag actions are not rejected'
 require_text "$MODEL_CPP" 'sourcePath == destinationPath'     'self-drop is not rejected'
-require_text "$MODEL_CPP" 'destinationPath.startsWith(sourcePath + QLatin1Char'     'folder-to-descendant recursion is not rejected'
+require_text "$MODEL_CPP" 'isSameOrDescendantPath(sourcePath, destinationPath)'     'folder-to-descendant recursion is not rejected by normalized ancestry'
+require_text "$MODEL_CPP" 'normalizedAncestor == QStringLiteral("/")'     'filesystem-root ancestry is not handled explicitly'
 require_text "$MODEL_CPP" 'rejectSameParent && sourceParent == destinationPath'     'same-directory drag no-op is not distinguished from valid paste'
 require_text "$MODEL_CPP" 'validateDrop(urls, m_currentUrl, &dropError, false)'     'clipboard paste was incorrectly restricted by same-directory drag rules'
 require_text "$MODEL_CPP" 'createDefaultJobUiDelegate'     'real KIO conflict/error handling is not available to file mutations'
@@ -112,8 +119,16 @@ echo PASS
 
 
 echo '=== V1 destructive-operation distinction ==='
-require_text "$MODEL_H" 'Q_INVOKABLE void deleteRows(const QVariantList &rows);' \
-    'permanent delete is not exposed separately from Trash'
+require_text "$MODEL_H" 'preparePermanentDelete(const QVariantList &rows)' \
+    'permanent delete does not prepare stable destructive targets'
+require_text "$MODEL_H" 'confirmPermanentDelete(const QString &token)' \
+    'permanent delete confirmation is not token-bound'
+require_text "$MODEL_CPP" '::lstat(encoded.constData(), &metadata)' \
+    'permanent delete does not capture/revalidate local filesystem identity'
+require_text "$MODEL_CPP" 'metadata.st_dev' \
+    'permanent delete does not bind the target filesystem identity'
+require_text "$MODEL_CPP" 'metadata.st_ino' \
+    'permanent delete does not bind the target inode identity'
 require_text "$MODEL_CPP" 'KIO::del(urls, KIO::HideProgressInfo)' \
     'permanent delete is not delegated to KIO DeleteJob'
 require_text "$MODEL_CPP" 'KIO::trash(urls, KIO::HideProgressInfo)' \
@@ -124,8 +139,12 @@ require_text "$QML" 'id: deletePopup' \
     'permanent delete has no confirmation surface'
 require_text "$QML" 'This is different from Trash and cannot be undone.' \
     'permanent delete confirmation does not explain irreversibility'
-require_text "$QML" 'directoryModel.deleteRows(targetRows)' \
-    'confirmed permanent delete is not routed to the backend'
+require_text "$QML" 'directoryModel.preparePermanentDelete(rows)' \
+    'confirmation still stores mutable row identities instead of backend targets'
+require_text "$QML" 'directoryModel.confirmPermanentDelete(confirmationToken)' \
+    'confirmed permanent delete is not routed through the stable backend token'
+reject_text "$QML" 'directoryModel.deleteRows(targetRows)' \
+    'permanent delete regressed to resolving mutable model rows after confirmation'
 echo PASS
 
 echo '=== V1 conflict and stale-path safety ==='
@@ -206,6 +225,10 @@ require_text "$MODEL_H" 'duplicateRows(const QVariantList &rows)' \
     'multi-selection duplicate API is missing'
 require_text "$MODEL_CPP" 'job->setAutoRename(true);' \
     'multi-duplicate does not generate collision-safe sibling names'
+require_text "$MODEL_CPP" 'Duplicate the selected items separately when they come from different folders.' \
+    'mixed-parent search duplicates are not rejected truthfully'
+require_text "$MODEL_CPP" 'QUrl::fromLocalFile(commonParent)' \
+    'multi-duplicate does not target the selected items actual parent folder'
 require_text "$QML" 'directoryModel.duplicateRows(root.selectedIndexes)' \
     'selected groups cannot be duplicated together'
 echo PASS

@@ -7,6 +7,7 @@
 #include <KIO/OpenUrlJob>
 #include <KJobUiDelegate>
 #include <QDir>
+#include <QFile>
 #include <QDrag>
 #include <QFileInfo>
 #include <QStorageInfo>
@@ -18,6 +19,7 @@
 #include <QQuickWindow>
 #include <QStyleHints>
 #include <QUrl>
+#include <QUuid>
 
 #include <KIO/CopyJob>
 #include <KIO/DeleteJob>
@@ -33,8 +35,12 @@
 #include <cmath>
 #include <utility>
 
+#include <sys/stat.h>
+
 namespace {
 constexpr int kMaximumSearchResults = 2000;
+constexpr qint64 kPermanentDeleteTokenLifetimeMs = 5 * 60 * 1000;
+constexpr auto kInternalDragMimeType = "application/x-maho-files-internal-drag";
 }
 
 MahoDirectoryModel::MahoDirectoryModel(QObject *parent)
@@ -617,33 +623,89 @@ void MahoDirectoryModel::trashRows(const QVariantList &rows)
     watchJob(KIO::trash(urls, KIO::HideProgressInfo), success);
 }
 
-void MahoDirectoryModel::deleteRows(const QVariantList &rows)
+QVariantMap MahoDirectoryModel::preparePermanentDelete(const QVariantList &rows)
 {
+    m_pendingPermanentDeleteToken.clear();
+    m_pendingPermanentDeleteTargets.clear();
+    m_pendingPermanentDeleteCreatedMs = 0;
+
     const QVector<int> normalized = normalizedRows(rows);
     if (normalized.isEmpty())
-        return;
+        return {};
 
-    const QList<QUrl> urls = urlsForRows(normalized);
-    if (urls.size() != normalized.size()) {
-        setOperationMessage(QStringLiteral("Permanent delete is currently available for local files only."));
+    QList<PermanentDeleteTarget> targets;
+    QVariantList names;
+    targets.reserve(normalized.size());
+    names.reserve(normalized.size());
+
+    for (const int row : normalized) {
+        if (row < 0 || row >= m_items.size())
+            return {};
+
+        PermanentDeleteTarget target;
+        QString error;
+        if (!capturePermanentDeleteTarget(m_items.at(row), &target, &error)) {
+            setOperationMessage(error);
+            return {};
+        }
+        targets.append(target);
+        names.append(target.name);
+    }
+
+    m_pendingPermanentDeleteToken = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_pendingPermanentDeleteTargets = targets;
+    m_pendingPermanentDeleteCreatedMs = QDateTime::currentMSecsSinceEpoch();
+
+    return {
+        {QStringLiteral("token"), m_pendingPermanentDeleteToken},
+        {QStringLiteral("count"), targets.size()},
+        {QStringLiteral("names"), names},
+    };
+}
+
+void MahoDirectoryModel::confirmPermanentDelete(const QString &token)
+{
+    if (token.isEmpty() || token != m_pendingPermanentDeleteToken
+        || m_pendingPermanentDeleteTargets.isEmpty()) {
+        setOperationMessage(QStringLiteral("That permanent-delete confirmation is no longer valid. Review the selection and try again."));
         return;
     }
-    for (const QUrl &url : urls) {
-        if (!url.isLocalFile()) {
-            setOperationMessage(QStringLiteral("Permanent delete is currently available for local files only."));
-            return;
-        }
-        const QFileInfo source(url.toLocalFile());
-        if (!source.exists() && !source.isSymLink()) {
-            setOperationMessage(QStringLiteral("A selected item is no longer available. Reload this folder."));
-            return;
-        }
+
+    const QList<PermanentDeleteTarget> targets = m_pendingPermanentDeleteTargets;
+    const qint64 preparedAt = m_pendingPermanentDeleteCreatedMs;
+    m_pendingPermanentDeleteToken.clear();
+    m_pendingPermanentDeleteTargets.clear();
+    m_pendingPermanentDeleteCreatedMs = 0;
+
+    if (preparedAt <= 0
+        || QDateTime::currentMSecsSinceEpoch() - preparedAt > kPermanentDeleteTokenLifetimeMs) {
+        setOperationMessage(QStringLiteral("That permanent-delete confirmation expired. Review the selection and try again."));
+        return;
     }
 
-    const QString success = normalized.size() == 1
-        ? QStringLiteral("Permanently deleted %1").arg(m_items.at(normalized.first()).text())
-        : QStringLiteral("Permanently deleted %1 items").arg(normalized.size());
+    QList<QUrl> urls;
+    urls.reserve(targets.size());
+    for (const PermanentDeleteTarget &target : targets) {
+        if (!permanentDeleteTargetMatches(target)) {
+            setOperationMessage(QStringLiteral("A permanent-delete target changed or is no longer available. Review the selection and try again."));
+            return;
+        }
+        urls.append(target.url);
+    }
+
+    const QString success = targets.size() == 1
+        ? QStringLiteral("Permanently deleted %1").arg(targets.first().name)
+        : QStringLiteral("Permanently deleted %1 items").arg(targets.size());
     watchJob(KIO::del(urls, KIO::HideProgressInfo), success);
+}
+
+void MahoDirectoryModel::cancelPermanentDelete(const QString &token)
+{
+    if (token.isEmpty() || token != m_pendingPermanentDeleteToken)
+        return;
+    m_pendingPermanentDeleteToken.clear();
+    m_pendingPermanentDeleteTargets.clear();
+    m_pendingPermanentDeleteCreatedMs = 0;
 }
 
 void MahoDirectoryModel::copyIndex(int row, bool cut)
@@ -702,18 +764,29 @@ void MahoDirectoryModel::duplicateIndex(int row)
         return;
 
     const KFileItem item = m_items.at(row);
-    if (!m_currentUrl.isLocalFile() || !item.url().isLocalFile()) {
+    if (!item.url().isLocalFile()) {
         setOperationMessage(QStringLiteral("Duplicate is available for local files and folders only."));
         return;
     }
 
-    QFileInfo info(item.url().toLocalFile());
-    QString base = item.isDir() ? info.fileName() : info.completeBaseName();
-    QString suffix = item.isDir() ? QString() : info.completeSuffix();
+    const QFileInfo sourceInfo(item.url().toLocalFile());
+    if (!sourceInfo.exists() && !sourceInfo.isSymLink()) {
+        setOperationMessage(QStringLiteral("A selected item is no longer available. Reload the source folder."));
+        return;
+    }
+
+    const QFileInfo parentInfo(sourceInfo.absolutePath());
+    if (!parentInfo.exists() || !parentInfo.isDir() || !parentInfo.isWritable()) {
+        setOperationMessage(QStringLiteral("Duplicate is available beside items in a writable local folder."));
+        return;
+    }
+
+    QString base = item.isDir() ? sourceInfo.fileName() : sourceInfo.completeBaseName();
+    const QString suffix = item.isDir() ? QString() : sourceInfo.completeSuffix();
     if (base.isEmpty())
         base = item.text();
 
-    QDir destinationDir(m_currentUrl.toLocalFile());
+    QDir destinationDir(canonicalLocalPath(parentInfo));
     QString candidate;
     int copyNumber = 1;
     do {
@@ -726,7 +799,7 @@ void MahoDirectoryModel::duplicateIndex(int row)
         ++copyNumber;
     } while (destinationDir.exists(candidate));
 
-    const QUrl destination = childUrl(candidate);
+    const QUrl destination = QUrl::fromLocalFile(destinationDir.filePath(candidate));
     watchJob(KIO::copyAs(item.url(), destination, KIO::HideProgressInfo),
              QStringLiteral("Duplicated %1").arg(item.text()));
 }
@@ -740,32 +813,43 @@ void MahoDirectoryModel::duplicateRows(const QVariantList &rows)
         duplicateIndex(normalized.first());
         return;
     }
-    if (!m_currentUrl.isLocalFile() || !canMutateCurrentDirectory()) {
-        setOperationMessage(QStringLiteral("Duplicate is available from a writable local folder."));
-        return;
-    }
 
     const QList<QUrl> urls = urlsForRows(normalized);
     if (urls.size() != normalized.size()) {
         setOperationMessage(QStringLiteral("Duplicate is available for local files and folders only."));
         return;
     }
+
+    QString commonParent;
     for (const QUrl &url : urls) {
         if (!url.isLocalFile()) {
             setOperationMessage(QStringLiteral("Duplicate is available for local files and folders only."));
             return;
         }
-        const QFileInfo source(url.toLocalFile());
-        if (!source.exists() && !source.isSymLink()) {
-            setOperationMessage(QStringLiteral("A selected item is no longer available. Reload this folder."));
+        const QFileInfo sourceInfo(url.toLocalFile());
+        if (!sourceInfo.exists() && !sourceInfo.isSymLink()) {
+            setOperationMessage(QStringLiteral("A selected item is no longer available. Reload the source folder."));
+            return;
+        }
+
+        const QFileInfo parentInfo(sourceInfo.absolutePath());
+        if (!parentInfo.exists() || !parentInfo.isDir() || !parentInfo.isWritable()) {
+            setOperationMessage(QStringLiteral("Duplicate is available beside items in a writable local folder."));
+            return;
+        }
+        const QString parent = canonicalLocalPath(parentInfo);
+        if (commonParent.isEmpty())
+            commonParent = parent;
+        else if (parent != commonParent) {
+            setOperationMessage(QStringLiteral("Duplicate the selected items separately when they come from different folders."));
             return;
         }
     }
 
-    auto *job = KIO::copy(urls, m_currentUrl, KIO::HideProgressInfo);
+    auto *job = KIO::copy(urls, QUrl::fromLocalFile(commonParent), KIO::HideProgressInfo);
     // Duplicate is intentionally collision-safe by definition: every selected
-    // source already exists in the destination directory. KIO chooses unique
-    // sibling names; this never grants overwrite authority to ordinary copy/move.
+    // source already exists beside its destination. KIO chooses unique sibling
+    // names; this never grants overwrite authority to ordinary copy/move.
     job->setAutoRename(true);
     watchJob(job, QStringLiteral("Duplicated %1 items").arg(normalized.size()));
 }
@@ -875,6 +959,24 @@ bool MahoDirectoryModel::canDropUrlsTo(const QVariantList &values, const QUrl &d
 {
     const QList<QUrl> urls = dropUrlsFromValues(values);
     return validateDrop(urls, destination, nullptr);
+}
+
+int MahoDirectoryModel::preferredDropAction(
+    const QVariantList &values,
+    const QUrl &destination,
+    int supportedActions,
+    bool internalDrag) const
+{
+    const QList<QUrl> urls = dropUrlsFromValues(values);
+    if (!validateDrop(urls, destination, nullptr))
+        return Qt::IgnoreAction;
+
+    return resolvedDropAction(
+        urls,
+        destination,
+        static_cast<Qt::DropActions>(supportedActions),
+        internalDrag,
+        QGuiApplication::keyboardModifiers());
 }
 
 void MahoDirectoryModel::dropUrls(const QVariantList &values, const QUrl &destination, int action)
@@ -1484,6 +1586,7 @@ void MahoDirectoryModel::startDragForRow(int row)
 
     auto *mime = new QMimeData;
     mime->setUrls(urls);
+    mime->setData(QString::fromLatin1(kInternalDragMimeType), QByteArrayLiteral("1"));
     QStringList displayUrls;
     displayUrls.reserve(urls.size());
     for (const QUrl &url : urls)
@@ -1635,6 +1738,135 @@ QList<QUrl> MahoDirectoryModel::dropUrlsFromValues(const QVariantList &values) c
     return urls;
 }
 
+QString MahoDirectoryModel::canonicalLocalPath(const QFileInfo &info)
+{
+    const QString canonical = info.canonicalFilePath();
+    return QDir::cleanPath(canonical.isEmpty() ? info.absoluteFilePath() : canonical);
+}
+
+bool MahoDirectoryModel::isSameOrDescendantPath(const QString &ancestor, const QString &candidate)
+{
+    const QString normalizedAncestor = QDir::cleanPath(ancestor);
+    const QString normalizedCandidate = QDir::cleanPath(candidate);
+    if (normalizedAncestor.isEmpty() || normalizedCandidate.isEmpty())
+        return false;
+    if (normalizedAncestor == normalizedCandidate)
+        return true;
+    if (normalizedAncestor == QStringLiteral("/"))
+        return normalizedCandidate.startsWith(QLatin1Char('/'));
+
+    QString prefix = normalizedAncestor;
+    if (!prefix.endsWith(QLatin1Char('/')))
+        prefix += QLatin1Char('/');
+    return normalizedCandidate.startsWith(prefix);
+}
+
+bool MahoDirectoryModel::localDeviceId(const QString &path, quint64 *device, bool followSymlinks)
+{
+    if (!device || path.isEmpty())
+        return false;
+
+    const QByteArray encoded = QFile::encodeName(QDir::cleanPath(path));
+    struct stat metadata {};
+    const int result = followSymlinks
+        ? ::stat(encoded.constData(), &metadata)
+        : ::lstat(encoded.constData(), &metadata);
+    if (result != 0)
+        return false;
+
+    *device = static_cast<quint64>(metadata.st_dev);
+    return true;
+}
+
+bool MahoDirectoryModel::capturePermanentDeleteTarget(
+    const KFileItem &item,
+    PermanentDeleteTarget *target,
+    QString *error)
+{
+    auto reject = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    if (!target || !item.url().isLocalFile())
+        return reject(QStringLiteral("Permanent delete is currently available for local files only."));
+
+    const QString path = item.url().toLocalFile();
+    const QByteArray encoded = QFile::encodeName(path);
+    struct stat metadata {};
+    if (::lstat(encoded.constData(), &metadata) != 0)
+        return reject(QStringLiteral("A selected item is no longer available. Reload this folder."));
+
+    target->url = item.url();
+    target->name = item.text();
+    target->device = static_cast<quint64>(metadata.st_dev);
+    target->inode = static_cast<quint64>(metadata.st_ino);
+    target->mode = static_cast<quint32>(metadata.st_mode & S_IFMT);
+    return true;
+}
+
+bool MahoDirectoryModel::permanentDeleteTargetMatches(const PermanentDeleteTarget &target)
+{
+    if (!target.url.isLocalFile())
+        return false;
+
+    const QByteArray encoded = QFile::encodeName(target.url.toLocalFile());
+    struct stat metadata {};
+    if (::lstat(encoded.constData(), &metadata) != 0)
+        return false;
+
+    return static_cast<quint64>(metadata.st_dev) == target.device
+        && static_cast<quint64>(metadata.st_ino) == target.inode
+        && static_cast<quint32>(metadata.st_mode & S_IFMT) == target.mode;
+}
+
+Qt::DropAction MahoDirectoryModel::resolvedDropAction(
+    const QList<QUrl> &urls,
+    const QUrl &destination,
+    Qt::DropActions supportedActions,
+    bool internalDrag,
+    Qt::KeyboardModifiers modifiers) const
+{
+    const bool copySupported = supportedActions.testFlag(Qt::CopyAction);
+    const bool moveSupported = supportedActions.testFlag(Qt::MoveAction);
+    if (!copySupported && !moveSupported)
+        return Qt::IgnoreAction;
+
+    const bool explicitCopy = modifiers.testFlag(Qt::ControlModifier);
+    const bool explicitMove = modifiers.testFlag(Qt::ShiftModifier) && !explicitCopy;
+    if (explicitCopy)
+        return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+    if (explicitMove)
+        return moveSupported ? Qt::MoveAction : Qt::IgnoreAction;
+
+    // External, remote and otherwise ambiguous payloads default to copy.  Move
+    // is a natural default only for Maho Files' own URL drag when every local
+    // source and the actual destination live on the same filesystem device.
+    if (!internalDrag)
+        return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+    if (!destination.isLocalFile())
+        return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+
+    quint64 destinationDevice = 0;
+    if (!localDeviceId(destination.toLocalFile(), &destinationDevice, true))
+        return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+
+    for (const QUrl &url : urls) {
+        if (!url.isLocalFile())
+            return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+        quint64 sourceDevice = 0;
+        if (!localDeviceId(url.toLocalFile(), &sourceDevice, false)
+            || sourceDevice != destinationDevice) {
+            return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+        }
+    }
+
+    if (moveSupported)
+        return Qt::MoveAction;
+    return copySupported ? Qt::CopyAction : Qt::IgnoreAction;
+}
+
 bool MahoDirectoryModel::validateDrop(
     const QList<QUrl> &urls,
     const QUrl &destination,
@@ -1658,10 +1890,7 @@ bool MahoDirectoryModel::validateDrop(
     if (!destinationInfo.isWritable())
         return reject(QStringLiteral("The destination folder is not writable."));
 
-    const QString destinationPath = QDir::cleanPath(
-        destinationInfo.canonicalFilePath().isEmpty()
-            ? destinationInfo.absoluteFilePath()
-            : destinationInfo.canonicalFilePath());
+    const QString destinationPath = canonicalLocalPath(destinationInfo);
 
     for (const QUrl &url : urls) {
         if (!url.isValid() || url.isEmpty())
@@ -1672,19 +1901,16 @@ bool MahoDirectoryModel::validateDrop(
         const QFileInfo sourceInfo(url.toLocalFile());
         if (!sourceInfo.exists() && !sourceInfo.isSymLink())
             return reject(QStringLiteral("A source item is no longer available. Reload the source folder."));
-        const QString sourcePath = QDir::cleanPath(
-            sourceInfo.canonicalFilePath().isEmpty()
-                ? sourceInfo.absoluteFilePath()
-                : sourceInfo.canonicalFilePath());
+        const QString sourcePath = canonicalLocalPath(sourceInfo);
         if (sourcePath == destinationPath)
             return reject(QStringLiteral("An item cannot be dropped onto itself."));
 
-        const QString sourceParent = QDir::cleanPath(sourceInfo.absolutePath());
+        const QString sourceParent = canonicalLocalPath(QFileInfo(sourceInfo.absolutePath()));
         if (rejectSameParent && sourceParent == destinationPath)
             return reject(QStringLiteral("Those items are already in this folder."));
 
         if (sourceInfo.isDir()
-            && destinationPath.startsWith(sourcePath + QLatin1Char('/'))) {
+            && isSameOrDescendantPath(sourcePath, destinationPath)) {
             return reject(QStringLiteral("A folder cannot be moved or copied into its own descendant."));
         }
     }

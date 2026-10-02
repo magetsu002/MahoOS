@@ -76,18 +76,15 @@ ApplicationWindow {
         return "image://mahoicons/" + encodeURIComponent(name)
     }
 
-    function dropAction(drop) {
-        if (drop.proposedAction === Qt.MoveAction || drop.proposedAction === Qt.CopyAction)
-            return drop.proposedAction
-        if ((drop.supportedActions & Qt.MoveAction) !== 0)
-            return Qt.MoveAction
-        if ((drop.supportedActions & Qt.CopyAction) !== 0)
-            return Qt.CopyAction
-        return Qt.IgnoreAction
+    function dropAction(drop, destination) {
+        const formats = drop.formats || []
+        const internalDrag = formats.indexOf("application/x-maho-files-internal-drag") >= 0
+        return directoryModel.preferredDropAction(
+            drop.urls, destination, drop.supportedActions, internalDrag)
     }
 
     function acceptDrop(drop, destination) {
-        const action = dropAction(drop)
+        const action = dropAction(drop, destination)
         if (!drop.hasUrls || action === Qt.IgnoreAction
                 || !directoryModel.canDropUrlsTo(drop.urls, destination)) {
             drop.accepted = false
@@ -98,7 +95,7 @@ ApplicationWindow {
     }
 
     function performDrop(drop, destination) {
-        const action = dropAction(drop)
+        const action = dropAction(drop, destination)
         if (!drop.hasUrls || action === Qt.IgnoreAction
                 || !directoryModel.canDropUrlsTo(drop.urls, destination)) {
             drop.accepted = false
@@ -1130,13 +1127,39 @@ ApplicationWindow {
         width: Math.min(410, Math.max(290, root.width - 24))
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        property var rows: []
+        property string token: ""
+        property var names: []
 
         function confirmRows(selectedRows) {
-            rows = root.normalizedIndexes(selectedRows)
+            const rows = root.normalizedIndexes(selectedRows)
             if (rows.length === 0)
                 return
+            const request = directoryModel.preparePermanentDelete(rows)
+            const preparedToken = String(request.token || "")
+            if (preparedToken === "")
+                return
+            token = preparedToken
+            names = request.names || []
             open()
+        }
+
+        function targetSummary() {
+            if (names.length <= 1)
+                return ""
+            const shown = []
+            const limit = Math.min(names.length, 4)
+            for (let i = 0; i < limit; ++i)
+                shown.push(String(names[i]))
+            if (names.length > limit)
+                shown.push("…")
+            return shown.join("  ·  ")
+        }
+
+        onClosed: {
+            if (token !== "")
+                directoryModel.cancelPermanentDelete(token)
+            token = ""
+            names = []
         }
 
         background: Rectangle {
@@ -1159,12 +1182,22 @@ ApplicationWindow {
 
             Text {
                 Layout.fillWidth: true
-                text: deletePopup.rows.length === 1
-                    ? "Permanently delete this item?"
-                    : "Permanently delete " + deletePopup.rows.length + " items?"
+                text: deletePopup.names.length === 1
+                    ? "Permanently delete “" + String(deletePopup.names[0]) + "”?"
+                    : "Permanently delete " + deletePopup.names.length + " items?"
                 color: root.foreground
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: deletePopup.names.length > 1
+                text: deletePopup.targetSummary()
+                color: root.alpha(root.muted, 0.70)
+                font.pixelSize: 11
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
             }
@@ -1186,9 +1219,11 @@ ApplicationWindow {
                     label: "Delete"
                     primary: true
                     onTriggered: {
-                        const targetRows = deletePopup.rows.slice()
+                        const confirmationToken = deletePopup.token
+                        deletePopup.token = ""
+                        deletePopup.names = []
                         deletePopup.close()
-                        directoryModel.deleteRows(targetRows)
+                        directoryModel.confirmPermanentDelete(confirmationToken)
                         root.clearSelection()
                     }
                 }

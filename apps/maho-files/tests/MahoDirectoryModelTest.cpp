@@ -11,6 +11,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <sys/stat.h>
+
 class MahoDirectoryModelTest final : public QObject
 {
     Q_OBJECT
@@ -48,6 +50,15 @@ private:
     {
         for (int row = 0; row < model.rowCount(); ++row) {
             if (model.data(model.index(row, 0), MahoDirectoryModel::NameRole).toString() == name)
+                return row;
+        }
+        return -1;
+    }
+
+    static int findRowByUrl(const MahoDirectoryModel &model, const QUrl &url)
+    {
+        for (int row = 0; row < model.rowCount(); ++row) {
+            if (model.data(model.index(row, 0), MahoDirectoryModel::UrlRole).toUrl() == url)
                 return row;
         }
         return -1;
@@ -197,13 +208,128 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(trashRoot + QStringLiteral("/trash-me.txt")), 5000);
 
         QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("delete-me.txt")) >= 0, 5000);
-        model.deleteRows(QVariantList { findRow(model, QStringLiteral("delete-me.txt")) });
+        const QVariantMap deleteRequest = model.preparePermanentDelete(
+            QVariantList { findRow(model, QStringLiteral("delete-me.txt")) });
+        QVERIFY(!deleteRequest.value(QStringLiteral("token")).toString().isEmpty());
+        QCOMPARE(deleteRequest.value(QStringLiteral("count")).toInt(), 1);
+        model.confirmPermanentDelete(deleteRequest.value(QStringLiteral("token")).toString());
         QTRY_COMPARE_WITH_TIMEOUT(
             model.operationMessage(),
             QStringLiteral("Permanently deleted delete-me.txt"),
             5000);
         QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(temp.filePath(QStringLiteral("delete-me.txt"))), 5000);
         QVERIFY(!QFileInfo::exists(trashRoot + QStringLiteral("/delete-me.txt")));
+    }
+
+    void permanentDeleteConfirmationUsesStableTargets()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        writeFile(temp.filePath(QStringLiteral("B.txt")), "target-b");
+
+        MahoDirectoryModel model;
+        openAndSettle(model, temp.path());
+        QTRY_COMPARE_WITH_TIMEOUT(findRow(model, QStringLiteral("B.txt")), 0, 5000);
+
+        const QVariantMap request = model.preparePermanentDelete(
+            QVariantList { findRow(model, QStringLiteral("B.txt")) });
+        const QString token = request.value(QStringLiteral("token")).toString();
+        QVERIFY(!token.isEmpty());
+        QCOMPARE(request.value(QStringLiteral("names")).toList(), QVariantList { QStringLiteral("B.txt") });
+
+        // Simulate asynchronous directory churn while the confirmation is open:
+        // A sorts before B, so the original row 0 no longer identifies B.
+        writeFile(temp.filePath(QStringLiteral("A.txt")), "must-survive");
+        model.reload();
+        QTRY_COMPARE_WITH_TIMEOUT(findRow(model, QStringLiteral("A.txt")), 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("B.txt")) > 0, 5000);
+
+        model.confirmPermanentDelete(token);
+        QTRY_COMPARE_WITH_TIMEOUT(model.operationMessage(), QStringLiteral("Permanently deleted B.txt"), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(temp.filePath(QStringLiteral("B.txt"))), 5000);
+        QVERIFY(QFileInfo::exists(temp.filePath(QStringLiteral("A.txt"))));
+        QCOMPARE(QFile(temp.filePath(QStringLiteral("A.txt"))).size(), 12);
+    }
+
+    void permanentDeleteFailsClosedWhenTargetChanges()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        writeFile(temp.filePath(QStringLiteral("removed.txt")), "removed");
+        writeFile(temp.filePath(QStringLiteral("replace.txt")), "original");
+        writeFile(temp.filePath(QStringLiteral("sentinel.txt")), "safe");
+
+        MahoDirectoryModel model;
+        openAndSettle(model, temp.path());
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("removed.txt")) >= 0, 5000);
+
+        const QVariantMap removedRequest = model.preparePermanentDelete(
+            QVariantList { findRow(model, QStringLiteral("removed.txt")) });
+        QVERIFY(QFile::remove(temp.filePath(QStringLiteral("removed.txt"))));
+        model.confirmPermanentDelete(removedRequest.value(QStringLiteral("token")).toString());
+        QCOMPARE(
+            model.operationMessage(),
+            QStringLiteral("A permanent-delete target changed or is no longer available. Review the selection and try again."));
+        QVERIFY(QFileInfo::exists(temp.filePath(QStringLiteral("sentinel.txt"))));
+
+        model.reload();
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("replace.txt")) >= 0, 5000);
+        const QVariantMap replacedRequest = model.preparePermanentDelete(
+            QVariantList { findRow(model, QStringLiteral("replace.txt")) });
+
+        // Keep the original inode alive at another pathname so replacement at
+        // the confirmed pathname is guaranteed to have a different identity.
+        const QString originalHeld = temp.filePath(QStringLiteral("replace-original-held.txt"));
+        QVERIFY(QFile::rename(temp.filePath(QStringLiteral("replace.txt")), originalHeld));
+        writeFile(temp.filePath(QStringLiteral("replace.txt")), "replacement-must-survive");
+
+        model.confirmPermanentDelete(replacedRequest.value(QStringLiteral("token")).toString());
+        QCOMPARE(
+            model.operationMessage(),
+            QStringLiteral("A permanent-delete target changed or is no longer available. Review the selection and try again."));
+        QVERIFY(QFileInfo::exists(temp.filePath(QStringLiteral("replace.txt"))));
+        QCOMPARE(QFile(temp.filePath(QStringLiteral("replace.txt"))).size(), 24);
+        QVERIFY(QFileInfo::exists(originalHeld));
+        QVERIFY(QFileInfo::exists(temp.filePath(QStringLiteral("sentinel.txt"))));
+    }
+
+    void permanentDeleteSurvivesResortNavigationAndMultiSelection()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString first = temp.filePath(QStringLiteral("first"));
+        const QString other = temp.filePath(QStringLiteral("other"));
+        QVERIFY(QDir().mkpath(first));
+        QVERIFY(QDir().mkpath(other));
+        writeFile(first + QStringLiteral("/B.txt"), "b");
+        writeFile(first + QStringLiteral("/C.txt"), "c");
+        writeFile(other + QStringLiteral("/safe.txt"), "safe");
+
+        MahoDirectoryModel model;
+        openAndSettle(model, first);
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("B.txt")) >= 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("C.txt")) >= 0, 5000);
+
+        const QVariantMap request = model.preparePermanentDelete(QVariantList {
+            findRow(model, QStringLiteral("B.txt")),
+            findRow(model, QStringLiteral("C.txt")),
+        });
+        const QString token = request.value(QStringLiteral("token")).toString();
+        QCOMPARE(request.value(QStringLiteral("count")).toInt(), 2);
+        QVERIFY(!token.isEmpty());
+
+        model.setSortDescending(true);
+        writeFile(first + QStringLiteral("/A.txt"), "safe-a");
+        model.reload();
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("A.txt")) >= 0, 5000);
+        openAndSettle(model, other);
+
+        model.confirmPermanentDelete(token);
+        QTRY_COMPARE_WITH_TIMEOUT(model.operationMessage(), QStringLiteral("Permanently deleted 2 items"), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(first + QStringLiteral("/B.txt")), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(first + QStringLiteral("/C.txt")), 5000);
+        QVERIFY(QFileInfo::exists(first + QStringLiteral("/A.txt")));
+        QVERIFY(QFileInfo::exists(other + QStringLiteral("/safe.txt")));
     }
 
     void duplicatesMultipleSelectedItemsWithoutOverwrite()
@@ -231,6 +357,43 @@ private slots:
             5000);
         QCOMPARE(QFile(temp.filePath(QStringLiteral("one.txt"))).size(), 3);
         QCOMPARE(QFile(temp.filePath(QStringLiteral("two.txt"))).size(), 3);
+    }
+
+    void duplicateSearchResultStaysBesideSource()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        const QString nested = temp.filePath(QStringLiteral("nested"));
+        const QString other = temp.filePath(QStringLiteral("other"));
+        QVERIFY(QDir().mkpath(nested));
+        QVERIFY(QDir().mkpath(other));
+        writeFile(nested + QStringLiteral("/needle.txt"), "nested");
+        writeFile(other + QStringLiteral("/needle-other.txt"), "other");
+
+        MahoDirectoryModel model;
+        openAndSettle(model, temp.path());
+        model.setSearchQuery(QStringLiteral("needle.txt"));
+        QTRY_VERIFY_WITH_TIMEOUT(!model.loading(), 5000);
+        const QUrl nestedNeedle = dirUrl(nested + QStringLiteral("/needle.txt"));
+        QTRY_VERIFY_WITH_TIMEOUT(findRowByUrl(model, nestedNeedle) >= 0, 5000);
+
+        model.duplicateIndex(findRowByUrl(model, nestedNeedle));
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(nested + QStringLiteral("/needle copy.txt")), 5000);
+        QVERIFY(!QFileInfo::exists(temp.filePath(QStringLiteral("needle copy.txt"))));
+
+        model.setSearchQuery(QStringLiteral("needle"));
+        QTRY_VERIFY_WITH_TIMEOUT(!model.loading(), 5000);
+        const QUrl otherNeedle = dirUrl(other + QStringLiteral("/needle-other.txt"));
+        QTRY_VERIFY_WITH_TIMEOUT(findRowByUrl(model, nestedNeedle) >= 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(findRowByUrl(model, otherNeedle) >= 0, 5000);
+        model.duplicateRows(QVariantList {
+            findRowByUrl(model, nestedNeedle),
+            findRowByUrl(model, otherNeedle),
+        });
+        QCOMPARE(
+            model.operationMessage(),
+            QStringLiteral("Duplicate the selected items separately when they come from different folders."));
+        QVERIFY(!QFileInfo::exists(other + QStringLiteral("/needle-other copy.txt")));
     }
 
     void sortingAndPropertiesAreTruthful()
@@ -315,6 +478,14 @@ private slots:
 
         QVERIFY(!model.canDropUrlsTo(urls({dirUrl(folder)}), dirUrl(folder)));
         QVERIFY(!model.canDropUrlsTo(urls({dirUrl(folder)}), dirUrl(child)));
+        QVERIFY(!model.canDropUrlsTo(urls({dirUrl(QStringLiteral("/"))}), dirUrl(child)));
+
+        const QString alias = src + QStringLiteral("/folder-alias");
+        QVERIFY(QFile::link(folder, alias));
+        QVERIFY(!model.canDropUrlsTo(urls({dirUrl(alias)}), dirUrl(child)));
+        QVERIFY(!model.canDropUrlsTo(
+            urls({dirUrl(folder + QStringLiteral("/../folder"))}), dirUrl(folder)));
+
         QVERIFY(!model.canDropUrlsTo(urls({dirUrl(first)}), dirUrl(src)));
         QVERIFY(!model.canDropUrlsTo(urls({dirUrl(first)}), QUrl(QStringLiteral("https://example.invalid/"))));
 
@@ -327,6 +498,69 @@ private slots:
         QVERIFY(QFile::setPermissions(
             locked,
             QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+    }
+
+    void targetSideDragDefaultsRespectFilesystemIdentity()
+    {
+        QTemporaryDir source;
+        QVERIFY(source.isValid());
+        QTemporaryDir sameFilesystemDestination;
+        QVERIFY(sameFilesystemDestination.isValid());
+        QTemporaryDir differentFilesystemDestination(
+            QStringLiteral("/dev/shm/maho-files-crossfs-XXXXXX"));
+        QVERIFY2(differentFilesystemDestination.isValid(), "A writable /dev/shm is required for the cross-filesystem regression test.");
+
+        const QString sourcePath = source.filePath(QStringLiteral("drag.txt"));
+        writeFile(sourcePath, "drag-payload");
+        const QVariantList payload = urls({dirUrl(sourcePath)});
+        const int supported = Qt::CopyAction | Qt::MoveAction;
+
+        struct stat sourceFs {};
+        struct stat crossFs {};
+        const QByteArray sourceDirBytes = QFile::encodeName(source.path());
+        const QByteArray crossDirBytes = QFile::encodeName(differentFilesystemDestination.path());
+        QCOMPARE(::stat(sourceDirBytes.constData(), &sourceFs), 0);
+        QCOMPARE(::stat(crossDirBytes.constData(), &crossFs), 0);
+        QVERIFY2(sourceFs.st_dev != crossFs.st_dev, "/tmp and /dev/shm unexpectedly resolve to the same filesystem device.");
+
+        MahoDirectoryModel model;
+        openAndSettle(model, source.path());
+
+        QCOMPARE(
+            model.preferredDropAction(
+                payload, dirUrl(sameFilesystemDestination.path()), supported, true),
+            static_cast<int>(Qt::MoveAction));
+        QCOMPARE(
+            model.preferredDropAction(
+                payload, dirUrl(sameFilesystemDestination.path()), supported, false),
+            static_cast<int>(Qt::CopyAction));
+
+        const QString sameSourcePath = source.filePath(QStringLiteral("same-device.txt"));
+        writeFile(sameSourcePath, "same-device");
+        const QVariantList samePayload = urls({dirUrl(sameSourcePath)});
+        const int sameAction = model.preferredDropAction(
+            samePayload, dirUrl(sameFilesystemDestination.path()), supported, true);
+        QCOMPARE(sameAction, static_cast<int>(Qt::MoveAction));
+        model.dropUrls(samePayload, dirUrl(sameFilesystemDestination.path()), sameAction);
+        QTRY_COMPARE_WITH_TIMEOUT(model.operationMessage(), QStringLiteral("Moved here"), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            QFileInfo::exists(sameFilesystemDestination.filePath(QStringLiteral("same-device.txt"))),
+            5000);
+        QVERIFY(!QFileInfo::exists(sameSourcePath));
+        QCOMPARE(
+            model.preferredDropAction(
+                payload, dirUrl(differentFilesystemDestination.path()), supported, true),
+            static_cast<int>(Qt::CopyAction));
+
+        const int crossAction = model.preferredDropAction(
+            payload, dirUrl(differentFilesystemDestination.path()), supported, true);
+        model.dropUrls(payload, dirUrl(differentFilesystemDestination.path()), crossAction);
+        QTRY_COMPARE_WITH_TIMEOUT(model.operationMessage(), QStringLiteral("Copied here"), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            QFileInfo::exists(differentFilesystemDestination.filePath(QStringLiteral("drag.txt"))),
+            5000);
+        QVERIFY(QFileInfo::exists(sourcePath));
+        QCOMPARE(QFile(sourcePath).size(), 12);
     }
 
     void executesCopyMoveAndMultiMoveThroughKio()

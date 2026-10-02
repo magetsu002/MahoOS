@@ -3,11 +3,13 @@
 #include <QAbstractListModel>
 #include <QDate>
 #include <QEvent>
+#include <QFileInfo>
 #include <QPointF>
 #include <QPointer>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QVector>
 
 #include <KCoreDirLister>
@@ -105,7 +107,9 @@ public:
     Q_INVOKABLE void renameIndex(int row, const QString &name);
     Q_INVOKABLE void trashIndex(int row);
     Q_INVOKABLE void trashRows(const QVariantList &rows);
-    Q_INVOKABLE void deleteRows(const QVariantList &rows);
+    Q_INVOKABLE QVariantMap preparePermanentDelete(const QVariantList &rows);
+    Q_INVOKABLE void confirmPermanentDelete(const QString &token);
+    Q_INVOKABLE void cancelPermanentDelete(const QString &token);
     Q_INVOKABLE void copyIndex(int row, bool cut = false);
     Q_INVOKABLE void copyRows(const QVariantList &rows, bool cut = false);
     Q_INVOKABLE void setSelectedRows(const QVariantList &rows);
@@ -117,6 +121,11 @@ public:
     Q_INVOKABLE void requestProperties(int row);
     Q_INVOKABLE void cancelProperties();
     Q_INVOKABLE bool canDropUrlsTo(const QVariantList &values, const QUrl &destination) const;
+    Q_INVOKABLE int preferredDropAction(
+        const QVariantList &values,
+        const QUrl &destination,
+        int supportedActions,
+        bool internalDrag) const;
     Q_INVOKABLE void dropUrls(const QVariantList &values, const QUrl &destination, int action);
     Q_INVOKABLE void paste();
     Q_INVOKABLE void cancelOperation();
@@ -140,6 +149,14 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    struct PermanentDeleteTarget {
+        QUrl url;
+        QString name;
+        quint64 device = 0;
+        quint64 inode = 0;
+        quint32 mode = 0;
+    };
+
     void navigate(const QUrl &url, bool recordHistory);
     void navigateTimeline(const QUrl &url, bool recordHistory);
     void recordNavigation(const QUrl &url, bool recordHistory);
@@ -175,6 +192,18 @@ private:
         const QUrl &destination,
         QString *error,
         bool rejectSameParent = true) const;
+    static QString canonicalLocalPath(const QFileInfo &info);
+    static bool isSameOrDescendantPath(const QString &ancestor, const QString &candidate);
+    static bool localDeviceId(const QString &path, quint64 *device, bool followSymlinks = true);
+    static bool capturePermanentDeleteTarget(
+        const KFileItem &item, PermanentDeleteTarget *target, QString *error);
+    static bool permanentDeleteTargetMatches(const PermanentDeleteTarget &target);
+    Qt::DropAction resolvedDropAction(
+        const QList<QUrl> &urls,
+        const QUrl &destination,
+        Qt::DropActions supportedActions,
+        bool internalDrag,
+        Qt::KeyboardModifiers modifiers) const;
     static Qt::DropAction naturalDragAction(const QList<QUrl> &urls);
 
     KCoreDirLister m_lister;
@@ -205,4 +234,7 @@ private:
     int m_operationProgress = -1;
     QString m_operationMessage;
     QUrl m_pendingSelectionUrl;
+    QString m_pendingPermanentDeleteToken;
+    QList<PermanentDeleteTarget> m_pendingPermanentDeleteTargets;
+    qint64 m_pendingPermanentDeleteCreatedMs = 0;
 };
