@@ -27,7 +27,7 @@ Item {
 
             PageHeader {
                 title: "Power"
-                subtitle: "Power preferences are bounded. This page never reboots, shuts down, or suspends the machine."
+                subtitle: "Battery, performance and power preferences"
                 foreground: root.foreground
                 muted: root.muted
             }

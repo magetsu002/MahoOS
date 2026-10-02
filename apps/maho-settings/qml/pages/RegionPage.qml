@@ -33,7 +33,7 @@ Item {
 
             PageHeader {
                 title: "Region & Time"
-                subtitle: "Time and locale requests go through systemd's timedate/localed policy boundary; keyboard layout remains Hyprland-owned."
+                subtitle: "Language, keyboard layout, time and timezone"
                 foreground: root.foreground
                 muted: root.muted
             }

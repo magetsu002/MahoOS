@@ -77,6 +77,10 @@ ApplicationWindow {
         case "notifications": return "pages/NotificationsPage.qml"
         case "applications": return "pages/ApplicationsPage.qml"
         case "region": return "pages/RegionPage.qml"
+        case "shortcuts": return "pages/ShortcutsPage.qml"
+        case "motion": return "pages/MotionPage.qml"
+        case "configuration": return "pages/ConfigurationPage.qml"
+        case "diagnostics": return "pages/DiagnosticsPage.qml"
         case "about": return "pages/AboutPage.qml"
         default: return "pages/DeferredPage.qml"
         }

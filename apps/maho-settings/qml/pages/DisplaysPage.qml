@@ -135,7 +135,7 @@ Item {
 
             PageHeader {
                 title: "Displays"
-                subtitle: "Live output state comes from Hyprland. Changes are previews until explicitly confirmed."
+                subtitle: "Configure resolution, refresh rate, scale and layout"
                 foreground: root.foreground
                 muted: root.muted
             }

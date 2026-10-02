@@ -27,7 +27,7 @@ Item {
 
             PageHeader {
                 title: "Notifications"
-                subtitle: "Maho Notify remains authoritative. Settings uses its bounded status, DND, and history interfaces."
+                subtitle: "Control notification behavior and history"
                 foreground: root.foreground
                 muted: root.muted
             }

@@ -49,7 +49,7 @@ Item {
 
             PageHeader {
                 title: "Input"
-                subtitle: "Only controls with a real Hyprland backend are exposed. Current device identity comes from the compositor."
+                subtitle: "Keyboard, pointer and touchpad preferences"
                 foreground: root.foreground
                 muted: root.muted
             }

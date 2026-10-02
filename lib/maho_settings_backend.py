@@ -62,6 +62,10 @@ SEARCH_TARGETS = (
     ("region", "Region & Time", "Automatic Time", "region time ntp automatic synchronized"),
     ("region", "Region & Time", "Locale", "region language locale formats"),
     ("region", "Region & Time", "Keyboard Layout", "region keyboard layout xkb language input"),
+    ("shortcuts", "Shortcuts", "Keyboard Shortcuts", "shortcuts keybinds binds hotkeys keys keyboard"),
+    ("motion", "Motion", "Animations", "motion animations animation curves bezier transitions"),
+    ("configuration", "Configuration", "Managed Configuration", "configuration hyprland managed config source"),
+    ("diagnostics", "Diagnostics", "Configuration Health", "diagnostics configuration health config errors providers backend"),
     ("accessibility", "Accessibility", "Accessibility", "accessibility contrast motion transparency"),
     ("updates", "System", "Updates", "updates update packages maintenance"),
     ("recovery", "System", "Recovery", "recovery restore rollback generation rescue"),
@@ -1625,6 +1629,131 @@ def _maho_release_identity() -> dict[str, str]:
     return {"version": "Development", "sourceRevision": revision, "runtimeRelease": ""}
 
 
+_MODIFIER_BITS = (
+    (64, "Super"),
+    (4, "Ctrl"),
+    (8, "Alt"),
+    (1, "Shift"),
+    (16, "Mod2"),
+    (32, "Mod3"),
+    (128, "Mod5"),
+)
+
+
+def _shortcut_chord(row: dict[str, Any]) -> str:
+    mask = int(row.get("modmask", 0) or 0)
+    parts = [label for bit, label in _MODIFIER_BITS if mask & bit]
+    key = str(row.get("key", "") or "").strip()
+    if not key:
+        code = int(row.get("keycode", 0) or 0)
+        key = f"Keycode {code}" if code else "Unknown key"
+    parts.append(key)
+    return " + ".join(parts)
+
+
+def snapshot_shortcuts() -> dict[str, Any]:
+    payload, error = hypr_json(["binds", "-j"])
+    if not isinstance(payload, list):
+        return {"available": False, "binds": [], "error": error or "Shortcut state is unavailable."}
+
+    binds = []
+    for raw in payload:
+        if not isinstance(raw, dict):
+            continue
+        dispatcher = str(raw.get("dispatcher", "") or "")
+        description = str(raw.get("description", "") or "").strip()
+        if not description:
+            description = "Managed Maho action" if dispatcher == "__lua" else dispatcher.replace("_", " ").strip()
+        binds.append({
+            "chord": _shortcut_chord(raw),
+            "description": description or "Shortcut action",
+            "submap": str(raw.get("submap", "") or ""),
+            "repeat": bool(raw.get("repeat", False)),
+            "mouse": bool(raw.get("mouse", False)),
+            "locked": bool(raw.get("locked", False)),
+        })
+    return {"available": True, "binds": binds, "count": len(binds), "readOnly": True, "error": ""}
+
+
+def snapshot_motion() -> dict[str, Any]:
+    payload, error = hypr_json(["animations", "-j"])
+    if not isinstance(payload, list) or len(payload) < 2:
+        return {"available": False, "animations": [], "curves": [], "error": error or "Motion state is unavailable."}
+    raw_animations = payload[0] if isinstance(payload[0], list) else []
+    raw_curves = payload[1] if isinstance(payload[1], list) else []
+    animations = []
+    for raw in raw_animations:
+        if not isinstance(raw, dict) or not bool(raw.get("overridden", False)):
+            continue
+        animations.append({
+            "name": str(raw.get("name", "")),
+            "enabled": bool(raw.get("enabled", False)),
+            "speed": float(raw.get("speed", 0.0) or 0.0),
+            "curve": str(raw.get("bezier", "") or "default"),
+            "style": str(raw.get("style", "") or ""),
+        })
+    curves = []
+    for raw in raw_curves:
+        if not isinstance(raw, dict):
+            continue
+        curves.append({
+            "name": str(raw.get("name", "")),
+            "x0": float(raw.get("X0", 0.0) or 0.0),
+            "y0": float(raw.get("Y0", 0.0) or 0.0),
+            "x1": float(raw.get("X1", 0.0) or 0.0),
+            "y1": float(raw.get("Y1", 0.0) or 0.0),
+        })
+    animations.sort(key=lambda row: row["name"].lower())
+    curves.sort(key=lambda row: row["name"].lower())
+    return {"available": True, "animations": animations, "curves": curves, "readOnly": True, "error": ""}
+
+
+def _hypr_config_errors() -> tuple[list[str], str]:
+    code, out, err = hypr(["configerrors"], timeout=4.0)
+    if code != 0:
+        return [], err or out or "Hyprland configuration health is unavailable."
+    errors = [line.strip() for line in out.splitlines() if line.strip()]
+    return errors, ""
+
+
+def snapshot_configuration() -> dict[str, Any]:
+    errors, error = _hypr_config_errors()
+    managed = [
+        ROOT / "config" / "hypr" / "maho" / "core" / "binds.lua",
+        ROOT / "config" / "hypr" / "maho" / "core" / "windowing.lua",
+        ROOT / "config" / "hypr" / "maho" / "core" / "session.lua",
+        ROOT / "config" / "hypr" / "maho" / "appearance" / "animations.lua",
+    ]
+    return {
+        "available": not bool(error),
+        "healthy": not bool(errors) and not bool(error),
+        "configErrors": errors,
+        "managedFiles": [str(path) for path in managed if path.is_file()],
+        "mutationAvailable": False,
+        "readOnly": True,
+        "error": error,
+    }
+
+
+def snapshot_diagnostics() -> dict[str, Any]:
+    errors, hypr_error = _hypr_config_errors()
+    providers = [
+        {"name": "Hyprland", "available": hypr_prefix()[0] is not None},
+        {"name": "Audio", "available": shutil.which("wpctl") is not None},
+        {"name": "Maho Theme", "available": root_command("maho-theme") is not None},
+        {"name": "Maho Notify", "available": root_command("maho-notify") is not None},
+        {"name": "Region & Time", "available": shutil.which("timedatectl") is not None},
+    ]
+    return {
+        "available": True,
+        "configurationHealthy": not bool(errors) and not bool(hypr_error),
+        "configErrors": errors,
+        "providerError": hypr_error,
+        "providers": providers,
+        "error": "",
+    }
+
+
 def snapshot_about() -> dict[str, Any]:
     release = _os_release()
     maho_release = _maho_release_identity()
@@ -1697,6 +1826,10 @@ def snapshot(section: str = "all") -> dict[str, Any]:
         "notifications": snapshot_notifications,
         "applications": snapshot_applications,
         "region": snapshot_region,
+        "shortcuts": snapshot_shortcuts,
+        "motion": snapshot_motion,
+        "configuration": snapshot_configuration,
+        "diagnostics": snapshot_diagnostics,
         "system": snapshot_about,
     }
     if section != "all":

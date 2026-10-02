@@ -22,6 +22,8 @@ class SearchContracts(unittest.TestCase):
             "refresh": ("Displays / Refresh Rate", "displays", "displays"),
             "mic": ("Sound / Input", "sound", "sound"),
             "recovery": ("System / Recovery", "system", "recovery"),
+            "shortcut": ("Shortcuts / Keyboard Shortcuts", "shortcuts", "shortcuts"),
+            "animation": ("Motion / Animations", "motion", "motion"),
         }
         for query, expected in cases.items():
             with self.subTest(query=query):
@@ -93,6 +95,35 @@ Video
         self.assertNotIn(99, [row["id"] for row in inputs])
         self.assertNotIn(104, [row["id"] for row in inputs])
         self.assertNotIn(86, [row["id"] for row in inputs])
+
+    def test_shortcuts_snapshot_formats_live_modifier_chord(self) -> None:
+        payload = [{
+            "modmask": 64 | 4,
+            "key": "RETURN",
+            "dispatcher": "__lua",
+            "description": "",
+            "repeat": False,
+            "mouse": False,
+            "locked": False,
+            "submap": "",
+        }]
+        with mock.patch.object(settings, "hypr_json", return_value=(payload, "")):
+            snapshot = settings.snapshot_shortcuts()
+        self.assertTrue(snapshot["available"])
+        self.assertEqual(snapshot["binds"][0]["chord"], "Super + Ctrl + RETURN")
+        self.assertEqual(snapshot["binds"][0]["description"], "Managed Maho action")
+        self.assertTrue(snapshot["readOnly"])
+
+    def test_motion_snapshot_exposes_only_configured_animation_leaves(self) -> None:
+        payload = [[
+            {"name": "windows", "overridden": True, "bezier": "wind", "enabled": True, "speed": 5.0, "style": "slide"},
+            {"name": "layers", "overridden": False, "bezier": "", "enabled": True, "speed": 0.0, "style": ""},
+        ], [{"name": "wind", "X0": 0.1, "Y0": 0.2, "X1": 0.3, "Y1": 1.0}]]
+        with mock.patch.object(settings, "hypr_json", return_value=(payload, "")):
+            snapshot = settings.snapshot_motion()
+        self.assertEqual([row["name"] for row in snapshot["animations"]], ["windows"])
+        self.assertEqual(snapshot["curves"][0]["name"], "wind")
+        self.assertTrue(snapshot["readOnly"])
 
     def test_video_wallpaper_uses_palette_frame_for_preview(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

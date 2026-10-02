@@ -36,7 +36,7 @@ Item {
 
             PageHeader {
                 title: "Sound"
-                subtitle: "PipeWire and WirePlumber remain authoritative. Settings only reads state and issues bounded wpctl requests."
+                subtitle: "Output, input and volume controls"
                 foreground: root.foreground
                 muted: root.muted
             }

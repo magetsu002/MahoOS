@@ -42,6 +42,10 @@ require_text "$QML/Main.qml" 'route: "applications"' "Applications navigation ro
 require_text "$QML/Main.qml" 'route: "configuration"' "Configuration navigation route missing"
 require_text "$QML/Main.qml" 'route: "diagnostics"' "Diagnostics navigation route missing"
 require_text "$QML/Main.qml" 'route: "about"' "About navigation route missing"
+require_text "$QML/Main.qml" 'case "shortcuts": return "pages/ShortcutsPage.qml"' "Shortcuts route is not implemented"
+require_text "$QML/Main.qml" 'case "motion": return "pages/MotionPage.qml"' "Motion route is not implemented"
+require_text "$QML/Main.qml" 'case "configuration": return "pages/ConfigurationPage.qml"' "Configuration route is not implemented"
+require_text "$QML/Main.qml" 'case "diagnostics": return "pages/DiagnosticsPage.qml"' "Diagnostics route is not implemented"
 echo PASS
 
 echo "=== deterministic search contract ==="
@@ -111,9 +115,9 @@ require_text "$QML/pages/SoundPage.qml" 'Audio backend unavailable' "Sound unava
 require_text "$QML/pages/DisplaysPage.qml" 'Display backend unavailable' "Displays unavailable state missing"
 require_text "$QML/pages/InputPage.qml" 'Input state unavailable' "Input unavailable state missing"
 require_text "$QML/pages/AboutPage.qml" 'Deferred V1 pages' "deferred V1 scope is not explicit"
-require_text "$QML/pages/NotificationsPage.qml" 'Maho Notify remains authoritative' "Notifications does not state its owner"
+require_text "$QML/pages/NotificationsPage.qml" 'remain owned by Maho Notify' "Notifications does not state its owner"
 require_text "$QML/pages/NotificationsPage.qml" 'does not currently expose notification sound, lock-screen visibility, or retention-duration preferences' "unsupported notification preferences are not explicit"
-require_text "$QML/pages/RegionPage.qml" "systemd's timedate/localed policy boundary" "Region & Time bypasses the system owner contract"
+require_text "$QML/pages/RegionPage.qml" 'systemd-localed' "Region & Time does not state its locale owner"
 require_text "$QML/pages/ApplicationsPage.qml" 'XDG MIME authority' "Applications does not state its defaults authority"
 require_text "$QML/pages/ApplicationsPage.qml" 'does not invent a private default-terminal registry' "Applications invents an unsupported terminal default"
 require_text "$QML/pages/DeferredPage.qml" 'must not invent unsupported system state' "deferred pages can imply fake capability"
@@ -144,7 +148,7 @@ text = Path(sys.argv[1]).read_text()
 for forbidden in ("systemctl reboot", "systemctl poweroff", "systemctl suspend", "shutdown -", "reboot -"):
     assert forbidden not in text, forbidden
 PY
-require_text "$QML/pages/PowerPage.qml" 'never reboots, shuts down, or suspends' "Power UI does not state its bounded control contract"
+require_text "$QML/pages/PowerPage.qml" 'never triggers suspend, reboot, or shutdown' "Power UI does not state its bounded control contract"
 require_text "$BACKEND" '"sessionPolicyControlAvailable": False' "unsupported screen/suspend/lid policy is not explicit"
 require_text "$QML/pages/PowerPage.qml" 'No supported user-scoped session policy backend is available' "Power UI hides unavailable session-policy authority"
 echo PASS

@@ -37,8 +37,8 @@ Item {
             spacing: 14
 
             PageHeader {
-                title: "System"
-                subtitle: "Truthful host and session information. Update, Recovery, Guardian and Storage remain separate authorities."
+                title: "About"
+                subtitle: "MahoOS, hardware and session information"
                 foreground: root.foreground
                 muted: root.muted
             }

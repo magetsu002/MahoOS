@@ -36,7 +36,7 @@ Item {
 
             PageHeader {
                 title: "Applications"
-                subtitle: "Default handlers use the XDG MIME authority. Autostart is presented from the XDG session configuration."
+                subtitle: "Choose default apps and review session applications"
                 foreground: root.foreground
                 muted: root.muted
             }

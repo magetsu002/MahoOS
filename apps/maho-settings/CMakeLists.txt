@@ -31,10 +31,12 @@ qt_add_qml_module(maho-settings
         qml/components/MahoSegmentedControl.qml
         qml/components/MahoComboBox.qml
         qml/components/MahoIcon.qml
+        qml/components/MahoInsetRow.qml
         qml/components/MahoSectionLabel.qml
         qml/components/MahoScrollBar.qml
         qml/components/MahoSettingsTheme.qml
         qml/components/MahoSidebarItem.qml
+        qml/components/MahoTextField.qml
         qml/components/MahoSlider.qml
         qml/components/MahoSwitch.qml
         qml/components/PageHeader.qml
@@ -44,12 +46,16 @@ qt_add_qml_module(maho-settings
         qml/pages/AboutPage.qml
         qml/pages/AppearancePage.qml
         qml/pages/ApplicationsPage.qml
+        qml/pages/ConfigurationPage.qml
+        qml/pages/DiagnosticsPage.qml
         qml/pages/DeferredPage.qml
         qml/pages/DisplaysPage.qml
         qml/pages/InputPage.qml
         qml/pages/NotificationsPage.qml
         qml/pages/PowerPage.qml
         qml/pages/RegionPage.qml
+        qml/pages/ShortcutsPage.qml
+        qml/pages/MotionPage.qml
         qml/pages/SoundPage.qml
 )
 
