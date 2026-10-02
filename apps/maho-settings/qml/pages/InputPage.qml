@@ -221,7 +221,7 @@ Item {
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "mouseNaturalScroll", value: checked })
+                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "mouseNaturalScroll", value: value }) }
                     }
                 }
 
@@ -235,7 +235,7 @@ Item {
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "leftHanded", value: checked })
+                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "leftHanded", value: value }) }
                     }
                 }
             }
@@ -305,7 +305,7 @@ Item {
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "naturalScroll", value: checked })
+                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "naturalScroll", value: value }) }
                     }
                 }
 
@@ -319,7 +319,7 @@ Item {
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "tapToClick", value: checked })
+                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "tapToClick", value: value }) }
                     }
                 }
 
@@ -333,7 +333,7 @@ Item {
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "disableWhileTyping", value: checked })
+                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "disableWhileTyping", value: value }) }
                     }
                 }
             }
