@@ -28,6 +28,8 @@ done
 require_text "$APP/src/main.cpp" 'loadFromModule(QStringLiteral("Maho.Settings")' "Settings is not a native Qt/QML module"
 require_text "$QML/Main.qml" 'readonly property real sidebarWidth: width < 980' "responsive sidebar breakpoint missing"
 require_text "$QML/Main.qml" 'SettingsSidebar {' "category sidebar missing"
+require_text "$QML/components/MahoSettingsTheme.qml" 'property bool reducedMotion: false' "Settings theme does not expose reduced motion"
+require_text "$QML/components/MahoSwitch.qml" 'root.reducedMotion ? 0 : 120' "Settings switch ignores reduced motion"
 require_text "$QML/Main.qml" 'Loader {' "route/page loader missing"
 require_text "$QML/components/SettingsSidebar.qml" 'Timer {' "deterministic search debounce missing"
 require_text "$QML/components/SettingsSidebar.qml" 'root.searchRequested(query)' "deterministic search input missing"

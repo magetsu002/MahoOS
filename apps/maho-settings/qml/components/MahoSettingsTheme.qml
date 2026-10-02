@@ -5,6 +5,7 @@ QtObject {
 
     property var palette
     property bool reducedTransparency: false
+    property bool reducedMotion: false
 
     function alpha(color, amount) {
         return Qt.rgba(color.r, color.g, color.b, amount)

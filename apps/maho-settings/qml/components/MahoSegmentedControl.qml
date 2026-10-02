@@ -48,7 +48,7 @@ Rectangle {
                 TapHandler { onTapped: root.selected(modelData.value) }
 
                 Behavior on color {
-                    ColorAnimation { duration: 110 }
+                    ColorAnimation { duration: root.theme.reducedMotion ? 0 : 110 }
                 }
             }
         }

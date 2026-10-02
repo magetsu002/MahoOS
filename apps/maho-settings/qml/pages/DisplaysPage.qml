@@ -199,6 +199,7 @@ Item {
                         Layout.fillWidth: true
                     }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         id: outputEnabled
                         checked: !!root.output.enabled
                         enabled: !root.bridge.actionBusy

@@ -63,6 +63,7 @@ Item {
                         Layout.fillWidth: true
                     }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.state.active
                         enabled: !!root.state.globalEnableSupported && !root.bridge.actionBusy
                         accent: root.accent
@@ -81,6 +82,7 @@ Item {
                         Layout.fillWidth: true
                     }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.state.dnd
                         enabled: !root.bridge.actionBusy
                         accent: root.accent

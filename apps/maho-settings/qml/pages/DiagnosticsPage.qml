@@ -17,7 +17,7 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
-        ScrollBar.vertical: MahoScrollBar { foreground: root.foreground }
+        ScrollBar.vertical: MahoScrollBar { foreground: root.foreground; reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false }
 
         ColumnLayout {
             width: Math.max(0, root.width - 12)

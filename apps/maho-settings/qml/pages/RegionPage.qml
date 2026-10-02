@@ -83,6 +83,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: "Set time automatically"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.state.automaticTime
                         enabled: !!root.state.automaticTimeControlAvailable && !root.bridge.actionBusy
                         accent: root.accent

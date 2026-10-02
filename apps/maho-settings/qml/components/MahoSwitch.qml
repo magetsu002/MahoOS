@@ -6,6 +6,7 @@ Switch {
     property color accent: "#d0bcff"
     property color foreground: "#f3eef8"
     property color muted: "#aaa3af"
+    property bool reducedMotion: false
 
     implicitWidth: 46
     implicitHeight: 26
@@ -30,7 +31,7 @@ Switch {
             y: 3
             x: root.checked ? parent.width - width - 3 : 3
             color: root.checked ? root.accent : root.muted
-            Behavior on x { NumberAnimation { duration: 120 } }
+            Behavior on x { NumberAnimation { duration: root.reducedMotion ? 0 : 120 } }
         }
     }
 

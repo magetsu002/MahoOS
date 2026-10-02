@@ -27,6 +27,7 @@ Item {
         clip: true
         ScrollBar.vertical: MahoScrollBar {
             foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
         contentWidth: availableWidth
 
@@ -121,6 +122,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                     checked: !!root.state.reducedMotion
                     enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
                     accent: theme.accent
@@ -138,6 +140,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                     checked: !!root.state.reducedTransparency
                     enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
                     accent: theme.accent

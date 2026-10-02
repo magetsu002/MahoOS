@@ -215,6 +215,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: "Natural scrolling"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.current.mouseNaturalScroll
                         enabled: !root.bridge.actionBusy
                         accent: root.accent
@@ -228,6 +229,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: "Primary button on right"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.current.leftHanded
                         enabled: !root.bridge.actionBusy
                         accent: root.accent
@@ -297,6 +299,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: "Natural scrolling"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.current.naturalScroll
                         enabled: !root.bridge.actionBusy
                         accent: root.accent
@@ -310,6 +313,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: "Tap to click"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.current.tapToClick
                         enabled: !root.bridge.actionBusy
                         accent: root.accent
@@ -323,6 +327,7 @@ Item {
                     Layout.fillWidth: true
                     Text { text: "Disable while typing"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: !!root.current.disableWhileTyping
                         enabled: !root.bridge.actionBusy
                         accent: root.accent

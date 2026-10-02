@@ -5,6 +5,7 @@ ScrollBar {
     id: root
 
     property color foreground: "#f3eef8"
+    property bool reducedMotion: false
 
     policy: ScrollBar.AsNeeded
     interactive: true
@@ -26,7 +27,7 @@ ScrollBar {
                        root.pressed ? 0.42 : root.hovered ? 0.30 : 0.18)
         opacity: root.size < 1.0 ? 1.0 : 0.0
 
-        Behavior on color { ColorAnimation { duration: 90 } }
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        Behavior on color { ColorAnimation { duration: root.reducedMotion ? 0 : 90 } }
+        Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 100 } }
     }
 }

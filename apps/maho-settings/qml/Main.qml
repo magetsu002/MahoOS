@@ -20,6 +20,10 @@ ApplicationWindow {
         const appearance = settingsBridge.state.appearance
         return appearance ? !!appearance.reducedTransparency : false
     }
+    readonly property bool reducedMotion: {
+        const appearance = settingsBridge.state.appearance
+        return appearance ? !!appearance.reducedMotion : false
+    }
     readonly property real sidebarWidth: width < 980 ? 232 : 272
     property string currentRoute: "appearance"
     property string currentTarget: "appearance"
@@ -61,6 +65,7 @@ ApplicationWindow {
         id: theme
         palette: mahoPalette
         reducedTransparency: root.reducedTransparency
+        reducedMotion: root.reducedMotion
     }
 
     function canonicalRoute(route) {

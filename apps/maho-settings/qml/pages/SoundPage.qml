@@ -116,6 +116,7 @@ Item {
                         Layout.preferredWidth: 38
                     }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: root.state.output && root.state.output.available ? !!root.state.output.muted : false
                         enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
                         accent: root.accent
@@ -184,6 +185,7 @@ Item {
                         Layout.preferredWidth: 38
                     }
                     MahoSwitch {
+                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                         checked: root.state.input && root.state.input.available ? !!root.state.input.muted : false
                         enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
                         accent: root.accent
