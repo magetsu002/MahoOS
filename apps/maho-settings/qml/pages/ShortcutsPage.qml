@@ -8,11 +8,15 @@ Item {
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.shortcuts ? bridge.state.shortcuts : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function filteredBinds() {
         const rows = root.state.binds || []
@@ -29,29 +33,31 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
-        ScrollBar.vertical: MahoScrollBar { foreground: root.foreground; reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false }
+        ScrollBar.vertical: MahoScrollBar { foreground: theme.textPrimary; reducedMotion: theme.reducedMotion }
 
         ColumnLayout {
             width: Math.max(0, root.width - 12)
-            spacing: 14
+            spacing: 12
 
             PageHeader {
                 title: "Shortcuts"
                 subtitle: "Inspect the shortcuts active in this Maho session"
-                foreground: root.foreground
-                muted: root.muted
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Shortcut state unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
@@ -59,19 +65,19 @@ Item {
                 visible: !!root.state.available
                 title: "Active shortcuts"
                 description: "Read directly from Hyprland. Editing remains disabled until the Maho configuration writer is certified."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 MahoTextField {
                     id: filterField
                     Layout.fillWidth: true
                     placeholderText: "Filter shortcuts..."
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.surfaceElevated
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                 }
 
                 Repeater {
@@ -81,8 +87,8 @@ Item {
                         title: modelData.chord || "Unknown shortcut"
                         description: modelData.description || "Managed action"
                         trailingText: modelData.submap ? "Submap: " + modelData.submap : (modelData.repeat ? "Repeats" : "")
-                        foreground: root.foreground
-                        muted: root.muted
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                     }
                 }
             }

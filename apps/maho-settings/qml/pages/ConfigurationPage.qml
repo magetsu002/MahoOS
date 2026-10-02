@@ -8,38 +8,44 @@ Item {
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.configuration ? bridge.state.configuration : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     ScrollView {
         anchors.fill: parent
         clip: true
-        ScrollBar.vertical: MahoScrollBar { foreground: root.foreground; reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false }
+        ScrollBar.vertical: MahoScrollBar { foreground: theme.textPrimary; reducedMotion: theme.reducedMotion }
 
         ColumnLayout {
             width: Math.max(0, root.width - 12)
-            spacing: 14
+            spacing: 12
 
             PageHeader {
                 title: "Configuration"
                 subtitle: "Managed desktop configuration and current health"
-                foreground: root.foreground
-                muted: root.muted
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Configuration state unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
@@ -49,18 +55,18 @@ Item {
                 description: root.state.healthy
                     ? "Hyprland reports no current configuration errors."
                     : "Hyprland reported configuration errors below."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Repeater {
                     model: root.state.configErrors || []
                     delegate: MahoInsetRow {
                         required property string modelData
                         title: modelData
-                        foreground: root.foreground
-                        muted: root.muted
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                     }
                 }
             }
@@ -69,10 +75,10 @@ Item {
                 visible: !!root.state.available
                 title: "Managed sources"
                 description: "These files currently participate in the Maho desktop configuration."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Repeater {
                     model: root.state.managedFiles || []
@@ -80,8 +86,8 @@ Item {
                         required property string modelData
                         title: modelData.split("/").pop()
                         description: modelData
-                        foreground: root.foreground
-                        muted: root.muted
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                     }
                 }
             }
@@ -90,10 +96,10 @@ Item {
                 visible: !!root.state.available && !root.state.mutationAvailable
                 title: "Editing intentionally unavailable"
                 description: "Maho does not yet have a certified single-owner writer for advanced Hyprland configuration. Read-only inspection is available without weakening ownership."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
 
             Item { Layout.preferredHeight: 8 }

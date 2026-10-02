@@ -8,11 +8,15 @@ Item {
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.motion ? bridge.state.motion : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function animationDetail(row) {
         let detail = row.enabled ? "Enabled" : "Disabled"
@@ -30,29 +34,31 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
-        ScrollBar.vertical: MahoScrollBar { foreground: root.foreground; reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false }
+        ScrollBar.vertical: MahoScrollBar { foreground: theme.textPrimary; reducedMotion: theme.reducedMotion }
 
         ColumnLayout {
             width: Math.max(0, root.width - 12)
-            spacing: 14
+            spacing: 12
 
             PageHeader {
                 title: "Motion"
                 subtitle: "Current animation behavior from the live Maho desktop"
-                foreground: root.foreground
-                muted: root.muted
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Motion state unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
@@ -60,10 +66,10 @@ Item {
                 visible: !!root.state.available
                 title: "Configured animations"
                 description: "Only Maho-overridden animation leaves are shown. Editing is read-only in this milestone."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Repeater {
                     model: root.state.animations || []
@@ -72,8 +78,8 @@ Item {
                         title: modelData.name
                         description: root.animationDetail(modelData)
                         trailingText: modelData.curve || "default"
-                        foreground: root.foreground
-                        muted: root.muted
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                     }
                 }
             }
@@ -82,10 +88,10 @@ Item {
                 visible: !!root.state.available && (root.state.curves || []).length > 0
                 title: "Bézier curves"
                 description: "Live curve definitions currently loaded by Hyprland."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Repeater {
                     model: root.state.curves || []
@@ -94,8 +100,8 @@ Item {
                         title: modelData.name
                         description: "Control points"
                         trailingText: root.curvePoints(modelData)
-                        foreground: root.foreground
-                        muted: root.muted
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                     }
                 }
             }

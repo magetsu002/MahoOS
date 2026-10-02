@@ -8,46 +8,52 @@ Item {
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.diagnostics ? bridge.state.diagnostics : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     ScrollView {
         anchors.fill: parent
         clip: true
-        ScrollBar.vertical: MahoScrollBar { foreground: root.foreground; reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false }
+        ScrollBar.vertical: MahoScrollBar { foreground: theme.textPrimary; reducedMotion: theme.reducedMotion }
 
         ColumnLayout {
             width: Math.max(0, root.width - 12)
-            spacing: 14
+            spacing: 12
 
             PageHeader {
                 title: "Diagnostics"
                 subtitle: "Configuration health and Settings providers"
-                foreground: root.foreground
-                muted: root.muted
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             SettingCard {
                 title: root.state.configurationHealthy ? "Configuration healthy" : "Configuration issue detected"
                 description: root.state.configurationHealthy
                     ? "Hyprland reports no active configuration errors."
                     : ((root.state.configErrors || []).join("\n") || root.state.providerError || "Configuration health could not be confirmed.")
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
 
             SettingCard {
                 title: "Settings providers"
                 description: "Availability only. This page does not claim system health or Guardian trust."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Repeater {
                     model: root.state.providers || []
@@ -55,8 +61,8 @@ Item {
                         required property var modelData
                         title: modelData.name
                         trailingText: modelData.available ? "Available" : "Unavailable"
-                        foreground: root.foreground
-                        muted: root.muted
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                     }
                 }
             }
