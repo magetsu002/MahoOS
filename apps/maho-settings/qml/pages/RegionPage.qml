@@ -5,14 +5,19 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.region ? bridge.state.region : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function stringIndex(rows, value) {
         if (!rows)
@@ -23,95 +28,97 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Region & Time"
                 subtitle: "Language, keyboard layout, time and timezone"
-                foreground: root.foreground
-                muted: root.muted
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Region and time state unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Time"
-                description: root.state.timeSynchronized ? "Clock synchronized" : "Clock synchronization is not currently confirmed"
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Time zone"
+                description: root.state.timeSynchronized
+                    ? "Clock synchronization is active"
+                    : "Clock synchronization is not currently confirmed"
+                iconName: "preferences-system-time"
+                theme: theme
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Time zone"; color: root.muted; font.pixelSize: 11 }
-                    MahoComboBox {
-                        Layout.fillWidth: true
-                        model: root.state.timezones || []
-                        currentIndex: root.stringIndex(model, root.state.timezone || "")
-                        enabled: !!root.state.timezoneControlAvailable && !root.bridge.actionBusy
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                        accent: root.accent
-                        onActivated: {
-                            if (index >= 0)
-                                root.bridge.perform("region.timezone", { timezone: model[index] })
-                        }
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Set time automatically"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.state.automaticTime
-                        enabled: !!root.state.automaticTimeControlAvailable && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("region.automaticTime", { enabled: checked })
+                MahoComboBox {
+                    Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
+                    model: root.state.timezones || []
+                    currentIndex: root.stringIndex(model, root.state.timezone || "")
+                    enabled: !!root.state.timezoneControlAvailable && !root.bridge.actionBusy
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
+                    onActivated: {
+                        if (index >= 0)
+                            root.bridge.perform("region.timezone", { timezone: model[index] })
                     }
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Set time automatically"
+                description: "Keep the system clock synchronized automatically"
+                iconName: "appointment-soon"
+                theme: theme
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.state.automaticTime
+                    enabled: !!root.state.automaticTimeControlAvailable && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("region.automaticTime", { enabled: checked })
+                }
+            }
+
+            AppearanceRow {
                 visible: !!root.state.available
                 title: "Regional format"
-                description: "System locale is delegated to systemd-localed and may require normal policy authentication."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                description: "Choose the system locale used for regional formatting"
+                iconName: "preferences-desktop-locale"
+                theme: theme
 
                 MahoComboBox {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.locales || []
                     currentIndex: root.stringIndex(model, root.state.locale || "")
                     enabled: !!root.state.localeControlAvailable && !root.bridge.actionBusy
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                     onActivated: {
                         if (index >= 0)
                             root.bridge.perform("region.locale", { locale: model[index] })
@@ -119,24 +126,22 @@ Item {
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
                 title: "Keyboard layout"
-                description: "This entry point changes Hyprland's active XKB layout and persists it through the existing Settings session apply path."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                description: "Choose the active keyboard layout"
+                iconName: "input-keyboard"
+                theme: theme
 
                 MahoComboBox {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.keyboardLayouts || []
                     currentIndex: root.stringIndex(model, root.state.keyboardLayout || "")
                     enabled: !!root.state.keyboardLayoutControlAvailable && !root.bridge.actionBusy
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                     onActivated: {
                         if (index >= 0)
                             root.bridge.perform("region.keyboardLayout", { layout: model[index] })
@@ -144,7 +149,7 @@ Item {
                 }
             }
 
-            Item { Layout.preferredHeight: 6 }
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }
