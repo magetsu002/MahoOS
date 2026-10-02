@@ -171,7 +171,18 @@ require_text "$QML" 'ScrollBar.vertical: MahoScrollBar {' "Files views are not a
 require_text "$QML" 'id: gridScrollBar' "grid scrollbar is missing"
 require_text "$QML" 'id: listScrollBar' "list scrollbar is missing"
 require_text "$QML" 'id: placesScrollBar' "places scrollbar is missing"
-require_text "$QML" 'parent: contentArea' "main content scrollbars are not raised above the selection overlay"
+require_text "$QML" 'parent: contentArea' "grid scrollbar is not raised above the selection overlay"
+require_text "$QML" 'anchors.rightMargin: 12' "selection overlay still steals the scrollbar pointer strip"
+python3 - "$QML" <<'PY_LIST_SCROLLBAR'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+start = source.index('id: listScrollBar')
+end = source.index('NumberAnimation {', start)
+body = source[start:end]
+assert 'parent:' not in body, 'list attached scrollbar must keep Qt-owned parentage'
+assert 'anchors.right:' not in body, 'list attached scrollbar must keep Qt-owned anchoring'
+PY_LIST_SCROLLBAR
 require_text "$QML" 'readonly property bool contentScrollbarDragging' "Files does not expose scrollbar pointer ownership"
 require_text "$QML" 'enabled: !root.contentScrollbarDragging' "row/background handlers can fire during scrollbar drag"
 require_text "$QML" 'onContentHeightChanged: contentY = root.boundedContentY' "dynamic model changes do not clamp scrolling"
@@ -253,7 +264,7 @@ require_text "$MODEL_CPP" 'dropUrls' "native inbound drop path is missing"
 require_text "$QML" 'text: "Recent"' "Recent is not surfaced in the sidebar"
 require_text "$QML" 'label: "Open With…"' "Open With action is not surfaced"
 require_text "$QML" 'label: "Copy Path"' "Copy Path action is not surfaced"
-require_text "$QML" 'label: "Duplicate"' "Duplicate action is not surfaced"
+require_text "$QML" 'label: root.selectedCount > 1 ? "Duplicate " + root.selectedCount + " Items" : "Duplicate"' "Duplicate action is not surfaced for single and multi-selection"
 require_text "$QML" 'id: propertiesPopup' "Properties UI is missing"
 require_text "$QML" 'id: contentDropArea' "content drop target is missing"
 require_text "$CMAKE" 'KF6::KIOGui' "native file launching is not linked against KIOGui"

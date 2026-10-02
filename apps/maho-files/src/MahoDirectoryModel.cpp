@@ -20,6 +20,8 @@
 #include <QUrl>
 
 #include <KIO/CopyJob>
+#include <KIO/DeleteJob>
+#include <KIO/DirectorySizeJob>
 #include <KIO/Global>
 #include <KIO/Job>
 #include <KIO/ListJob>
@@ -126,6 +128,17 @@ MahoDirectoryModel::~MahoDirectoryModel()
     disconnect(&m_lister, nullptr, this, nullptr);
     cancelRecentJob();
     cancelSearchJob();
+    if (m_propertiesJob) {
+        KIO::DirectorySizeJob *job = m_propertiesJob.data();
+        m_propertiesJob.clear();
+        job->kill(KJob::Quietly);
+    }
+    if (m_activeOperation) {
+        KJob *job = m_activeOperation.data();
+        m_activeOperation.clear();
+        disconnect(job, nullptr, this, nullptr);
+        job->kill(KJob::Quietly);
+    }
 }
 
 int MahoDirectoryModel::rowCount(const QModelIndex &parent) const
@@ -252,9 +265,29 @@ QString MahoDirectoryModel::searchQuery() const
     return m_searchQuery;
 }
 
+QString MahoDirectoryModel::sortKey() const
+{
+    return m_sortKey;
+}
+
+bool MahoDirectoryModel::sortDescending() const
+{
+    return m_sortDescending;
+}
+
 bool MahoDirectoryModel::operationBusy() const
 {
     return m_operationBusy;
+}
+
+int MahoDirectoryModel::operationProgress() const
+{
+    return m_operationProgress;
+}
+
+bool MahoDirectoryModel::canCancelOperation() const
+{
+    return !m_activeOperation.isNull();
 }
 
 QString MahoDirectoryModel::operationMessage() const
@@ -264,7 +297,7 @@ QString MahoDirectoryModel::operationMessage() const
 
 bool MahoDirectoryModel::canPaste() const
 {
-    if (!m_currentUrl.isLocalFile())
+    if (!canMutateCurrentDirectory())
         return false;
 
     const QClipboard *clipboard = QGuiApplication::clipboard();
@@ -391,6 +424,39 @@ void MahoDirectoryModel::setShowHidden(bool show)
     reload();
 }
 
+void MahoDirectoryModel::setSortKey(const QString &key)
+{
+    const QString normalized = key.trimmed().toLower();
+    if (normalized != QStringLiteral("name")
+        && normalized != QStringLiteral("modified")
+        && normalized != QStringLiteral("size")
+        && normalized != QStringLiteral("type")) {
+        setOperationMessage(QStringLiteral("That sort mode is not supported."));
+        return;
+    }
+    if (m_sortKey == normalized)
+        return;
+
+    m_sortKey = normalized;
+    if (m_currentUrl.scheme() != QStringLiteral("timeline") && m_searchQuery.isEmpty()) {
+        sortItems(m_sourceItems);
+        rebuildVisibleItems();
+    }
+    emit sortChanged();
+}
+
+void MahoDirectoryModel::setSortDescending(bool descending)
+{
+    if (m_sortDescending == descending)
+        return;
+    m_sortDescending = descending;
+    if (m_currentUrl.scheme() != QStringLiteral("timeline") && m_searchQuery.isEmpty()) {
+        sortItems(m_sourceItems);
+        rebuildVisibleItems();
+    }
+    emit sortChanged();
+}
+
 void MahoDirectoryModel::setSearchQuery(const QString &query)
 {
     const QString normalized = query.trimmed();
@@ -431,6 +497,13 @@ QString MahoDirectoryModel::nameAt(int row) const
     if (row < 0 || row >= m_items.size())
         return {};
     return m_items.at(row).text();
+}
+
+QString MahoDirectoryModel::iconNameAt(int row) const
+{
+    if (row < 0 || row >= m_items.size())
+        return {};
+    return m_items.at(row).iconName();
 }
 
 bool MahoDirectoryModel::isDirectoryAt(int row) const
@@ -475,6 +548,20 @@ void MahoDirectoryModel::renameIndex(int row, const QString &name)
     }
 
     const KFileItem item = m_items.at(row);
+    if (item.url().isLocalFile()) {
+        const QFileInfo source(item.url().toLocalFile());
+        if (!source.exists() && !source.isSymLink()) {
+            setOperationMessage(QStringLiteral("%1 is no longer available. Reload this folder.").arg(item.text()));
+            return;
+        }
+    }
+
+    if (trimmed == QStringLiteral(".") || trimmed == QStringLiteral("..")
+        || trimmed.contains(QLatin1Char('/')) || trimmed.contains(QChar::Null)) {
+        setOperationMessage(QStringLiteral("That name is not valid here."));
+        return;
+    }
+
     QUrl destination = item.url();
     QString path = destination.path();
     const qsizetype slash = path.lastIndexOf(QLatin1Char('/'));
@@ -484,8 +571,16 @@ void MahoDirectoryModel::renameIndex(int row, const QString &name)
     if (destination == item.url())
         return;
 
+    if (destination.isLocalFile()) {
+        const QFileInfo target(destination.toLocalFile());
+        if (target.exists() || target.isSymLink()) {
+            setOperationMessage(QStringLiteral("An item named %1 already exists.").arg(trimmed));
+            return;
+        }
+    }
+
     watchJob(KIO::moveAs(item.url(), destination, KIO::HideProgressInfo),
-             QStringLiteral("Renamed to %1").arg(trimmed));
+             QStringLiteral("Renamed to %1").arg(trimmed), destination);
 }
 
 void MahoDirectoryModel::trashIndex(int row)
@@ -509,12 +604,46 @@ void MahoDirectoryModel::trashRows(const QVariantList &rows)
             setOperationMessage(QStringLiteral("Trash is currently available for local files only."));
             return;
         }
+        const QFileInfo source(url.toLocalFile());
+        if (!source.exists() && !source.isSymLink()) {
+            setOperationMessage(QStringLiteral("A selected item is no longer available. Reload this folder."));
+            return;
+        }
     }
 
     const QString success = normalized.size() == 1
         ? QStringLiteral("Moved %1 to Trash").arg(m_items.at(normalized.first()).text())
         : QStringLiteral("Moved %1 items to Trash").arg(normalized.size());
     watchJob(KIO::trash(urls, KIO::HideProgressInfo), success);
+}
+
+void MahoDirectoryModel::deleteRows(const QVariantList &rows)
+{
+    const QVector<int> normalized = normalizedRows(rows);
+    if (normalized.isEmpty())
+        return;
+
+    const QList<QUrl> urls = urlsForRows(normalized);
+    if (urls.size() != normalized.size()) {
+        setOperationMessage(QStringLiteral("Permanent delete is currently available for local files only."));
+        return;
+    }
+    for (const QUrl &url : urls) {
+        if (!url.isLocalFile()) {
+            setOperationMessage(QStringLiteral("Permanent delete is currently available for local files only."));
+            return;
+        }
+        const QFileInfo source(url.toLocalFile());
+        if (!source.exists() && !source.isSymLink()) {
+            setOperationMessage(QStringLiteral("A selected item is no longer available. Reload this folder."));
+            return;
+        }
+    }
+
+    const QString success = normalized.size() == 1
+        ? QStringLiteral("Permanently deleted %1").arg(m_items.at(normalized.first()).text())
+        : QStringLiteral("Permanently deleted %1 items").arg(normalized.size());
+    watchJob(KIO::del(urls, KIO::HideProgressInfo), success);
 }
 
 void MahoDirectoryModel::copyIndex(int row, bool cut)
@@ -602,6 +731,45 @@ void MahoDirectoryModel::duplicateIndex(int row)
              QStringLiteral("Duplicated %1").arg(item.text()));
 }
 
+void MahoDirectoryModel::duplicateRows(const QVariantList &rows)
+{
+    const QVector<int> normalized = normalizedRows(rows);
+    if (normalized.isEmpty())
+        return;
+    if (normalized.size() == 1) {
+        duplicateIndex(normalized.first());
+        return;
+    }
+    if (!m_currentUrl.isLocalFile() || !canMutateCurrentDirectory()) {
+        setOperationMessage(QStringLiteral("Duplicate is available from a writable local folder."));
+        return;
+    }
+
+    const QList<QUrl> urls = urlsForRows(normalized);
+    if (urls.size() != normalized.size()) {
+        setOperationMessage(QStringLiteral("Duplicate is available for local files and folders only."));
+        return;
+    }
+    for (const QUrl &url : urls) {
+        if (!url.isLocalFile()) {
+            setOperationMessage(QStringLiteral("Duplicate is available for local files and folders only."));
+            return;
+        }
+        const QFileInfo source(url.toLocalFile());
+        if (!source.exists() && !source.isSymLink()) {
+            setOperationMessage(QStringLiteral("A selected item is no longer available. Reload this folder."));
+            return;
+        }
+    }
+
+    auto *job = KIO::copy(urls, m_currentUrl, KIO::HideProgressInfo);
+    // Duplicate is intentionally collision-safe by definition: every selected
+    // source already exists in the destination directory. KIO chooses unique
+    // sibling names; this never grants overwrite authority to ordinary copy/move.
+    job->setAutoRename(true);
+    watchJob(job, QStringLiteral("Duplicated %1 items").arg(normalized.size()));
+}
+
 void MahoDirectoryModel::openWithIndex(int row)
 {
     if (row < 0 || row >= m_items.size())
@@ -618,24 +786,89 @@ void MahoDirectoryModel::openWithIndex(int row)
     job->start();
 }
 
+QString MahoDirectoryModel::propertiesTextForItem(const KFileItem &item, const QString &sizeText) const
+{
+    QStringList lines;
+    lines << QStringLiteral("Name: %1").arg(item.text());
+    const QString type = item.mimeComment().isEmpty() ? item.mimetype() : item.mimeComment();
+    lines << QStringLiteral("Type: %1").arg(type);
+    if (!item.mimetype().isEmpty())
+        lines << QStringLiteral("MIME: %1").arg(item.mimetype());
+    if (!sizeText.isEmpty())
+        lines << QStringLiteral("Size: %1").arg(sizeText);
+
+    const auto addTime = [&lines](const QString &label, const QDateTime &time) {
+        if (time.isValid())
+            lines << QStringLiteral("%1: %2").arg(label, QLocale().toString(time, QLocale::LongFormat));
+    };
+    addTime(QStringLiteral("Modified"), item.time(KFileItem::ModificationTime));
+    addTime(QStringLiteral("Created"), item.time(KFileItem::CreationTime));
+    addTime(QStringLiteral("Accessed"), item.time(KFileItem::AccessTime));
+
+    lines << QStringLiteral("Location: %1").arg(
+        item.url().isLocalFile()
+            ? QDir::toNativeSeparators(item.url().toLocalFile())
+            : item.url().toDisplayString(QUrl::PreferLocalFile));
+    return lines.join(QLatin1Char('\n'));
+}
+
 QString MahoDirectoryModel::propertiesText(int row) const
 {
     if (row < 0 || row >= m_items.size())
         return {};
 
     const KFileItem item = m_items.at(row);
-    QStringList lines;
-    lines << QStringLiteral("Name: %1").arg(item.text());
-    lines << QStringLiteral("Type: %1").arg(item.mimeComment());
+    const QString sizeText = item.isDir()
+        ? QStringLiteral("Calculating…")
+        : KIO::convertSize(item.size());
+    return propertiesTextForItem(item, sizeText);
+}
+
+void MahoDirectoryModel::requestProperties(int row)
+{
+    cancelProperties();
+
+    if (row < 0 || row >= m_items.size())
+        return;
+
+    const KFileItem item = m_items.at(row);
+    emit propertiesReady(propertiesText(row), item.iconName());
     if (!item.isDir())
-        lines << QStringLiteral("Size: %1").arg(KIO::convertSize(item.size()));
-    lines << QStringLiteral("Modified: %1").arg(
-        QLocale().toString(item.time(KFileItem::ModificationTime), QLocale::LongFormat));
-    lines << QStringLiteral("Location: %1").arg(
-        item.url().isLocalFile()
-            ? QDir::toNativeSeparators(item.url().toLocalFile())
-            : item.url().toDisplayString(QUrl::PreferLocalFile));
-    return lines.join(QLatin1Char('\n'));
+        return;
+
+    KIO::DirectorySizeJob *job = KIO::directorySize(item.url());
+    job->setUiDelegate(nullptr);
+    m_propertiesJob = job;
+    connect(job, &KJob::result, this, [this, job, item](KJob *completed) {
+        if (m_propertiesJob != job)
+            return;
+        m_propertiesJob.clear();
+
+        QString details;
+        if (completed->error()) {
+            details = propertiesTextForItem(item, QStringLiteral("Unavailable"));
+            details += QStringLiteral("\nSize error: %1").arg(completed->errorString());
+        } else {
+            details = propertiesTextForItem(item, KIO::convertSize(job->totalSize()));
+            details += QStringLiteral("\nContents: %1 file%2, %3 folder%4")
+                .arg(job->totalFiles())
+                .arg(job->totalFiles() == 1 ? QString() : QStringLiteral("s"))
+                .arg(job->totalSubdirs())
+                .arg(job->totalSubdirs() == 1 ? QString() : QStringLiteral("s"));
+        }
+        emit propertiesReady(details, item.iconName());
+    });
+}
+
+void MahoDirectoryModel::cancelProperties()
+{
+    if (!m_propertiesJob)
+        return;
+
+    KIO::DirectorySizeJob *job = m_propertiesJob.data();
+    m_propertiesJob.clear();
+    disconnect(job, nullptr, this, nullptr);
+    job->kill(KJob::Quietly);
 }
 
 bool MahoDirectoryModel::canDropUrlsTo(const QVariantList &values, const QUrl &destination) const
@@ -699,6 +932,21 @@ void MahoDirectoryModel::paste()
         KJobUiDelegate::AutoHandlingEnabled, nullptr));
 
     watchJob(job, cut ? QStringLiteral("Moved here") : QStringLiteral("Pasted here"));
+}
+
+void MahoDirectoryModel::cancelOperation()
+{
+    if (!m_activeOperation)
+        return;
+
+    KJob *job = m_activeOperation.data();
+    m_activeOperation.clear();
+    disconnect(job, nullptr, this, nullptr);
+    job->kill(KJob::Quietly);
+    setOperationBusy(false);
+    setOperationProgress(-1);
+    setOperationMessage(QStringLiteral("Operation cancelled."));
+    reload();
 }
 
 bool MahoDirectoryModel::eventFilter(QObject *watched, QEvent *event)
@@ -1029,6 +1277,15 @@ void MahoDirectoryModel::setOperationBusy(bool busy)
     emit operationBusyChanged();
 }
 
+void MahoDirectoryModel::setOperationProgress(int progress)
+{
+    const int normalized = progress < 0 ? -1 : std::clamp(progress, 0, 100);
+    if (m_operationProgress == normalized)
+        return;
+    m_operationProgress = normalized;
+    emit operationProgressChanged();
+}
+
 void MahoDirectoryModel::setOperationMessage(const QString &message)
 {
     if (m_operationMessage == message)
@@ -1083,10 +1340,26 @@ void MahoDirectoryModel::rebuildVisibleItems()
 
 void MahoDirectoryModel::sortItems(QVector<KFileItem> &items) const
 {
-    std::sort(items.begin(), items.end(), [](const KFileItem &left, const KFileItem &right) {
+    std::stable_sort(items.begin(), items.end(), [this](const KFileItem &left, const KFileItem &right) {
         if (left.isDir() != right.isDir())
             return left.isDir();
-        return QString::localeAwareCompare(left.text(), right.text()) < 0;
+
+        int comparison = 0;
+        if (m_sortKey == QStringLiteral("modified")) {
+            const QDateTime a = left.time(KFileItem::ModificationTime);
+            const QDateTime b = right.time(KFileItem::ModificationTime);
+            comparison = a < b ? -1 : (a > b ? 1 : 0);
+        } else if (m_sortKey == QStringLiteral("size")) {
+            comparison = left.size() < right.size() ? -1 : (left.size() > right.size() ? 1 : 0);
+        } else if (m_sortKey == QStringLiteral("type")) {
+            comparison = QString::localeAwareCompare(left.mimeComment(), right.mimeComment());
+        } else {
+            comparison = QString::localeAwareCompare(left.text(), right.text());
+        }
+
+        if (comparison == 0)
+            comparison = QString::localeAwareCompare(left.text(), right.text());
+        return m_sortDescending ? comparison > 0 : comparison < 0;
     });
 }
 
@@ -1268,11 +1541,34 @@ void MahoDirectoryModel::watchJob(KJob *job, const QString &successMessage, cons
     if (!job)
         return;
 
+    if (m_activeOperation) {
+        job->kill(KJob::Quietly);
+        setOperationMessage(QStringLiteral("Wait for the current file operation to finish or cancel it."));
+        return;
+    }
+
+    if (!job->uiDelegate()) {
+        job->setUiDelegate(KIO::createDefaultJobUiDelegate(
+            KJobUiDelegate::AutoHandlingEnabled, nullptr));
+    }
+
+    m_activeOperation = job;
     setOperationBusy(true);
+    setOperationProgress(-1);
     setOperationMessage({});
 
+    connect(job, &KJob::percentChanged, this,
+            [this, job](KJob *, unsigned long percent) {
+        if (m_activeOperation == job)
+            setOperationProgress(static_cast<int>(percent));
+    });
+
     connect(job, &KJob::result, this, [this, successMessage, selectUrl](KJob *completed) {
+        if (m_activeOperation != completed)
+            return;
+        m_activeOperation.clear();
         setOperationBusy(false);
+        setOperationProgress(-1);
         if (completed->error()) {
             setOperationMessage(completed->errorString());
             return;
@@ -1374,6 +1670,8 @@ bool MahoDirectoryModel::validateDrop(
             continue;
 
         const QFileInfo sourceInfo(url.toLocalFile());
+        if (!sourceInfo.exists() && !sourceInfo.isSymLink())
+            return reject(QStringLiteral("A source item is no longer available. Reload the source folder."));
         const QString sourcePath = QDir::cleanPath(
             sourceInfo.canonicalFilePath().isEmpty()
                 ? sourceInfo.absoluteFilePath()

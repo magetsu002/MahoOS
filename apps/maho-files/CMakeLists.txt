@@ -89,9 +89,11 @@ if(MAHO_FILES_BUILD_TESTS)
     )
 
     enable_testing()
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-home")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-xdg-data")
     add_test(NAME maho-files-model-ops COMMAND maho-files-model-tests)
     set_tests_properties(maho-files-model-ops PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home;XDG_DATA_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-xdg-data"
     )
 endif()
 

@@ -704,6 +704,11 @@ ApplicationWindow {
             root.clearSelection()
         }
     }
+    Shortcut {
+        sequence: "Shift+Delete"
+        enabled: root.selectedCount > 0
+        onActivated: deletePopup.confirmRows(root.selectedIndexes)
+    }
     Shortcut { sequence: "Ctrl+C"; enabled: root.selectedCount > 0; onActivated: directoryModel.copyRows(root.selectedIndexes, false) }
     Shortcut { sequence: "Ctrl+X"; enabled: root.selectedCount > 0; onActivated: directoryModel.copyRows(root.selectedIndexes, true) }
     Shortcut { sequence: "Ctrl+V"; enabled: directoryModel.canPaste; onActivated: directoryModel.paste() }
@@ -731,6 +736,12 @@ ApplicationWindow {
                 else
                     listView.positionViewAtIndex(row, ListView.Contain)
             })
+        }
+        function onPropertiesReady(details, iconName) {
+            if (!propertiesPopup.opened)
+                return
+            propertiesPopup.details = details
+            propertiesPopup.iconName = iconName
         }
     }
 
@@ -809,6 +820,47 @@ ApplicationWindow {
             }
             Rectangle { width: Math.min(226, morePopup.width - 16); height: 1; color: root.divider }
             MenuAction {
+                label: "Sort by Name"
+                enabledState: directoryModel.searchQuery.length === 0
+                    && String(directoryModel.currentUrl).indexOf("timeline:") !== 0
+                iconName: "view-sort-ascending"
+                checkedState: directoryModel.sortKey === "name"
+                onTriggered: { directoryModel.sortKey = "name" }
+            }
+            MenuAction {
+                label: "Sort by Modified"
+                enabledState: directoryModel.searchQuery.length === 0
+                    && String(directoryModel.currentUrl).indexOf("timeline:") !== 0
+                iconName: "view-sort-ascending"
+                checkedState: directoryModel.sortKey === "modified"
+                onTriggered: { directoryModel.sortKey = "modified" }
+            }
+            MenuAction {
+                label: "Sort by Size"
+                enabledState: directoryModel.searchQuery.length === 0
+                    && String(directoryModel.currentUrl).indexOf("timeline:") !== 0
+                iconName: "view-sort-ascending"
+                checkedState: directoryModel.sortKey === "size"
+                onTriggered: { directoryModel.sortKey = "size" }
+            }
+            MenuAction {
+                label: "Sort by Type"
+                enabledState: directoryModel.searchQuery.length === 0
+                    && String(directoryModel.currentUrl).indexOf("timeline:") !== 0
+                iconName: "view-sort-ascending"
+                checkedState: directoryModel.sortKey === "type"
+                onTriggered: { directoryModel.sortKey = "type" }
+            }
+            MenuAction {
+                label: "Reverse Sort Order"
+                enabledState: directoryModel.searchQuery.length === 0
+                    && String(directoryModel.currentUrl).indexOf("timeline:") !== 0
+                iconName: "view-sort-descending"
+                checkedState: directoryModel.sortDescending
+                onTriggered: { directoryModel.sortDescending = !directoryModel.sortDescending }
+            }
+            Rectangle { width: Math.min(226, morePopup.width - 16); height: 1; color: root.divider }
+            MenuAction {
                 label: "Reload"
                 iconName: "view-refresh"
                 onTriggered: { morePopup.close(); directoryModel.reload() }
@@ -868,9 +920,12 @@ ApplicationWindow {
                 iconName: "document-properties"
                 enabledState: root.selectedCount === 1
                 onTriggered: {
-                    propertiesPopup.details = directoryModel.propertiesText(contextPopup.targetIndex)
+                    const row = contextPopup.targetIndex
+                    propertiesPopup.details = directoryModel.propertiesText(row)
+                    propertiesPopup.iconName = directoryModel.iconNameAt(row)
                     contextPopup.close()
                     propertiesPopup.open()
+                    directoryModel.requestProperties(row)
                 }
             }
             Rectangle { width: Math.min(226, contextPopup.width - 16); height: 1; color: root.divider }
@@ -885,10 +940,10 @@ ApplicationWindow {
                 onTriggered: { contextPopup.close(); directoryModel.copyRows(root.selectedIndexes, true) }
             }
             MenuAction {
-                label: "Duplicate"
+                label: root.selectedCount > 1 ? "Duplicate " + root.selectedCount + " Items" : "Duplicate"
                 iconName: "edit-copy"
-                enabledState: root.selectedCount === 1
-                onTriggered: { contextPopup.close(); directoryModel.duplicateIndex(contextPopup.targetIndex) }
+                enabledState: root.selectedCount > 0
+                onTriggered: { contextPopup.close(); directoryModel.duplicateRows(root.selectedIndexes) }
             }
             MenuAction {
                 label: "Copy Path"
@@ -911,6 +966,17 @@ ApplicationWindow {
                     contextPopup.close()
                     directoryModel.trashRows(root.selectedIndexes)
                     root.clearSelection()
+                }
+            }
+            MenuAction {
+                label: root.selectedCount > 1
+                    ? "Delete " + root.selectedCount + " Items Permanently…"
+                    : "Delete Permanently…"
+                iconName: "edit-delete"
+                destructive: true
+                onTriggered: {
+                    contextPopup.close()
+                    deletePopup.confirmRows(root.selectedIndexes)
                 }
             }
         }
@@ -1009,6 +1075,8 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         property string details: ""
+        property string iconName: "unknown"
+        onClosed: directoryModel.cancelProperties()
 
         background: Rectangle {
             radius: 22
@@ -1020,12 +1088,26 @@ ApplicationWindow {
         contentItem: ColumnLayout {
             spacing: 12
 
-            Text {
+            RowLayout {
                 Layout.fillWidth: true
-                text: "Properties"
-                color: root.foreground
-                font.pixelSize: 16
-                font.weight: Font.DemiBold
+                spacing: 12
+
+                Image {
+                    Layout.preferredWidth: 38
+                    Layout.preferredHeight: 38
+                    sourceSize: Qt.size(76, 76)
+                    source: root.icon(propertiesPopup.iconName)
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "Properties"
+                    color: root.foreground
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                }
             }
 
             Text {
@@ -1035,6 +1117,81 @@ ApplicationWindow {
                 font.pixelSize: 12
                 wrapMode: Text.Wrap
                 lineHeight: 1.25
+            }
+        }
+    }
+
+    Popup {
+        id: deletePopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        padding: 18
+        width: Math.min(410, Math.max(290, root.width - 24))
+        anchors.centerIn: Overlay.overlay
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        property var rows: []
+
+        function confirmRows(selectedRows) {
+            rows = root.normalizedIndexes(selectedRows)
+            if (rows.length === 0)
+                return
+            open()
+        }
+
+        background: Rectangle {
+            radius: 22
+            color: root.menuFill
+            border.width: 1
+            border.color: root.quietRim
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 14
+
+            Image {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 42
+                Layout.preferredHeight: 42
+                sourceSize: Qt.size(84, 84)
+                source: root.icon("edit-delete")
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: deletePopup.rows.length === 1
+                    ? "Permanently delete this item?"
+                    : "Permanently delete " + deletePopup.rows.length + " items?"
+                color: root.foreground
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: "This is different from Trash and cannot be undone."
+                color: root.alpha(root.muted, 0.82)
+                font.pixelSize: 12
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                CompactActionButton { label: "Cancel"; onTriggered: deletePopup.close() }
+                CompactActionButton {
+                    label: "Delete"
+                    primary: true
+                    onTriggered: {
+                        const targetRows = deletePopup.rows.slice()
+                        deletePopup.close()
+                        directoryModel.deleteRows(targetRows)
+                        root.clearSelection()
+                    }
+                }
             }
         }
     }
@@ -1134,7 +1291,7 @@ ApplicationWindow {
                 spacing: 8
                 CompactActionButton { label: "Cancel"; onTriggered: namePopup.close() }
                 CompactActionButton {
-                    label: namePopup.mode === "new" ? "Create" : "Rename"
+                    label: namePopup.mode === "rename" ? "Rename" : "Create"
                     primary: true
                     onTriggered: namePopup.submit()
                 }
@@ -1481,15 +1638,20 @@ ApplicationWindow {
 
                             property bool exactCurrent: String(url) === String(directoryModel.currentUrl)
                             property bool deviceActionAvailable: placesController.canEject(index) || placesController.canTeardown(index)
+                            property bool dropReady: false
 
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 12
-                                color: placeDelegate.exactCurrent
-                                    ? root.selectedFill
-                                    : placeHover.hovered ? root.hoverFill : "transparent"
-                                border.width: placeDelegate.exactCurrent ? 1 : 0
-                                border.color: root.selectedRim
+                                color: placeDelegate.dropReady
+                                    ? root.alpha(root.accent, root.lightMode ? 0.18 : 0.22)
+                                    : placeDelegate.exactCurrent
+                                        ? root.selectedFill
+                                        : placeHover.hovered ? root.hoverFill : "transparent"
+                                border.width: placeDelegate.exactCurrent || placeDelegate.dropReady ? 1 : 0
+                                border.color: placeDelegate.dropReady
+                                    ? root.alpha(root.accent, 0.72)
+                                    : root.selectedRim
                                 Behavior on color { ColorAnimation { duration: 145 } }
                             }
 
@@ -1559,6 +1721,22 @@ ApplicationWindow {
                                         else if (placesController.canTeardown(placeDelegate.index))
                                             placesController.teardown(placeDelegate.index)
                                     }
+                                }
+                            }
+
+                            DropArea {
+                                id: placeDrop
+                                anchors.fill: parent
+                                enabled: String(placeDelegate.url).length > 0
+                                onEntered: function(drag) {
+                                    placeDelegate.dropReady = root.acceptDrop(drag, placeDelegate.url)
+                                }
+                                onExited: placeDelegate.dropReady = false
+                                onDropped: function(drop) {
+                                    const accepted = root.performDrop(drop, placeDelegate.url)
+                                    placeDelegate.dropReady = false
+                                    if (!accepted)
+                                        drop.accepted = false
                                 }
                             }
 
@@ -1873,11 +2051,7 @@ ApplicationWindow {
                             ScrollBar.vertical: MahoScrollBar {
                                 id: listScrollBar
                                 viewMoving: listView.moving || listWheelScroll.running
-                                parent: contentArea
                                 z: 90
-                                anchors.right: listPanel.right
-                                y: listPanel.y + listView.y
-                                height: listView.height
                                 thumbColor: root.alpha(root.foreground, 0.24)
                                 thumbHoverColor: root.alpha(root.accent, 0.44)
                                 thumbPressedColor: root.alpha(root.accent, 0.72)
@@ -2037,6 +2211,7 @@ ApplicationWindow {
                     MouseArea {
                         id: rubberSelectInput
                         anchors.fill: parent
+                        anchors.rightMargin: 12
                         z: 47
                         enabled: !root.contentScrollbarDragging
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -2145,6 +2320,41 @@ ApplicationWindow {
 
                     Column {
                         anchors.centerIn: parent
+                        width: Math.max(180, Math.min(parent.width - 40, 420))
+                        spacing: 8
+                        visible: !directoryModel.loading
+                            && directoryModel.errorString.length === 0
+                            && placesController.errorString.length === 0
+                            && grid.count === 0
+
+                        Image {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 42
+                            height: 42
+                            source: root.icon(directoryModel.searchQuery.length > 0 ? "edit-find" : "folder-open")
+                            opacity: 0.70
+                        }
+                        Text {
+                            width: parent.width
+                            text: directoryModel.searchQuery.length > 0 ? "No results" : "This folder is empty"
+                            color: root.foreground
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                        Text {
+                            width: parent.width
+                            visible: directoryModel.searchQuery.length > 0
+                            text: "Try a different name, type, or path."
+                            color: root.alpha(root.muted, 0.76)
+                            font.pixelSize: 12
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                        }
+                    }
+
+                    Column {
+                        anchors.centerIn: parent
                         width: Math.max(180, Math.min(parent.width - 40, 460))
                         spacing: 10
                         visible: directoryModel.errorString.length > 0 || placesController.errorString.length > 0
@@ -2212,11 +2422,37 @@ ApplicationWindow {
                         elide: Text.ElideRight
                     }
 
+                    Text {
+                        visible: directoryModel.operationBusy && directoryModel.operationProgress >= 0
+                        text: directoryModel.operationProgress + "%"
+                        color: root.alpha(root.foreground, 0.74)
+                        font.pixelSize: 11
+                    }
+
                     BusyIndicator {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
-                        running: directoryModel.operationBusy
+                        running: directoryModel.operationBusy && directoryModel.operationProgress < 0
                         visible: running
+                    }
+
+                    Rectangle {
+                        visible: directoryModel.canCancelOperation
+                        Layout.preferredWidth: 58
+                        Layout.preferredHeight: 26
+                        radius: 9
+                        color: cancelOperationHover.hovered ? root.hoverFill : root.alpha(root.foreground, 0.035)
+                        border.width: 1
+                        border.color: root.alpha(root.foreground, 0.08)
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Cancel"
+                            color: root.foreground
+                            font.pixelSize: 11
+                        }
+                        HoverHandler { id: cancelOperationHover }
+                        TapHandler { onTapped: directoryModel.cancelOperation() }
                     }
 
                     Text {
