@@ -119,6 +119,7 @@ start_session() {
         maho-dock.service \
         maho-notify.service \
         maho-clipboard-history.service \
+        maho-polkit-agent.service \
         >/dev/null 2>&1 || true
 
     local portal_rc=0
@@ -167,7 +168,8 @@ case "${1:-}" in
             maho-shell.service \
             maho-dock.service \
             maho-notify.service \
-            maho-clipboard-history.service
+            maho-clipboard-history.service \
+            maho-polkit-agent.service
         ;;
     *)
         echo "usage: maho-session start|stop|status|wait-awww" >&2
