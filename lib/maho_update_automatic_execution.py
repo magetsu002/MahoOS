@@ -955,6 +955,11 @@ def finalize_pending_normal(
                 )
             finally:
                 btrfs.close()
+            if topology == "PREPARED_MUTABLE":
+                raise RuntimeError(
+                    "normal activation candidate became mutable before root exchange; "
+                    "frozen activation authority is no longer valid"
+                )
             if topology in {"EXCHANGED_PENDING_BACKUP", "ARMED"}:
                 arm_normal_activation(
                     transaction_id,

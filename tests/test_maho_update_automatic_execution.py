@@ -772,6 +772,104 @@ class AutomaticExecutionContracts(unittest.TestCase):
         armed = automatic.read_execution_record(FakeBtrfs.instances[-1].active_state_root, TXID)
         self.assertTrue(armed["handoff_consumption"]["replayed"])
 
+    def test_expired_handoff_reconciles_armed_topology_without_repeating_exchange(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        candidate = {
+            "name": "@maho-update-candidate-abcdefabcdef",
+            "uuid": CANDIDATE_UUID,
+            "parent_root_uuid": PARENT_UUID,
+            "filesystem_uuid": FSUUID,
+            "admission_base_name": "@maho-update-admission-base-abcdefabcdef",
+            "admission_base_uuid": BASE_UUID,
+        }
+        authority = FakeAuthority().as_dict()
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        automatic._atomic_json(automatic.record_path(self.state, TXID), {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "INSTALLED_PENDING_ACTIVATION",
+            "candidate": candidate,
+            "activation_authority": authority,
+            "candidate_generation": {
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+            },
+            "activation_handoff": handoff.as_dict(),
+        })
+        FakeBtrfs.topology = "ARMED"
+        FakeBtrfs.instances.clear()
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()):
+            result = automatic.arm_normal_activation(
+                TXID,
+                state_root=self.state,
+                generation_root=self.generations,
+                now=NOW + timedelta(days=2),
+            )
+        self.assertEqual(result["phase"], "ACTIVATION_ARMED")
+        self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
+        activated = FakeBtrfs.instances[-1].active_state_root
+        armed = automatic.read_execution_record(activated, TXID)
+        self.assertEqual(armed["phase"], "ACTIVATION_ARMED")
+        self.assertTrue(armed["activation"]["reconciled_after_interruption"])
+        self.assertGreater(
+            datetime.fromisoformat(
+                armed["handoff_consumption"]["consumed_at"].replace("Z", "+00:00")
+            ),
+            datetime.fromisoformat(handoff.expires_at.replace("Z", "+00:00")),
+        )
+
+    def test_preexchange_mutable_candidate_revokes_frozen_activation_authority(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        automatic._atomic_json(automatic.record_path(self.state, TXID), {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "INSTALLED_PENDING_ACTIVATION",
+            "candidate": {
+                "uuid": CANDIDATE_UUID,
+                "parent_root_uuid": PARENT_UUID,
+            },
+            "activation_handoff": {"handoff_id": "art-" + "d" * 64},
+        })
+        FakeBtrfs.topology = "PREPARED_MUTABLE"
+        FakeBtrfs.instances.clear()
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs):
+            with self.assertRaisesRegex(RuntimeError, "became mutable before root exchange"):
+                automatic.finalize_pending_normal(
+                    TXID,
+                    state_root=self.state,
+                    generation_root=self.generations,
+                    now=NOW,
+                )
+        self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
+
     def test_wrong_activation_generation_is_rejected_before_root_swap(self):
         pending = transition_transaction(
             transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),

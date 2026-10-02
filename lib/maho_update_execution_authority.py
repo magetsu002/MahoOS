@@ -732,6 +732,11 @@ def read_activation_handoff_consumption(
     consumed = _parse_stamp(value.get("consumed_at"), "activation handoff consumption time")
     issued = _parse_stamp(handoff.issued_at, "activation handoff issue time")
     expires = _parse_stamp(handoff.expires_at, "activation handoff expiry")
-    if consumed < issued - MAX_CLOCK_SKEW or consumed > expires:
+    if expires - issued != ACTIVATION_TTL:
+        raise ValueError("activation handoff consumption temporal bounds are invalid")
+    # Expiry authorizes starting the exchange. Once exact root topology proves
+    # the exchange already happened, crash reconciliation may persist the
+    # durable completion receipt after that authorization window has closed.
+    if consumed < issued - MAX_CLOCK_SKEW:
         raise ValueError("activation handoff consumption time is invalid")
     return dict(value)

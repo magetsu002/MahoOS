@@ -372,6 +372,47 @@ class ExecutionAuthorityContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "consumption.*binding"):
                 read_activation_handoff_consumption(root, handoff)
 
+    def test_activation_receipt_may_be_persisted_after_handoff_expiry(self):
+        installing = self.pending_transaction()
+        pending = transition_transaction(
+            installing, UpdateState.INSTALLED_PENDING_ACTIVATION, now=NOW,
+        )
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CANDIDATE_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority={"authority_id": "art-" + "a" * 64},
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True},
+            reboot_required=True,
+            reboot_reason="restart required",
+            now=NOW,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = consume_activation_handoff(
+                root,
+                handoff,
+                activation_evidence={
+                    "candidate_uuid": CANDIDATE_UUID,
+                    "previous_root_uuid": PARENT_UUID,
+                    "boot_sha256": {},
+                    "boot_unchanged": True,
+                    "package_manager_invoked": False,
+                    "reboot_performed": False,
+                    "firmware_mutated": False,
+                    "reconciled_after_interruption": True,
+                },
+                now=NOW + ACTIVATION_TTL + timedelta(days=1),
+            )
+            self.assertEqual(
+                read_activation_handoff_consumption(root, handoff),
+                receipt,
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

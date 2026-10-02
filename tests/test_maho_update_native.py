@@ -93,6 +93,17 @@ class FixtureBtrfs(NativeBtrfsOps):
             marker.unlink()
 
 
+class ActivationOrderProbe(FixtureBtrfs):
+    def __init__(self, transaction_id: str, base: Path) -> None:
+        super().__init__(transaction_id, base)
+        self.first_exchange_candidate_was_read_only: bool | None = None
+
+    def _rename_exchange(self, first: Path, second: Path) -> None:
+        if self.first_exchange_candidate_was_read_only is None:
+            self.first_exchange_candidate_was_read_only = self._read_only(second)
+        super()._rename_exchange(first, second)
+
+
 class UnmountRetryProbe(NativeBtrfsOps):
     UNMOUNT_RETRY_DELAY_SECONDS = 0
 
@@ -306,14 +317,17 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="maho-normal-root-activation-") as temporary:
         base = Path(temporary)
-        ops = FixtureBtrfs(TX1, base)
+        ops = ActivationOrderProbe(TX1, base)
         _expected, old = seed_fixture(ops)
         result = ops.arm_root_activation(
             expected_candidate_uuid=CANDIDATE_UUID,
             expected_parent_root_uuid=CURRENT_UUID,
         )
+        check("normal activation makes candidate writable immediately before atomic exchange", ops.first_exchange_candidate_was_read_only is False)
         check("normal activation atomically selects exact candidate /@", (ops.top / "@/.uuid").read_text().strip() == CANDIDATE_UUID)
+        check("normal activation makes selected candidate writable", not (ops.top / "@/.ro").exists())
         check("normal activation retains exact previous known-good root", (ops.top / backup_name(TX1) / ".uuid").read_text().strip() == CURRENT_UUID)
+        check("normal activation freezes previous root before retention", (ops.top / backup_name(TX1) / ".ro").exists())
         check("normal activation consumes candidate topology", not (ops.top / candidate_name(TX1)).exists())
         check("normal activation leaves every boot artifact unchanged", all((ops.boot_root / Path(a).relative_to('/boot')).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
         check("normal root swap invokes no package manager or hidden reboot", result["package_manager_invoked"] is False and result["reboot_performed"] is False and result["firmware_mutated"] is False)
@@ -341,6 +355,23 @@ def main() -> None:
             and evidence["active_root_uuid"] == CANDIDATE_UUID,
         )
 
+    with tempfile.TemporaryDirectory(prefix="maho-normal-preexchange-mutable-") as temporary:
+        base = Path(temporary)
+        ops = FixtureBtrfs(TX1, base)
+        seed_fixture(ops)
+        ops._set_read_only(ops.top / ops.candidate, False)
+        check(
+            "power loss after candidate unfreeze but before exchange is explicit",
+            ops.normal_activation_topology(
+                expected_candidate_uuid=CANDIDATE_UUID,
+                expected_parent_root_uuid=CURRENT_UUID,
+            ) == "PREPARED_MUTABLE",
+        )
+        check(
+            "pre-exchange power loss keeps the previous root selected",
+            (ops.top / "@/.uuid").read_text().strip() == CURRENT_UUID,
+        )
+
     with tempfile.TemporaryDirectory(prefix="maho-normal-exchange-reconcile-") as temporary:
         base = Path(temporary)
         ops = FixtureBtrfs(TX1, base)
@@ -349,8 +380,11 @@ def main() -> None:
         source_record.parent.mkdir(parents=True)
         source_record.write_bytes(b'{"phase":"INSTALLED_PENDING_ACTIVATION"}\n')
         (ops.top / ops.candidate / "var/lib/maho/update").mkdir(parents=True)
-        ops._set_read_only(ops.top / ops.candidate, False)
         ops._rename_exchange(ops.top / "@", ops.top / ops.candidate)
+        check(
+            "immediate post-exchange candidate may still be frozen",
+            ops._read_only(ops.top / "@"),
+        )
         evidence = ops.read_activation_source_file(
             f"var/lib/maho/update/automatic-executions/{TX1}.json",
             expected_active_uuid=CANDIDATE_UUID,
@@ -370,6 +404,7 @@ def main() -> None:
             "post-exchange interruption finalizes without repeating root exchange",
             reconciled["reconciled_after_exchange_interruption"] is True
             and (ops.top / "@/.uuid").read_text().strip() == CANDIDATE_UUID
+            and not (ops.top / "@/.ro").exists()
             and (ops.top / backup_name(TX1) / ".ro").exists(),
         )
 
@@ -387,6 +422,7 @@ def main() -> None:
         else:
             raise AssertionError("forced normal root-swap failure unexpectedly succeeded")
         check("failed normal root swap restores current known-good /@", (ops.top / "@/.uuid").read_text().strip() == CURRENT_UUID)
+        check("failed normal root swap restores current root writable", not (ops.top / "@/.ro").exists())
         failed_candidate = ops.top / candidate_name(TX2)
         check("failed normal root swap re-freezes candidate", failed_candidate.is_dir() and (failed_candidate / ".ro").exists())
         check("failed normal root swap never changes boot artifacts", all((ops.boot_root / Path(a).relative_to('/boot')).read_bytes() == old[a] for a in BOOT_ARTIFACTS))

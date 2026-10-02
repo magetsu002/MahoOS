@@ -223,7 +223,10 @@ def publish_normal_candidate_generation(
 
 
 def read_candidate_publication(
-    transaction_id: str, root: Path = GENERATION_ROOT,
+    transaction_id: str,
+    root: Path = GENERATION_ROOT,
+    *,
+    allow_verified_manifest: bool = False,
 ) -> dict[str, Any] | None:
     path = root / "candidate-publications" / f"{transaction_id}.json"
     try:
@@ -243,9 +246,12 @@ def read_candidate_publication(
         ).read_text(encoding="utf-8")))
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError):
         return None
+    allowed_trust = {TrustState.UNKNOWN}
+    if allow_verified_manifest:
+        allowed_trust.add(TrustState.VERIFIED)
     if (
         str(system.generation_id) != value.get("system_generation_id")
-        or system.trust_state is not TrustState.UNKNOWN
+        or system.trust_state not in allowed_trust
         or str(system.parent_generation_id) != value.get("parent_system_generation_id")
     ):
         return None
@@ -307,7 +313,9 @@ def promote_normal_candidate_generation(
         ):
             raise ValueError("existing candidate generation promotion binding mismatch")
         return already_live
-    candidate = read_candidate_publication(tx["transaction_id"], root)
+    candidate = read_candidate_publication(
+        tx["transaction_id"], root, allow_verified_manifest=True,
+    )
     if candidate is None:
         raise ValueError("candidate generation publication is unavailable")
     if live_root_uuid != candidate["candidate_uuid"] or filesystem_uuid != candidate["filesystem_uuid"]:

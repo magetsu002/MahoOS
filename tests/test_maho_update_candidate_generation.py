@@ -8,10 +8,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
+import maho_update_candidate_generation as candidate_generation  # noqa: E402
 from maho_generation_v2 import RootIdentity, SystemGeneration  # noqa: E402
 from maho_kernel_generation import CompatibilityEvidence, KernelGeneration  # noqa: E402
 from maho_live_generation import read_live_publication  # noqa: E402
@@ -322,6 +324,92 @@ class CandidateGenerationContracts(unittest.TestCase):
                 root / "manifests/system" / f"{candidate_pub['system_generation_id']}.json"
             ).read_text()))
             self.assertIs(manifest.trust_state, TrustState.VERIFIED)
+
+    def test_partial_generation_promotion_replays_after_verified_manifest_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            current_system, current_kernel, live = current_store(root)
+            tx = pending_transaction()
+            candidate = {
+                "uuid": CANDIDATE_ROOT,
+                "filesystem_uuid": FSUUID,
+                "parent_root_uuid": CURRENT_ROOT,
+            }
+            recovery = {
+                "ready": True,
+                "generation_id": "g3-fixture",
+                "current_system_generation_id": str(current_system.generation_id),
+            }
+            boot_identity = {
+                "unchanged": True,
+                "sha256": dict(live["boot_sha256"]),
+                "cmdline_sha256": live["cmdline_sha256"],
+            }
+            candidate_pub = publish_normal_candidate_generation(
+                tx,
+                candidate=candidate,
+                activation_authority={
+                    "authority_id": "art-" + "a" * 64,
+                    "graph_id": "art-" + "b" * 64,
+                },
+                recovery_evidence=recovery,
+                candidate_boot_identity=boot_identity,
+                root=root,
+            )
+            healthy = transition_transaction(
+                transition_transaction(tx, UpdateState.ACTIVE_VERIFYING, now=NOW),
+                UpdateState.HEALTHY,
+                evidence={"ok": True, "root_uuid": CANDIDATE_ROOT},
+                now=NOW,
+            )
+            real_write = candidate_generation._write_atomic
+            writes = 0
+
+            def interrupt_after_verified_manifest(path, data, mode=0o644):
+                nonlocal writes
+                writes += 1
+                if writes == 2:
+                    raise RuntimeError("fixture promotion interruption")
+                return real_write(path, data, mode)
+
+            with patch.object(
+                candidate_generation,
+                "_write_atomic",
+                side_effect=interrupt_after_verified_manifest,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "promotion interruption"):
+                    promote_normal_candidate_generation(
+                        healthy,
+                        live_root_uuid=CANDIDATE_ROOT,
+                        filesystem_uuid=FSUUID,
+                        running_kernel_abi=current_kernel.kernel_abi,
+                        package_versions={"demo": "2"},
+                        boot_sha256=live["boot_sha256"],
+                        verifier_identity="maho-normal-postboot-fixture",
+                        root=root,
+                    )
+            manifest = SystemGeneration.parse(json.loads((
+                root / "manifests/system" / f"{candidate_pub['system_generation_id']}.json"
+            ).read_text()))
+            self.assertIs(manifest.trust_state, TrustState.VERIFIED)
+            self.assertEqual(
+                read_live_publication(root)["system_generation_id"],
+                live["system_generation_id"],
+            )
+            replayed = promote_normal_candidate_generation(
+                healthy,
+                live_root_uuid=CANDIDATE_ROOT,
+                filesystem_uuid=FSUUID,
+                running_kernel_abi=current_kernel.kernel_abi,
+                package_versions={"demo": "2"},
+                boot_sha256=live["boot_sha256"],
+                verifier_identity="maho-normal-postboot-fixture",
+                root=root,
+            )
+            self.assertEqual(
+                replayed["system_generation_id"],
+                candidate_pub["system_generation_id"],
+            )
 
 
 if __name__ == "__main__":

@@ -689,7 +689,7 @@ class NativeBtrfsOps:
         expected_candidate_uuid: str,
         expected_parent_root_uuid: str,
     ) -> str:
-        """Return PREPARED, ARMED, or UNSAFE for one normal activation handoff."""
+        """Classify exact normal activation topology, including interruption states."""
         self.require_root()
         identity = self.root_identity()
         self._mount_top(identity)
@@ -702,9 +702,8 @@ class NativeBtrfsOps:
             if (
                 current_uuid == expected_parent_root_uuid
                 and candidate_uuid == expected_candidate_uuid
-                and self._read_only(candidate)
             ):
-                return "PREPARED"
+                return "PREPARED" if self._read_only(candidate) else "PREPARED_MUTABLE"
             if (
                 current_uuid == expected_candidate_uuid
                 and candidate_uuid == expected_parent_root_uuid
@@ -715,6 +714,7 @@ class NativeBtrfsOps:
             if (
                 self._show_uuid(current) == expected_candidate_uuid
                 and self._show_uuid(previous) == expected_parent_root_uuid
+                and not self._read_only(current)
                 and self._read_only(previous)
             ):
                 return "ARMED"
@@ -743,13 +743,20 @@ class NativeBtrfsOps:
             raise RuntimeError("normal activation exchange topology is not exact")
         if self.live_boot_hashes() != dict(expected_boot_hashes):
             raise RuntimeError("normal activation boot identity drifted during exchange reconciliation")
+        # Keep every crash point recognizable: the selected candidate becomes
+        # writable only after the exchange, while the previous root is frozen
+        # before its directory entry is renamed to the retained backup.
+        self._set_read_only(current, False)
+        self._set_read_only(candidate, True)
+        if self._read_only(current) or not self._read_only(candidate):
+            raise RuntimeError("normal activation exchange mutability reconciliation failed")
         os.rename(candidate, previous)
-        self._set_read_only(previous, True)
         self._fsync_path(self.top)
         if (
             self._show_uuid(previous) != expected_parent_root_uuid
             or not self._read_only(previous)
             or self._show_uuid(current) != expected_candidate_uuid
+            or self._read_only(current)
         ):
             raise RuntimeError("normal activation exchange reconciliation failed")
         if self.live_boot_hashes() != dict(expected_boot_hashes):
@@ -797,7 +804,13 @@ class NativeBtrfsOps:
         boot_before = self.live_boot_hashes()
         exchanged = False
         try:
+            # The selected root must already be writable if power is lost just
+            # after renameat2. If power is lost after this property change but
+            # before exchange, topology reports PREPARED_MUTABLE and activation
+            # fails closed rather than trusting the old frozen Admission proof.
             self._set_read_only(candidate, False)
+            if self._read_only(candidate):
+                raise RuntimeError("normal activation candidate did not become writable")
             self._rename_exchange(current, candidate)
             exchanged = True
             self._fsync_path(self.top)
@@ -806,21 +819,30 @@ class NativeBtrfsOps:
                 raise RuntimeError("normal activation exchange did not select exact candidate")
             if self._show_uuid(candidate) != expected_parent_root_uuid:
                 raise RuntimeError("normal activation exchange lost previous root identity")
+            # Freeze the previous root before renaming its directory entry so a
+            # crash after retention can never leave a mutable recovery root.
+            self._set_read_only(candidate, True)
+            if self._read_only(current) or not self._read_only(candidate):
+                raise RuntimeError("normal activation mutability transition failed")
             os.rename(candidate, previous)
-            self._set_read_only(previous, True)
             self._fsync_path(self.top)
-            if self._show_uuid(previous) != expected_parent_root_uuid or not self._read_only(previous):
+            if (
+                self._show_uuid(previous) != expected_parent_root_uuid
+                or not self._read_only(previous)
+                or self._read_only(current)
+            ):
                 raise RuntimeError("normal activation previous root preservation failed")
             boot_after = self.live_boot_hashes()
             if boot_after != boot_before:
                 raise RuntimeError("normal activation unexpectedly changed boot artifacts")
         except Exception:
             # Best-effort rollback is safe only while the old root is still at
-            # the transaction candidate name.  Power-loss reconciliation is
+            # the transaction candidate name. Power-loss reconciliation is
             # handled by the durable activation handoff, not by blind replay.
             if exchanged and candidate.exists() and current.exists() and not previous.exists():
                 try:
                     self._rename_exchange(current, candidate)
+                    self._set_read_only(current, False)
                     self._set_read_only(candidate, True)
                 except Exception:
                     pass
