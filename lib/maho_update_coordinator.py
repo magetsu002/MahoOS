@@ -1329,7 +1329,12 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
     source_revision = _source_revision(root)
     previous = read_coordinator_state()
     retry = parse_stamp((previous or {}).get("next_retry_at"))
-    if retry is not None and current < retry:
+    if (
+        previous
+        and previous.get("source_revision") == source_revision
+        and retry is not None
+        and current < retry
+    ):
         value = dict(previous)
         value["last_attempt_at"] = stamp(current)
         value["phase"] = "RETRY_DEFERRED"

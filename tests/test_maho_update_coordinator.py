@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -128,6 +129,31 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertFalse(state["live_root_mutation_started"])
         self.assertFalse(state["reboot_performed"])
         self.assertIsNone(state["active_transaction_id"])
+
+    def test_retry_from_prior_source_revision_does_not_defer_new_campaign(self):
+        previous_revision = "b" * 40
+        previous = {
+            **coordinator._base_state(NOW, previous_revision),
+            "phase": "RETRY_DEFERRED",
+            "next_retry_at": coordinator.stamp(NOW + timedelta(minutes=10)),
+            "blockers": ["package_repo_config_unavailable"],
+        }
+        discovered = {**coordinator._base_state(NOW, REV), "phase": "WAITING_MAINTENANCE"}
+        runtime = {"source_revision": REV}
+        repo = {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]}
+        with patch.object(coordinator, "_require_root"), \
+             patch.object(coordinator, "_root", return_value=ROOT), \
+             patch.object(coordinator, "_source_revision", return_value=REV), \
+             patch.object(coordinator, "read_coordinator_state", return_value=previous), \
+             patch.object(coordinator, "coordinator_mutex", return_value=nullcontext()), \
+             patch.object(coordinator, "_coordinator_user", return_value="magetsu"), \
+             patch.object(coordinator, "_runtime_identity", return_value=runtime), \
+             patch.object(coordinator, "_repo_contract", return_value=repo), \
+             patch.object(coordinator, "_current_transaction", return_value=None), \
+             patch.object(coordinator, "_new_discovery", return_value=discovered) as new_discovery:
+            result = coordinator.run_once(now=NOW)
+        self.assertEqual(result["phase"], "WAITING_MAINTENANCE")
+        new_discovery.assert_called_once()
 
     def test_schedule_is_periodic_persistent_and_boot_started(self):
         timer = (ROOT / "config/systemd/system/maho-update-coordinator.timer").read_text()
