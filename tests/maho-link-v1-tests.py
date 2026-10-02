@@ -207,7 +207,7 @@ def enterprise_activation_run(args, **kwargs):
 with mock.patch.object(
     WIFI, "create_enterprise_profile", return_value=(CORP_UUID, "")
 ), mock.patch.object(
-    WIFI, "replace_enterprise_password", return_value=(True, "")
+    WIFI, "persist_enterprise_secrets", return_value=(True, "")
 ), mock.patch.object(
     WIFI, "wifi_device", return_value="wlan0"
 ), mock.patch.object(
@@ -242,7 +242,7 @@ activation_calls.clear()
 with mock.patch.object(
     WIFI, "create_enterprise_profile", return_value=(CORP_UUID, "")
 ), mock.patch.object(
-    WIFI, "replace_enterprise_password", return_value=(False, "")
+    WIFI, "persist_enterprise_secrets", return_value=(False, "")
 ), mock.patch.object(
     WIFI, "wifi_device", return_value="wlan0"
 ), mock.patch.object(
@@ -355,10 +355,12 @@ for forbidden in (
 
 link_source = (LINK / "MahoLink.qml").read_text(encoding="utf-8")
 enterprise_source = (LINK / "MahoLinkEnterprise.qml").read_text(encoding="utf-8")
+enterprise_field_source = (LINK / "MahoLinkEnterpriseField.qml").read_text(encoding="utf-8")
 assert 'page = "enterprise"' in link_source
 assert "connectSaved" in link_source
 assert "connectEnterprise" in enterprise_source
-assert 'echoMode: TextInput.Password' in enterprise_source
+assert '"privateKeyPassword"' in enterprise_source
+assert 'echoMode: root.secret ? TextInput.Password : TextInput.Normal' in enterprise_field_source
 assert "activeFocusOnTab: true" in enterprise_source
 
 # Authentication errors should become actionable user feedback instead of raw
@@ -383,6 +385,7 @@ for relative in (
     "BluetoothPairing.qml",
     "BluetoothForgetConfirmation.qml",
     "MahoLinkEnterprise.qml",
+    "MahoLinkEnterpriseField.qml",
 ):
     source = (LINK / relative).read_text(encoding="utf-8")
     assert "activeFocusOnTab: true" in source, relative

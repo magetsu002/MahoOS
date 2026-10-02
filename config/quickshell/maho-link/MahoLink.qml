@@ -98,6 +98,13 @@ Item {
             page = "details"
             return
         }
+        if (section === "bluetooth" && page === "pairing") {
+            if (selectedBluetoothDevice)
+                bluetooth.cancelPairing(selectedBluetoothDevice)
+            page = "main"
+            selectedBluetoothDevice = null
+            return
+        }
         page = "main"
         selectedNetwork = null
         selectedBluetoothDevice = null
@@ -154,6 +161,15 @@ Item {
                     return
                 }
             }
+        }
+    }
+
+    onShownChanged: {
+        if (!shown && section === "bluetooth" && page === "pairing"
+                && bluetooth.pairingActive && selectedBluetoothDevice) {
+            bluetooth.cancelPairing(selectedBluetoothDevice)
+            page = "main"
+            selectedBluetoothDevice = null
         }
     }
 

@@ -19,7 +19,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import warnings
 from typing import Any, Iterable, Iterator
 
 BLUEZ = "org.bluez"
@@ -27,6 +29,9 @@ OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
 ADAPTER = "org.bluez.Adapter1"
 DEVICE = "org.bluez.Device1"
 BATTERY = "org.bluez.Battery1"
+AGENT_MANAGER = "org.bluez.AgentManager1"
+AGENT = "org.bluez.Agent1"
+AGENT_PATH = "/org/maho/LinkPairingAgent"
 
 ADAPTER_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+$")
 DEVICE_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+/dev_[0-9A-Fa-f_]+$")
@@ -35,7 +40,7 @@ MAX_AUTOCONNECT_ATTEMPTS = len(AUTOCONNECT_BACKOFF_SECONDS)
 
 
 def emit(payload: dict[str, Any]) -> None:
-    print(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+    print(json.dumps(payload, separators=(",", ":"), ensure_ascii=False), flush=True)
 
 
 def run(args: Iterable[str], *, timeout: float = 6.0) -> tuple[int, str, str]:
@@ -346,6 +351,11 @@ def friendly_error(raw: str, fallback: str) -> str:
         (("notconnected", "not connected"), "Device is not connected."),
         (("inprogress", "in progress"), "Another Bluetooth operation is already in progress."),
         (("notready", "not ready"), "Bluetooth is not ready."),
+        (("service unknown", "name has no owner", "org.bluez was not provided",
+          "the name org.bluez was not provided"),
+         "Bluetooth service became unavailable."),
+        (("unknown object", "does not exist", "unknownobject"),
+         "Device is no longer available for pairing."),
         (("br-connection-unknown", "host is down", "no matching connection"),
          "Device is not reachable or not accepting a connection."),
         (("connectionattemptfailed", "connection attempt failed"), "Couldn’t connect to this device."),
@@ -355,6 +365,424 @@ def friendly_error(raw: str, fallback: str) -> str:
         if any(needle in lowered for needle in needles):
             return message
     return fallback
+
+
+
+AGENT_XML = """<node>
+  <interface name="org.bluez.Agent1">
+    <method name="Release"/>
+    <method name="RequestPinCode">
+      <arg type="o" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <method name="DisplayPinCode">
+      <arg type="o" direction="in"/>
+      <arg type="s" direction="in"/>
+    </method>
+    <method name="RequestPasskey">
+      <arg type="o" direction="in"/>
+      <arg type="u" direction="out"/>
+    </method>
+    <method name="DisplayPasskey">
+      <arg type="o" direction="in"/>
+      <arg type="u" direction="in"/>
+      <arg type="q" direction="in"/>
+    </method>
+    <method name="RequestConfirmation">
+      <arg type="o" direction="in"/>
+      <arg type="u" direction="in"/>
+    </method>
+    <method name="RequestAuthorization">
+      <arg type="o" direction="in"/>
+    </method>
+    <method name="AuthorizeService">
+      <arg type="o" direction="in"/>
+      <arg type="s" direction="in"/>
+    </method>
+    <method name="Cancel"/>
+  </interface>
+</node>"""
+
+
+def normalize_pairing_response(kind: str, value: Any):
+    if kind == "pin":
+        pin = str(value or "").strip()
+        if not pin or len(pin) > 16 or any(ord(char) < 32 for char in pin):
+            return None, "PIN must contain 1 to 16 printable characters."
+        return pin, ""
+    if kind == "passkey":
+        raw = str(value or "").strip()
+        if not raw.isdigit() or len(raw) > 6:
+            return None, "Passkey must be a number from 000000 to 999999."
+        passkey = int(raw)
+        if passkey < 0 or passkey > 999999:
+            return None, "Passkey must be a number from 000000 to 999999."
+        return passkey, ""
+    if kind in ("confirm", "authorize", "authorize-service"):
+        return None, ""
+    return None, "Unsupported Bluetooth pairing response."
+
+
+def confirm_paired(device_path: str, timeout: float = 3.0):
+    deadline = time.monotonic() + timeout
+    while True:
+        payload = snapshot_payload()
+        if not payload.get("available"):
+            return False, str(payload.get("error") or "Bluetooth service became unavailable.")
+        for row in payload.get("paired", []):
+            if row.get("path") == device_path and row.get("paired"):
+                return True, ""
+        if time.monotonic() >= deadline:
+            return False, "BlueZ did not confirm the paired state."
+        time.sleep(0.15)
+
+
+class PairingAgentSession:
+    def __init__(self, device_path: str):
+        self.device_path = device_path
+        self.connection = None
+        self.loop = None
+        self.Gio = None
+        self.GLib = None
+        self.registration_id = 0
+        self.owner_subscription = 0
+        self.agent_registered = False
+        self.pending: dict[int, dict[str, Any]] = {}
+        self.next_request_id = 1
+        self.finished = False
+        self.cancel_requested = False
+        self.exit_code = 1
+
+    def emit_event(self, payload: dict[str, Any]) -> None:
+        emit(payload)
+
+    def reject_pending(self, error_name: str, message: str) -> None:
+        pending = list(self.pending.values())
+        self.pending.clear()
+        for request in pending:
+            try:
+                request["invocation"].return_dbus_error(error_name, message)
+            except Exception:
+                pass
+
+    def prompt(self, kind: str, invocation: Any, device_path: str,
+               *, value: str = "", service_uuid: str = "") -> None:
+        if device_path != self.device_path:
+            invocation.return_dbus_error(
+                "org.bluez.Error.Rejected",
+                "Maho Link only authorizes the device currently being paired.",
+            )
+            return
+        request_id = self.next_request_id
+        self.next_request_id += 1
+        self.pending[request_id] = {
+            "kind": kind,
+            "invocation": invocation,
+        }
+        self.emit_event({
+            "type": "prompt",
+            "requestId": request_id,
+            "kind": kind,
+            "devicePath": device_path,
+            "value": value,
+            "serviceUuid": service_uuid,
+        })
+
+    def method_call(self, connection: Any, sender: str, object_path: str,
+                    interface_name: str, method_name: str, parameters: Any,
+                    invocation: Any) -> None:
+        values = parameters.unpack() if parameters is not None else ()
+        if method_name == "Release":
+            self.reject_pending("org.bluez.Error.Canceled", "Pairing agent was released.")
+            self.emit_event({"type": "agent-release"})
+            invocation.return_value(None)
+            return
+
+        if method_name == "RequestPinCode":
+            self.prompt("pin", invocation, str(values[0]))
+            return
+        if method_name == "RequestPasskey":
+            self.prompt("passkey", invocation, str(values[0]))
+            return
+        if method_name == "RequestConfirmation":
+            self.prompt("confirm", invocation, str(values[0]),
+                        value=f"{int(values[1]):06d}")
+            return
+        if method_name == "RequestAuthorization":
+            self.prompt("authorize", invocation, str(values[0]))
+            return
+        if method_name == "AuthorizeService":
+            self.prompt("authorize-service", invocation, str(values[0]),
+                        service_uuid=str(values[1]))
+            return
+
+        if method_name == "DisplayPinCode":
+            self.emit_event({
+                "type": "display",
+                "kind": "pin",
+                "devicePath": str(values[0]),
+                "value": str(values[1]),
+            })
+            invocation.return_value(None)
+            return
+        if method_name == "DisplayPasskey":
+            self.emit_event({
+                "type": "display",
+                "kind": "passkey",
+                "devicePath": str(values[0]),
+                "value": f"{int(values[1]):06d}",
+                "entered": int(values[2]),
+            })
+            invocation.return_value(None)
+            return
+        if method_name == "Cancel":
+            self.reject_pending("org.bluez.Error.Canceled", "Pairing was cancelled.")
+            self.emit_event({"type": "cancelled", "message": "Pairing was cancelled."})
+            invocation.return_value(None)
+            return
+
+        invocation.return_dbus_error("org.bluez.Error.Rejected", "Unsupported pairing request.")
+
+    def respond(self, payload: dict[str, Any]) -> bool:
+        try:
+            request_id = int(payload.get("requestId"))
+        except (TypeError, ValueError):
+            self.emit_event({"type": "input-error", "message": "Pairing response identity is invalid."})
+            return False
+        request = self.pending.get(request_id)
+        if request is None:
+            self.emit_event({"type": "input-error", "message": "That pairing request is no longer active."})
+            return False
+
+        action = str(payload.get("action") or "").lower()
+        if action in ("reject", "cancel"):
+            self.pending.pop(request_id, None)
+            error_name = "org.bluez.Error.Canceled" if action == "cancel" else "org.bluez.Error.Rejected"
+            request["invocation"].return_dbus_error(
+                error_name,
+                "Pairing was cancelled." if action == "cancel" else "Pairing was rejected.",
+            )
+            return True
+        if action != "accept":
+            self.emit_event({"type": "input-error", "message": "Pairing response action is invalid."})
+            return False
+
+        kind = str(request["kind"])
+        normalized, error = normalize_pairing_response(kind, payload.get("value"))
+        if error:
+            self.emit_event({
+                "type": "input-error",
+                "requestId": request_id,
+                "kind": kind,
+                "message": error,
+            })
+            return False
+
+        self.pending.pop(request_id, None)
+        if kind == "pin":
+            result = self.GLib.Variant("(s)", (normalized,))
+        elif kind == "passkey":
+            result = self.GLib.Variant("(u)", (normalized,))
+        else:
+            result = None
+        request["invocation"].return_value(result)
+        self.emit_event({"type": "accepted", "requestId": request_id, "kind": kind})
+        return True
+
+    def cancel_pairing_done(self, connection: Any, result: Any, user_data: Any) -> None:
+        try:
+            connection.call_finish(result)
+        except Exception:
+            pass
+
+    def request_cancel(self) -> bool:
+        if self.finished:
+            return False
+        self.cancel_requested = True
+        self.reject_pending("org.bluez.Error.Canceled", "Pairing was cancelled.")
+        self.emit_event({"type": "status", "message": "Cancelling pairing…"})
+        try:
+            self.connection.call(
+                BLUEZ,
+                self.device_path,
+                DEVICE,
+                "CancelPairing",
+                None,
+                None,
+                self.Gio.DBusCallFlags.NONE,
+                5000,
+                None,
+                self.cancel_pairing_done,
+                None,
+            )
+        except Exception:
+            pass
+        return False
+
+    def handle_control(self, payload: dict[str, Any]) -> bool:
+        action = str(payload.get("action") or "").lower()
+        if action == "cancel-session":
+            return self.request_cancel()
+        self.respond(payload)
+        return False
+
+    def stdin_reader(self) -> None:
+        for line in sys.stdin:
+            try:
+                payload = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                self.emit_event({"type": "input-error", "message": "Pairing response was invalid."})
+                continue
+            if not isinstance(payload, dict):
+                self.emit_event({"type": "input-error", "message": "Pairing response was invalid."})
+                continue
+            self.GLib.idle_add(self.handle_control, payload)
+        if not self.finished:
+            self.GLib.idle_add(self.request_cancel)
+
+    def owner_changed(self, connection: Any, sender_name: str, object_path: str,
+                      interface_name: str, signal_name: str, parameters: Any,
+                      user_data: Any) -> None:
+        name, old_owner, new_owner = parameters.unpack()
+        if name == BLUEZ and old_owner and not new_owner:
+            self.reject_pending("org.bluez.Error.Canceled", "Bluetooth service became unavailable.")
+            self.finish(False, "Bluetooth service became unavailable.")
+
+    def finish(self, ok: bool, message: str) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        if not ok:
+            self.reject_pending("org.bluez.Error.Canceled", message)
+        self.exit_code = 0 if ok else 1
+        self.emit_event({"type": "result", "ok": ok, "message": message})
+        if self.loop is not None:
+            self.loop.quit()
+
+    def pair_done(self, connection: Any, result: Any, user_data: Any) -> None:
+        try:
+            connection.call_finish(result)
+        except Exception as exc:
+            message = "Pairing was cancelled." if self.cancel_requested else friendly_error(
+                str(exc), "Pairing failed.")
+            self.finish(False, message)
+            return
+
+        if self.cancel_requested:
+            self.finish(False, "Pairing was cancelled.")
+            return
+        paired, error = confirm_paired(self.device_path)
+        self.finish(paired, "Paired." if paired else error)
+
+    def run(self) -> int:
+        try:
+            import gi
+
+            gi.require_version("Gio", "2.0")
+            gi.require_version("GLib", "2.0")
+            from gi.repository import Gio, GLib
+        except (ImportError, ValueError) as exc:
+            self.emit_event({
+                "type": "result",
+                "ok": False,
+                "message": "Bluetooth pairing support is unavailable: " + str(exc),
+            })
+            return 1
+
+        self.Gio = Gio
+        self.GLib = GLib
+        self.loop = GLib.MainLoop()
+
+        try:
+            self.connection = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+            node = Gio.DBusNodeInfo.new_for_xml(AGENT_XML)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                self.registration_id = self.connection.register_object(
+                    AGENT_PATH, node.interfaces[0], self.method_call, None, None)
+            if not self.registration_id:
+                raise RuntimeError("Could not export the Bluetooth pairing agent.")
+
+            self.connection.call_sync(
+                BLUEZ,
+                "/org/bluez",
+                AGENT_MANAGER,
+                "RegisterAgent",
+                GLib.Variant("(os)", (AGENT_PATH, "KeyboardDisplay")),
+                None,
+                Gio.DBusCallFlags.NONE,
+                5000,
+                None,
+            )
+            self.agent_registered = True
+            self.owner_subscription = self.connection.signal_subscribe(
+                "org.freedesktop.DBus",
+                "org.freedesktop.DBus",
+                "NameOwnerChanged",
+                "/org/freedesktop/DBus",
+                BLUEZ,
+                Gio.DBusSignalFlags.NONE,
+                self.owner_changed,
+                None,
+            )
+            self.emit_event({
+                "type": "ready",
+                "devicePath": self.device_path,
+                "capability": "KeyboardDisplay",
+            })
+
+            threading.Thread(target=self.stdin_reader, daemon=True).start()
+            self.connection.call(
+                BLUEZ,
+                self.device_path,
+                DEVICE,
+                "Pair",
+                None,
+                None,
+                Gio.DBusCallFlags.NONE,
+                60000,
+                None,
+                self.pair_done,
+                None,
+            )
+            self.loop.run()
+        except Exception as exc:
+            if not self.finished:
+                self.finish(False, friendly_error(str(exc), "Pairing could not start."))
+        finally:
+            if self.connection is not None and self.owner_subscription:
+                try:
+                    self.connection.signal_unsubscribe(self.owner_subscription)
+                except Exception:
+                    pass
+            if self.connection is not None and self.agent_registered:
+                try:
+                    self.connection.call_sync(
+                        BLUEZ,
+                        "/org/bluez",
+                        AGENT_MANAGER,
+                        "UnregisterAgent",
+                        GLib.Variant("(o)", (AGENT_PATH,)),
+                        None,
+                        Gio.DBusCallFlags.NONE,
+                        3000,
+                        None,
+                    )
+                except Exception:
+                    pass
+            if self.connection is not None and self.registration_id:
+                try:
+                    self.connection.unregister_object(self.registration_id)
+                except Exception:
+                    pass
+        return self.exit_code
+
+
+def pair_session(device_path: str) -> int:
+    if not valid_device(device_path):
+        emit({"type": "result", "ok": False, "message": "Bluetooth device path is invalid."})
+        return 2
+    return PairingAgentSession(device_path).run()
 
 
 def busctl_call(path: str, interface: str, method: str, *signature_and_args: str, timeout: float = 12.0):
@@ -725,6 +1153,8 @@ def main() -> int:
         return snapshot()
     if sys.argv[1] == "auto-connect":
         return auto_connect()
+    if sys.argv[1] == "pair-session" and len(sys.argv) == 3:
+        return pair_session(sys.argv[2])
     if sys.argv[1] == "action":
         return action(sys.argv[2:])
     emit({"ok": False, "message": "Unknown Bluetooth command."})

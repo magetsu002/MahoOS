@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import json
+import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -11,7 +13,7 @@ DEFAULT_SCAN_ARGS = ("--rescan", "auto")
 
 
 def emit(payload):
-    print(json.dumps(payload, separators=(",", ":")))
+    print(json.dumps(payload, separators=(",", ":")), flush=True)
 
 
 def run(args: Iterable[str], *, timeout=4.0, stdin_text=None):
@@ -614,8 +616,30 @@ def replace_saved_psk(ssid: str, password: str):
         return "", "NetworkManager could not securely update the saved Wi-Fi password: " + str(exc)
 
 
-def replace_enterprise_password(connection_uuid: str, password: str):
-    """Persist an 802.1X password through libnm so it never appears on argv."""
+def validate_enterprise_file(value: str, label: str):
+    if not value:
+        return "", label + " is required."
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        return "", label + " must use an absolute file path."
+    try:
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return "", label + " could not be found."
+    if not resolved.is_file():
+        return "", label + " must point to a regular file."
+    if not os.access(resolved, os.R_OK):
+        return "", label + " is not readable."
+    return str(resolved), ""
+
+
+def persist_enterprise_secrets(connection_uuid: str, options: dict):
+    """Persist 802.1X secrets through libnm so they never appear on argv."""
+    password = str(options.get("password") or "")
+    private_key_password = str(options.get("privateKeyPassword") or "")
+    if not password and not private_key_password:
+        return True, ""
+
     try:
         import gi
 
@@ -632,13 +656,17 @@ def replace_enterprise_password(connection_uuid: str, password: str):
         setting = connection.get_setting_802_1x()
         if setting is None:
             return False, "NetworkManager did not create the 802.1X settings."
-        setting.set_property("password", password)
-        setting.set_secret_flags("password", 0)
+        if password:
+            setting.set_property("password", password)
+            setting.set_secret_flags("password", 0)
+        if private_key_password:
+            setting.set_property("private-key-password", private_key_password)
+            setting.set_secret_flags("private-key-password", 0)
         if not connection.commit_changes(True, None):
-            return False, "NetworkManager did not save the enterprise password."
+            return False, "NetworkManager did not save the enterprise credentials."
         return True, ""
     except Exception as exc:
-        return False, "NetworkManager could not securely save the enterprise password: " + str(exc)
+        return False, "NetworkManager could not securely save the enterprise credentials: " + str(exc)
 
 
 def activate_saved_profile(connection_uuid: str):
@@ -688,15 +716,38 @@ def create_enterprise_profile(ssid: str, options: dict):
     eap = str(options.get("eap") or "peap").strip().lower()
     phase2 = str(options.get("phase2") or ("mschapv2" if eap == "peap" else "pap")).strip().lower()
     anonymous = str(options.get("anonymousIdentity") or "").strip()
-    domain = str(options.get("domainSuffix") or "").strip()
-    ca_cert = str(options.get("caCert") or "").strip()
+    domain_suffix = str(options.get("domainSuffix") or "").strip()
+    domain_match = str(options.get("domainMatch") or "").strip()
+    ca_cert_input = str(options.get("caCert") or "").strip()
+    client_cert_input = str(options.get("clientCert") or "").strip()
+    private_key_input = str(options.get("privateKey") or "").strip()
 
     if not ssid or not identity:
         return "", "Enterprise Wi-Fi requires a network name and identity."
-    if eap not in ("peap", "ttls"):
-        return "", "Maho Link supports PEAP and TTLS for new enterprise profiles."
-    if phase2 not in ("mschapv2", "pap", "mschap", "chap"):
+    if eap not in ("peap", "ttls", "tls"):
+        return "", "Maho Link supports PEAP, TTLS, and EAP-TLS enterprise Wi-Fi."
+    if eap != "tls" and phase2 not in ("mschapv2", "pap", "mschap", "chap"):
         return "", "Unsupported enterprise inner authentication method."
+
+    ca_cert = ""
+    client_cert = ""
+    private_key = ""
+    if ca_cert_input:
+        ca_cert, error = validate_enterprise_file(ca_cert_input, "CA certificate")
+        if error:
+            return "", error
+
+    if eap == "tls":
+        if not ca_cert:
+            return "", "EAP-TLS requires a CA certificate."
+        client_cert, error = validate_enterprise_file(client_cert_input, "Client certificate")
+        if error:
+            return "", error
+        private_key, error = validate_enterprise_file(private_key_input, "Private key")
+        if error:
+            return "", error
+        if not domain_suffix and not domain_match:
+            return "", "EAP-TLS requires a server domain or domain suffix for certificate validation."
 
     profile_name = "Maho Link · " + ssid + " · " + uuid.uuid4().hex[:8]
     device = wifi_device()
@@ -706,16 +757,24 @@ def create_enterprise_profile(ssid: str, options: dict):
         "802-11-wireless-security.key-mgmt", "wpa-eap",
         "802-1x.eap", eap,
         "802-1x.identity", identity,
-        "802-1x.phase2-auth", phase2,
     ]
+    if eap != "tls":
+        args.extend(["802-1x.phase2-auth", phase2])
     if anonymous:
         args.extend(["802-1x.anonymous-identity", anonymous])
-    if domain:
-        args.extend(["802-1x.domain-suffix-match", domain])
+    if domain_suffix:
+        args.extend(["802-1x.domain-suffix-match", domain_suffix])
+    if domain_match:
+        args.extend(["802-1x.domain-match", domain_match])
     if ca_cert:
         args.extend(["802-1x.ca-cert", ca_cert])
-    else:
+    elif eap != "tls":
         args.extend(["802-1x.system-ca-certs", "yes"])
+    if eap == "tls":
+        args.extend([
+            "802-1x.client-cert", client_cert,
+            "802-1x.private-key", private_key,
+        ])
 
     code, _, err = run(args, timeout=12.0)
     if code != 0:
@@ -731,8 +790,10 @@ def create_enterprise_profile(ssid: str, options: dict):
 
 
 def connect_enterprise(ssid: str, options: dict):
+    eap = str(options.get("eap") or "peap").strip().lower()
     password = str(options.get("password") or "")
-    if not password:
+    private_key_password = str(options.get("privateKeyPassword") or "")
+    if eap != "tls" and not password:
         emit({"ok": False, "message": "Enterprise Wi-Fi password is required."})
         return 1
 
@@ -741,13 +802,14 @@ def connect_enterprise(ssid: str, options: dict):
         emit({"ok": False, "message": error})
         return 1
 
-    persisted, persist_error = replace_enterprise_password(profile_uuid, password)
+    persisted, persist_error = persist_enterprise_secrets(profile_uuid, options)
     device = wifi_device()
     args = ["nmcli", "--wait", "25"]
     stdin_text = None
-    if not persisted:
+    fallback_secret = private_key_password if eap == "tls" else password
+    if fallback_secret and not persisted:
         args.append("--ask")
-        stdin_text = password + "\n"
+        stdin_text = fallback_secret + "\n"
     args.extend(["connection", "up", "uuid", profile_uuid])
     if device:
         args.extend(["ifname", device])

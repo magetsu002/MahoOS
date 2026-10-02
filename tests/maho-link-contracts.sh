@@ -37,6 +37,7 @@ for file in \
     MahoLinkButton.qml \
     MahoLinkPassword.qml \
     MahoLinkEnterprise.qml \
+    MahoLinkEnterpriseField.qml \
     MahoLinkManual.qml \
     MahoLinkDetails.qml \
     BluetoothState.qml \
@@ -82,6 +83,9 @@ require_text "$LINK/MahoLinkPassword.qml" 'readonly property color glassInteract
 require_text "$LINK/MahoLinkManual.qml" 'readonly property color glassInteractive:' "manual Wi-Fi flow did not inherit glass material"
 require_text "$LINK/MahoLinkEnterprise.qml" 'readonly property color glassInteractive:' "enterprise Wi-Fi flow did not inherit glass material"
 require_text "$LINK/MahoLinkEnterprise.qml" 'connectEnterprise' "enterprise Wi-Fi flow is not wired to NetworkManager"
+require_text "$LINK/MahoLinkEnterprise.qml" 'model: ["peap", "ttls", "tls"]' "EAP-TLS authoring option missing"
+require_text "$LINK/MahoLinkEnterprise.qml" '"privateKeyPassword"' "EAP-TLS private-key password transport missing"
+require_text "$LINK/MahoLinkEnterpriseField.qml" 'echoMode: root.secret ? TextInput.Password : TextInput.Normal' "enterprise secret fields are not masked"
 require_text "$LINK/MahoLinkState.qml" 'id: statusClearTimer' "transient success feedback timer missing"
 require_text "$LINK/MahoLinkState.qml" 'command: ["nmcli", "monitor"]' "external NetworkManager changes are not observed live"
 require_text "$LINK/MahoLinkState.qml" 'function connectSaved(profileUuid)' "saved NetworkManager profiles cannot reconnect"
@@ -106,6 +110,12 @@ require_text "$BT_BACKEND" 'org.bluez.Device1' "Bluetooth device interface missi
 require_text "$BT_BACKEND" 'org.bluez.Battery1' "BlueZ Battery1 support missing"
 require_text "$BT_BACKEND" 'StartDiscovery' "BlueZ discovery action missing"
 require_text "$BT_BACKEND" 'RemoveDevice' "BlueZ forget action missing"
+require_text "$BT_BACKEND" 'org.bluez.Agent1' "BlueZ interactive pairing agent missing"
+require_text "$BT_BACKEND" 'RequestPinCode' "BlueZ PIN pairing support missing"
+require_text "$BT_BACKEND" 'RequestPasskey' "BlueZ passkey pairing support missing"
+require_text "$BT_BACKEND" 'RequestConfirmation' "BlueZ numeric confirmation support missing"
+require_text "$BT_BACKEND" 'RequestAuthorization' "BlueZ pairing authorization support missing"
+require_text "$LINK/BluetoothState.qml" '"pair-session"' "Bluetooth pairing does not use the interactive agent session"
 require_text "$LINK/BluetoothState.qml" 'org.bluez.Device1", "CancelPairing"' "BlueZ pairing cancellation missing"
 require_text "$LINK/BluetoothState.qml" 'busctl", "--system", "monitor", "org.bluez"' "Bluetooth state is not driven by BlueZ signals"
 if grep -RnsF 'bluetoothctl' "$LINK" --include='*.qml'; then

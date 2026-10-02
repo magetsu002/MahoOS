@@ -9,297 +9,326 @@ Item {
     signal backRequested()
 
     property string eapMethod: "peap"
+    readonly property bool tlsMode: eapMethod === "tls"
+    readonly property bool formReady:
+        identityInput.text.trim().length > 0
+        && (tlsMode
+            ? caCertInput.text.trim().length > 0
+                && clientCertInput.text.trim().length > 0
+                && privateKeyInput.text.trim().length > 0
+                && (domainSuffixInput.text.trim().length > 0
+                    || domainMatchInput.text.trim().length > 0)
+            : passwordInput.text.length > 0)
+
     readonly property color glassLow: chrome.theme.alpha(
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64), 0.42)
     readonly property color glassInteractive: chrome.theme.alpha(
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.56), 0.47)
     readonly property color glassStroke: chrome.theme.alpha(chrome.theme.foreground, 0.055)
-    readonly property color glassHighlight: chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
     function submit() {
         const identity = identityInput.text.trim()
-        const password = passwordInput.text
-        if (identity.length === 0 || password.length === 0) {
-            root.wifi.errorText = "Identity and password are required."
+        if (identity.length === 0) {
+            root.wifi.errorText = "Enterprise Wi-Fi identity is required."
             return
         }
+
+        if (root.tlsMode) {
+            if (caCertInput.text.trim().length === 0
+                    || clientCertInput.text.trim().length === 0
+                    || privateKeyInput.text.trim().length === 0) {
+                root.wifi.errorText = "EAP-TLS requires CA, client certificate, and private key files."
+                return
+            }
+            if (domainSuffixInput.text.trim().length === 0
+                    && domainMatchInput.text.trim().length === 0) {
+                root.wifi.errorText = "EAP-TLS requires a server domain or domain suffix."
+                return
+            }
+        } else if (passwordInput.text.length === 0) {
+            root.wifi.errorText = "Enterprise Wi-Fi password is required."
+            return
+        }
+
         root.wifi.connectEnterprise(String(root.network.ssid || ""), {
             "identity": identity,
-            "password": password,
+            "anonymousIdentity": anonymousInput.text.trim(),
+            "password": root.tlsMode ? "" : passwordInput.text,
+            "privateKeyPassword": root.tlsMode ? privateKeyPasswordInput.text : "",
             "eap": root.eapMethod,
             "phase2": root.eapMethod === "peap" ? "mschapv2" : "pap",
-            "domainSuffix": domainInput.text.trim()
+            "caCert": caCertInput.text.trim(),
+            "clientCert": root.tlsMode ? clientCertInput.text.trim() : "",
+            "privateKey": root.tlsMode ? privateKeyInput.text.trim() : "",
+            "domainSuffix": domainSuffixInput.text.trim(),
+            "domainMatch": domainMatchInput.text.trim()
         })
     }
 
-    Column {
+    Flickable {
         anchors.fill: parent
-        spacing: 13
+        clip: true
+        contentWidth: width
+        contentHeight: form.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
-        Rectangle {
+        Column {
+            id: form
             width: parent.width
-            height: 112
-            radius: 20
-            antialiasing: true
-            color: root.glassLow
-            border.width: 1
-            border.color: root.glassStroke
+            spacing: 13
 
             Rectangle {
-                anchors.left: parent.left
-                anchors.leftMargin: 18
-                anchors.verticalCenter: parent.verticalCenter
-                width: 58
-                height: 58
-                radius: 19
+                width: parent.width
+                height: 112
+                radius: 20
                 antialiasing: true
-                color: chrome.theme.alpha(chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12), 0.47)
+                color: root.glassLow
                 border.width: 1
-                border.color: chrome.theme.alpha(chrome.accent, 0.09)
+                border.color: root.glassStroke
 
-                MahoWifiGlyph {
-                    anchors.centerIn: parent
-                    width: 30
-                    height: 30
-                    glyphColor: chrome.theme.alpha(chrome.accent, 0.92)
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 58
+                    height: 58
+                    radius: 19
+                    antialiasing: true
+                    color: chrome.theme.alpha(
+                        chrome.mix(chrome.theme.surfaceHigh, chrome.accent, 0.12), 0.47)
+                    border.width: 1
+                    border.color: chrome.theme.alpha(chrome.accent, 0.09)
+
+                    MahoWifiGlyph {
+                        anchors.centerIn: parent
+                        width: 30
+                        height: 30
+                        glyphColor: chrome.theme.alpha(chrome.accent, 0.92)
+                    }
+                }
+
+                Column {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 92
+                    anchors.right: parent.right
+                    anchors.rightMargin: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 5
+
+                    Text {
+                        width: parent.width
+                        text: String(root.network.ssid || "Enterprise Wi-Fi")
+                        color: chrome.textPrimary
+                        elide: Text.ElideRight
+                        font.family: "Inter"
+                        font.pixelSize: 17
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: root.tlsMode
+                            ? "802.1X · EAP-TLS certificate authentication"
+                            : "802.1X enterprise network"
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.70)
+                        font.family: "Inter"
+                        font.pixelSize: 11
+                    }
                 }
             }
 
-            Column {
-                anchors.left: parent.left
-                anchors.leftMargin: 92
-                anchors.right: parent.right
-                anchors.rightMargin: 18
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 5
+            Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: root.tlsMode
+                    ? "NetworkManager owns the 802.1X profile. Certificate paths are referenced in place; the private-key password stays off process arguments and temporary files."
+                    : "NetworkManager owns the 802.1X profile. Passwords stay off process arguments; saved credentials are committed through libnm when available."
+                color: chrome.theme.alpha(chrome.textSecondary, 0.70)
+                font.family: "Inter"
+                font.pixelSize: 10
+                lineHeight: 1.25
+            }
+
+            Row {
+                width: parent.width
+                height: 40
+                spacing: 8
+
+                Repeater {
+                    model: ["peap", "ttls", "tls"]
+
+                    Rectangle {
+                        required property string modelData
+                        width: (parent.width - 16) / 3
+                        height: 40
+                        radius: 14
+                        antialiasing: true
+                        color: root.eapMethod === modelData
+                            ? chrome.theme.alpha(chrome.accent, 0.14)
+                            : root.glassInteractive
+                        border.width: 1
+                        border.color: root.eapMethod === modelData
+                            ? chrome.theme.alpha(chrome.accent, 0.24)
+                            : root.glassStroke
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData === "tls" ? "EAP-TLS" : modelData.toUpperCase()
+                            color: root.eapMethod === modelData
+                                ? chrome.accent : chrome.textPrimary
+                            font.family: "Inter"
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !root.wifi.busy
+                            hoverEnabled: true
+                            activeFocusOnTab: true
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: root.eapMethod = modelData
+                            Keys.onReturnPressed: root.eapMethod = modelData
+                            Keys.onSpacePressed: root.eapMethod = modelData
+                        }
+                    }
+                }
+            }
+
+            MahoLinkEnterpriseField {
+                id: identityInput
+                width: parent.width
+                chrome: root.chrome
+                placeholder: "Identity / username"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: anonymousInput
+                width: parent.width
+                chrome: root.chrome
+                placeholder: "Anonymous identity (optional)"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: passwordInput
+                width: parent.width
+                visible: !root.tlsMode
+                chrome: root.chrome
+                secret: true
+                placeholder: "Password"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: caCertInput
+                width: parent.width
+                chrome: root.chrome
+                placeholder: root.tlsMode
+                    ? "CA certificate path (required)"
+                    : "CA certificate path (optional)"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: clientCertInput
+                width: parent.width
+                visible: root.tlsMode
+                chrome: root.chrome
+                placeholder: "Client certificate path"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: privateKeyInput
+                width: parent.width
+                visible: root.tlsMode
+                chrome: root.chrome
+                placeholder: "Private key path"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: privateKeyPasswordInput
+                width: parent.width
+                visible: root.tlsMode
+                chrome: root.chrome
+                secret: true
+                placeholder: "Private-key password (if encrypted)"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: domainSuffixInput
+                width: parent.width
+                chrome: root.chrome
+                placeholder: root.tlsMode
+                    ? "Server domain suffix (required unless exact domain is set)"
+                    : "Server domain suffix (optional)"
+                onSubmitted: root.submit()
+            }
+
+            MahoLinkEnterpriseField {
+                id: domainMatchInput
+                width: parent.width
+                chrome: root.chrome
+                placeholder: "Exact server domain / certificate name (optional)"
+                onSubmitted: root.submit()
+            }
+
+            Text {
+                width: parent.width
+                visible: root.tlsMode
+                wrapMode: Text.WordWrap
+                text: "EAP-TLS requires a readable CA certificate, client certificate, private key, and at least one server-name validation field."
+                color: chrome.theme.alpha(chrome.textSecondary, 0.62)
+                font.family: "Inter"
+                font.pixelSize: 9
+                lineHeight: 1.25
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 50
+                radius: 17
+                antialiasing: true
+                color: chrome.theme.alpha(chrome.accent,
+                    (connectHover.containsMouse || connectHover.activeFocus) ? 0.18 : 0.13)
+                border.width: 1
+                border.color: chrome.theme.alpha(chrome.accent, 0.22)
+                opacity: root.formReady && !root.wifi.busy ? 1 : 0.48
 
                 Text {
-                    width: parent.width
-                    text: String(root.network.ssid || "Enterprise Wi-Fi")
+                    anchors.centerIn: parent
+                    text: root.wifi.activeAction === "connect-enterprise"
+                        ? "Connecting…" : "Connect"
                     color: chrome.textPrimary
-                    elide: Text.ElideRight
                     font.family: "Inter"
-                    font.pixelSize: 17
+                    font.pixelSize: 12
                     font.weight: Font.DemiBold
                 }
 
-                Text {
-                    width: parent.width
-                    text: "802.1X enterprise network"
-                    color: chrome.theme.alpha(chrome.textSecondary, 0.70)
-                    font.family: "Inter"
-                    font.pixelSize: 11
+                MouseArea {
+                    id: connectHover
+                    anchors.fill: parent
+                    enabled: root.formReady && !root.wifi.busy
+                    hoverEnabled: true
+                    activeFocusOnTab: true
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: root.submit()
+                    Keys.onReturnPressed: root.submit()
+                    Keys.onSpacePressed: root.submit()
                 }
             }
-        }
 
-        Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Maho Link creates a NetworkManager 802.1X profile. Passwords stay off process arguments; saved credentials are committed through libnm when available."
-            color: chrome.theme.alpha(chrome.textSecondary, 0.70)
-            font.family: "Inter"
-            font.pixelSize: 10
-            lineHeight: 1.25
-        }
-
-        Row {
-            width: parent.width
-            height: 40
-            spacing: 8
-
-            Repeater {
-                model: ["peap", "ttls"]
-
-                Rectangle {
-                    required property string modelData
-                    width: (parent.width - 8) / 2
-                    height: 40
-                    radius: 14
-                    antialiasing: true
-                    color: root.eapMethod === modelData
-                        ? chrome.theme.alpha(chrome.accent, 0.14)
-                        : root.glassInteractive
-                    border.width: 1
-                    border.color: root.eapMethod === modelData
-                        ? chrome.theme.alpha(chrome.accent, 0.24)
-                        : root.glassStroke
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: modelData.toUpperCase()
-                        color: root.eapMethod === modelData ? chrome.accent : chrome.textPrimary
-                        font.family: "Inter"
-                        font.pixelSize: 11
-                        font.weight: Font.Medium
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !root.wifi.busy
-                        hoverEnabled: true
-                        activeFocusOnTab: true
-                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: root.eapMethod = modelData
-                        Keys.onReturnPressed: root.eapMethod = modelData
-                        Keys.onSpacePressed: root.eapMethod = modelData
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            width: parent.width
-            height: 56
-            radius: 16
-            antialiasing: true
-            color: root.glassInteractive
-            border.width: 1
-            border.color: identityInput.activeFocus
-                ? chrome.theme.alpha(chrome.accent, 0.26) : root.glassStroke
-
-            TextInput {
-                id: identityInput
-                anchors.fill: parent
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
-                verticalAlignment: TextInput.AlignVCenter
-                activeFocusOnTab: true
-                color: chrome.textPrimary
-                selectionColor: chrome.theme.alpha(chrome.accent, 0.30)
-                selectedTextColor: chrome.textPrimary
-                font.family: "Inter"
-                font.pixelSize: 12
-                clip: true
-            }
-
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: 16
-                anchors.verticalCenter: parent.verticalCenter
-                visible: identityInput.text.length === 0 && !identityInput.activeFocus
-                text: "Identity / username"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.58)
-                font.family: "Inter"
-                font.pixelSize: 11
-            }
-        }
-
-        Rectangle {
-            width: parent.width
-            height: 56
-            radius: 16
-            antialiasing: true
-            color: root.glassInteractive
-            border.width: 1
-            border.color: passwordInput.activeFocus
-                ? chrome.theme.alpha(chrome.accent, 0.26) : root.glassStroke
-
-            TextInput {
-                id: passwordInput
-                anchors.fill: parent
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
-                verticalAlignment: TextInput.AlignVCenter
-                activeFocusOnTab: true
-                echoMode: TextInput.Password
-                passwordCharacter: "•"
-                color: chrome.textPrimary
-                selectionColor: chrome.theme.alpha(chrome.accent, 0.30)
-                selectedTextColor: chrome.textPrimary
-                font.family: "Inter"
-                font.pixelSize: 12
-                clip: true
-                Keys.onReturnPressed: root.submit()
-            }
-
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: 16
-                anchors.verticalCenter: parent.verticalCenter
-                visible: passwordInput.text.length === 0 && !passwordInput.activeFocus
-                text: "Password"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.58)
-                font.family: "Inter"
-                font.pixelSize: 11
-            }
-        }
-
-        Rectangle {
-            width: parent.width
-            height: 52
-            radius: 16
-            antialiasing: true
-            color: root.glassInteractive
-            border.width: 1
-            border.color: domainInput.activeFocus
-                ? chrome.theme.alpha(chrome.accent, 0.26) : root.glassStroke
-
-            TextInput {
-                id: domainInput
-                anchors.fill: parent
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
-                verticalAlignment: TextInput.AlignVCenter
-                activeFocusOnTab: true
-                color: chrome.textPrimary
-                selectionColor: chrome.theme.alpha(chrome.accent, 0.30)
-                selectedTextColor: chrome.textPrimary
-                font.family: "Inter"
-                font.pixelSize: 12
-                clip: true
-                Keys.onReturnPressed: root.submit()
-            }
-
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: 16
-                anchors.verticalCenter: parent.verticalCenter
-                visible: domainInput.text.length === 0 && !domainInput.activeFocus
-                text: "Server domain suffix (optional)"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.58)
-                font.family: "Inter"
-                font.pixelSize: 11
-            }
-        }
-
-        Item { width: 1; height: 2 }
-
-        Rectangle {
-            width: parent.width
-            height: 50
-            radius: 17
-            antialiasing: true
-            color: chrome.theme.alpha(chrome.accent,
-                (connectHover.containsMouse || connectHover.activeFocus) ? 0.18 : 0.13)
-            border.width: 1
-            border.color: chrome.theme.alpha(chrome.accent, 0.22)
-            opacity: identityInput.text.trim().length > 0
-                && passwordInput.text.length > 0 && !root.wifi.busy ? 1 : 0.48
-
-            Text {
-                anchors.centerIn: parent
-                text: root.wifi.activeAction === "connect-enterprise" ? "Connecting…" : "Connect"
-                color: chrome.textPrimary
-                font.family: "Inter"
-                font.pixelSize: 12
-                font.weight: Font.DemiBold
-            }
-
-            MouseArea {
-                id: connectHover
-                anchors.fill: parent
-                enabled: identityInput.text.trim().length > 0
-                    && passwordInput.text.length > 0 && !root.wifi.busy
-                hoverEnabled: true
-                activeFocusOnTab: true
-                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: root.submit()
-                Keys.onReturnPressed: root.submit()
-                Keys.onSpacePressed: root.submit()
+            Item {
+                width: 1
+                height: 8
             }
         }
     }
 
-    Component.onCompleted: Qt.callLater(function() { identityInput.forceActiveFocus() })
+    Component.onCompleted: Qt.callLater(function() { identityInput.focusEditor() })
 }

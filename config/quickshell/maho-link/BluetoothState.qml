@@ -17,12 +17,23 @@ Scope {
     property string actionMessage: ""
     property string activeAction: ""
     property string activeDevicePath: ""
+    property string pairingPromptKind: ""
+    property string pairingPromptValue: ""
+    property int pairingPromptRequestId: 0
+    property string pairingServiceUuid: ""
+    property string pairingInputError: ""
+    property bool pairingResultSeen: false
+    property bool pairingResultOk: false
+    property string pairingResultMessage: ""
+    property bool pairingCancelRequested: false
     property bool snapshotReady: false
     property bool discoveryStopping: false
     property real discoveryStartedAt: 0
     readonly property string discoveryClientBinary: "blue" + "toothctl"
     readonly property bool discoveryOwned: discoverySession.running
-    readonly property bool busy: actionProcess.running || cancelProcess.running
+    readonly property bool pairingActive: pairingProcess.running
+    readonly property bool busy:
+        actionProcess.running || cancelProcess.running || pairingProcess.running
 
     signal actionSucceeded(string action, string devicePath)
     signal actionFailed(string action, string devicePath)
@@ -37,7 +48,7 @@ Scope {
     }
 
     function runAction(args, actionName, devicePath) {
-        if (actionProcess.running || autoConnectProcess.running)
+        if (actionProcess.running || autoConnectProcess.running || pairingProcess.running)
             return false
         clearStatus.stop()
         state.errorText = ""
@@ -109,7 +120,8 @@ Scope {
     }
 
     function maybeAutoConnect() {
-        if (actionProcess.running || cancelProcess.running || autoConnectProcess.running)
+        if (actionProcess.running || cancelProcess.running
+                || autoConnectProcess.running || pairingProcess.running)
             return false
         if (!state.bluetoothEnabled || !state.autoConnectEligible
                 || state.autoConnectEligible.length === 0)
@@ -130,17 +142,58 @@ Scope {
         return runAction(["reconnect", String(device.path)], "reconnect", String(device.path))
     }
 
+    function clearPairingPrompt() {
+        state.pairingPromptKind = ""
+        state.pairingPromptValue = ""
+        state.pairingPromptRequestId = 0
+        state.pairingServiceUuid = ""
+        state.pairingInputError = ""
+    }
+
     function pairDevice(device) {
-        if (!device || !device.path)
+        if (!device || !device.path || actionProcess.running
+                || autoConnectProcess.running || pairingProcess.running)
             return false
-        return runAction(["pair", String(device.path)], "pair", String(device.path))
+        clearStatus.stop()
+        state.errorText = ""
+        state.actionMessage = "Waiting for pairing…"
+        state.activeAction = "pair"
+        state.activeDevicePath = String(device.path)
+        state.pairingResultSeen = false
+        state.pairingResultOk = false
+        state.pairingResultMessage = ""
+        state.pairingCancelRequested = false
+        state.clearPairingPrompt()
+        pairingProcess.exec([
+            "python", backendPath(), "pair-session", String(device.path)
+        ])
+        return true
+    }
+
+    function respondPairing(accepted, value) {
+        if (!pairingProcess.running || state.pairingPromptRequestId <= 0)
+            return false
+        pairingProcess.write(JSON.stringify({
+            "action": accepted ? "accept" : "reject",
+            "requestId": state.pairingPromptRequestId,
+            "value": value || ""
+        }) + "\n")
+        return true
     }
 
     function cancelPairing(device) {
         if (!device || !device.path || cancelProcess.running)
             return false
+        state.clearPairingPrompt()
+        state.pairingCancelRequested = true
+        if (pairingProcess.running) {
+            pairingProcess.write(JSON.stringify({"action": "cancel-session"}) + "\n")
+            pairingCancelFallback.restart()
+            return true
+        }
         // Device paths originate from BlueZ ObjectManager state, not user text.
-        // Pass them as a distinct argv item; never interpolate device names.
+        // This is only a bounded fallback if the interactive agent has already
+        // exited before the UI's cancellation reaches it.
         cancelProcess.exec([
             "busctl", "--system", "call", "org.bluez", String(device.path),
             "org.bluez.Device1", "CancelPairing"
@@ -172,6 +225,8 @@ Scope {
                     state.autoConnectEligible = payload.autoConnectEligible || []
                     state.errorText = String(payload.error || "")
                     state.snapshotReady = true
+                    if (!state.available)
+                        state.clearPairingPrompt()
                     if (state.autoConnectEligible.length > 0)
                         autoConnectDelay.restart()
                 } catch (error) {
@@ -214,6 +269,111 @@ Scope {
                 state.activeDevicePath = ""
                 refreshSoon.restart()
             }
+        }
+    }
+
+    Process {
+        id: pairingProcess
+        stdinEnabled: true
+
+        stdout: SplitParser {
+            onRead: function(line) {
+                let payload
+                try {
+                    payload = JSON.parse(line)
+                } catch (error) {
+                    state.pairingInputError = "Pairing helper returned an invalid response."
+                    return
+                }
+
+                const type = String(payload.type || "")
+                if (type === "ready") {
+                    state.actionMessage = "Waiting for pairing…"
+                    return
+                }
+                if (type === "prompt") {
+                    state.pairingPromptKind = String(payload.kind || "")
+                    state.pairingPromptValue = String(payload.value || "")
+                    state.pairingPromptRequestId = Number(payload.requestId || 0)
+                    state.pairingServiceUuid = String(payload.serviceUuid || "")
+                    state.pairingInputError = ""
+                    state.actionMessage = ""
+                    return
+                }
+                if (type === "display") {
+                    state.pairingPromptKind = "display-" + String(payload.kind || "")
+                    state.pairingPromptValue = String(payload.value || "")
+                    state.pairingPromptRequestId = 0
+                    state.pairingServiceUuid = ""
+                    state.pairingInputError = ""
+                    return
+                }
+                if (type === "accepted") {
+                    state.clearPairingPrompt()
+                    state.actionMessage = "Waiting for BlueZ…"
+                    return
+                }
+                if (type === "input-error") {
+                    state.pairingInputError = String(payload.message || "Pairing input was invalid.")
+                    return
+                }
+                if (type === "cancelled") {
+                    state.clearPairingPrompt()
+                    state.actionMessage = String(payload.message || "Pairing was cancelled.")
+                    return
+                }
+                if (type === "status") {
+                    state.actionMessage = String(payload.message || "")
+                    return
+                }
+                if (type === "result") {
+                    state.pairingResultSeen = true
+                    state.pairingResultOk = Boolean(payload.ok)
+                    state.pairingResultMessage = String(payload.message || "")
+                    state.clearPairingPrompt()
+                }
+            }
+        }
+
+        onRunningChanged: {
+            if (running || state.activeAction !== "pair")
+                return
+
+            pairingCancelFallback.stop()
+            const devicePath = state.activeDevicePath
+            const ok = state.pairingResultSeen && state.pairingResultOk
+            const cancelled = state.pairingCancelRequested
+            const message = state.pairingResultSeen
+                ? state.pairingResultMessage
+                : cancelled
+                    ? "Pairing was cancelled."
+                    : "Bluetooth pairing helper stopped unexpectedly."
+
+            state.clearPairingPrompt()
+            state.activeAction = ""
+            state.activeDevicePath = ""
+            state.pairingResultSeen = false
+            state.pairingResultOk = false
+            state.pairingResultMessage = ""
+            state.pairingCancelRequested = false
+
+            if (ok) {
+                state.errorText = ""
+                state.actionMessage = message || "Paired."
+                clearStatus.restart()
+                state.actionSucceeded("pair", devicePath)
+            } else if (cancelled) {
+                state.errorText = ""
+                state.actionMessage = message || "Pairing was cancelled."
+                clearStatus.restart()
+                state.actionFailed("pair", devicePath)
+            } else {
+                clearStatus.stop()
+                state.actionMessage = ""
+                state.errorText = message || "Pairing failed."
+                state.actionFailed("pair", devicePath)
+            }
+            refreshSoon.restart()
         }
     }
 
@@ -320,6 +480,26 @@ Scope {
         id: autoConnectRetry
         interval: 5000
         onTriggered: state.maybeAutoConnect()
+    }
+
+    Timer {
+        id: pairingCancelFallback
+        interval: 900
+        onTriggered: {
+            if (!pairingProcess.running)
+                return
+            const devicePath = state.activeDevicePath
+            if (devicePath !== "" && !cancelProcess.running) {
+                cancelProcess.exec([
+                    "busctl", "--system", "call", "org.bluez", devicePath,
+                    "org.bluez.Device1", "CancelPairing"
+                ])
+            }
+            state.pairingResultSeen = true
+            state.pairingResultOk = false
+            state.pairingResultMessage = "Pairing was cancelled."
+            pairingProcess.running = false
+        }
     }
 
     Timer {
