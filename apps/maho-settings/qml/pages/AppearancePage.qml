@@ -128,7 +128,7 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("appearance.reducedMotion", { enabled: checked })
+                    onToggleRequested: function(value) { root.bridge.perform("appearance.reducedMotion", { enabled: value }) }
                 }
             }
 
@@ -146,7 +146,7 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("appearance.reducedTransparency", { enabled: checked })
+                    onToggleRequested: function(value) { root.bridge.perform("appearance.reducedTransparency", { enabled: value }) }
                 }
             }
 
