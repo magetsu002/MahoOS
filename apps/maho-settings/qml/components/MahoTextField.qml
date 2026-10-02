@@ -8,6 +8,25 @@ TextField {
     property color foreground: "#f4eeee"
     property color muted: "#aaa3a3"
     property color accent: "#d8aaaa"
+    property bool backendOwned: false
+    property string backendText: ""
+    signal textRequested(string text)
+
+    function syncBackendText() {
+        if (!root.backendOwned || root.activeFocus)
+            return
+        root.text = root.backendText
+    }
+
+    Component.onCompleted: root.syncBackendText()
+    onBackendTextChanged: root.syncBackendText()
+    onEditingFinished: {
+        if (!root.backendOwned)
+            return
+        const candidate = root.text
+        root.text = root.backendText
+        root.textRequested(candidate)
+    }
 
     implicitHeight: 38
     leftPadding: 12

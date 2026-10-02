@@ -4,14 +4,19 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     property string targetRoute: ""
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function pageTitle() {
         if (targetRoute === "rules") return "Rules"
@@ -35,23 +40,25 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 14
+        spacing: 12
 
         PageHeader {
             title: root.pageTitle()
             subtitle: root.pageSubtitle()
-            foreground: root.foreground
-            muted: root.muted
+            foreground: theme.textPrimary
+            muted: theme.textSecondary
         }
+
+        Item { Layout.preferredHeight: 6 }
 
         StatePanel {
             title: "Not available yet"
             detail: root.detailText()
-            surface: root.surface
-            borderColor: root.borderColor
-            foreground: root.foreground
-            muted: root.muted
-            accent: root.accent
+            surface: theme.surfaceElevated
+            borderColor: theme.rowRim
+            foreground: theme.textPrimary
+            muted: theme.textSecondary
+            accent: theme.accent
         }
 
         Item { Layout.fillHeight: true }

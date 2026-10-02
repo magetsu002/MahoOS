@@ -5,15 +5,20 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     property string targetRoute: "system"
     readonly property var state: bridge && bridge.state.system ? bridge.state.system : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function deferredTitle() {
         switch (targetRoute) {
@@ -28,98 +33,92 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "About"
                 subtitle: "MahoOS, hardware and session information"
-                foreground: root.foreground
-                muted: root.muted
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
 
-            SettingCard {
+            Item { Layout.preferredHeight: 6 }
+
+            StatePanel {
                 visible: root.deferredTitle().length > 0
-                title: root.deferredTitle()
-                description: "This route is reserved in the Settings architecture but its deep functionality is intentionally deferred from this milestone."
-                surface: root.surface
-                borderColor: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.32)
-                foreground: root.foreground
-                muted: root.muted
+                title: root.deferredTitle() + " is not available yet"
+                detail: "This route is reserved for its real MahoOS owner. Settings will not duplicate or imitate that authority before the backend contract is ready."
+                surface: theme.surfaceElevated
+                borderColor: theme.controlActiveRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
+            }
+
+            AppearanceRow {
+                title: "MahoOS"
+                description: root.state.mahoVersion || "Version information unavailable"
+                iconName: "computer"
+                theme: theme
 
                 Text {
-                    Layout.fillWidth: true
-                    text: "Maho Settings will present this owner when the corresponding V1 backend contract is ready; it will not duplicate the owner here."
-                    color: root.muted
-                    font.pixelSize: 12
-                    wrapMode: Text.WordWrap
+                    text: root.state.sourceRevision
+                        ? String(root.state.sourceRevision).slice(0, 10)
+                        : ""
+                    color: theme.textFaint
+                    font.pixelSize: 11
+                    font.family: "monospace"
                 }
             }
 
             SettingCard {
-                title: "About this system"
-                description: "Read directly from OS, kernel, hardware and session sources."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "System information"
+                description: "Read directly from the operating system and current session"
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
-                GridLayout {
-                    columns: root.width < 760 ? 1 : 2
-                    columnSpacing: 18
-                    rowSpacing: 12
-                    Layout.fillWidth: true
+                Repeater {
+                    model: [
+                        { label: "System", value: root.state.osName || "Unknown" },
+                        { label: "Kernel", value: root.state.kernel || "Unknown" },
+                        { label: "Architecture", value: root.state.architecture || "Unknown" },
+                        { label: "Hostname", value: root.state.hostname || "Unknown" },
+                        { label: "Processor", value: root.state.cpu || "Unknown" },
+                        { label: "Memory", value: root.state.memory || "Unknown" },
+                        { label: "Session", value: root.state.sessionType || root.state.desktop || "Unknown" },
+                        { label: "Hyprland", value: root.state.hyprland && root.state.hyprland.version
+                            ? root.state.hyprland.version : "Unavailable" }
+                    ]
 
-                    Repeater {
-                        model: [
-                            { label: "MahoOS version", value: root.state.mahoVersion || "Unknown" },
-                            { label: "Source revision", value: root.state.sourceRevision || "Unknown" },
-                            { label: "Host distribution", value: root.state.osName || "Unknown" },
-                            { label: "Kernel", value: root.state.kernel || "Unknown" },
-                            { label: "Architecture", value: root.state.architecture || "Unknown" },
-                            { label: "Hostname", value: root.state.hostname || "Unknown" },
-                            { label: "Processor", value: root.state.cpu || "Unknown" },
-                            { label: "Memory", value: root.state.memory || "Unknown" },
-                            { label: "Session", value: root.state.sessionType || root.state.desktop || "Unknown" },
-                            { label: "Hyprland", value: root.state.hyprland && root.state.hyprland.version
-                                ? root.state.hyprland.version
-                                : "Unavailable" }
-                        ]
-
-                        ColumnLayout {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            spacing: 2
-
-                            Text {
-                                text: modelData.label
-                                color: root.muted
-                                font.pixelSize: 10
-                            }
-                            Text {
-                                text: modelData.value
-                                color: root.foreground
-                                font.pixelSize: 13
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                        }
+                    MahoInsetRow {
+                        required property var modelData
+                        required property int index
+                        title: modelData.label
+                        trailingText: modelData.value
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                        dividerVisible: index < 7
                     }
                 }
             }
 
             SettingCard {
                 title: "Deferred V1 pages"
-                description: "The remaining bounded routes stay explicit without pretending their deeper backends are implemented."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                description: "Reserved owners stay explicit without exposing fake controls"
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Flow {
                     Layout.fillWidth: true
@@ -133,15 +132,15 @@ Item {
                             width: label.implicitWidth + 20
                             height: 30
                             radius: 10
-                            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.055)
+                            color: theme.controlFill
                             border.width: 1
-                            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.07)
+                            border.color: theme.controlRim
 
                             Text {
                                 id: label
                                 anchors.centerIn: parent
                                 text: modelData
-                                color: root.muted
+                                color: theme.textSecondary
                                 font.pixelSize: 10
                             }
                         }
@@ -149,7 +148,7 @@ Item {
                 }
             }
 
-            Item { Layout.preferredHeight: 6 }
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }

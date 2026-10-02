@@ -91,17 +91,20 @@ Item {
 
                 MahoTextField {
                     Layout.preferredWidth: 112
-                    text: Number(root.current.repeatRate || 25).toString()
+                    backendOwned: true
+                    backendText: Number(root.current.repeatRate || 25).toString()
                     validator: IntValidator { bottom: 1; top: 100 }
                     surface: theme.surfaceElevated
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     enabled: !root.bridge.actionBusy
-                    onEditingFinished: root.bridge.perform("input.set", {
-                        key: "repeatRate",
-                        value: Number(text)
-                    })
+                    onTextRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "repeatRate",
+                            value: Number(value)
+                        })
+                    }
                 }
             }
 
@@ -114,17 +117,20 @@ Item {
 
                 MahoTextField {
                     Layout.preferredWidth: 112
-                    text: Number(root.current.repeatDelay || 600).toString()
+                    backendOwned: true
+                    backendText: Number(root.current.repeatDelay || 600).toString()
                     validator: IntValidator { bottom: 100; top: 2000 }
                     surface: theme.surfaceElevated
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     enabled: !root.bridge.actionBusy
-                    onEditingFinished: root.bridge.perform("input.set", {
-                        key: "repeatDelay",
-                        value: Number(text)
-                    })
+                    onTextRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "repeatDelay",
+                            value: Number(value)
+                        })
+                    }
                 }
 
                 Text {
