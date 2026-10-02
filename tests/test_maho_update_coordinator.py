@@ -333,15 +333,30 @@ class CoordinatorContracts(unittest.TestCase):
                 "phase": "RECOVERING",
                 "reboot_required": True,
                 "reboot_performed": False,
+                "failed_candidate_uuid": "22222222-2222-2222-2222-222222222222",
                 "selected_root_uuid": "11111111-1111-1111-1111-111111111111",
             }
             selected_state = root / "selected-state"
             selected_state.mkdir()
-            recovery_result["_coordinator_state_root"] = str(selected_state)
+
+            class SelectedRootOps:
+                closed = False
+
+                def __init__(self, transaction_id):
+                    self.transaction_id = transaction_id
+
+                def selected_state_root_for_recovery(self, **kwargs):
+                    self.assertions = kwargs
+                    return selected_state
+
+                def close(self):
+                    assert (selected_state / "coordinator.json").is_file()
+                    type(self).closed = True
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
                  patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
                  patch("maho_update_automatic_execution.verify_activated_normal", side_effect=RuntimeError("controlled failure")), \
-                 patch("maho_update_bad_recovery.begin_bad_update_recovery", return_value=recovery_result) as begin:
+                 patch("maho_update_bad_recovery.begin_bad_update_recovery", return_value=recovery_result) as begin, \
+                 patch.object(coordinator, "NativeBtrfsOps", SelectedRootOps):
                 result = coordinator._resume_owned(
                     state, REV, "magetsu", {"source_revision": REV},
                     {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
@@ -350,8 +365,8 @@ class CoordinatorContracts(unittest.TestCase):
             self.assertEqual(result["phase"], "RECOVERING")
             self.assertTrue(result["reboot_required"])
             self.assertFalse(result["reboot_performed"])
-            self.assertNotIn("_coordinator_state_root", result["recovery"])
             self.assertTrue((selected_state / "coordinator.json").is_file())
+            self.assertTrue(SelectedRootOps.closed)
             self.assertNotEqual(result["phase"], "HEALTHY")
             begin.assert_called_once()
 
