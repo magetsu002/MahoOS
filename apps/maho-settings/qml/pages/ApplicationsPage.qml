@@ -74,13 +74,14 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.browserCandidates || []
                     textRole: "name"
-                    currentIndex: root.candidateIndex(model, root.state.browser || "")
+                    backendOwned: true
+                    backendIndex: root.candidateIndex(model, root.state.browser || "")
                     enabled: count > 0 && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         const row = root.state.browserCandidates[index]
                         if (row)
                             root.bridge.perform("applications.default", {
@@ -102,13 +103,14 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.fileManagerCandidates || []
                     textRole: "name"
-                    currentIndex: root.candidateIndex(model, root.state.fileManager || "")
+                    backendOwned: true
+                    backendIndex: root.candidateIndex(model, root.state.fileManager || "")
                     enabled: count > 0 && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         const row = root.state.fileManagerCandidates[index]
                         if (row)
                             root.bridge.perform("applications.default", {
@@ -167,13 +169,14 @@ Item {
                                 Layout.preferredWidth: Math.min(300, Math.max(190, root.width * 0.34))
                                 model: modelData.candidates || []
                                 textRole: "name"
-                                currentIndex: root.candidateIndex(model, modelData.default || "")
+                                backendOwned: true
+                                backendIndex: root.candidateIndex(model, modelData.default || "")
                                 enabled: count > 0 && !root.bridge.actionBusy
                                 surface: theme.controlFill
                                 foreground: theme.textPrimary
                                 muted: theme.textSecondary
                                 accent: theme.accent
-                                onActivated: {
+                                onIndexRequested: function(index) {
                                     const row = modelData.candidates[index]
                                     if (row)
                                         root.bridge.perform("applications.mimeDefault", {

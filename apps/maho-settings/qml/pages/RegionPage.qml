@@ -72,13 +72,14 @@ Item {
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.timezones || []
-                    currentIndex: root.stringIndex(model, root.state.timezone || "")
+                    backendOwned: true
+                    backendIndex: root.stringIndex(model, root.state.timezone || "")
                     enabled: !!root.state.timezoneControlAvailable && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         if (index >= 0)
                             root.bridge.perform("region.timezone", { timezone: model[index] })
                     }
@@ -113,13 +114,14 @@ Item {
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.locales || []
-                    currentIndex: root.stringIndex(model, root.state.locale || "")
+                    backendOwned: true
+                    backendIndex: root.stringIndex(model, root.state.locale || "")
                     enabled: !!root.state.localeControlAvailable && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         if (index >= 0)
                             root.bridge.perform("region.locale", { locale: model[index] })
                     }
@@ -136,13 +138,14 @@ Item {
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.keyboardLayouts || []
-                    currentIndex: root.stringIndex(model, root.state.keyboardLayout || "")
+                    backendOwned: true
+                    backendIndex: root.stringIndex(model, root.state.keyboardLayout || "")
                     enabled: !!root.state.keyboardLayoutControlAvailable && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         if (index >= 0)
                             root.bridge.perform("region.keyboardLayout", { layout: model[index] })
                     }

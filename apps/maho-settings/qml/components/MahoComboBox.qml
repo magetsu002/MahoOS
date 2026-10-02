@@ -7,6 +7,28 @@ ComboBox {
     property color foreground: "#f3eef8"
     property color muted: "#aaa3af"
     property color accent: "#d0bcff"
+    property bool backendOwned: false
+    property int backendIndex: -1
+    signal indexRequested(int index)
+
+    function syncBackendIndex() {
+        if (!root.backendOwned || root.popup.visible)
+            return
+        root.currentIndex = root.backendIndex
+    }
+
+    Component.onCompleted: root.syncBackendIndex()
+    onBackendIndexChanged: root.syncBackendIndex()
+
+    Connections {
+        target: root
+        function onActivated(index) {
+            if (!root.backendOwned)
+                return
+            root.indexRequested(index)
+            Qt.callLater(root.syncBackendIndex)
+        }
+    }
 
     implicitHeight: 38
     leftPadding: 12

@@ -75,13 +75,14 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.outputs || []
                     textRole: "name"
-                    currentIndex: root.defaultIndex(root.state.outputs)
+                    backendOwned: true
+                    backendIndex: root.defaultIndex(root.state.outputs)
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     enabled: count > 0 && !root.bridge.actionBusy
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         const row = root.state.outputs[index]
                         if (row)
                             root.bridge.perform("sound.default", { direction: "output", id: row.id })
@@ -102,16 +103,16 @@ Item {
                     Layout.preferredWidth: Math.min(260, Math.max(150, root.width * 0.26))
                     from: 0
                     to: 100
-                    value: root.state.output && root.state.output.available ? root.state.output.volume : 0
+                    backendOwned: true
+                    backendValue: root.state.output && root.state.output.available ? root.state.output.volume : 0
                     enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
-                    onPressedChanged: {
-                        if (!pressed && enabled)
-                            root.bridge.perform("sound.volume", {
-                                direction: "output",
-                                percent: Math.round(value)
-                            })
+                    onValueRequested: function(value) {
+                        root.bridge.perform("sound.volume", {
+                            direction: "output",
+                            percent: Math.round(value)
+                        })
                     }
                 }
 
@@ -158,13 +159,14 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.inputs || []
                     textRole: "name"
-                    currentIndex: root.defaultIndex(root.state.inputs)
+                    backendOwned: true
+                    backendIndex: root.defaultIndex(root.state.inputs)
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     enabled: count > 0 && !root.bridge.actionBusy
-                    onActivated: {
+                    onIndexRequested: function(index) {
                         const row = root.state.inputs[index]
                         if (row)
                             root.bridge.perform("sound.default", { direction: "input", id: row.id })
@@ -185,16 +187,16 @@ Item {
                     Layout.preferredWidth: Math.min(260, Math.max(150, root.width * 0.26))
                     from: 0
                     to: 100
-                    value: root.state.input && root.state.input.available ? root.state.input.volume : 0
+                    backendOwned: true
+                    backendValue: root.state.input && root.state.input.available ? root.state.input.volume : 0
                     enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
-                    onPressedChanged: {
-                        if (!pressed && enabled)
-                            root.bridge.perform("sound.volume", {
-                                direction: "input",
-                                percent: Math.round(value)
-                            })
+                    onValueRequested: function(value) {
+                        root.bridge.perform("sound.volume", {
+                            direction: "input",
+                            percent: Math.round(value)
+                        })
                     }
                 }
 

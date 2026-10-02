@@ -3,10 +3,30 @@ import QtQuick.Controls
 
 Slider {
     id: root
+
     property color accent: "#d0bcff"
     property color foreground: "#f3eef8"
+    property bool backendOwned: false
+    property real backendValue: from
+    signal valueRequested(real value)
 
     implicitHeight: 28
+
+    function syncBackendValue() {
+        if (!root.backendOwned || root.pressed)
+            return
+        root.value = Math.max(root.from, Math.min(root.to, root.backendValue))
+    }
+
+    Component.onCompleted: root.syncBackendValue()
+    onBackendValueChanged: root.syncBackendValue()
+    onPressedChanged: {
+        if (!root.backendOwned || root.pressed)
+            return
+        const candidate = root.value
+        root.value = Math.max(root.from, Math.min(root.to, root.backendValue))
+        root.valueRequested(candidate)
+    }
 
     background: Rectangle {
         x: root.leftPadding
@@ -32,6 +52,6 @@ Slider {
         radius: 9
         color: root.accent
         border.width: 2
-        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.20)
     }
 }

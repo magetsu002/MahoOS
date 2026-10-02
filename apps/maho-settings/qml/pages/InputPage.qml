@@ -152,16 +152,16 @@ Item {
                     from: -1
                     to: 1
                     stepSize: 0.05
-                    value: Number(root.current.sensitivity || 0)
+                    backendOwned: true
+                    backendValue: Number(root.current.sensitivity || 0)
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
-                    onPressedChanged: {
-                        if (!pressed)
-                            root.bridge.perform("input.set", {
-                                key: "sensitivity",
-                                value: Number(value.toFixed(2))
-                            })
+                    onValueRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "sensitivity",
+                            value: Number(value.toFixed(2))
+                        })
                     }
                 }
 
@@ -297,12 +297,13 @@ Item {
                     from: -1
                     to: 1
                     stepSize: 0.05
-                    value: root.touchpadSpeed()
+                    backendOwned: true
+                    backendValue: root.touchpadSpeed()
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
-                    onPressedChanged: {
-                        if (!pressed && root.selectedTouchpad.length > 0)
+                    onValueRequested: function(value) {
+                        if (root.selectedTouchpad.length > 0)
                             root.bridge.perform("input.set", {
                                 key: "touchpadSensitivity",
                                 device: root.selectedTouchpad,
