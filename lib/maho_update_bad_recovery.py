@@ -831,6 +831,7 @@ def begin_bad_update_recovery(
             "reboot_required": True,
             "reboot_performed": False,
             "recovery_attempts": 1,
+            "_coordinator_state_root": str(recovered_state_root),
         }
     finally:
         btrfs.close()
@@ -981,6 +982,7 @@ def resume_bad_update_recovery(
             "reboot_required": identity.subvolume_uuid != verified.previous_root_uuid,
             "reboot_performed": identity.subvolume_uuid == verified.previous_root_uuid,
             "reconciled_after_interruption": True,
+            "_coordinator_state_root": str(target_state_root),
         }
     finally:
         btrfs.close()

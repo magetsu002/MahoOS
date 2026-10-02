@@ -335,6 +335,9 @@ class CoordinatorContracts(unittest.TestCase):
                 "reboot_performed": False,
                 "selected_root_uuid": "11111111-1111-1111-1111-111111111111",
             }
+            selected_state = root / "selected-state"
+            selected_state.mkdir()
+            recovery_result["_coordinator_state_root"] = str(selected_state)
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
                  patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
                  patch("maho_update_automatic_execution.verify_activated_normal", side_effect=RuntimeError("controlled failure")), \
@@ -347,6 +350,8 @@ class CoordinatorContracts(unittest.TestCase):
             self.assertEqual(result["phase"], "RECOVERING")
             self.assertTrue(result["reboot_required"])
             self.assertFalse(result["reboot_performed"])
+            self.assertNotIn("_coordinator_state_root", result["recovery"])
+            self.assertTrue((selected_state / "coordinator.json").is_file())
             self.assertNotEqual(result["phase"], "HEALTHY")
             begin.assert_called_once()
 

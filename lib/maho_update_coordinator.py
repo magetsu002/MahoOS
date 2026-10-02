@@ -840,6 +840,15 @@ def _resume_owned(
             campaign_root=campaign_root(), now=now,
         )
 
+    def _take_recovery_state_root(result: dict[str, Any]) -> Path | None:
+        raw = result.pop("_coordinator_state_root", None)
+        if raw is None:
+            return None
+        path = Path(raw)
+        if not path.is_absolute():
+            raise ValueError("recovery coordinator state root is not absolute")
+        return path
+
     if state.get("lane") == "normal" and phase == UpdateState.INSTALLING.value:
         from maho_update_automatic_execution import recover_interrupted_normal_execution
         result = recover_interrupted_normal_execution(
@@ -885,6 +894,7 @@ def _resume_owned(
         already_armed = record.get("phase") == "ACTIVATION_ARMED"
         postboot = None
         if already_armed:
+            recovery_state_root: Path | None = None
             try:
                 postboot = verify_activated_normal(
                     transaction_id, state_root=root, now=now,
@@ -912,6 +922,7 @@ def _resume_owned(
                         generation_root=Path("/var/lib/maho/generations"),
                         campaign_root=campaign_root(), now=now,
                     )
+                    recovery_state_root = _take_recovery_state_root(recovery)
                     value.update({
                         "phase": recovery["phase"], "blockers": [],
                         "recovery": recovery, "last_error": str(exc)[:4000],
@@ -927,6 +938,7 @@ def _resume_owned(
                         recovery_exc = resume_exc
                         resumed = None
                     if resumed is not None:
+                        recovery_state_root = _take_recovery_state_root(resumed)
                         value.update({
                             "phase": UpdateState.RECOVERING.value, "blockers": [],
                             "recovery": resumed, "last_error": str(exc)[:4000],
@@ -935,7 +947,7 @@ def _resume_owned(
                             "reboot_performed": bool(resumed.get("reboot_performed")),
                             "user_status": "Exact previous system selected; restart to recover.",
                         })
-                        return _save(_with_debt(value, now))
+                        return _save(_with_debt(value, now), recovery_state_root)
                     attention = attention_after_recovery_failure(
                         transaction_id, state_root=root, detail=str(recovery_exc),
                         blocker="bad_update_recovery_evidence_invalid", now=now,
@@ -947,7 +959,10 @@ def _resume_owned(
                         "last_attempt_at": stamp(now),
                         "reboot_required": False, "reboot_performed": True,
                     })
-                return _save(_with_debt(value, now))
+                return _save(
+                    _with_debt(value, now),
+                    recovery_state_root,
+                )
             record = read_execution_record(root, transaction_id) or record
         value.update({
             "phase": UpdateState.HEALTHY.value if postboot else "READY_TO_RESTART",
@@ -983,6 +998,7 @@ def _resume_owned(
                     transaction_id, state_root=root,
                     campaign_root=campaign_root(), now=now,
                 )
+                recovery_state_root = _take_recovery_state_root(resumed)
                 if resumed.get("reboot_performed") is not True:
                     value = dict(state)
                     value.update({
@@ -991,7 +1007,7 @@ def _resume_owned(
                         "reboot_required": True, "reboot_performed": False,
                         "user_status": "Exact previous system selected; restart to recover.",
                     })
-                    return _save(_with_debt(value, now))
+                    return _save(_with_debt(value, now), recovery_state_root)
             recovered = verify_recovered_normal(
                 transaction_id, state_root=root,
                 generation_root=Path("/var/lib/maho/generations"), now=now,
@@ -1059,6 +1075,7 @@ def _resume_owned(
                         generation_root=Path("/var/lib/maho/generations"),
                         campaign_root=campaign_root(), now=now,
                     )
+                    recovery_state_root = _take_recovery_state_root(recovery)
                     value = dict(state)
                     value.update({
                         "phase": recovery["phase"], "blockers": [],
@@ -1067,7 +1084,7 @@ def _resume_owned(
                         "reboot_required": True, "reboot_performed": False,
                         "user_status": "Update verification failed. Exact previous system selected; restart to recover.",
                     })
-                    return _save(_with_debt(value, now))
+                    return _save(_with_debt(value, now), recovery_state_root)
                 except (OSError, RuntimeError, ValueError) as recovery_exc:
                     try:
                         resumed = _resume_started_recovery()
@@ -1075,6 +1092,7 @@ def _resume_owned(
                         recovery_exc = resume_exc
                         resumed = None
                     if resumed is not None:
+                        recovery_state_root = _take_recovery_state_root(resumed)
                         value = dict(state)
                         value.update({
                             "phase": UpdateState.RECOVERING.value, "blockers": [],
@@ -1084,7 +1102,7 @@ def _resume_owned(
                             "reboot_performed": bool(resumed.get("reboot_performed")),
                             "user_status": "Exact previous system selected; restart to recover.",
                         })
-                        return _save(_with_debt(value, now))
+                        return _save(_with_debt(value, now), recovery_state_root)
                     attention = attention_after_recovery_failure(
                         transaction_id, state_root=root, detail=str(recovery_exc),
                         blocker="bad_update_recovery_evidence_invalid", now=now,
