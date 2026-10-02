@@ -215,6 +215,10 @@ with mock.patch.object(
     "active_connection",
     return_value={"uuid": CORP_UUID, "ssid": "Corp", "profile": "Corp"},
 ), mock.patch.object(
+    WIFI, "finalize_enterprise_profile", return_value=(True, "")
+), mock.patch.object(
+    WIFI, "cleanup_enterprise_profile"
+) as enterprise_cleanup, mock.patch.object(
     WIFI, "run", side_effect=enterprise_activation_run
 ):
     result, response = invoke(
@@ -229,6 +233,7 @@ with mock.patch.object(
     )
 assert result == 0
 assert response["ok"] is True
+enterprise_cleanup.assert_not_called()
 assert all(
     "super-secret" not in argument
     for argv, _stdin in activation_calls
@@ -237,19 +242,16 @@ assert all(
 assert all(stdin is None for _argv, stdin in activation_calls)
 
 
-# Without libnm bindings, the fallback is still stdin-only via nmcli --ask.
+# Without secure libnm secret persistence, newly authored enterprise
+# profiles fail closed and the provisional UUID is removed before activation.
 activation_calls.clear()
 with mock.patch.object(
     WIFI, "create_enterprise_profile", return_value=(CORP_UUID, "")
 ), mock.patch.object(
-    WIFI, "persist_enterprise_secrets", return_value=(False, "")
+    WIFI, "persist_enterprise_secrets", return_value=(False, "secure store unavailable")
 ), mock.patch.object(
-    WIFI, "wifi_device", return_value="wlan0"
-), mock.patch.object(
-    WIFI,
-    "active_connection",
-    return_value={"uuid": CORP_UUID, "ssid": "Corp", "profile": "Corp"},
-), mock.patch.object(
+    WIFI, "cleanup_enterprise_profile"
+) as enterprise_cleanup, mock.patch.object(
     WIFI, "run", side_effect=enterprise_activation_run
 ):
     result, response = invoke(
@@ -260,17 +262,13 @@ with mock.patch.object(
             "password": "fallback-secret",
             "eap": "ttls",
             "phase2": "pap",
+            "domainSuffix": "example.com",
         },
     )
-assert result == 0
-assert response["ok"] is True
-assert "--ask" in activation_calls[0][0]
-assert activation_calls[0][1] == "fallback-secret\n"
-assert all(
-    "fallback-secret" not in argument
-    for argv, _stdin in activation_calls
-    for argument in argv
-)
+assert result == 1
+assert response["ok"] is False
+enterprise_cleanup.assert_called_once_with(CORP_UUID)
+assert activation_calls == []
 
 
 # Saved-profile mutation is exact-UUID bounded. Active profiles cannot be

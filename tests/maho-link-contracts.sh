@@ -174,6 +174,18 @@ echo "=== backend syntax ==="
 python -m py_compile "$BACKEND" "$BT_BACKEND"
 bash -n "$ROOT/bin/maho-link"
 require_text "$BACKEND" '"--rescan", "auto"' "snapshot no longer permits NetworkManager to refresh stale discovery"
+echo "PASS"
+
+echo "=== secure enterprise secret dependency ==="
+require_text "$ROOT/packaging/arch/PKGBUILD.in" "'python-gobject'" "clean-install package lacks PyGObject required for libnm secret persistence"
+python3 - "$BACKEND" <<'PY_ENTERPRISE_SECRET'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("def connect_enterprise(")
+end = source.index("\ndef open_captive_portal(", start)
+assert '"--ask"' not in source[start:end], "enterprise secrets still depend on blind nmcli prompt ordering"
+PY_ENTERPRISE_SECRET
 require_text "$ROOT/bin/maho-link" 'wifi|bluetooth' "Maho Link launcher does not constrain focused modes"
 require_text "$ROOT/bin/maho-link" 'MODE="${1:-wifi}"' "Maho Link no-argument Wi-Fi default is broken"
 require_text "$ROOT/bin/maho-link" '[ "$#" -le 1 ]' "Maho Link rejects its no-argument Wi-Fi default"
@@ -331,13 +343,17 @@ echo "PASS"
 echo "=== BlueZ actions use object paths, not device names ==="
 PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action toggle /org/bluez/hci0 on >"$TMP/bt-toggle.json"
 PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action scan-start /org/bluez/hci0 >"$TMP/bt-scan.json"
-PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action pair /org/bluez/hci0/dev_AA_BB_CC_DD_EE_02 >"$TMP/bt-pair.json"
+PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action pair /org/bluez/hci0/dev_AA_BB_CC_DD_EE_02 >"$TMP/bt-pair.json" || true
 PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action forget /org/bluez/hci0 /org/bluez/hci0/dev_AA_BB_CC_DD_EE_01 >"$TMP/bt-forget.json"
 python - "$TMP/bt-toggle.json" "$TMP/bt-scan.json" "$TMP/bt-pair.json" "$TMP/bt-forget.json" <<'PY'
 import json, sys
-for path in sys.argv[1:]:
+for path in (sys.argv[1], sys.argv[2], sys.argv[4]):
     with open(path, encoding="utf-8") as handle:
         assert json.load(handle)["ok"] is True
+with open(sys.argv[3], encoding="utf-8") as handle:
+    pair = json.load(handle)
+assert pair["ok"] is False
+assert "confirm" in pair["message"].lower() or "paired state" in pair["message"].lower()
 PY
 if grep -Fq 'Studio Headset' "$FAKE_BUSCTL_LOG"; then
     fail "Bluetooth device name leaked into busctl argv"

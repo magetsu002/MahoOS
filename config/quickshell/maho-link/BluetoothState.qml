@@ -48,7 +48,7 @@ Scope {
     }
 
     function runAction(args, actionName, devicePath) {
-        if (actionProcess.running || autoConnectProcess.running || pairingProcess.running)
+        if (actionProcess.running || pairingProcess.running)
             return false
         clearStatus.stop()
         state.errorText = ""
@@ -119,16 +119,6 @@ Scope {
         return runAction(["connect", String(device.path)], "connect", String(device.path))
     }
 
-    function maybeAutoConnect() {
-        if (actionProcess.running || cancelProcess.running
-                || autoConnectProcess.running || pairingProcess.running)
-            return false
-        if (!state.bluetoothEnabled || !state.autoConnectEligible
-                || state.autoConnectEligible.length === 0)
-            return false
-        autoConnectProcess.exec(["python", backendPath(), "auto-connect"])
-        return true
-    }
 
     function disconnectDevice(device) {
         if (!device || !device.path)
@@ -152,7 +142,7 @@ Scope {
 
     function pairDevice(device) {
         if (!device || !device.path || actionProcess.running
-                || autoConnectProcess.running || pairingProcess.running)
+                || pairingProcess.running)
             return false
         clearStatus.stop()
         state.errorText = ""
@@ -227,8 +217,6 @@ Scope {
                     state.snapshotReady = true
                     if (!state.available)
                         state.clearPairingPrompt()
-                    if (state.autoConnectEligible.length > 0)
-                        autoConnectDelay.restart()
                 } catch (error) {
                     state.errorText = "Bluetooth status could not be read."
                     console.log("maho-link bluetooth snapshot parse:", error)
@@ -377,28 +365,6 @@ Scope {
         }
     }
 
-    Process {
-        id: autoConnectProcess
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    const payload = JSON.parse(this.text)
-                    if (String(payload.status || "") === "connected") {
-                        state.actionMessage = String(payload.message || "Connected.")
-                        clearStatus.restart()
-                        refreshSoon.restart()
-                    } else if (String(payload.status || "") === "backoff") {
-                        const retrySeconds = Math.max(1, Number(payload.retryAfter || 5))
-                        autoConnectRetry.interval = Math.min(120000, retrySeconds * 1000)
-                        autoConnectRetry.restart()
-                    }
-                } catch (error) {
-                    console.log("maho-link bluetooth auto-connect parse:", error)
-                }
-            }
-        }
-    }
 
     Process {
         id: cancelProcess
@@ -470,17 +436,6 @@ Scope {
         onTriggered: state.refresh()
     }
 
-    Timer {
-        id: autoConnectDelay
-        interval: 180
-        onTriggered: state.maybeAutoConnect()
-    }
-
-    Timer {
-        id: autoConnectRetry
-        interval: 5000
-        onTriggered: state.maybeAutoConnect()
-    }
 
     Timer {
         id: pairingCancelFallback

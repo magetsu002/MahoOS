@@ -30,6 +30,9 @@ Scope {
     readonly property bool busy: actionProcess.running || scanning
 
     property string pendingPassword: ""
+    property bool ignoreActionResult: false
+
+    signal actionFinished(string action, bool succeeded)
     property bool actionIsScan: false
 
     function backendPath() {
@@ -82,6 +85,7 @@ Scope {
     function runAction(args, password, isScan) {
         if (actionProcess.running)
             return false
+        state.ignoreActionResult = false
         statusClearTimer.stop()
         actionMessage = ""
         errorText = ""
@@ -141,6 +145,27 @@ Scope {
 
     function openCaptivePortal() {
         return runAction(["portal-login"], "", false)
+    }
+
+    function cancelPendingConnection() {
+        if (!actionProcess.running)
+            return false
+        const action = String(state.activeAction || "")
+        if (action !== "connect" && action !== "connect-saved"
+                && action !== "connect-enterprise" && action !== "reconnect")
+            return false
+
+        state.pendingPassword = ""
+        state.ignoreActionResult = true
+        state.actionIsScan = false
+        state.scanning = false
+        state.activeAction = ""
+        state.errorText = ""
+        state.actionMessage = ""
+        actionProcess.running = false
+        state.actionFinished(action, false)
+        refreshDelay.restart()
+        return true
     }
 
     Process {
@@ -230,6 +255,11 @@ Scope {
 
         stdout: StdioCollector {
             onStreamFinished: {
+                if (state.ignoreActionResult) {
+                    state.ignoreActionResult = false
+                    return
+                }
+                const completedAction = state.activeAction
                 let succeeded = false
                 try {
                     const payload = JSON.parse(this.text)
@@ -251,6 +281,7 @@ Scope {
                 }
                 if (state.actionIsScan && !succeeded)
                     state.scanning = false
+                state.actionFinished(completedAction, succeeded)
                 state.activeAction = ""
                 refreshDelay.restart()
             }

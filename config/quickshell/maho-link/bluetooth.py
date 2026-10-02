@@ -496,6 +496,7 @@ class PairingAgentSession:
             self.reject_pending("org.bluez.Error.Canceled", "Pairing agent was released.")
             self.emit_event({"type": "agent-release"})
             invocation.return_value(None)
+            self.finish(False, "Bluetooth pairing agent was released.")
             return
 
         if method_name == "RequestPinCode":
@@ -1121,9 +1122,15 @@ def action(argv: list[str]) -> int:
             emit({"ok": False, "message": "Bluetooth device path is invalid."})
             return 2
         code, out, err = busctl_call(device_path, DEVICE, "Pair", timeout=45.0)
-        ok = code == 0
-        emit({"ok": ok, "message": "Paired." if ok else friendly_error(err or out, "Pairing failed.")})
-        return 0 if ok else 1
+        if code != 0:
+            emit({"ok": False, "message": friendly_error(err or out, "Pairing failed.")})
+            return 1
+        paired, confirm_error = confirm_paired(device_path)
+        emit({
+            "ok": paired,
+            "message": "Paired." if paired else (confirm_error or "BlueZ did not confirm the paired state."),
+        })
+        return 0 if paired else 1
 
     if command == "forget" and len(argv) == 3:
         adapter_path, device_path = argv[1], argv[2]

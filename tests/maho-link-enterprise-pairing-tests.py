@@ -130,12 +130,12 @@ with tempfile.TemporaryDirectory() as temporary:
             },
         )
     assert profile_uuid == ""
-    assert error == "EAP-TLS requires a server domain or domain suffix for certificate validation."
+    assert "server domain or domain suffix" in error
     run_mock.assert_not_called()
 
 
-# Private-key passwords follow the same safe transport rule as PEAP/TTLS
-# passwords: never argv, libnm first, stdin-only fallback when needed.
+# Private-key passwords follow the same safe transport rule as PEAP/TTLS:
+# never argv, and no prompt-order-dependent nmcli fallback.
 activation_calls = []
 
 
@@ -152,27 +152,18 @@ tls_options = {
 with mock.patch.object(
     WIFI, "create_enterprise_profile", return_value=(PROFILE_UUID, "")
 ), mock.patch.object(
-    WIFI, "persist_enterprise_secrets", return_value=(False, "")
+    WIFI, "persist_enterprise_secrets", return_value=(False, "secure store unavailable")
 ), mock.patch.object(
-    WIFI, "wifi_device", return_value="wlan0"
-), mock.patch.object(
-    WIFI,
-    "active_connection",
-    return_value={"uuid": PROFILE_UUID, "ssid": "Corp TLS", "profile": "Corp TLS"},
-), mock.patch.object(
+    WIFI, "cleanup_enterprise_profile"
+) as cleanup_mock, mock.patch.object(
     WIFI, "run", side_effect=activation_run
 ):
     result, response = invoke(WIFI.connect_enterprise, "Corp TLS", tls_options)
 
-assert result == 0
-assert response["ok"] is True
-assert "--ask" in activation_calls[0][0]
-assert activation_calls[0][1] == "private-key-secret\n"
-assert all(
-    "private-key-secret" not in argument
-    for argv, _stdin in activation_calls
-    for argument in argv
-)
+assert result == 1
+assert response["ok"] is False
+cleanup_mock.assert_called_once_with(PROFILE_UUID)
+assert activation_calls == []
 
 activation_calls.clear()
 with mock.patch.object(
@@ -186,12 +177,17 @@ with mock.patch.object(
     "active_connection",
     return_value={"uuid": PROFILE_UUID, "ssid": "Corp TLS", "profile": "Corp TLS"},
 ), mock.patch.object(
+    WIFI, "finalize_enterprise_profile", return_value=(True, "")
+), mock.patch.object(
+    WIFI, "cleanup_enterprise_profile"
+) as cleanup_mock, mock.patch.object(
     WIFI, "run", side_effect=activation_run
 ):
     result, response = invoke(WIFI.connect_enterprise, "Corp TLS", tls_options)
 
 assert result == 0
 assert response["ok"] is True
+cleanup_mock.assert_not_called()
 assert all(stdin is None for _argv, stdin in activation_calls)
 
 

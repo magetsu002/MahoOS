@@ -4,12 +4,24 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import uuid
 from typing import Iterable
 
 DEFAULT_SCAN_ARGS = ("--rescan", "auto")
+_ENTERPRISE_CANCEL_REQUESTED = False
+
+
+class EnterpriseConnectionCancelled(Exception):
+    pass
+
+
+def _enterprise_cancel_handler(signum, frame):
+    global _ENTERPRISE_CANCEL_REQUESTED
+    _ENTERPRISE_CANCEL_REQUESTED = True
+    raise EnterpriseConnectionCancelled("Enterprise connection cancelled.")
 
 
 def emit(payload):
@@ -646,7 +658,10 @@ def persist_enterprise_secrets(connection_uuid: str, options: dict):
         gi.require_version("NM", "1.0")
         from gi.repository import NM
     except (ImportError, ValueError):
-        return False, ""
+        return False, (
+            "Secure enterprise credential storage is unavailable. "
+            "Install the MahoOS python-gobject dependency and try again."
+        )
 
     try:
         client = NM.Client.new(None)
@@ -665,8 +680,8 @@ def persist_enterprise_secrets(connection_uuid: str, options: dict):
         if not connection.commit_changes(True, None):
             return False, "NetworkManager did not save the enterprise credentials."
         return True, ""
-    except Exception as exc:
-        return False, "NetworkManager could not securely save the enterprise credentials: " + str(exc)
+    except Exception:
+        return False, "NetworkManager could not securely save the enterprise credentials."
 
 
 def activate_saved_profile(connection_uuid: str):
@@ -711,6 +726,28 @@ def forget_saved_profile(connection_uuid: str):
     return 0 if ok else 1
 
 
+def cleanup_enterprise_profile(connection_uuid: str) -> None:
+    if not connection_uuid:
+        return
+    run(["nmcli", "connection", "delete", "uuid", connection_uuid], timeout=8.0)
+
+
+def finalize_enterprise_profile(connection_uuid: str):
+    code, _, err = run([
+        "nmcli", "connection", "modify", "uuid", connection_uuid,
+        "connection.autoconnect", "yes",
+    ], timeout=8.0)
+    if code != 0:
+        return False, friendly_wifi_error(err, "NetworkManager could not finalize the enterprise profile.")
+
+    code, value, err = run([
+        "nmcli", "-g", "connection.autoconnect", "connection", "show", "uuid", connection_uuid,
+    ], timeout=8.0)
+    if code != 0 or value.strip().lower() != "yes":
+        return False, friendly_wifi_error(err, "NetworkManager did not confirm the finalized enterprise profile.")
+    return True, ""
+
+
 def create_enterprise_profile(ssid: str, options: dict):
     identity = str(options.get("identity") or "").strip()
     eap = str(options.get("eap") or "peap").strip().lower()
@@ -728,6 +765,8 @@ def create_enterprise_profile(ssid: str, options: dict):
         return "", "Maho Link supports PEAP, TTLS, and EAP-TLS enterprise Wi-Fi."
     if eap != "tls" and phase2 not in ("mschapv2", "pap", "mschap", "chap"):
         return "", "Unsupported enterprise inner authentication method."
+    if not domain_suffix and not domain_match:
+        return "", "Enterprise Wi-Fi requires a server domain or domain suffix for certificate validation."
 
     ca_cert = ""
     client_cert = ""
@@ -746,14 +785,13 @@ def create_enterprise_profile(ssid: str, options: dict):
         private_key, error = validate_enterprise_file(private_key_input, "Private key")
         if error:
             return "", error
-        if not domain_suffix and not domain_match:
-            return "", "EAP-TLS requires a server domain or domain suffix for certificate validation."
 
     profile_name = "Maho Link · " + ssid + " · " + uuid.uuid4().hex[:8]
     device = wifi_device()
     args = [
         "nmcli", "connection", "add", "type", "wifi",
         "ifname", device or "*", "con-name", profile_name, "ssid", ssid,
+        "connection.autoconnect", "no",
         "802-11-wireless-security.key-mgmt", "wpa-eap",
         "802-1x.eap", eap,
         "802-1x.identity", identity,
@@ -778,6 +816,9 @@ def create_enterprise_profile(ssid: str, options: dict):
 
     code, _, err = run(args, timeout=12.0)
     if code != 0:
+        # The random profile name belongs only to this attempt. If nmcli was
+        # interrupted after NetworkManager accepted the add, remove it by name.
+        run(["nmcli", "connection", "delete", "id", profile_name], timeout=8.0)
         return "", friendly_wifi_error(err, "NetworkManager could not create the enterprise profile.")
 
     code, profile_uuid, err = run([
@@ -790,43 +831,75 @@ def create_enterprise_profile(ssid: str, options: dict):
 
 
 def connect_enterprise(ssid: str, options: dict):
+    global _ENTERPRISE_CANCEL_REQUESTED
+    _ENTERPRISE_CANCEL_REQUESTED = False
     eap = str(options.get("eap") or "peap").strip().lower()
     password = str(options.get("password") or "")
-    private_key_password = str(options.get("privateKeyPassword") or "")
     if eap != "tls" and not password:
         emit({"ok": False, "message": "Enterprise Wi-Fi password is required."})
         return 1
 
-    profile_uuid, error = create_enterprise_profile(ssid, options)
-    if not profile_uuid:
-        emit({"ok": False, "message": error})
+    profile_uuid = ""
+    finalized = False
+    previous_handlers = {}
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous_handlers[sig] = signal.signal(sig, _enterprise_cancel_handler)
+        except (ValueError, OSError):
+            pass
+
+    try:
+        profile_uuid, error = create_enterprise_profile(ssid, options)
+        if not profile_uuid:
+            emit({"ok": False, "message": error})
+            return 1
+
+        persisted, persist_error = persist_enterprise_secrets(profile_uuid, options)
+        if not persisted:
+            emit({"ok": False, "message": persist_error or "NetworkManager could not securely save the enterprise credentials."})
+            return 1
+
+        device = wifi_device()
+        args = ["nmcli", "--wait", "25", "connection", "up", "uuid", profile_uuid]
+        if device:
+            args.extend(["ifname", device])
+
+        code, _, err = run(args, timeout=30.0)
+        if code != 0:
+            message = "Enterprise Wi-Fi connection was cancelled." if _ENTERPRISE_CANCEL_REQUESTED else friendly_wifi_error(
+                err, "Could not connect to enterprise Wi-Fi.")
+            emit({"ok": False, "message": message})
+            return 1
+
+        restored = active_connection(device)
+        if restored is None or restored.get("uuid") != profile_uuid:
+            message = "Enterprise Wi-Fi connection was cancelled." if _ENTERPRISE_CANCEL_REQUESTED else (
+                "NetworkManager did not confirm the enterprise Wi-Fi connection.")
+            emit({"ok": False, "message": message})
+            return 1
+
+        finalized, final_error = finalize_enterprise_profile(profile_uuid)
+        if not finalized:
+            emit({"ok": False, "message": final_error})
+            return 1
+
+        emit({"ok": True, "message": "Connected to " + ssid + "."})
+        return 0
+    except EnterpriseConnectionCancelled:
+        emit({"ok": False, "message": "Enterprise Wi-Fi connection was cancelled."})
         return 1
-
-    persisted, persist_error = persist_enterprise_secrets(profile_uuid, options)
-    device = wifi_device()
-    args = ["nmcli", "--wait", "25"]
-    stdin_text = None
-    fallback_secret = private_key_password if eap == "tls" else password
-    if fallback_secret and not persisted:
-        args.append("--ask")
-        stdin_text = fallback_secret + "\n"
-    args.extend(["connection", "up", "uuid", profile_uuid])
-    if device:
-        args.extend(["ifname", device])
-
-    code, _, err = run(args, timeout=30.0, stdin_text=stdin_text)
-    if code != 0:
-        run(["nmcli", "connection", "delete", "uuid", profile_uuid], timeout=8.0)
-        emit({"ok": False, "message": friendly_wifi_error(err or persist_error, "Could not connect to enterprise Wi-Fi.")})
+    except Exception:
+        emit({"ok": False, "message": "Enterprise Wi-Fi connection helper failed."})
         return 1
-
-    restored = active_connection(device)
-    if restored is None or restored.get("uuid") != profile_uuid:
-        emit({"ok": False, "message": "NetworkManager did not confirm the enterprise Wi-Fi connection."})
-        return 1
-
-    emit({"ok": True, "message": "Connected to " + ssid + "."})
-    return 0
+    finally:
+        for sig, handler in previous_handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+        if profile_uuid and not finalized:
+            cleanup_enterprise_profile(profile_uuid)
+        _ENTERPRISE_CANCEL_REQUESTED = False
 
 
 def open_captive_portal():

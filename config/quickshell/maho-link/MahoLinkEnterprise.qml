@@ -9,16 +9,38 @@ Item {
     signal backRequested()
 
     property string eapMethod: "peap"
+    property string interactionSsid: ""
     readonly property bool tlsMode: eapMethod === "tls"
+    readonly property bool hasServerIdentity:
+        domainSuffixInput.text.trim().length > 0
+        || domainMatchInput.text.trim().length > 0
     readonly property bool formReady:
         identityInput.text.trim().length > 0
+        && hasServerIdentity
         && (tlsMode
             ? caCertInput.text.trim().length > 0
                 && clientCertInput.text.trim().length > 0
                 && privateKeyInput.text.trim().length > 0
-                && (domainSuffixInput.text.trim().length > 0
-                    || domainMatchInput.text.trim().length > 0)
             : passwordInput.text.length > 0)
+
+    function clearInteraction() {
+        eapMethod = "peap"
+        identityInput.text = ""
+        anonymousInput.text = ""
+        passwordInput.text = ""
+        caCertInput.text = ""
+        clientCertInput.text = ""
+        privateKeyInput.text = ""
+        privateKeyPasswordInput.text = ""
+        domainSuffixInput.text = ""
+        domainMatchInput.text = ""
+    }
+
+    function resetForNetwork() {
+        clearInteraction()
+        interactionSsid = String(root.network && root.network.ssid
+            ? root.network.ssid : "")
+    }
 
     readonly property color glassLow: chrome.theme.alpha(
         chrome.mix(chrome.theme.surfaceHigh, chrome.theme.background, 0.64), 0.42)
@@ -33,16 +55,16 @@ Item {
             return
         }
 
+        if (!root.hasServerIdentity) {
+            root.wifi.errorText = "Enterprise Wi-Fi requires a server domain or domain suffix."
+            return
+        }
+
         if (root.tlsMode) {
             if (caCertInput.text.trim().length === 0
                     || clientCertInput.text.trim().length === 0
                     || privateKeyInput.text.trim().length === 0) {
                 root.wifi.errorText = "EAP-TLS requires CA, client certificate, and private key files."
-                return
-            }
-            if (domainSuffixInput.text.trim().length === 0
-                    && domainMatchInput.text.trim().length === 0) {
-                root.wifi.errorText = "EAP-TLS requires a server domain or domain suffix."
                 return
             }
         } else if (passwordInput.text.length === 0) {
@@ -143,7 +165,7 @@ Item {
                 wrapMode: Text.WordWrap
                 text: root.tlsMode
                     ? "NetworkManager owns the 802.1X profile. Certificate paths are referenced in place; the private-key password stays off process arguments and temporary files."
-                    : "NetworkManager owns the 802.1X profile. Passwords stay off process arguments; saved credentials are committed through libnm when available."
+                    : "NetworkManager owns the 802.1X profile. Passwords stay off process arguments and are committed through libnm before activation."
                 color: chrome.theme.alpha(chrome.textSecondary, 0.70)
                 font.family: "Inter"
                 font.pixelSize: 10
@@ -228,7 +250,7 @@ Item {
                 chrome: root.chrome
                 placeholder: root.tlsMode
                     ? "CA certificate path (required)"
-                    : "CA certificate path (optional)"
+                    : "CA certificate path (optional; system CA otherwise)"
                 onSubmitted: root.submit()
             }
 
@@ -264,9 +286,7 @@ Item {
                 id: domainSuffixInput
                 width: parent.width
                 chrome: root.chrome
-                placeholder: root.tlsMode
-                    ? "Server domain suffix (required unless exact domain is set)"
-                    : "Server domain suffix (optional)"
+                placeholder: "Server domain suffix (required unless exact domain is set)"
                 onSubmitted: root.submit()
             }
 
@@ -274,15 +294,17 @@ Item {
                 id: domainMatchInput
                 width: parent.width
                 chrome: root.chrome
-                placeholder: "Exact server domain / certificate name (optional)"
+                placeholder: "Exact server domain / certificate name (required unless suffix is set)"
                 onSubmitted: root.submit()
             }
 
             Text {
                 width: parent.width
-                visible: root.tlsMode
+                visible: true
                 wrapMode: Text.WordWrap
-                text: "EAP-TLS requires a readable CA certificate, client certificate, private key, and at least one server-name validation field."
+                text: root.tlsMode
+                    ? "EAP-TLS requires a readable CA certificate, client certificate, private key, and an explicit server-name validation field."
+                    : "PEAP and TTLS require an explicit server domain or domain suffix. A custom CA is optional; otherwise NetworkManager uses system CA trust constrained to that server identity."
                 color: chrome.theme.alpha(chrome.textSecondary, 0.62)
                 font.family: "Inter"
                 font.pixelSize: 9
@@ -330,5 +352,10 @@ Item {
         }
     }
 
-    Component.onCompleted: Qt.callLater(function() { identityInput.focusEditor() })
+    onNetworkChanged: Qt.callLater(root.resetForNetwork)
+
+    Component.onCompleted: {
+        resetForNetwork()
+        Qt.callLater(function() { identityInput.focusEditor() })
+    }
 }

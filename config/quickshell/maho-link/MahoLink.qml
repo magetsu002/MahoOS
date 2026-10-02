@@ -90,6 +90,11 @@ Item {
     }
 
     function goBack() {
+        if (section === "wifi" && page !== "main") {
+            wifi.cancelPendingConnection()
+            if (page === "enterprise")
+                enterpriseView.clearInteraction()
+        }
         if (page === "main") {
             closeRequested()
             return
@@ -118,6 +123,7 @@ Item {
             return
         }
         if (network.enterprise) {
+            enterpriseView.clearInteraction()
             selectedNetwork = network
             page = "enterprise"
             return
@@ -165,6 +171,10 @@ Item {
     }
 
     onShownChanged: {
+        if (!shown) {
+            wifi.cancelPendingConnection()
+            enterpriseView.clearInteraction()
+        }
         if (!shown && section === "bluetooth" && page === "pairing"
                 && bluetooth.pairingActive && selectedBluetoothDevice) {
             bluetooth.cancelPairing(selectedBluetoothDevice)
@@ -181,6 +191,21 @@ Item {
             if (root.section === "wifi" && root.wifi.actionMessage !== "" && root.page !== "main") {
                 root.page = "main"
                 root.selectedNetwork = null
+            }
+        }
+        function onActionFinished(action, succeeded) {
+            if (action === "connect-enterprise") {
+                enterpriseView.clearInteraction()
+                if (succeeded) {
+                    root.page = "main"
+                    root.selectedNetwork = null
+                }
+            }
+        }
+        function onAvailableChanged() {
+            if (root.section === "wifi" && !root.wifi.available && root.page === "enterprise") {
+                root.wifi.cancelPendingConnection()
+                enterpriseView.clearInteraction()
             }
         }
         function onWifiEnabledChanged() {
@@ -461,6 +486,7 @@ Item {
         }
 
         MahoLinkEnterprise {
+            id: enterpriseView
             anchors.fill: parent
             visible: root.section === "wifi" && root.page === "enterprise"
             chrome: root
