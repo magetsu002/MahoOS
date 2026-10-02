@@ -208,6 +208,7 @@ require_text "$PKGBUILD" 'build-maho-settings' "Arch package does not build Maho
 require_text "$PKGBUILD" 'apps/maho-settings/prebuilt/maho-settings' "Arch package does not ship native Settings artifact"
 require_text "$PKGBUILD" 'maho-settings-wrapper' "Arch package does not expose Settings runtime wrapper"
 require_file "$ROOT/packaging/arch/maho-settings-wrapper"
+require_text "$ROOT/bin/maho-setup" 'maho-files maho-link maho-settings maho-lock' "runtime setup does not publish the maho-settings user wrapper"
 bash -n "$WRAPPER" "$ROOT/packaging/arch/maho-settings-wrapper"
 python3 -m py_compile "$BACKEND" "$APP/source-fingerprint.py"
 echo PASS
