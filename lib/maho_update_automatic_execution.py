@@ -797,11 +797,28 @@ def _ensure_candidate_generation_after_activation(
     candidate = record.get("candidate")
     authority = record.get("activation_authority")
     recovery = record.get("recovery_evidence")
-    boot = record.get("candidate_boot_identity")
+    handoff_value = record.get("activation_handoff")
     if not all(isinstance(item, Mapping) for item in (
-        expected, candidate, authority, recovery, boot,
+        expected, candidate, authority, recovery, handoff_value,
     )):
         raise ValueError("post-activation candidate generation evidence is incomplete")
+    boot = expected.get("candidate_boot_identity")
+    if not isinstance(boot, Mapping):
+        raise ValueError("candidate generation boot identity is unavailable")
+    handoff = parse_activation_handoff(handoff_value)
+    if (
+        expected.get("transaction_id") != current["transaction_id"]
+        or expected.get("source_revision") != current["source_revision"]
+        or expected.get("package_generation_id") != current["package_generation"]["id"]
+        or expected.get("candidate_uuid") != candidate.get("uuid")
+        or expected.get("parent_root_uuid") != candidate.get("parent_root_uuid")
+        or expected.get("system_generation_id") != handoff.candidate_system_generation_id
+        or expected.get("kernel_generation_id") != handoff.candidate_kernel_generation_id
+        or dict(boot) != dict(handoff.candidate_boot_identity)
+        or dict(recovery) != dict(handoff.recovery_evidence)
+        or dict(authority) != dict(handoff.activation_authority)
+    ):
+        raise ValueError("post-activation candidate generation binding mismatch")
     publication = read_candidate_publication(current["transaction_id"], generation_root)
     if publication is None:
         live, _system, _kernel = load_current_verified_generations(generation_root)

@@ -1100,10 +1100,18 @@ class AutomaticExecutionContracts(unittest.TestCase):
             "candidate": candidate,
             "activation_authority": authority,
             "recovery_evidence": {"ready": True, "generation_id": "g3-fixture"},
-            "candidate_boot_identity": {"unchanged": True, "sha256": dict(BOOT_HASHES)},
             "candidate_generation": {
+                "transaction_id": TXID,
+                "source_revision": REV,
+                "package_generation_id": pending["package_generation"]["id"],
                 "system_generation_id": CANDIDATE_SYSTEM,
                 "kernel_generation_id": CURRENT_KERNEL,
+                "candidate_uuid": CANDIDATE_UUID,
+                "parent_root_uuid": PARENT_UUID,
+                "candidate_boot_identity": {
+                    "unchanged": True,
+                    "sha256": dict(BOOT_HASHES),
+                },
             },
             "activation_handoff": handoff.as_dict(),
         }
@@ -1130,6 +1138,56 @@ class AutomaticExecutionContracts(unittest.TestCase):
         self.assertEqual(record["candidate_generation"]["system_generation_id"], CANDIDATE_SYSTEM)
         restored = automatic.read_execution_record(self.state, TXID)
         self.assertEqual(restored["activation_handoff"]["handoff_id"], handoff.handoff_id)
+
+    def test_postboot_generation_recovery_rejects_boot_identity_drift(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        authority = FakeAuthority().as_dict()
+        recovery = {"ready": True, "generation_id": "g3-fixture"}
+        boot = {"unchanged": True, "sha256": dict(BOOT_HASHES)}
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence=recovery,
+            candidate_boot_identity=boot,
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        drifted_boot = {"unchanged": True, "sha256": dict(BOOT_HASHES)}
+        drifted_boot["sha256"]["/boot/vmlinuz-linux-cachyos"] = "f" * 64
+        record = {
+            "candidate": {
+                "uuid": CANDIDATE_UUID,
+                "parent_root_uuid": PARENT_UUID,
+                "filesystem_uuid": FSUUID,
+            },
+            "activation_authority": authority,
+            "recovery_evidence": recovery,
+            "activation_handoff": handoff.as_dict(),
+            "candidate_generation": {
+                "transaction_id": TXID,
+                "source_revision": REV,
+                "package_generation_id": pending["package_generation"]["id"],
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+                "candidate_uuid": CANDIDATE_UUID,
+                "parent_root_uuid": PARENT_UUID,
+                "candidate_boot_identity": drifted_boot,
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "candidate generation binding mismatch"):
+            automatic._ensure_candidate_generation_after_activation(
+                pending, record, generation_root=self.generations,
+            )
 
     def test_activate_current_is_noop_without_pending_transaction(self):
         healthy = transition_transaction(
