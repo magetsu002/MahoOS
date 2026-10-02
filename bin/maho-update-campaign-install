@@ -39,6 +39,8 @@ FILES=(
   lib/maho_update_execution_authority.py
   lib/maho_update_candidate_generation.py
   lib/maho_update_automatic_execution.py
+  lib/guardian_bad_update_recovery.py
+  lib/maho_update_bad_recovery.py
   lib/maho_update_preparation.py
   lib/maho_update_transaction.py
   lib/maho_update_receipts.py

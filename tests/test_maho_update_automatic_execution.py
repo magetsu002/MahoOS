@@ -1289,13 +1289,24 @@ class AutomaticExecutionContracts(unittest.TestCase):
             "kernel_generation_id": CURRENT_KERNEL,
             "root_subvolume_uuid": CANDIDATE_UUID,
         }
+        real_publish = automatic.publish_transaction
+        failed_healthy_publication = False
+
+        def publish_with_one_post_promotion_failure(root, payload):
+            nonlocal failed_healthy_publication
+            if payload["state"] == "HEALTHY" and not failed_healthy_publication:
+                failed_healthy_publication = True
+                raise OSError("injected first HEALTHY publication failure")
+            return real_publish(root, payload)
+
         with patch.object(automatic, "NativeBtrfsOps", PostBootBtrfs), \
              patch.object(automatic, "load_current_verified_generations", return_value=live_context()), \
              patch.object(automatic, "_ensure_candidate_generation_after_activation", return_value={
                  "system_generation_id": CANDIDATE_SYSTEM,
                  "kernel_generation_id": CURRENT_KERNEL,
              }), \
-             patch.object(automatic, "promote_normal_candidate_generation", return_value=promoted):
+             patch.object(automatic, "promote_normal_candidate_generation", return_value=promoted), \
+             patch.object(automatic, "publish_transaction", side_effect=publish_with_one_post_promotion_failure):
             result = automatic.verify_activated_normal(
                 TXID,
                 state_root=self.state,
@@ -1308,10 +1319,101 @@ class AutomaticExecutionContracts(unittest.TestCase):
                 cmdline_path=cmdline,
             )
         self.assertEqual(result["phase"], "HEALTHY")
+        self.assertTrue(failed_healthy_publication)
         self.assertEqual(read_transaction(transaction_path(self.state, TXID))["state"], "HEALTHY")
         verified = automatic.read_execution_record(self.state, TXID)
         self.assertEqual(verified["phase"], "POSTBOOT_VERIFIED")
         self.assertFalse(verified["postboot_verification"]["recovery_invoked"])
+
+    def test_generation_promotion_failure_never_publishes_false_healthy(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        candidate = {
+            "name": "@maho-update-candidate-abcdefabcdef",
+            "uuid": CANDIDATE_UUID,
+            "parent_root_uuid": PARENT_UUID,
+            "filesystem_uuid": FSUUID,
+        }
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=FakeAuthority().as_dict(),
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True, reboot_reason="explicit restart required", now=NOW,
+        )
+        activation = {
+            "candidate_uuid": CANDIDATE_UUID,
+            "previous_root_uuid": PARENT_UUID,
+            "previous_root_name": "@maho-update-backup-abcdefabcdef",
+            "boot_sha256": dict(BOOT_HASHES),
+            "boot_unchanged": True,
+            "package_manager_invoked": False,
+            "reboot_performed": False,
+            "firmware_mutated": False,
+        }
+        receipt = consume_activation_handoff(
+            self.state, handoff, activation_evidence=activation, now=NOW,
+        )
+        automatic._atomic_json(automatic.record_path(self.state, TXID), {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "ACTIVATION_ARMED",
+            "candidate": candidate,
+            "candidate_generation": {
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+                "candidate_uuid": CANDIDATE_UUID,
+            },
+            "activation_handoff": handoff.as_dict(),
+            "handoff_consumption": receipt,
+        })
+
+        class PostBootBtrfs(FakeBtrfs):
+            topology = "ARMED"
+
+            def root_identity(self):
+                return SimpleNamespace(
+                    subvolume_uuid=CANDIDATE_UUID,
+                    filesystem_uuid=FSUUID,
+                    fsroot="/@",
+                )
+
+        cmdline = self.work / "cmdline-promotion-failure"
+        cmdline.write_text("rootflags=subvol=@ rw\n")
+        with patch.object(automatic, "NativeBtrfsOps", PostBootBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(automatic, "_ensure_candidate_generation_after_activation", return_value={
+                 "system_generation_id": CANDIDATE_SYSTEM,
+                 "kernel_generation_id": CURRENT_KERNEL,
+             }), \
+             patch.object(
+                 automatic, "promote_normal_candidate_generation",
+                 side_effect=RuntimeError("injected generation promotion failure"),
+             ):
+            with self.assertRaisesRegex(RuntimeError, "promotion failure"):
+                automatic.verify_activated_normal(
+                    TXID, state_root=self.state,
+                    generation_root=self.generations, now=NOW,
+                    package_runner=lambda *args, **kwargs: SimpleNamespace(
+                        returncode=0, stdout="demo 2\n", stderr="",
+                    ),
+                    running_kernel=lambda: "6.1-cachyos",
+                    cmdline_path=cmdline,
+                )
+        stored = read_transaction(transaction_path(self.state, TXID))
+        self.assertEqual(stored["state"], "ACTIVE_VERIFYING")
+        self.assertNotEqual(stored["state"], "HEALTHY")
 
     def test_reboot_activation_consumes_frozen_admission_without_rescan(self):
         source = (ROOT / "lib/maho_update_automatic_execution.py").read_text()

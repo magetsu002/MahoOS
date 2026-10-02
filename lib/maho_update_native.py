@@ -525,6 +525,21 @@ class NativeBtrfsOps:
             raise RuntimeError("activation state root escaped selected subvolume") from exc
         return resolved
 
+    @staticmethod
+    def _bounded_generation_root(root: Path) -> Path:
+        resolved_root = root.resolve(strict=True)
+        path = root
+        for part in ("var", "lib", "maho", "generations"):
+            path = path / part
+            if path.is_symlink() or not path.is_dir():
+                raise RuntimeError("generation evidence root is unsafe")
+        resolved = path.resolve(strict=True)
+        try:
+            resolved.relative_to(resolved_root)
+        except ValueError as exc:
+            raise RuntimeError("generation evidence escaped selected subvolume") from exc
+        return resolved
+
     def activated_state_root(
         self,
         *,
@@ -720,6 +735,216 @@ class NativeBtrfsOps:
                 return "ARMED"
             return "UNSAFE"
         return "UNSAFE"
+
+    def normal_recovery_topology(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+    ) -> str:
+        """Classify only the exact transaction-bound root recovery topology."""
+        self.require_root()
+        identity = self.root_identity()
+        self._mount_top(identity)
+        current = self.top / "@"
+        previous = self.top / self.backup
+        candidate = self.top / self.candidate
+        if candidate.exists() or not current.exists() or not previous.exists():
+            return "UNSAFE"
+        current_uuid = self._show_uuid(current)
+        previous_uuid = self._show_uuid(previous)
+        if current_uuid == expected_failed_uuid and previous_uuid == expected_previous_uuid:
+            if not self._read_only(current) and self._read_only(previous):
+                return "ARMED"
+            if not self._read_only(current) and not self._read_only(previous):
+                return "TARGET_MUTABLE"
+            return "UNSAFE"
+        if current_uuid == expected_previous_uuid and previous_uuid == expected_failed_uuid:
+            if not self._read_only(current) and self._read_only(previous):
+                return "RECOVERY_ARMED"
+            if not self._read_only(current) and not self._read_only(previous):
+                return "RECOVERY_EXCHANGED_PENDING_FREEZE"
+        return "UNSAFE"
+
+    def recovered_state_root(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+    ) -> Path:
+        if self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        ) != "RECOVERY_ARMED":
+            raise RuntimeError("normal recovery is not durably armed")
+        return self._bounded_state_root(self.top / "@")
+
+    def previous_state_root_for_recovery(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+    ) -> Path:
+        """Return state on the exact retained target before root exchange."""
+        topology = self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        )
+        if topology not in {"ARMED", "TARGET_MUTABLE"}:
+            raise RuntimeError("previous recovery target is not exactly retained")
+        return self._bounded_state_root(self.top / self.backup)
+
+    def previous_generation_root_for_recovery(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+    ) -> Path:
+        """Return the generation store inside the exact retained target."""
+        topology = self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        )
+        if topology not in {"ARMED", "TARGET_MUTABLE"}:
+            raise RuntimeError("previous recovery target is not exactly retained")
+        return self._bounded_generation_root(self.top / self.backup)
+
+    def make_recovery_target_writable(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
+    ) -> Path:
+        """Unfreeze only the exact selected target so evidence can be prepublished."""
+        self.require_root()
+        identity = self.root_identity()
+        if (
+            identity.subvolume_uuid != expected_failed_uuid
+            or identity.filesystem_uuid.lower() != expected_filesystem_uuid.lower()
+        ):
+            raise RuntimeError("running failed root identity drifted before target preparation")
+        self._mount_top(identity)
+        topology = self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        )
+        previous = self.top / self.backup
+        if topology == "ARMED":
+            self._set_read_only(previous, False)
+            self._fsync_path(self.top)
+        if self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        ) != "TARGET_MUTABLE":
+            raise RuntimeError("previous known-good root could not become writable")
+        return self._bounded_state_root(previous)
+
+    def selected_state_root_for_recovery(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+    ) -> Path:
+        """Return selected-root state after exchange, including pending freeze."""
+        topology = self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        )
+        if topology not in {"RECOVERY_EXCHANGED_PENDING_FREEZE", "RECOVERY_ARMED"}:
+            raise RuntimeError("selected recovery root is not exchanged")
+        return self._bounded_state_root(self.top / "@")
+
+    def selected_generation_root_for_recovery(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+    ) -> Path:
+        """Return selected-root generation evidence after exchange."""
+        topology = self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        )
+        if topology not in {"RECOVERY_EXCHANGED_PENDING_FREEZE", "RECOVERY_ARMED"}:
+            raise RuntimeError("selected recovery root is not exchanged")
+        return self._bounded_generation_root(self.top / "@")
+
+    def arm_root_recovery(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
+        expected_boot_hashes: Mapping[str, str],
+    ) -> dict[str, Any]:
+        """Select the exact retained previous root without broad host repair."""
+        self.require_root()
+        for value in (expected_failed_uuid, expected_previous_uuid, expected_filesystem_uuid):
+            if _UUID.fullmatch(value) is None:
+                raise ValueError("normal recovery root identity is invalid")
+        identity = self.root_identity()
+        if identity.filesystem_uuid.lower() != expected_filesystem_uuid.lower():
+            raise RuntimeError("running recovery filesystem identity drifted")
+        self._mount_top(identity)
+        current = self.top / "@"
+        previous = self.top / self.backup
+        topology = self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        )
+        if topology in {"ARMED", "TARGET_MUTABLE"}:
+            if identity.subvolume_uuid != expected_failed_uuid:
+                raise RuntimeError("running failed root identity drifted before recovery")
+        elif topology in {"RECOVERY_EXCHANGED_PENDING_FREEZE", "RECOVERY_ARMED"}:
+            if identity.subvolume_uuid not in {expected_failed_uuid, expected_previous_uuid}:
+                raise RuntimeError("running root is unrelated to interrupted recovery")
+        boot_before = self.live_boot_hashes()
+        if boot_before != dict(expected_boot_hashes):
+            raise RuntimeError("normal recovery boot identity drifted")
+        if topology == "ARMED":
+            self._set_read_only(previous, False)
+            self._fsync_path(self.top)
+            if self._read_only(previous):
+                raise RuntimeError("previous known-good root could not become selectable")
+            topology = "TARGET_MUTABLE"
+        if topology == "TARGET_MUTABLE":
+            self._rename_exchange(current, previous)
+            self._fsync_path(self.top)
+            topology = "RECOVERY_EXCHANGED_PENDING_FREEZE"
+        if topology == "RECOVERY_EXCHANGED_PENDING_FREEZE":
+            if (
+                self._show_uuid(current) != expected_previous_uuid
+                or self._show_uuid(previous) != expected_failed_uuid
+                or self._read_only(current)
+            ):
+                raise RuntimeError("normal recovery exchange topology is not exact")
+            self._set_read_only(previous, True)
+            self._fsync_path(self.top)
+            topology = "RECOVERY_ARMED"
+        if topology != "RECOVERY_ARMED" or self.normal_recovery_topology(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+        ) != "RECOVERY_ARMED":
+            raise RuntimeError("normal recovery did not converge to exact topology")
+        boot_after = self.live_boot_hashes()
+        if boot_after != boot_before:
+            raise RuntimeError("normal recovery unexpectedly changed boot artifacts")
+        return {
+            "failed_candidate_uuid": expected_failed_uuid,
+            "previous_root_uuid": expected_previous_uuid,
+            "filesystem_uuid": expected_filesystem_uuid,
+            "failed_root_name": self.backup,
+            "root_exchange_completed": True,
+            "failed_root_read_only": True,
+            "selected_root_writable": True,
+            "boot_sha256": boot_after,
+            "package_manager_invoked": False,
+            "firmware_mutated": False,
+            "home_mutated": False,
+            "reboot_performed": False,
+            "reboot_required": True,
+        }
 
     def refreeze_prepared_candidate(
         self,
