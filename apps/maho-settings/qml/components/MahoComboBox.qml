@@ -79,12 +79,16 @@ ComboBox {
         width: root.width
         implicitHeight: Math.min(contentItem.implicitHeight + 10, 300)
         padding: 5
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
 
         background: Rectangle {
             radius: 12
-            color: root.surface
+            // A popup needs stronger separation than an in-page control.
+            // Preserve the derived RGB while avoiding stacked transparency
+            // that can make menu labels fight with the page underneath.
+            color: Qt.rgba(root.surface.r, root.surface.g, root.surface.b, 0.96)
             border.width: 1
-            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
+            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.11)
         }
 
         contentItem: ListView {
@@ -92,7 +96,9 @@ ComboBox {
             implicitHeight: contentHeight
             model: root.delegateModel
             currentIndex: root.highlightedIndex
-            ScrollIndicator.vertical: ScrollIndicator {}
+            ScrollBar.vertical: MahoScrollBar {
+                foreground: root.foreground
+            }
         }
     }
 
