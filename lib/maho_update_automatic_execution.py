@@ -948,17 +948,43 @@ def finalize_pending_normal(
             if not isinstance(candidate, Mapping):
                 raise ValueError("normal pending candidate evidence is unavailable")
             btrfs = NativeBtrfsOps(transaction_id)
+            refresh_handoff = False
             try:
                 topology = btrfs.normal_activation_topology(
                     expected_candidate_uuid=str(candidate.get("uuid")),
                     expected_parent_root_uuid=str(candidate.get("parent_root_uuid")),
                 )
+                if topology == "PREPARED_MUTABLE":
+                    btrfs.refreeze_prepared_candidate(
+                        expected_candidate_uuid=str(candidate.get("uuid")),
+                        expected_parent_root_uuid=str(candidate.get("parent_root_uuid")),
+                    )
+                    topology = "PREPARED"
+                    refresh_handoff = True
             finally:
                 btrfs.close()
-            if topology == "PREPARED_MUTABLE":
-                raise RuntimeError(
-                    "normal activation candidate became mutable before root exchange; "
-                    "frozen activation authority is no longer valid"
+            if topology == "PREPARED" and not refresh_handoff:
+                _live, system, _kernel = load_current_verified_generations(generation_root)
+                try:
+                    verify_activation_handoff(
+                        record["activation_handoff"],
+                        transaction,
+                        current_system_generation_id=str(system.generation_id),
+                        now=now,
+                    )
+                except ValueError as exc:
+                    if "expired or temporally invalid" not in str(exc):
+                        raise
+                    refresh_handoff = True
+            if refresh_handoff:
+                refresh_record = dict(record)
+                refresh_record["phase"] = "HANDOFF_REFRESH_REQUIRED"
+                return _finalize_pending_record(
+                    transaction,
+                    refresh_record,
+                    state_root=state_root,
+                    generation_root=generation_root,
+                    now=now,
                 )
             if topology in {"EXCHANGED_PENDING_BACKUP", "ARMED"}:
                 arm_normal_activation(

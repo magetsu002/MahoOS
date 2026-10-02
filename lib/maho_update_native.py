@@ -721,6 +721,35 @@ class NativeBtrfsOps:
             return "UNSAFE"
         return "UNSAFE"
 
+    def refreeze_prepared_candidate(
+        self,
+        *,
+        expected_candidate_uuid: str,
+        expected_parent_root_uuid: str,
+    ) -> dict[str, Any]:
+        """Restore immutability after interruption before the root exchange."""
+        self.require_root()
+        identity = self.root_identity()
+        self._mount_top(identity)
+        candidate = self.top / self.candidate
+        current = self.top / "@"
+        previous = self.top / self.backup
+        if (
+            not current.exists() or not candidate.exists() or previous.exists()
+            or self._show_uuid(current) != expected_parent_root_uuid
+            or self._show_uuid(candidate) != expected_candidate_uuid
+        ):
+            raise RuntimeError("mutable prepared activation topology is not exact")
+        self._set_read_only(candidate, True)
+        self._fsync_path(self.top)
+        if not self._read_only(candidate):
+            raise RuntimeError("prepared candidate could not be re-frozen")
+        return {
+            "candidate_uuid": expected_candidate_uuid,
+            "previous_root_uuid": expected_parent_root_uuid,
+            "candidate_read_only": True,
+        }
+
     def finalize_normal_activation_exchange(
         self,
         *,

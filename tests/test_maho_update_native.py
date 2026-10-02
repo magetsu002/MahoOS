@@ -371,6 +371,18 @@ def main() -> None:
             "pre-exchange power loss keeps the previous root selected",
             (ops.top / "@/.uuid").read_text().strip() == CURRENT_UUID,
         )
+        refrozen = ops.refreeze_prepared_candidate(
+            expected_candidate_uuid=CANDIDATE_UUID,
+            expected_parent_root_uuid=CURRENT_UUID,
+        )
+        check(
+            "pre-exchange interruption can re-freeze the exact candidate",
+            refrozen["candidate_read_only"] is True
+            and ops.normal_activation_topology(
+                expected_candidate_uuid=CANDIDATE_UUID,
+                expected_parent_root_uuid=CURRENT_UUID,
+            ) == "PREPARED",
+        )
 
     with tempfile.TemporaryDirectory(prefix="maho-normal-exchange-reconcile-") as temporary:
         base = Path(temporary)

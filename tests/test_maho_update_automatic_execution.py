@@ -129,6 +129,7 @@ class FakeBtrfs:
         self.backup = "@maho-update-backup-abcdefabcdef"
         self.cleanup_calls = []
         self.activation_calls = []
+        self.refreeze_calls = []
         assert self.offline_base is not None
         self.offline_root = self.offline_base / f"offline-{len(self.instances)}"
         self.offline_root.mkdir(parents=True, exist_ok=True)
@@ -170,6 +171,14 @@ class FakeBtrfs:
 
     def normal_activation_topology(self, **_kwargs):
         return self.topology
+
+    def refreeze_prepared_candidate(self, **kwargs):
+        self.refreeze_calls.append(kwargs)
+        return {
+            "candidate_uuid": kwargs["expected_candidate_uuid"],
+            "previous_root_uuid": kwargs["expected_parent_root_uuid"],
+            "candidate_read_only": True,
+        }
 
     def admission_roots(self, candidate_uuid, base_uuid):
         return {
@@ -839,13 +848,28 @@ class AutomaticExecutionContracts(unittest.TestCase):
             datetime.fromisoformat(handoff.expires_at.replace("Z", "+00:00")),
         )
 
-    def test_preexchange_mutable_candidate_revokes_frozen_activation_authority(self):
+    def test_pre_exchange_mutability_interruption_refreezes_and_refreshes_authority(self):
         pending = transition_transaction(
             transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
             UpdateState.INSTALLED_PENDING_ACTIVATION,
             now=NOW,
         )
         publish_transaction(self.state, pending)
+        authority = FakeAuthority().as_dict()
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
         automatic._atomic_json(automatic.record_path(self.state, TXID), {
             "schema_version": 1,
             "kind": "maho-automatic-normal-execution",
@@ -855,20 +879,83 @@ class AutomaticExecutionContracts(unittest.TestCase):
             "candidate": {
                 "uuid": CANDIDATE_UUID,
                 "parent_root_uuid": PARENT_UUID,
+                "filesystem_uuid": FSUUID,
+                "admission_base_uuid": BASE_UUID,
             },
-            "activation_handoff": {"handoff_id": "art-" + "d" * 64},
+            "activation_handoff": handoff.as_dict(),
         })
         FakeBtrfs.topology = "PREPARED_MUTABLE"
-        FakeBtrfs.instances.clear()
-        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs):
-            with self.assertRaisesRegex(RuntimeError, "became mutable before root exchange"):
-                automatic.finalize_pending_normal(
-                    TXID,
-                    state_root=self.state,
-                    generation_root=self.generations,
-                    now=NOW,
-                )
-        self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
+        refreshed = {"phase": "INSTALLED_PENDING_ACTIVATION", "refreshed": True}
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "_finalize_pending_record", return_value=refreshed) as refresh:
+            result = automatic.finalize_pending_normal(
+                TXID,
+                state_root=self.state,
+                generation_root=self.generations,
+                now=NOW,
+            )
+        self.assertEqual(result, refreshed)
+        self.assertEqual(len(FakeBtrfs.instances[-1].refreeze_calls), 1)
+        refresh.assert_called_once()
+        self.assertEqual(
+            refresh.call_args.args[1]["phase"],
+            "HANDOFF_REFRESH_REQUIRED",
+        )
+
+    def test_expired_prepared_handoff_is_reissued_before_future_activation(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        authority = FakeAuthority().as_dict()
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        automatic._atomic_json(automatic.record_path(self.state, TXID), {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "INSTALLED_PENDING_ACTIVATION",
+            "candidate": {
+                "uuid": CANDIDATE_UUID,
+                "parent_root_uuid": PARENT_UUID,
+                "filesystem_uuid": FSUUID,
+                "admission_base_uuid": BASE_UUID,
+            },
+            "activation_handoff": handoff.as_dict(),
+        })
+        FakeBtrfs.topology = "PREPARED"
+        refreshed = {"phase": "INSTALLED_PENDING_ACTIVATION", "refreshed": True}
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(automatic, "_finalize_pending_record", return_value=refreshed) as refresh:
+            result = automatic.finalize_pending_normal(
+                TXID,
+                state_root=self.state,
+                generation_root=self.generations,
+                now=NOW + timedelta(days=2),
+            )
+        self.assertEqual(result, refreshed)
+        self.assertEqual(FakeBtrfs.instances[-1].refreeze_calls, [])
+        refresh.assert_called_once()
+        self.assertEqual(
+            refresh.call_args.args[1]["phase"],
+            "HANDOFF_REFRESH_REQUIRED",
+        )
 
     def test_wrong_activation_generation_is_rejected_before_root_swap(self):
         pending = transition_transaction(
