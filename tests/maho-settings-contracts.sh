@@ -22,7 +22,7 @@ reject_text() {
 }
 
 echo "=== native persistent application structure ==="
-for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
+for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
     require_file "$file"
 done
 require_text "$APP/src/main.cpp" 'loadFromModule(QStringLiteral("Maho.Settings")' "Settings is not a native Qt/QML module"
@@ -35,6 +35,9 @@ require_text "$QML/Main.qml" 'route: "displays"' "Displays navigation route miss
 require_text "$QML/Main.qml" 'route: "sound"' "Sound navigation route missing"
 require_text "$QML/Main.qml" 'route: "input"' "input navigation route missing"
 require_text "$QML/Main.qml" 'route: "power"' "Power navigation route missing"
+require_text "$QML/Main.qml" 'route: "notifications"' "Notifications navigation route missing"
+require_text "$QML/Main.qml" 'route: "region"' "Region & Time navigation route missing"
+require_text "$QML/Main.qml" 'route: "applications"' "Applications navigation route missing"
 require_text "$QML/Main.qml" 'route: "system"' "System navigation route missing"
 echo PASS
 
@@ -61,13 +64,17 @@ PY
 echo PASS
 
 echo "=== backend authority map ==="
-require_text "$BACKEND" 'hypr_json(["monitors", "-j"])' "Displays do not read real Hyprland output state"
+require_text "$BACKEND" 'hypr_json(["monitors", "all", "-j"])' "Displays do not read real Hyprland output state"
 require_text "$BACKEND" 'shutil.which("wpctl")' "Sound does not use WirePlumber wpctl"
 require_text "$BACKEND" 'Path("/sys/class/power_supply")' "Power does not read kernel battery state"
 require_text "$BACKEND" 'shutil.which("powerprofilesctl")' "Power profile hook does not delegate to power-profiles-daemon"
 require_text "$BACKEND" 'root_command("maho-theme")' "Appearance does not reuse the Maho theme owner"
 require_text "$BACKEND" 'root_command("maho-wallpaper")' "Appearance does not read the Maho wallpaper owner"
 require_text "$BACKEND" 'primarySupported": False' "Settings invents a primary-display capability"
+require_text "$BACKEND" 'root_command("maho-notify")' "Notifications do not delegate to Maho Notify"
+require_text "$BACKEND" 'shutil.which("timedatectl")' "Region & Time does not delegate clock policy to timedatectl"
+require_text "$BACKEND" 'shutil.which("localectl")' "Region & Time does not delegate locale policy to localectl"
+require_text "$BACKEND" 'shutil.which("xdg-mime")' "Application defaults do not use XDG MIME authority"
 reject_text "$BACKEND" 'nmcli' "Settings duplicated Maho Link NetworkManager quick-connect flows"
 reject_text "$BACKEND" 'bluetoothctl' "Settings duplicated Bluetooth quick-connect flows"
 reject_text "$BACKEND" 'maho-guardian' "Settings imported Guardian logic"
@@ -81,8 +88,15 @@ echo "=== safe display preview/revert architecture ==="
 require_text "$BACKEND" 'DISPLAY_ROLLBACK_SECONDS = 15' "bounded display rollback window missing"
 require_text "$BACKEND" 'TX_DIR = SETTINGS_STATE / "display-transactions"' "display transaction evidence missing"
 require_text "$BACKEND" '"baseline": baseline' "display preview does not capture exact baseline"
+require_text "$BACKEND" '"topology": sorted(row["name"] for row in baseline)' "display preview does not freeze output topology"
+require_text "$BACKEND" '"proposed": proposed' "display preview does not retain the proposed persisted layout"
+require_text "$BACKEND" '"The last active display cannot be disabled."' "last-display disable safety guard missing"
 require_text "$BACKEND" '"_display-watch", token' "display preview lacks independent watchdog"
+require_text "$BACKEND" 'start_new_session=True' "display watchdog is not process-independent"
 require_text "$BACKEND" 'display_revert(token, automatic=True)' "watchdog does not auto-revert"
+require_text "$BACKEND" 'hl.monitor({ ' "display mutations are not using the Hyprland Lua monitor authority"
+require_text "$BACKEND" 'hl.dispatch(hl.dsp.focus' "focused-display semantics are not using the Hyprland Lua dispatcher"
+require_text "$BACKEND" '_display_layout_matches' "display mutation readback verification is missing"
 require_text "$BACKEND" '_apply_display_rows([row for row in current if isinstance(row, dict)])' "session apply lacks fallback to preexisting layout"
 require_text "$QML/pages/DisplaysPage.qml" 'Keep this display configuration?' "display confirmation UI missing"
 require_text "$QML/pages/DisplaysPage.qml" 'Reverting in ' "rollback countdown UI missing"
@@ -94,6 +108,11 @@ require_text "$QML/pages/SoundPage.qml" 'Audio backend unavailable' "Sound unava
 require_text "$QML/pages/DisplaysPage.qml" 'Display backend unavailable' "Displays unavailable state missing"
 require_text "$QML/pages/InputPage.qml" 'Input state unavailable' "Input unavailable state missing"
 require_text "$QML/pages/AboutPage.qml" 'Deferred V1 pages' "deferred V1 scope is not explicit"
+require_text "$QML/pages/NotificationsPage.qml" 'Maho Notify remains authoritative' "Notifications does not state its owner"
+require_text "$QML/pages/NotificationsPage.qml" 'does not currently expose notification sound, lock-screen visibility, or retention-duration preferences' "unsupported notification preferences are not explicit"
+require_text "$QML/pages/RegionPage.qml" "systemd's timedate/localed policy boundary" "Region & Time bypasses the system owner contract"
+require_text "$QML/pages/ApplicationsPage.qml" 'XDG MIME authority' "Applications does not state its defaults authority"
+require_text "$QML/pages/ApplicationsPage.qml" 'does not invent a private default-terminal registry' "Applications invents an unsupported terminal default"
 require_text "$QML/pages/DeferredPage.qml" 'must not invent unsupported system state' "deferred pages can imply fake capability"
 echo PASS
 
@@ -102,7 +121,15 @@ require_text "$APP/src/MahoPalette.cpp" 'maho/theme/active.json' "Settings does 
 require_text "$BACKEND" '"appearance.reduced_motion"' "reduced-motion intent hook missing"
 require_text "$BACKEND" '"appearance.reduced_transparency"' "reduced-transparency intent hook missing"
 require_text "$BACKEND" 'INPUT_CONFIG = SETTINGS_CONFIG / "input.json"' "input persistence missing"
+require_text "$BACKEND" '"accelProfile": ("input:accel_profile"' "pointer acceleration persistence path missing"
+require_text "$BACKEND" '"mouseNaturalScroll": ("input:natural_scroll"' "mouse natural-scroll persistence path missing"
+require_text "$BACKEND" '"leftHanded": ("input:left_handed"' "primary-button persistence path missing"
+require_text "$BACKEND" 'hl.config(' "Hyprland input/appearance mutations are not using Lua config authority"
+require_text "$BACKEND" 'hl.device({ ' "per-device touchpad speed is not using Hyprland Lua device authority"
+require_text "$QML/pages/InputPage.qml" 'touchpadSensitivity' "touchpad speed control is missing"
+require_text "$BACKEND" 'input_set("keyboardLayout"' "keyboard-layout entry point is not using input persistence"
 require_text "$BACKEND" 'DISPLAY_CONFIG = SETTINGS_CONFIG / "displays.json"' "display persistence missing"
+reject_text "$BACKEND" 'hypr(["keyword"' "legacy Hyprland keyword mutation can false-report success under Lua config"
 require_text "$APP/io.maho.Settings.Session.desktop" 'Exec=maho-settings apply-session' "confirmed session preferences are not reapplied"
 echo PASS
 
@@ -115,6 +142,26 @@ for forbidden in ("systemctl reboot", "systemctl poweroff", "systemctl suspend",
     assert forbidden not in text, forbidden
 PY
 require_text "$QML/pages/PowerPage.qml" 'never reboots, shuts down, or suspends' "Power UI does not state its bounded control contract"
+require_text "$BACKEND" '"sessionPolicyControlAvailable": False' "unsupported screen/suspend/lid policy is not explicit"
+require_text "$QML/pages/PowerPage.qml" 'No supported user-scoped session policy backend is available' "Power UI hides unavailable session-policy authority"
+echo PASS
+
+
+
+echo "=== bounded daily-driver owner paths ==="
+require_text "$BACKEND" 'run([command, "start" if enabled else "stop"]' "notification enable/disable bypasses Maho Notify"
+require_text "$BACKEND" 'run([command, "start" if enabled else "stop"]' "notification enable/disable bypasses Maho Notify"
+require_text "$BACKEND" 'run([command, "dnd", "on" if enabled else "off"]' "DND mutation bypasses Maho Notify"
+require_text "$BACKEND" 'run([command, "history", "clear"]' "notification history mutation bypasses Maho Notify"
+require_text "$BACKEND" '[executable, "set-timezone", value]' "timezone mutation is missing"
+require_text "$BACKEND" '[executable, "set-ntp", "true" if enabled else "false"]' "automatic-time mutation is missing"
+require_text "$BACKEND" '[executable, "set-locale", f"LANG={value}"]' "locale mutation is missing"
+require_text "$BACKEND" '[executable, "default", desktop_id, mime]' "XDG default-app mutation is missing"
+require_text "$BACKEND" 'application_mime_default' "bounded MIME association mutation is missing"
+require_text "$QML/pages/ApplicationsPage.qml" 'Default associations' "MIME/default association UI is missing"
+require_text "$QML/pages/ApplicationsPage.qml" 'Effective XDG session entries' "autostart list is missing"
+require_text "$BACKEND" 'WirePlumber did not confirm the requested volume.' "sound mutation readback verification is missing"
+reject_text "$QML/pages/ApplicationsPage.qml" 'Android' "unsupported Android-style permission model leaked into Applications"
 echo PASS
 
 echo "=== production delivery and provenance ==="
