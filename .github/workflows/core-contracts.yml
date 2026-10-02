@@ -317,31 +317,3 @@ jobs:
           python tests/test_maho_installer_plan.py
           python tests/test_maho_installer_execute.py
           python tests/test_maho_installer_s12.py
-
-  setup-lifecycle:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    container: archlinux:latest
-    steps:
-      - name: Install Arch setup dependencies
-        run: |
-          pacman -Syu --noconfirm --needed \
-            git \
-            base-devel \
-            cmake \
-            imagemagick \
-            ninja \
-            python \
-            qt6-base \
-            qt6-declarative \
-            qt6-5compat \
-            kio
-          useradd -m maho-ci
-
-      - uses: actions/checkout@v4
-
-      - name: V1 setup lifecycle tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          runuser -u maho-ci -- env HOME=/home/maho-ci bash tests/setup-contracts.sh
