@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+SOURCE="$ROOT/apps/maho-settings"
+PACKAGED_BINARY="$SOURCE/prebuilt/maho-settings"
+BACKEND="$ROOT/lib/maho_settings_backend.py"
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+BUILD="${MAHO_SETTINGS_BUILD_DIR:-$CACHE_HOME/maho/settings-build}"
+BUILD_BINARY="$BUILD/maho-settings"
+FINGERPRINT_HELPER="$SOURCE/source-fingerprint.py"
+
+usage() {
+    cat <<'EOF'
+Usage: maho-settings <command>
+
+Commands:
+  doctor         Check native Settings runtime/build readiness.
+  configure      Configure the isolated source-build directory.
+  build          Build Maho Settings from source.
+  run            Run the verified native Maho Settings application.
+  apply-session  Reapply only previously confirmed user preferences.
+  clean          Remove only the isolated Settings build directory.
+EOF
+}
+
+source_fingerprint() {
+    python3 "$FINGERPRINT_HELPER" "$SOURCE"
+}
+
+selected_binary() {
+    if [ -n "${MAHO_SETTINGS_BINARY:-}" ]; then
+        printf '%s\n' "$MAHO_SETTINGS_BINARY"
+    elif [ -x "$PACKAGED_BINARY" ]; then
+        printf '%s\n' "$PACKAGED_BINARY"
+    else
+        printf '%s\n' "$BUILD_BINARY"
+    fi
+}
+
+binary_fingerprint() {
+    local binary="$1" marker
+    [ -x "$binary" ] || return 1
+    marker="$(LC_ALL=C grep -aoEm1 'MAHO_SETTINGS_SOURCE_FINGERPRINT=[0-9a-f]{64}' "$binary" 2>/dev/null || true)"
+    [ -n "$marker" ] || return 1
+    printf '%s\n' "${marker#MAHO_SETTINGS_SOURCE_FINGERPRINT=}"
+}
+
+configure() {
+    mkdir -p "$BUILD"
+    cmake -S "$SOURCE" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+}
+
+build() {
+    configure
+    cmake --build "$BUILD" --parallel
+}
+
+verified_binary() {
+    local binary expected actual=""
+    binary="$(selected_binary)"
+    expected="$(source_fingerprint)"
+    actual="$(binary_fingerprint "$binary" 2>/dev/null || true)"
+    if [ "$actual" = "$expected" ]; then
+        printf '%s\n' "$binary"
+        return 0
+    fi
+    if [ "$binary" = "$BUILD_BINARY" ] && [ -z "${MAHO_SETTINGS_BINARY:-}" ] && [ ! -x "$PACKAGED_BINARY" ]; then
+        build >&2
+        actual="$(binary_fingerprint "$binary" 2>/dev/null || true)"
+        [ "$actual" = "$expected" ] || {
+            echo "maho-settings: source build did not produce the expected artifact identity" >&2
+            return 1
+        }
+        printf '%s\n' "$binary"
+        return 0
+    fi
+    echo "maho-settings: refusing native binary with stale or missing source identity: $binary" >&2
+    return 1
+}
+
+doctor() {
+    local failed=0
+    echo "Maho Settings doctor"
+    for command in python3 cmake ninja; do
+        if command -v "$command" >/dev/null 2>&1; then
+            printf 'PASS  %-10s %s\n' "$command" "$(command -v "$command")"
+        else
+            printf 'FAIL  %-10s missing\n' "$command"
+            failed=1
+        fi
+    done
+    [ -x "$BACKEND" ] && echo "PASS  backend    $BACKEND" || { echo "FAIL  backend missing"; failed=1; }
+    if [ -f /usr/lib/cmake/Qt6/Qt6Config.cmake ] || [ -f /usr/lib64/cmake/Qt6/Qt6Config.cmake ]; then
+        echo "PASS  Qt 6       CMake package available"
+    else
+        echo "FAIL  Qt 6       CMake package missing"
+        failed=1
+    fi
+    python3 "$BACKEND" snapshot system >/dev/null || failed=1
+    return "$failed"
+}
+
+run_app() {
+    local binary
+    binary="$(verified_binary)"
+    export MAHO_ROOT="$ROOT"
+    export MAHO_SETTINGS_BACKEND="$BACKEND"
+    exec "$binary"
+}
+
+apply_session() {
+    export MAHO_ROOT="$ROOT"
+    exec python3 "$BACKEND" apply-session
+}
+
+clean() {
+    case "$BUILD" in
+        "$CACHE_HOME"/maho/settings-build|"$CACHE_HOME"/maho/settings-build/*)
+            rm -rf -- "$BUILD"
+            ;;
+        *)
+            echo "maho-settings: refusing to clean non-default build path: $BUILD" >&2
+            return 1
+            ;;
+    esac
+}
+
+case "${1:-run}" in
+    doctor) doctor ;;
+    configure) configure ;;
+    build) build ;;
+    run) run_app ;;
+    apply-session) apply_session ;;
+    clean) clean ;;
+    -h|--help|help) usage ;;
+    *) echo "maho-settings: unknown command: $1" >&2; usage >&2; exit 2 ;;
+esac

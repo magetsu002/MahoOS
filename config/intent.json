@@ -1,5 +1,7 @@
 {
   "values": {
+    "appearance.reduced_motion": false,
+    "appearance.reduced_transparency": false,
     "appearance.theme.mode": "dark",
     "appearance.wallpaper.dynamic_theme": true,
     "appearance.wallpaper.restore_on_login": true,
