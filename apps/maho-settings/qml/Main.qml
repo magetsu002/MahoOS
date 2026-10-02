@@ -95,6 +95,12 @@ ApplicationWindow {
         const canonical = canonicalRoute(route)
         currentRoute = canonical
         currentTarget = target || canonical
+
+        // Loader does not reload when selecting another target on the same page.
+        // Keep in-page navigation truthful and deterministic instead of leaving a
+        // stale search target behind.
+        if (pageLoader.item && pageLoader.item.hasOwnProperty("targetRoute"))
+            pageLoader.item.targetRoute = currentTarget
     }
 
 
@@ -108,12 +114,24 @@ ApplicationWindow {
         border.color: theme.shellRim
         antialiasing: true
 
-        DragHandler {
-            target: null
-            acceptedButtons: Qt.LeftButton
-            onActiveChanged: {
-                if (active)
-                    root.startSystemMove()
+        // Keep window dragging out of the interactive surface. A shell-wide
+        // DragHandler made clicks and small pointer motions feel sticky because
+        // controls and navigation competed with a window move gesture.
+        Item {
+            id: dragRegion
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: 26
+            z: 40
+
+            DragHandler {
+                target: null
+                acceptedButtons: Qt.LeftButton
+                onActiveChanged: {
+                    if (active)
+                        root.startSystemMove()
+                }
             }
         }
 
@@ -198,13 +216,15 @@ ApplicationWindow {
 
             Text {
                 id: errorMessage
-                anchors.fill: parent
-                anchors.margins: 10
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 10
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
                 text: settingsBridge.error
                 color: theme.textBody
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
-                verticalAlignment: Text.AlignVCenter
             }
         }
     }
