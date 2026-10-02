@@ -5,123 +5,128 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.power ? bridge.state.power : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
+
+    function profileLabel(profile) {
+        if (profile === "power-saver")
+            return "Power Saver"
+        if (!profile || profile.length === 0)
+            return ""
+        return profile.charAt(0).toUpperCase() + profile.slice(1)
+    }
 
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Power"
-                subtitle: "Battery, performance and power preferences"
-                foreground: root.foreground
-                muted: root.muted
+                subtitle: "Battery state and performance preferences"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
 
+            Item { Layout.preferredHeight: 6 }
+
             SettingCard {
+                visible: (root.state.batteries || []).length > 0
                 title: "Battery"
-                description: root.state.batteries && root.state.batteries.length > 0
-                    ? "Kernel power-supply state"
-                    : "No battery is reported by the kernel."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                description: "Current battery state reported by the kernel"
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 Repeater {
                     model: root.state.batteries || []
 
-                    RowLayout {
+                    MahoInsetRow {
                         required property var modelData
-                        Layout.fillWidth: true
-                        Text {
-                            text: modelData.model || modelData.name
-                            color: root.foreground
-                            font.pixelSize: 13
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: modelData.capacity >= 0
-                                ? modelData.capacity + "% · " + modelData.status
-                                : modelData.status
-                            color: root.muted
-                            font.pixelSize: 12
-                        }
-                        Text {
-                            visible: modelData.health >= 0
-                            text: modelData.health + "% health"
-                            color: root.muted
-                            font.pixelSize: 12
-                        }
+                        required property int index
+                        title: modelData.model || modelData.name
+                        description: modelData.health >= 0
+                            ? modelData.health + "% health"
+                            : ""
+                        trailingText: modelData.capacity >= 0
+                            ? modelData.capacity + "% · " + modelData.status
+                            : modelData.status
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                        dividerVisible: index < (root.state.batteries || []).length - 1
                     }
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
+                visible: (root.state.batteries || []).length === 0
+                title: "Battery"
+                description: "No battery is currently reported by the kernel"
+                iconName: "battery-missing"
+                theme: theme
+            }
+
+            AppearanceRow {
                 title: "Power mode"
                 description: root.state.profileControlAvailable
-                    ? "Delegated to power-profiles-daemon."
-                    : (root.state.profileError || "No supported power-profile backend is available.")
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                    ? "Choose the balance between performance and battery life"
+                    : (root.state.profileError || "Power mode control is unavailable on this system")
+                iconName: "battery"
+                theme: theme
 
                 RowLayout {
-                    visible: !!root.state.profileControlAvailable
-                    spacing: 8
+                    spacing: 6
 
                     Repeater {
-                        model: root.state.profiles || []
+                        model: root.state.profileControlAvailable ? (root.state.profiles || []) : []
+
                         ChoicePill {
                             required property string modelData
-                            text: modelData === "power-saver" ? "Power Saver"
-                                : modelData.charAt(0).toUpperCase() + modelData.slice(1)
+                            text: root.profileLabel(modelData)
                             selected: root.state.profile === modelData
                             enabled: !root.bridge.actionBusy
-                            accent: root.accent
-                            surface: root.surface
-                            foreground: root.foreground
-                            muted: root.muted
+                            accent: theme.accent
+                            surface: theme.controlFill
+                            foreground: theme.textPrimary
+                            muted: theme.textSecondary
                             onClicked: root.bridge.perform("power.profile", { profile: modelData })
                         }
                     }
-                    Item { Layout.fillWidth: true }
                 }
             }
 
-            SettingCard {
-                title: "Screen, suspend & lid"
-                description: root.state.sessionPolicyError || "No supported user-scoped session policy backend is available."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "These preferences stay absent until MahoOS has a bounded policy owner; changing Power settings here never triggers suspend, reboot, or shutdown."
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                }
+            Text {
+                visible: !!root.state.sessionPolicyError
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: root.state.sessionPolicyError
+                color: theme.textFaint
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
             }
 
-            Item { Layout.preferredHeight: 6 }
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }
