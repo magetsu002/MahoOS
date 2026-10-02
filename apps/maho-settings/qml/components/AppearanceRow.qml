@@ -8,15 +8,36 @@ Rectangle {
     property string description: ""
     property string iconName: ""
     property var theme
+    property bool interactive: false
     default property alias content: trailing.data
+    signal activated()
 
     Layout.fillWidth: true
     implicitHeight: 94
     radius: 18
-    color: root.theme.rowFill
+    color: root.interactive
+        ? (tap.pressed ? root.theme.controlPressed
+            : (hover.hovered ? root.theme.rowHover : root.theme.rowFill))
+        : root.theme.rowFill
     border.width: 1
     border.color: root.theme.rowRim
     antialiasing: true
+
+    HoverHandler {
+        id: hover
+        enabled: root.interactive
+    }
+
+    TapHandler {
+        id: tap
+        enabled: root.interactive
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        onTapped: root.activated()
+    }
+
+    Behavior on color {
+        ColorAnimation { duration: root.theme.reducedMotion ? 0 : 90 }
+    }
 
     RowLayout {
         anchors.fill: parent

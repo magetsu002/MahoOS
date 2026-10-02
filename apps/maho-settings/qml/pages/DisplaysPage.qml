@@ -208,6 +208,7 @@ Item {
                         Layout.fillWidth: true
                     }
                     MahoSwitch {
+                        busy: root.bridge.actionBusy
                         reducedMotion: theme.reducedMotion
                         id: outputEnabled
                         checked: false

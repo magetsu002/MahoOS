@@ -226,6 +226,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.mouseNaturalScroll
                     enabled: !root.bridge.actionBusy
@@ -249,6 +250,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.leftHanded
                     enabled: !root.bridge.actionBusy
@@ -335,6 +337,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.naturalScroll
                     enabled: !root.bridge.actionBusy
@@ -358,6 +361,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.tapToClick
                     enabled: !root.bridge.actionBusy
@@ -381,6 +385,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.disableWhileTyping
                     enabled: !root.bridge.actionBusy

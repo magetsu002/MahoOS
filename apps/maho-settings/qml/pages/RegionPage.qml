@@ -94,6 +94,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.pageState.automaticTime
                     enabled: !!root.pageState.automaticTimeControlAvailable && !root.bridge.actionBusy

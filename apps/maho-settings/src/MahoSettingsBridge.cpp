@@ -1,10 +1,12 @@
 #include "MahoSettingsBridge.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
+#include <QTimer>
 
 MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
     : QObject(parent)
@@ -79,6 +81,22 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
                 refreshSection(section);
             }
         }
+    });
+
+    connect(&m_wallpaperPickerProcess, &QProcess::finished, this,
+            [this](int, QProcess::ExitStatus) {
+        // The picker applies the wallpaper in a detached helper just before it
+        // closes. Give that existing owner a short convergence window, then
+        // re-observe Appearance rather than guessing the selected result.
+        QTimer::singleShot(1400, this, [this] {
+            refreshSection(QStringLiteral("appearance"));
+        });
+    });
+
+    connect(&m_wallpaperPickerProcess, &QProcess::errorOccurred, this,
+            [this](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart)
+            setError(QStringLiteral("Wallpaper picker is unavailable."));
     });
 
     refresh();
@@ -198,6 +216,26 @@ void MahoSettingsBridge::perform(const QString &action, const QVariantMap &paylo
         QString::fromUtf8(json),
     });
     m_actionProcess.start();
+}
+
+void MahoSettingsBridge::openWallpaperPicker()
+{
+    if (m_wallpaperPickerProcess.state() != QProcess::NotRunning)
+        return;
+
+    QString picker = QDir::homePath() + QStringLiteral("/.local/bin/qs-wallpaper-picker");
+    if (!QFileInfo(picker).isExecutable())
+        picker = QStandardPaths::findExecutable(QStringLiteral("qs-wallpaper-picker"));
+
+    if (picker.isEmpty()) {
+        setError(QStringLiteral("Wallpaper picker is unavailable."));
+        return;
+    }
+
+    setError({});
+    m_wallpaperPickerProcess.setProgram(picker);
+    m_wallpaperPickerProcess.setArguments({});
+    m_wallpaperPickerProcess.start();
 }
 
 void MahoSettingsBridge::setLoading(bool value)

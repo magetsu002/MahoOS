@@ -26,6 +26,7 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void perform(const QString &action, const QVariantMap &payload = {});
+    Q_INVOKABLE void openWallpaperPicker();
 
 signals:
     void stateChanged();
@@ -59,4 +60,5 @@ private:
     QProcess m_snapshotProcess;
     QProcess m_searchProcess;
     QProcess m_actionProcess;
+    QProcess m_wallpaperPickerProcess;
 };

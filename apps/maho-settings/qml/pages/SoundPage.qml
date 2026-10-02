@@ -131,6 +131,7 @@ Item {
                 }
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: root.pageState.output && root.pageState.output.available
                         ? !!root.pageState.output.muted : false
@@ -215,6 +216,7 @@ Item {
                 }
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: root.pageState.input && root.pageState.input.available
                         ? !!root.pageState.input.muted : false

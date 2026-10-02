@@ -9,6 +9,10 @@ Rectangle {
     property var theme
     property var options: []
     property string currentValue: ""
+    property bool busy: false
+    property bool optimisticActive: false
+    property string optimisticValue: ""
+    readonly property string visualValue: optimisticActive ? optimisticValue : currentValue
     signal selected(string value)
 
     implicitWidth: Math.max(220, options.length * 96)
@@ -18,6 +22,34 @@ Rectangle {
     border.width: 1
     border.color: root.theme.controlRim
     antialiasing: true
+
+    function request(value) {
+        if (root.busy || value === root.currentValue)
+            return
+        root.optimisticValue = value
+        root.optimisticActive = true
+        optimisticFallback.restart()
+        root.selected(value)
+    }
+
+    onCurrentValueChanged: {
+        if (root.optimisticActive && root.currentValue === root.optimisticValue) {
+            root.optimisticActive = false
+            optimisticFallback.stop()
+        }
+    }
+
+    onBusyChanged: {
+        if (!root.busy && root.optimisticActive)
+            Qt.callLater(function() { root.optimisticActive = false })
+    }
+
+    Timer {
+        id: optimisticFallback
+        interval: 3000
+        repeat: false
+        onTriggered: root.optimisticActive = false
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -35,24 +67,24 @@ Rectangle {
                 radius: 11
                 color: tap.pressed
                     ? root.theme.controlPressed
-                    : root.currentValue === segment.modelData.value
+                    : root.visualValue === segment.modelData.value
                         ? root.theme.controlActive
                         : (hover.hovered ? root.theme.controlHover : "transparent")
 
                 Text {
                     anchors.centerIn: parent
                     text: segment.modelData.label
-                    color: root.currentValue === segment.modelData.value
+                    color: root.visualValue === segment.modelData.value
                         ? root.theme.textPrimary
                         : root.theme.textSecondary
                     font.pixelSize: 12
-                    font.weight: root.currentValue === segment.modelData.value ? Font.Medium : Font.Normal
+                    font.weight: root.visualValue === segment.modelData.value ? Font.Medium : Font.Normal
                 }
 
                 HoverHandler { id: hover }
                 TapHandler {
                     id: tap
-                    onTapped: root.selected(segment.modelData.value)
+                    onTapped: root.request(segment.modelData.value)
                 }
 
                 Behavior on color {

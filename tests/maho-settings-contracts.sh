@@ -7,6 +7,7 @@ QML="$APP/qml"
 BACKEND="$ROOT/lib/maho_settings_backend.py"
 WRAPPER="$ROOT/bin/maho-settings"
 PKGBUILD="$ROOT/packaging/arch/PKGBUILD.in"
+BINDINGS="$ROOT/config/hypr/maho/core/binds.lua"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require_file() { [ -f "$1" ] || fail "missing $1"; }
@@ -30,6 +31,7 @@ require_text "$QML/Main.qml" 'readonly property real sidebarWidth: width < 980' 
 require_text "$QML/Main.qml" 'SettingsSidebar {' "category sidebar missing"
 require_text "$QML/components/MahoSettingsTheme.qml" 'property bool reducedMotion: false' "Settings theme does not expose reduced motion"
 require_text "$QML/components/MahoSwitch.qml" 'root.reducedMotion ? 0 : 120' "Settings switch ignores reduced motion"
+require_file "$BINDINGS"
 require_text "$QML/Main.qml" 'Loader {' "route/page loader missing"
 require_text "$QML/components/SettingsSidebar.qml" 'Timer {' "deterministic search debounce missing"
 require_text "$QML/components/SettingsSidebar.qml" 'root.searchRequested(query)' "deterministic search input missing"
@@ -56,6 +58,9 @@ for page in "$QML"/pages/*Page.qml; do
 done
 require_text "$QML/components/MahoSwitch.qml" 'checkable: false' "switch can drift away from backend-owned state"
 require_text "$QML/components/MahoSwitch.qml" 'signal toggleRequested(bool value)' "switch request signal missing"
+require_text "$QML/components/MahoSwitch.qml" 'readonly property bool visualChecked:' "switch has no instant visual feedback"
+require_text "$QML/components/MahoSwitch.qml" 'property bool busy: false' "switch cannot reconcile optimistic feedback with backend completion"
+require_text "$QML/components/MahoSegmentedControl.qml" 'readonly property string visualValue:' "segmented control has no instant visual feedback"
 require_text "$QML/components/MahoComboBox.qml" 'property bool backendOwned: false' "combo box backend-owned mode missing"
 require_text "$QML/components/MahoComboBox.qml" 'delegateItem.highlighted' "combo highlight is not bound to its delegate"
 reject_text "$QML/components/MahoComboBox.qml" 'parent.highlighted' "combo highlight relies on an invalid parent property"
@@ -66,6 +71,10 @@ require_text "$APP/src/MahoSettingsBridge.cpp" 'const QString section = sectionF
 require_text "$APP/src/MahoSettingsBridge.cpp" 'confirmedState.canConvert<QVariantMap>()' "verified owner state is not reused after mutations"
 require_text "$APP/src/MahoSettingsBridge.cpp" 'refreshSection(section)' "successful mutations still force an all-provider refresh"
 require_text "$APP/src/MahoSettingsBridge.cpp" 'm_pendingRefreshSection = QStringLiteral("all")' "overlapping refreshes can drop a changed section"
+require_text "$QML/pages/AppearancePage.qml" 'onActivated: root.bridge.openWallpaperPicker()' "Wallpaper row does not open the wallpaper owner"
+require_text "$APP/src/MahoSettingsBridge.cpp" 'void MahoSettingsBridge::openWallpaperPicker()' "Wallpaper picker launch bridge is missing"
+require_text "$BINDINGS" 'mainMod .. " + CTRL + SHIFT + S"' "SUPER+CTRL+SHIFT+S Settings shortcut is missing"
+require_text "$BINDINGS" '"$HOME/.local/bin/maho-settings" run' "Settings shortcut does not launch the managed Settings wrapper"
 echo PASS
 
 echo "=== deterministic search contract ==="

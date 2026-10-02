@@ -64,6 +64,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.pageState.active
                     enabled: !!root.pageState.globalEnableSupported && !root.bridge.actionBusy
@@ -84,6 +85,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.pageState.dnd
                     enabled: !root.bridge.actionBusy

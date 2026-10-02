@@ -66,6 +66,7 @@ Item {
 
                 MahoSegmentedControl {
                     theme: theme
+                    busy: root.bridge.actionBusy
                     currentValue: root.pageState.mode || "dark"
                     options: [
                         { label: "Dark", value: "dark" },
@@ -81,9 +82,11 @@ Item {
             AppearanceRow {
                 visible: !!root.pageState.available
                 title: "Wallpaper"
-                description: "Current wallpaper and derived color palette"
+                description: "Choose wallpaper and derive the MahoOS color palette"
                 iconName: "image-x-generic"
                 theme: theme
+                interactive: true
+                onActivated: root.bridge.openWallpaperPicker()
 
                 Rectangle {
                     width: 150
@@ -122,6 +125,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                         reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                     checked: !!root.pageState.reducedMotion
                     enabled: !!root.pageState.runtimeHooksAvailable && !root.bridge.actionBusy
@@ -140,6 +144,7 @@ Item {
                 theme: theme
 
                 MahoSwitch {
+                    busy: root.bridge.actionBusy
                         reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                     checked: !!root.pageState.reducedTransparency
                     enabled: !!root.pageState.runtimeHooksAvailable && !root.bridge.actionBusy
