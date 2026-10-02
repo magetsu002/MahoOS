@@ -8,11 +8,16 @@ Item {
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.displays ? bridge.state.displays : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
+
     property int selectedOutputIndex: 0
     property string pendingToken: ""
     property int rollbackRemaining: 0
@@ -125,31 +130,35 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Displays"
-                subtitle: "Configure resolution, refresh rate, scale and layout"
-                foreground: root.foreground
-                muted: root.muted
+                subtitle: "Resolution, refresh rate, scale and arrangement"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Display backend unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
@@ -157,10 +166,10 @@ Item {
                 visible: !!root.state.available
                 title: "Output"
                 description: root.output.description || "Select an active compositor output."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 MahoComboBox {
                     id: outputBox
@@ -168,10 +177,10 @@ Item {
                     model: root.state.outputs || []
                     textRole: "name"
                     currentIndex: root.selectedOutputIndex
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.surfaceElevated
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                     onActivated: {
                         root.selectedOutputIndex = index
                         Qt.callLater(root.syncControls)
@@ -185,7 +194,7 @@ Item {
                             : "Disabled")
                             + (root.output.focused ? " · focused" : "")
                         : ""
-                    color: root.muted
+                    color: theme.textSecondary
                     font.pixelSize: 11
                     Layout.fillWidth: true
                 }
@@ -194,19 +203,19 @@ Item {
                     Layout.fillWidth: true
                     Text {
                         text: "Enabled"
-                        color: root.foreground
+                        color: theme.textPrimary
                         font.pixelSize: 12
                         Layout.fillWidth: true
                     }
                     MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
+                        reducedMotion: theme.reducedMotion
                         id: outputEnabled
-                        checked: !!root.output.enabled
+                        checked: false
                         enabled: !root.bridge.actionBusy
                             && (root.output.disabled || Number(root.state.enabledCount || 0) > 1)
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
+                        accent: theme.accent
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                         onToggleRequested: function(value) { outputEnabled.checked = value }
                     }
                 }
@@ -214,7 +223,7 @@ Item {
                 Text {
                     visible: !!root.output.enabled && Number(root.state.enabledCount || 0) <= 1
                     text: "The last active display cannot be disabled."
-                    color: root.muted
+                    color: theme.textSecondary
                     font.pixelSize: 10
                     Layout.fillWidth: true
                 }
@@ -224,10 +233,10 @@ Item {
                 visible: !!root.state.available && !!root.output.name
                 title: "Mode"
                 description: "Resolution and refresh choices are constrained to modes advertised by the selected output."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 GridLayout {
                     enabled: outputEnabled.checked
@@ -239,14 +248,14 @@ Item {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { text: "Resolution"; color: root.muted; font.pixelSize: 11 }
+                        Text { text: "Resolution"; color: theme.textSecondary; font.pixelSize: 11 }
                         MahoComboBox {
                             id: resolutionBox
                             Layout.fillWidth: true
-                            surface: root.surface
-                            foreground: root.foreground
-                            muted: root.muted
-                            accent: root.accent
+                            surface: theme.surfaceElevated
+                            foreground: theme.textPrimary
+                            muted: theme.textSecondary
+                            accent: theme.accent
                             onActivated: {
                                 const refreshes = root.refreshOptions(currentText)
                                 refreshBox.model = refreshes
@@ -257,14 +266,14 @@ Item {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { text: "Refresh rate"; color: root.muted; font.pixelSize: 11 }
+                        Text { text: "Refresh rate"; color: theme.textSecondary; font.pixelSize: 11 }
                         MahoComboBox {
                             id: refreshBox
                             Layout.fillWidth: true
-                            surface: root.surface
-                            foreground: root.foreground
-                            muted: root.muted
-                            accent: root.accent
+                            surface: theme.surfaceElevated
+                            foreground: theme.textPrimary
+                            muted: theme.textSecondary
+                            accent: theme.accent
                             displayText: currentIndex >= 0 && model && model.length > currentIndex
                                 ? Number(model[currentIndex]).toFixed(2) + " Hz"
                                 : ""
@@ -273,24 +282,21 @@ Item {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { text: "Scale"; color: root.muted; font.pixelSize: 11 }
-                        TextField {
+                        Text { text: "Scale"; color: theme.textSecondary; font.pixelSize: 11 }
+                        MahoTextField {
                             id: scaleField
                             Layout.fillWidth: true
                             validator: DoubleValidator { bottom: 0.5; top: 4.0; decimals: 3 }
-                            color: root.foreground
-                            background: Rectangle {
-                                radius: 11
-                                color: root.surface
-                                border.width: 1
-                                border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
-                            }
+                            surface: theme.surfaceElevated
+                            foreground: theme.textPrimary
+                            muted: theme.textSecondary
+                            accent: theme.accent
                         }
                     }
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Text { text: "Orientation"; color: root.muted; font.pixelSize: 11 }
+                        Text { text: "Orientation"; color: theme.textSecondary; font.pixelSize: 11 }
                         MahoComboBox {
                             id: orientationBox
                             Layout.fillWidth: true
@@ -302,10 +308,10 @@ Item {
                             ]
                             textRole: "label"
                             valueRole: "value"
-                            surface: root.surface
-                            foreground: root.foreground
-                            muted: root.muted
-                            accent: root.accent
+                            surface: theme.surfaceElevated
+                            foreground: theme.textPrimary
+                            muted: theme.textSecondary
+                            accent: theme.accent
                         }
                     }
                 }
@@ -315,38 +321,32 @@ Item {
                 visible: !!root.state.available && !!root.output.name
                 title: "Arrangement"
                 description: "Coordinates define output placement. Hyprland does not expose a truthful global “primary display” concept, so Settings does not invent one."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "X"; color: root.muted; font.pixelSize: 11 }
-                    TextField {
+                    Text { text: "X"; color: theme.textSecondary; font.pixelSize: 11 }
+                    MahoTextField {
                         id: xField
                         Layout.fillWidth: true
                         validator: IntValidator { bottom: -32768; top: 32768 }
-                        color: root.foreground
-                        background: Rectangle {
-                            radius: 11
-                            color: root.surface
-                            border.width: 1
-                            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
-                        }
+                        surface: theme.surfaceElevated
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                        accent: theme.accent
                     }
-                    Text { text: "Y"; color: root.muted; font.pixelSize: 11 }
-                    TextField {
+                    Text { text: "Y"; color: theme.textSecondary; font.pixelSize: 11 }
+                    MahoTextField {
                         id: yField
                         Layout.fillWidth: true
                         validator: IntValidator { bottom: -32768; top: 32768 }
-                        color: root.foreground
-                        background: Rectangle {
-                            radius: 11
-                            color: root.surface
-                            border.width: 1
-                            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
-                        }
+                        surface: theme.surfaceElevated
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                        accent: theme.accent
                     }
                 }
 
@@ -357,20 +357,20 @@ Item {
                         selected: !!root.output.focused
                         enabled: !!root.output.enabled && !root.output.focused
                             && !root.bridge.actionBusy && root.pendingToken.length === 0
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
+                        accent: theme.accent
+                        surface: theme.surfaceElevated
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                         onClicked: root.bridge.perform("display.focus", { name: root.output.name })
                     }
                     Item { Layout.fillWidth: true }
                     ChoicePill {
                         text: "Preview Changes"
                         enabled: !root.bridge.actionBusy && root.pendingToken.length === 0
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
+                        accent: theme.accent
+                        surface: theme.surfaceElevated
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                         onClicked: root.preview()
                     }
                 }
@@ -380,36 +380,36 @@ Item {
                 visible: root.pendingToken.length > 0
                 title: "Keep this display configuration?"
                 description: "If you do nothing, the independent watchdog restores the previous outputs automatically."
-                surface: root.surface
-                borderColor: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.42)
-                foreground: root.foreground
-                muted: root.muted
+                surface: theme.surfaceElevated
+                borderColor: Qt.rgba(theme.accent.r, theme.accent.g, theme.accent.b, 0.42)
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
 
                 RowLayout {
                     Layout.fillWidth: true
                     Text {
                         text: "Reverting in " + root.rollbackRemaining + "s"
-                        color: root.muted
+                        color: theme.textSecondary
                         font.pixelSize: 12
                         Layout.fillWidth: true
                     }
                     ChoicePill {
                         text: "Revert"
                         enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
+                        accent: theme.accent
+                        surface: theme.surfaceElevated
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                         onClicked: root.bridge.perform("display.revert", { token: root.pendingToken })
                     }
                     ChoicePill {
                         text: "Keep"
                         selected: true
                         enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
+                        accent: theme.accent
+                        surface: theme.surfaceElevated
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
                         onClicked: root.bridge.perform("display.commit", { token: root.pendingToken })
                     }
                 }
