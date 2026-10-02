@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import platform
 import re
@@ -1837,7 +1838,18 @@ def snapshot(section: str = "all") -> dict[str, Any]:
         if provider is None:
             return {"ok": False, "error": "Unknown settings section."}
         return {"ok": True, section: provider()}
-    return {"ok": True, **{name: provider() for name, provider in providers.items()}}
+
+    # These providers are independent read-only observations. Running them
+    # concurrently keeps the first Settings frame from waiting on the sum of
+    # every system adapter while preserving deterministic result ordering.
+    items = list(providers.items())
+    with ThreadPoolExecutor(max_workers=min(6, len(items)), thread_name_prefix="maho-settings") as executor:
+        futures = [executor.submit(provider) for _, provider in items]
+        values = {
+            name: future.result()
+            for (name, _), future in zip(items, futures, strict=True)
+        }
+    return {"ok": True, **values}
 
 
 def _apply_persisted_input() -> list[str]:

@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+from threading import Event
 import unittest
 from unittest import mock
 
@@ -38,6 +39,71 @@ class SearchContracts(unittest.TestCase):
         first = settings.search("refresh rate")
         second = settings.search("refresh rate")
         self.assertEqual(first, second)
+
+
+class SnapshotAggregationContracts(unittest.TestCase):
+    def test_snapshot_all_observes_independent_providers_concurrently(self) -> None:
+        appearance_started = Event()
+        displays_started = Event()
+        overlap: list[bool] = []
+
+        def appearance() -> dict[str, str]:
+            appearance_started.set()
+            overlap.append(displays_started.wait(0.4))
+            return {"provider": "appearance"}
+
+        def displays() -> dict[str, str]:
+            displays_started.set()
+            overlap.append(appearance_started.wait(0.4))
+            return {"provider": "displays"}
+
+        def provider(name: str):
+            return lambda: {"provider": name}
+
+        replacements = {
+            "snapshot_appearance": appearance,
+            "snapshot_displays": displays,
+            "snapshot_sound": provider("sound"),
+            "snapshot_input": provider("input"),
+            "snapshot_power": provider("power"),
+            "snapshot_notifications": provider("notifications"),
+            "snapshot_applications": provider("applications"),
+            "snapshot_region": provider("region"),
+            "snapshot_shortcuts": provider("shortcuts"),
+            "snapshot_motion": provider("motion"),
+            "snapshot_configuration": provider("configuration"),
+            "snapshot_diagnostics": provider("diagnostics"),
+            "snapshot_about": provider("system"),
+        }
+        patchers = [mock.patch.object(settings, name, value) for name, value in replacements.items()]
+        for patcher in patchers:
+            patcher.start()
+        try:
+            result = settings.snapshot("all")
+        finally:
+            for patcher in reversed(patchers):
+                patcher.stop()
+
+        self.assertTrue(all(overlap), "snapshot providers did not overlap")
+        self.assertEqual(
+            list(result),
+            [
+                "ok",
+                "appearance",
+                "displays",
+                "sound",
+                "input",
+                "power",
+                "notifications",
+                "applications",
+                "region",
+                "shortcuts",
+                "motion",
+                "configuration",
+                "diagnostics",
+                "system",
+            ],
+        )
 
 
 class AdapterTruthContracts(unittest.TestCase):
