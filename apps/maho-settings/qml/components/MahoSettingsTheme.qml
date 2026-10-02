@@ -36,13 +36,13 @@ QtObject {
 
     readonly property color shellFill: reducedTransparency
         ? mix(surface, background, 0.16)
-        : alpha(mix(surface, background, 0.18), lightMode ? 0.80 : 0.70)
+        : alpha(mix(surface, background, 0.18), lightMode ? 0.72 : 0.62)
     readonly property color sidebarFill: reducedTransparency
         ? mix(background, surface, 0.30)
-        : alpha(mix(background, surface, 0.28), lightMode ? 0.90 : 0.82)
+        : alpha(mix(background, surface, 0.28), lightMode ? 0.82 : 0.72)
     readonly property color contentFill: reducedTransparency
         ? surface
-        : alpha(mix(surface, accent, 0.025), lightMode ? 0.72 : 0.61)
+        : alpha(mix(surface, accent, 0.035), lightMode ? 0.64 : 0.52)
 
     readonly property color shellRim: alpha(foreground, lightMode ? 0.20 : 0.13)
     readonly property color shellInnerRim: alpha(foreground, lightMode ? 0.08 : 0.045)
@@ -50,23 +50,23 @@ QtObject {
 
     readonly property color searchFill: reducedTransparency
         ? mix(surfaceElevated, background, 0.34)
-        : alpha(mix(surfaceElevated, background, 0.32), 0.46)
+        : alpha(mix(surfaceElevated, background, 0.32), 0.38)
     readonly property color searchHover: alpha(foreground, 0.055)
     readonly property color searchFocusRim: alpha(accent, 0.26)
 
     readonly property color navHover: alpha(foreground, 0.055)
-    readonly property color navSelected: alpha(mix(surfaceElevated, accent, 0.16), lightMode ? 0.68 : 0.56)
-    readonly property color navSelectedHover: alpha(mix(surfaceElevated, accent, 0.20), lightMode ? 0.76 : 0.64)
+    readonly property color navSelected: alpha(mix(surfaceElevated, accent, 0.16), lightMode ? 0.62 : 0.50)
+    readonly property color navSelectedHover: alpha(mix(surfaceElevated, accent, 0.20), lightMode ? 0.70 : 0.58)
     readonly property color navSelectedRim: alpha(foreground, 0.045)
 
     readonly property color rowFill: reducedTransparency
         ? surfaceElevated
-        : alpha(mix(surfaceElevated, surface, 0.24), lightMode ? 0.74 : 0.50)
-    readonly property color rowHover: alpha(mix(surfaceElevated, foreground, 0.055), lightMode ? 0.78 : 0.58)
-    readonly property color rowRim: alpha(foreground, lightMode ? 0.13 : 0.075)
+        : alpha(mix(surfaceElevated, surface, 0.24), lightMode ? 0.66 : 0.42)
+    readonly property color rowHover: alpha(mix(surfaceElevated, foreground, 0.055), lightMode ? 0.72 : 0.50)
+    readonly property color rowRim: alpha(foreground, lightMode ? 0.11 : 0.060)
     readonly property color rowInnerRim: alpha(foreground, 0.028)
 
-    readonly property color controlFill: alpha(mix(surfaceElevated, background, 0.30), reducedTransparency ? 1.0 : 0.50)
+    readonly property color controlFill: alpha(mix(surfaceElevated, background, 0.30), reducedTransparency ? 1.0 : 0.44)
     readonly property color controlHover: alpha(mix(surfaceElevated, foreground, 0.05), reducedTransparency ? 1.0 : 0.60)
     readonly property color controlPressed: alpha(mix(surfaceElevated, foreground, 0.08), reducedTransparency ? 1.0 : 0.68)
     readonly property color controlActive: alpha(mix(surfaceElevated, accent, 0.18), reducedTransparency ? 1.0 : 0.72)
