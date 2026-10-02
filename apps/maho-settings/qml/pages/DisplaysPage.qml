@@ -207,6 +207,7 @@ Item {
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
+                        onToggleRequested: function(value) { outputEnabled.checked = value }
                     }
                 }
 
