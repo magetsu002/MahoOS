@@ -67,7 +67,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.pageState.active
-                    enabled: !!root.pageState.globalEnableSupported && !root.bridge.actionBusy
+                    enabled: !!root.pageState.globalEnableSupported
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -88,7 +88,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.pageState.dnd
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary

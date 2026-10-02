@@ -208,12 +208,10 @@ Item {
                         Layout.fillWidth: true
                     }
                     MahoSwitch {
-                        busy: root.bridge.actionBusy
                         reducedMotion: theme.reducedMotion
                         id: outputEnabled
                         checked: false
-                        enabled: !root.bridge.actionBusy
-                            && (root.output.disabled || Number(root.pageState.enabledCount || 0) > 1)
+                        enabled: root.output.disabled || Number(root.pageState.enabledCount || 0) > 1
                         accent: theme.accent
                         foreground: theme.textPrimary
                         muted: theme.textSecondary

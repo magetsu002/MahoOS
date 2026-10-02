@@ -98,7 +98,7 @@ Item {
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     onTextRequested: function(value) {
                         root.bridge.perform("input.set", {
                             key: "repeatRate",
@@ -124,7 +124,7 @@ Item {
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     onTextRequested: function(value) {
                         root.bridge.perform("input.set", {
                             key: "repeatDelay",
@@ -160,7 +160,7 @@ Item {
                     stepSize: 0.05
                     backendOwned: true
                     backendValue: Number(root.current.sensitivity || 0)
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     onValueRequested: function(value) {
@@ -192,7 +192,7 @@ Item {
                 ChoicePill {
                     text: "Adaptive"
                     selected: root.current.accelProfile === "adaptive"
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     surface: theme.controlFill
                     foreground: theme.textPrimary
@@ -206,7 +206,7 @@ Item {
                 ChoicePill {
                     text: "Flat"
                     selected: root.current.accelProfile === "flat"
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     surface: theme.controlFill
                     foreground: theme.textPrimary
@@ -229,7 +229,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.mouseNaturalScroll
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -253,7 +253,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.leftHanded
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -283,7 +283,7 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.pageState.touchpads || []
                     currentIndex: root.selectedTouchpadIndex
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -307,7 +307,7 @@ Item {
                     stepSize: 0.05
                     backendOwned: true
                     backendValue: root.touchpadSpeed()
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     onValueRequested: function(value) {
@@ -340,7 +340,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.naturalScroll
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -364,7 +364,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.tapToClick
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -388,7 +388,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.current.disableWhileTyping
-                    enabled: !root.bridge.actionBusy
+                    enabled: true
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary

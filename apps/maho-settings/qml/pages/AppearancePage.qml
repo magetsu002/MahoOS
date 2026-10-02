@@ -128,7 +128,7 @@ Item {
                     busy: root.bridge.actionBusy
                         reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                     checked: !!root.pageState.reducedMotion
-                    enabled: !!root.pageState.runtimeHooksAvailable && !root.bridge.actionBusy
+                    enabled: !!root.pageState.runtimeHooksAvailable
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -147,7 +147,7 @@ Item {
                     busy: root.bridge.actionBusy
                         reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
                     checked: !!root.pageState.reducedTransparency
-                    enabled: !!root.pageState.runtimeHooksAvailable && !root.bridge.actionBusy
+                    enabled: !!root.pageState.runtimeHooksAvailable
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary

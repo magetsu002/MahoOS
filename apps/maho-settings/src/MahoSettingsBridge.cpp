@@ -56,31 +56,42 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
         QVariantMap payload = parseObject(m_actionProcess.readAllStandardOutput(), &parseError);
         const QString action = m_pendingAction;
         m_pendingAction.clear();
-        setActionBusy(false);
+
         if (!parseError.isEmpty()) {
+            setActionBusy(false);
             setError(parseError);
             emit actionFinished(action, false, parseError, {});
             return;
         }
+
         const bool ok = payload.value(QStringLiteral("ok")).toBool();
         const QString message = ok
             ? payload.value(QStringLiteral("message")).toString()
             : payload.value(QStringLiteral("error")).toString();
-        if (!ok)
+
+        if (!ok) {
+            setActionBusy(false);
             setError(message);
-        else
-            setError({});
-        emit actionFinished(action, ok, message, payload);
-        if (ok) {
-            const QString section = sectionForAction(action);
-            const QVariant confirmedState = payload.value(QStringLiteral("state"));
-            if (section != QStringLiteral("all") && confirmedState.canConvert<QVariantMap>()) {
-                m_state.insert(section, confirmedState);
-                emit stateChanged();
-            } else {
-                refreshSection(section);
-            }
+            emit actionFinished(action, false, message, payload);
+            return;
         }
+
+        setError({});
+        const QString section = sectionForAction(action);
+        const QVariant confirmedState = payload.value(QStringLiteral("state"));
+
+        if (section != QStringLiteral("all") && confirmedState.canConvert<QVariantMap>()) {
+            m_state.insert(section, confirmedState);
+            emit stateChanged();
+            setActionBusy(false);
+        } else {
+            // Keep the interaction in its optimistic state until the owner's
+            // verified readback lands. Dropping busy before this refresh makes
+            // switches visually snap back and then forward again.
+            refreshSection(section);
+        }
+
+        emit actionFinished(action, true, message, payload);
     });
 
     connect(&m_wallpaperPickerProcess, &QProcess::finished, this,
@@ -162,6 +173,8 @@ void MahoSettingsBridge::finishRefresh()
     }
 
     setLoading(false);
+    if (m_actionProcess.state() == QProcess::NotRunning)
+        setActionBusy(false);
 }
 
 QString MahoSettingsBridge::sectionForAction(const QString &action)

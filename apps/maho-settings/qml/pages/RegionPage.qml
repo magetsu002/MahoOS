@@ -97,7 +97,7 @@ Item {
                     busy: root.bridge.actionBusy
                     reducedMotion: theme.reducedMotion
                     checked: !!root.pageState.automaticTime
-                    enabled: !!root.pageState.automaticTimeControlAvailable && !root.bridge.actionBusy
+                    enabled: !!root.pageState.automaticTimeControlAvailable
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary

@@ -105,7 +105,7 @@ Item {
                     to: 100
                     backendOwned: true
                     backendValue: root.pageState.output && root.pageState.output.available ? root.pageState.output.volume : 0
-                    enabled: !!(root.pageState.output && root.pageState.output.available) && !root.bridge.actionBusy
+                    enabled: !!(root.pageState.output && root.pageState.output.available)
                     accent: theme.accent
                     foreground: theme.textPrimary
                     onValueRequested: function(value) {
@@ -135,7 +135,7 @@ Item {
                     reducedMotion: theme.reducedMotion
                     checked: root.pageState.output && root.pageState.output.available
                         ? !!root.pageState.output.muted : false
-                    enabled: !!(root.pageState.output && root.pageState.output.available) && !root.bridge.actionBusy
+                    enabled: !!(root.pageState.output && root.pageState.output.available)
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -190,7 +190,7 @@ Item {
                     to: 100
                     backendOwned: true
                     backendValue: root.pageState.input && root.pageState.input.available ? root.pageState.input.volume : 0
-                    enabled: !!(root.pageState.input && root.pageState.input.available) && !root.bridge.actionBusy
+                    enabled: !!(root.pageState.input && root.pageState.input.available)
                     accent: theme.accent
                     foreground: theme.textPrimary
                     onValueRequested: function(value) {
@@ -220,7 +220,7 @@ Item {
                     reducedMotion: theme.reducedMotion
                     checked: root.pageState.input && root.pageState.input.available
                         ? !!root.pageState.input.muted : false
-                    enabled: !!(root.pageState.input && root.pageState.input.available) && !root.bridge.actionBusy
+                    enabled: !!(root.pageState.input && root.pageState.input.available)
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
