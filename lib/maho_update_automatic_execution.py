@@ -24,6 +24,7 @@ from maho_update_admission import (
 )
 from maho_update_candidate_generation import (
     load_current_verified_generations,
+    promote_normal_candidate_generation,
     publish_normal_candidate_generation,
     read_candidate_publication,
 )
@@ -31,12 +32,16 @@ from maho_update_execution_authority import (
     consume_activation_handoff,
     consume_execution_authority,
     executor_identity,
+    handoff_consumption_path,
     handoff_path,
     issue_activation_handoff,
     issue_execution_authority,
+    parse_activation_handoff,
     publish_activation_handoff,
     publish_execution_authority,
+    read_activation_handoff_consumption,
     verify_activation_handoff,
+    verify_activation_handoff_reconciliation,
     verify_execution_authority,
 )
 from maho_update_native import NativeBtrfsOps
@@ -91,6 +96,11 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
             os.fsync(stream.fileno())
         os.replace(tmp, path)
         os.chmod(path, 0o600)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             tmp.unlink()
@@ -735,7 +745,7 @@ def _restore_record_from_previous_root(
     )
     btrfs = NativeBtrfsOps(current["transaction_id"])
     try:
-        evidence = btrfs.read_previous_root_file(relative)
+        evidence = btrfs.read_activation_source_file(relative)
     finally:
         btrfs.close()
     try:
@@ -762,11 +772,10 @@ def _restore_record_from_previous_root(
     ):
         raise ValueError("previous-root automatic execution record binding mismatch")
     _live, system, _kernel = load_current_verified_generations(generation_root)
-    parsed_handoff = verify_activation_handoff(
+    parsed_handoff = verify_activation_handoff_reconciliation(
         handoff,
         current,
         current_system_generation_id=str(system.generation_id),
-        now=now,
     )
     if (
         parsed_handoff.candidate_uuid != candidate.get("uuid")
@@ -795,14 +804,22 @@ def _ensure_candidate_generation_after_activation(
         raise ValueError("post-activation candidate generation evidence is incomplete")
     publication = read_candidate_publication(current["transaction_id"], generation_root)
     if publication is None:
-        publication = publish_normal_candidate_generation(
-            current,
-            candidate=candidate,
-            activation_authority=authority,
-            recovery_evidence=recovery,
-            candidate_boot_identity=boot,
-            root=generation_root,
-        )
+        live, _system, _kernel = load_current_verified_generations(generation_root)
+        if (
+            live.get("system_generation_id") == expected.get("system_generation_id")
+            and live.get("kernel_generation_id") == expected.get("kernel_generation_id")
+            and live.get("root_subvolume_uuid") == candidate.get("uuid")
+        ):
+            publication = dict(expected)
+        else:
+            publication = publish_normal_candidate_generation(
+                current,
+                candidate=candidate,
+                activation_authority=authority,
+                recovery_evidence=recovery,
+                candidate_boot_identity=boot,
+                root=generation_root,
+            )
     if (
         publication.get("system_generation_id") != expected.get("system_generation_id")
         or publication.get("kernel_generation_id") != expected.get("kernel_generation_id")
@@ -926,6 +943,26 @@ def finalize_pending_normal(
         record.get("phase") in {"INSTALLED_PENDING_ACTIVATION", "ACTIVATION_ARMED"}
         and isinstance(record.get("activation_handoff"), Mapping)
     ):
+        if record.get("phase") == "INSTALLED_PENDING_ACTIVATION":
+            candidate = record.get("candidate")
+            if not isinstance(candidate, Mapping):
+                raise ValueError("normal pending candidate evidence is unavailable")
+            btrfs = NativeBtrfsOps(transaction_id)
+            try:
+                topology = btrfs.normal_activation_topology(
+                    expected_candidate_uuid=str(candidate.get("uuid")),
+                    expected_parent_root_uuid=str(candidate.get("parent_root_uuid")),
+                )
+            finally:
+                btrfs.close()
+            if topology in {"EXCHANGED_PENDING_BACKUP", "ARMED"}:
+                arm_normal_activation(
+                    transaction_id,
+                    state_root=state_root,
+                    generation_root=generation_root,
+                    now=now,
+                )
+                record = read_execution_record(state_root, transaction_id) or record
         if record.get("phase") == "ACTIVATION_ARMED":
             publication = _ensure_candidate_generation_after_activation(
                 transaction, record, generation_root=generation_root,
@@ -1036,31 +1073,38 @@ def arm_normal_activation(
         raise ValueError("normal activation evidence is incomplete")
 
     live, system, _kernel = load_current_verified_generations(generation_root)
-    handoff = verify_activation_handoff(
-        handoff_value,
-        transaction,
-        current_system_generation_id=str(system.generation_id),
-        now=now,
-    )
-    if live["root_subvolume_uuid"] != handoff.previous_root_uuid:
-        raise ValueError("live root drifted before explicit activation")
+    parsed_handoff = parse_activation_handoff(handoff_value)
     if (
-        handoff.candidate_system_generation_id
+        parsed_handoff.candidate_system_generation_id
         != candidate_generation.get("system_generation_id")
-        or handoff.candidate_kernel_generation_id
+        or parsed_handoff.candidate_kernel_generation_id
         != candidate_generation.get("kernel_generation_id")
-        or handoff.candidate_uuid != candidate.get("uuid")
-        or handoff.previous_root_uuid != candidate.get("parent_root_uuid")
+        or parsed_handoff.candidate_uuid != candidate.get("uuid")
+        or parsed_handoff.previous_root_uuid != candidate.get("parent_root_uuid")
     ):
         raise ValueError("activation handoff candidate generation binding mismatch")
 
     btrfs = NativeBtrfsOps(transaction_id)
     try:
         topology = btrfs.normal_activation_topology(
-            expected_candidate_uuid=handoff.candidate_uuid,
-            expected_parent_root_uuid=handoff.previous_root_uuid,
+            expected_candidate_uuid=parsed_handoff.candidate_uuid,
+            expected_parent_root_uuid=parsed_handoff.previous_root_uuid,
         )
         if topology == "PREPARED":
+            handoff = verify_activation_handoff(
+                handoff_value,
+                transaction,
+                current_system_generation_id=str(system.generation_id),
+                now=now,
+            )
+            if live["root_subvolume_uuid"] != handoff.previous_root_uuid:
+                raise ValueError("live root drifted before explicit activation")
+            prepared_state_root = btrfs.prepared_candidate_state_root(
+                expected_candidate_uuid=handoff.candidate_uuid,
+                expected_parent_root_uuid=handoff.previous_root_uuid,
+            )
+            if handoff_consumption_path(prepared_state_root, handoff.handoff_id).exists():
+                raise ValueError("unperformed activation already has a consumption receipt")
             paths = btrfs.admission_roots(
                 str(candidate["uuid"]),
                 str(candidate["admission_base_uuid"]),
@@ -1100,6 +1144,11 @@ def arm_normal_activation(
             )
             activation["admission_authority_id"] = str(verified.authority_id)
         elif topology == "EXCHANGED_PENDING_BACKUP":
+            handoff = verify_activation_handoff_reconciliation(
+                handoff_value,
+                transaction,
+                current_system_generation_id=str(system.generation_id),
+            )
             activation = btrfs.finalize_normal_activation_exchange(
                 expected_candidate_uuid=handoff.candidate_uuid,
                 expected_parent_root_uuid=handoff.previous_root_uuid,
@@ -1108,6 +1157,11 @@ def arm_normal_activation(
                 ),
             )
         elif topology == "ARMED":
+            handoff = verify_activation_handoff_reconciliation(
+                handoff_value,
+                transaction,
+                current_system_generation_id=str(system.generation_id),
+            )
             activation = {
                 "candidate_uuid": handoff.candidate_uuid,
                 "previous_root_uuid": handoff.previous_root_uuid,
@@ -1122,17 +1176,27 @@ def arm_normal_activation(
         else:
             raise RuntimeError("normal activation topology is unsafe")
 
+        activated_state_root = btrfs.activated_state_root(
+            expected_candidate_uuid=handoff.candidate_uuid,
+            expected_parent_root_uuid=handoff.previous_root_uuid,
+        )
         try:
             consumption = consume_activation_handoff(
-                state_root,
+                activated_state_root,
                 handoff,
                 activation_evidence=activation,
                 now=now,
             )
+            consumption = read_activation_handoff_consumption(
+                activated_state_root, handoff,
+            )
         except ValueError as exc:
             if "already consumed" not in str(exc) or topology != "ARMED":
                 raise
-            consumption = {"handoff_id": handoff.handoff_id, "already_consumed": True}
+            consumption = read_activation_handoff_consumption(
+                activated_state_root, handoff,
+            )
+            consumption["replayed"] = True
         record = dict(record)
         record.update({
             "phase": "ACTIVATION_ARMED",
@@ -1140,7 +1204,7 @@ def arm_normal_activation(
             "handoff_consumption": consumption,
             "reboot_performed": False,
         })
-        _atomic_json(record_path(state_root, transaction_id), record)
+        _atomic_json(record_path(activated_state_root, transaction_id), record)
         return {
             "transaction_id": transaction_id,
             "phase": "ACTIVATION_ARMED",
@@ -1151,6 +1215,184 @@ def arm_normal_activation(
         }
     finally:
         btrfs.close()
+
+
+def _candidate_package_versions(
+    transaction: Mapping[str, Any],
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, str]:
+    tx = validate_transaction(transaction)
+    names = [item["name"] for item in tx["package_generation"]["packages"]]
+    completed = runner(
+        ["pacman", "-Q", "--", *names],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("postboot package generation query failed")
+    observed: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        name, separator, version = line.partition(" ")
+        if separator:
+            observed[name] = version.strip()
+    expected = {
+        item["name"]: item["candidate_version"]
+        for item in tx["package_generation"]["packages"]
+    }
+    if observed != expected:
+        raise RuntimeError("postboot package generation does not match candidate")
+    return observed
+
+
+def verify_activated_normal(
+    transaction_id: str,
+    *,
+    state_root: Path,
+    generation_root: Path = GENERATION_ROOT,
+    now: datetime | None = None,
+    package_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    running_kernel: Callable[[], str] = lambda: os.uname().release,
+    cmdline_path: Path = Path("/proc/cmdline"),
+) -> dict[str, Any]:
+    """Independently verify and publish one already-armed normal candidate."""
+    transaction = read_transaction(transaction_path(state_root, transaction_id))
+    if transaction["state"] not in {
+        UpdateState.INSTALLED_PENDING_ACTIVATION.value,
+        UpdateState.ACTIVE_VERIFYING.value,
+        UpdateState.HEALTHY.value,
+    }:
+        raise ValueError("normal postboot verification requires an activated transaction")
+    record = read_execution_record(state_root, transaction_id)
+    if not record or record.get("phase") not in {"ACTIVATION_ARMED", "POSTBOOT_VERIFIED"}:
+        raise ValueError("normal postboot activation record is unavailable")
+    candidate = record.get("candidate")
+    handoff_value = record.get("activation_handoff")
+    if not isinstance(candidate, Mapping) or not isinstance(handoff_value, Mapping):
+        raise ValueError("normal postboot activation evidence is incomplete")
+    handoff = parse_activation_handoff(handoff_value)
+    if (
+        handoff.transaction_id != transaction_id
+        or handoff.source_revision != transaction["source_revision"]
+        or handoff.package_generation_id != transaction["package_generation"]["id"]
+        or handoff.candidate_uuid != candidate.get("uuid")
+        or handoff.previous_root_uuid != candidate.get("parent_root_uuid")
+    ):
+        raise ValueError("normal postboot handoff binding mismatch")
+
+    btrfs = NativeBtrfsOps(transaction_id)
+    try:
+        topology = btrfs.normal_activation_topology(
+            expected_candidate_uuid=handoff.candidate_uuid,
+            expected_parent_root_uuid=handoff.previous_root_uuid,
+        )
+        if topology != "ARMED":
+            raise RuntimeError("normal postboot root topology is not armed")
+        identity = btrfs.root_identity()
+        if (
+            identity.subvolume_uuid != handoff.candidate_uuid
+            or identity.filesystem_uuid.lower() != str(candidate.get("filesystem_uuid", "")).lower()
+            or identity.fsroot != "/@"
+        ):
+            raise RuntimeError("normal postboot active root identity mismatch")
+        receipt = read_activation_handoff_consumption(state_root, handoff)
+        expected_boot = dict(handoff.candidate_boot_identity.get("sha256", {}))
+        observed_boot = btrfs.live_boot_hashes()
+        if observed_boot != expected_boot:
+            raise RuntimeError("normal postboot boot identity drifted")
+    finally:
+        btrfs.close()
+
+    cmdline = cmdline_path.read_text(encoding="utf-8").split()
+    if "maho.recovery_snapshot=1" in cmdline:
+        raise RuntimeError("normal postboot verification observed recovery boot")
+    packages = _candidate_package_versions(transaction, runner=package_runner)
+    live, _system, kernel = load_current_verified_generations(generation_root)
+    candidate_publication = _ensure_candidate_generation_after_activation(
+        transaction, record, generation_root=generation_root,
+    )
+    if (
+        live.get("root_subvolume_uuid") not in {
+            handoff.previous_root_uuid, handoff.candidate_uuid,
+        }
+        or candidate_publication.get("system_generation_id")
+        != handoff.candidate_system_generation_id
+        or candidate_publication.get("kernel_generation_id")
+        != handoff.candidate_kernel_generation_id
+    ):
+        raise RuntimeError("normal postboot generation binding mismatch")
+    observed_kernel = running_kernel()
+    if observed_kernel != kernel.kernel_abi:
+        raise RuntimeError("normal postboot running kernel drifted")
+
+    verifier_identity = f"maho-normal-postboot:{transaction['source_revision']}"
+    if transaction["state"] == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
+        transaction = transition_transaction(
+            transaction,
+            UpdateState.ACTIVE_VERIFYING,
+            reason="exact normal candidate booted; independent verification started",
+            evidence={
+                "candidate_uuid": handoff.candidate_uuid,
+                "previous_root_uuid": handoff.previous_root_uuid,
+                "previous_root_read_only": True,
+                "handoff_id": handoff.handoff_id,
+            },
+            now=now,
+        )
+        publish_transaction(state_root, transaction)
+    if transaction["state"] == UpdateState.ACTIVE_VERIFYING.value:
+        transaction = transition_transaction(
+            transaction,
+            UpdateState.HEALTHY,
+            reason="normal candidate passed exact postboot verification",
+            evidence={
+                "candidate_uuid": handoff.candidate_uuid,
+                "package_versions": packages,
+                "boot_sha256": observed_boot,
+                "recovery_invoked": False,
+                "handoff_consumption": receipt,
+            },
+            now=now,
+        )
+        publish_transaction(state_root, transaction)
+    live = promote_normal_candidate_generation(
+        transaction,
+        live_root_uuid=handoff.candidate_uuid,
+        filesystem_uuid=str(candidate["filesystem_uuid"]),
+        running_kernel_abi=observed_kernel,
+        package_versions=packages,
+        boot_sha256=observed_boot,
+        verifier_identity=verifier_identity,
+        root=generation_root,
+    )
+    verified_record = dict(record)
+    verified_record.update({
+        "phase": "POSTBOOT_VERIFIED",
+        "transaction_state": UpdateState.HEALTHY.value,
+        "postboot_verification": {
+            "root_uuid": handoff.candidate_uuid,
+            "previous_root_uuid": handoff.previous_root_uuid,
+            "previous_root_read_only": True,
+            "package_versions": packages,
+            "boot_sha256": observed_boot,
+            "system_generation_id": live["system_generation_id"],
+            "verifier_identity": verifier_identity,
+            "recovery_invoked": False,
+        },
+        "reboot_performed": True,
+    })
+    _atomic_json(record_path(state_root, transaction_id), verified_record)
+    return {
+        "transaction_id": transaction_id,
+        "phase": UpdateState.HEALTHY.value,
+        "root_uuid": handoff.candidate_uuid,
+        "previous_root_uuid": handoff.previous_root_uuid,
+        "previous_root_read_only": True,
+        "system_generation_id": live["system_generation_id"],
+        "package_versions": packages,
+        "recovery_invoked": False,
+    }
 
 
 def activate_current_pending(

@@ -297,10 +297,21 @@ class CandidateGenerationContracts(unittest.TestCase):
                 verifier_identity="maho-normal-postboot-fixture",
                 root=root,
             )
+            replayed = promote_normal_candidate_generation(
+                healthy,
+                live_root_uuid=CANDIDATE_ROOT,
+                filesystem_uuid=FSUUID,
+                running_kernel_abi=current_kernel.kernel_abi,
+                package_versions={"demo": "2"},
+                boot_sha256=live["boot_sha256"],
+                verifier_identity="maho-normal-postboot-fixture",
+                root=root,
+            )
             self.assertEqual(
                 promoted["system_generation_id"],
                 candidate_pub["system_generation_id"],
             )
+            self.assertEqual(replayed, promoted)
             verified = read_live_publication(root)
             self.assertIsNotNone(verified)
             self.assertEqual(

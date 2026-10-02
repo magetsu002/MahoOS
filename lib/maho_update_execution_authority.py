@@ -71,6 +71,11 @@ def _atomic_json(path: Path, payload: Mapping[str, Any], *, exclusive: bool = Fa
             except FileNotFoundError:
                 pass
             raise
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
         return
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
@@ -81,6 +86,11 @@ def _atomic_json(path: Path, payload: Mapping[str, Any], *, exclusive: bool = Fa
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         os.chmod(path, 0o600)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             temporary.unlink()
@@ -605,6 +615,34 @@ def verify_activation_handoff(
     return handoff
 
 
+def verify_activation_handoff_reconciliation(
+    value: Mapping[str, Any],
+    transaction: Mapping[str, Any],
+    *,
+    current_system_generation_id: str,
+) -> ActivationHandoff:
+    """Verify exact binding for topology-proven, already-started activation.
+
+    Expiry prevents starting a new exchange. It does not make an exact exchange
+    that already happened unsafe to finish or its durable receipt untrustworthy.
+    """
+    handoff = parse_activation_handoff(value)
+    tx = validate_transaction(transaction)
+    issued = _parse_stamp(handoff.issued_at, "activation handoff issue time")
+    expires = _parse_stamp(handoff.expires_at, "activation handoff expiry")
+    if expires - issued != ACTIVATION_TTL:
+        raise ValueError("activation handoff temporal bounds are invalid")
+    if (
+        tx["state"] != UpdateState.INSTALLED_PENDING_ACTIVATION.value
+        or handoff.transaction_id != tx["transaction_id"]
+        or handoff.source_revision != tx["source_revision"]
+        or handoff.package_generation_id != tx["package_generation"]["id"]
+        or handoff.current_system_generation_id != current_system_generation_id
+    ):
+        raise ValueError("activation handoff exact binding mismatch")
+    return handoff
+
+
 def handoff_path(root: Path, transaction_id: str) -> Path:
     if _TXID.fullmatch(transaction_id) is None:
         raise ValueError("activation handoff transaction identity is invalid")
@@ -646,3 +684,54 @@ def consume_activation_handoff(
     except FileExistsError as exc:
         raise ValueError("activation handoff already consumed") from exc
     return receipt
+
+
+def read_activation_handoff_consumption(
+    root: Path,
+    handoff: ActivationHandoff,
+) -> dict[str, Any]:
+    """Read and prove one completed exact activation handoff consumption.
+
+    The receipt is meaningful only after exact root topology proves the exchange;
+    callers must establish that topology independently before trusting it.
+    """
+    path = handoff_consumption_path(root, handoff.handoff_id)
+    if path.is_symlink():
+        raise ValueError("activation handoff consumption path is unsafe")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("activation handoff consumption is unavailable") from exc
+    required = {
+        "schema_version", "kind", "handoff_id", "transaction_id",
+        "candidate_system_generation_id", "candidate_uuid",
+        "activation_evidence", "consumed_at",
+    }
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise ValueError("activation handoff consumption schema is invalid")
+    evidence = value.get("activation_evidence")
+    expected_boot = dict(handoff.candidate_boot_identity.get("sha256", {}))
+    if (
+        value.get("schema_version") != 1
+        or value.get("kind") != "maho-update-activation-handoff-consumption"
+        or value.get("handoff_id") != handoff.handoff_id
+        or value.get("transaction_id") != handoff.transaction_id
+        or value.get("candidate_system_generation_id") != handoff.candidate_system_generation_id
+        or value.get("candidate_uuid") != handoff.candidate_uuid
+        or not isinstance(evidence, Mapping)
+        or not isinstance(evidence.get("boot_sha256"), Mapping)
+        or evidence.get("candidate_uuid") != handoff.candidate_uuid
+        or evidence.get("previous_root_uuid") != handoff.previous_root_uuid
+        or dict(evidence.get("boot_sha256", {})) != expected_boot
+        or evidence.get("boot_unchanged") is not True
+        or evidence.get("package_manager_invoked") is not False
+        or evidence.get("reboot_performed") is not False
+        or evidence.get("firmware_mutated") is not False
+    ):
+        raise ValueError("activation handoff consumption binding is invalid")
+    consumed = _parse_stamp(value.get("consumed_at"), "activation handoff consumption time")
+    issued = _parse_stamp(handoff.issued_at, "activation handoff issue time")
+    expires = _parse_stamp(handoff.expires_at, "activation handoff expiry")
+    if consumed < issued - MAX_CLOCK_SKEW or consumed > expires:
+        raise ValueError("activation handoff consumption time is invalid")
+    return dict(value)

@@ -510,6 +510,106 @@ class NativeBtrfsOps:
             "relative_path": relative,
         }
 
+    @staticmethod
+    def _bounded_state_root(root: Path) -> Path:
+        resolved_root = root.resolve(strict=True)
+        path = root
+        for part in ("var", "lib", "maho", "update"):
+            path = path / part
+            if path.is_symlink() or not path.is_dir():
+                raise RuntimeError("activation state root is unsafe")
+        resolved = path.resolve(strict=True)
+        try:
+            resolved.relative_to(resolved_root)
+        except ValueError as exc:
+            raise RuntimeError("activation state root escaped selected subvolume") from exc
+        return resolved
+
+    def activated_state_root(
+        self,
+        *,
+        expected_candidate_uuid: str,
+        expected_parent_root_uuid: str,
+    ) -> Path:
+        """Return state on the exact newly selected root after a completed arm."""
+        if self.normal_activation_topology(
+            expected_candidate_uuid=expected_candidate_uuid,
+            expected_parent_root_uuid=expected_parent_root_uuid,
+        ) != "ARMED":
+            raise RuntimeError("normal activation is not durably armed")
+        current = self.top / "@"
+        return self._bounded_state_root(current)
+
+    def prepared_candidate_state_root(
+        self,
+        *,
+        expected_candidate_uuid: str,
+        expected_parent_root_uuid: str,
+    ) -> Path:
+        """Return state inside the exact frozen candidate before exchange."""
+        if self.normal_activation_topology(
+            expected_candidate_uuid=expected_candidate_uuid,
+            expected_parent_root_uuid=expected_parent_root_uuid,
+        ) != "PREPARED":
+            raise RuntimeError("normal activation candidate is not prepared")
+        return self._bounded_state_root(self.top / self.candidate)
+
+    def read_activation_source_file(
+        self,
+        relative: str,
+        *,
+        expected_active_uuid: str | None = None,
+        expected_previous_uuid: str | None = None,
+    ) -> dict[str, Any]:
+        """Read handoff evidence across either post-exchange crash topology."""
+        self.require_root()
+        if not isinstance(relative, str) or not relative or relative.startswith("/"):
+            raise ValueError("activation source evidence path must be relative")
+        parts = Path(relative).parts
+        if not parts or any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("activation source evidence path is unbounded")
+        identity = self.root_identity()
+        self._mount_top(identity)
+        current = self.top / "@"
+        candidate = self.top / self.candidate
+        backup = self.top / self.backup
+        if current.exists() and candidate.exists() and not backup.exists():
+            source = self.top / self.candidate
+            topology = "EXCHANGED_PENDING_BACKUP"
+        elif current.exists() and backup.exists() and not candidate.exists():
+            source = self.top / self.backup
+            if not self._read_only(source):
+                raise RuntimeError("previous known-good root is mutable")
+            topology = "ARMED"
+        else:
+            raise RuntimeError("activation source topology is not recoverable")
+        active_uuid = self._show_uuid(current)
+        previous_uuid = self._show_uuid(source)
+        if expected_active_uuid is not None and active_uuid != expected_active_uuid:
+            raise RuntimeError("activation source active root UUID drifted")
+        if expected_previous_uuid is not None and previous_uuid != expected_previous_uuid:
+            raise RuntimeError("activation source root UUID drifted")
+        source_root = source.resolve(strict=True)
+        raw = source
+        for part in parts:
+            raw = raw / part
+            if raw.is_symlink():
+                raise RuntimeError("activation source evidence path contains a symlink")
+        path = raw.resolve(strict=True)
+        try:
+            path.relative_to(source_root)
+        except ValueError as exc:
+            raise RuntimeError("activation source evidence path escaped retained root") from exc
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("activation source evidence is not a regular file")
+        return {
+            "content": path.read_bytes(),
+            "previous_root_uuid": previous_uuid,
+            "active_root_uuid": active_uuid,
+            "relative_path": relative,
+            "topology": topology,
+        }
+
     def freeze_previous_root(self, previous_root_name: str, expected_uuid: str, active_candidate_uuid: str) -> dict[str, Any]:
         """Freeze the exact previous /@ only after the candidate is the live normal root."""
         self.require_root()
@@ -645,6 +745,7 @@ class NativeBtrfsOps:
             raise RuntimeError("normal activation boot identity drifted during exchange reconciliation")
         os.rename(candidate, previous)
         self._set_read_only(previous, True)
+        self._fsync_path(self.top)
         if (
             self._show_uuid(previous) != expected_parent_root_uuid
             or not self._read_only(previous)
@@ -699,6 +800,7 @@ class NativeBtrfsOps:
             self._set_read_only(candidate, False)
             self._rename_exchange(current, candidate)
             exchanged = True
+            self._fsync_path(self.top)
             # After exchange, candidate-name holds the previous known-good root.
             if self._show_uuid(current) != expected_candidate_uuid:
                 raise RuntimeError("normal activation exchange did not select exact candidate")
@@ -706,6 +808,7 @@ class NativeBtrfsOps:
                 raise RuntimeError("normal activation exchange lost previous root identity")
             os.rename(candidate, previous)
             self._set_read_only(previous, True)
+            self._fsync_path(self.top)
             if self._show_uuid(previous) != expected_parent_root_uuid or not self._read_only(previous):
                 raise RuntimeError("normal activation previous root preservation failed")
             boot_after = self.live_boot_hashes()

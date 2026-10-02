@@ -846,7 +846,11 @@ def _resume_owned(
         return _save(_with_debt(value, now))
 
     if state.get("lane") == "normal" and phase == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
-        from maho_update_automatic_execution import finalize_pending_normal
+        from maho_update_automatic_execution import (
+            finalize_pending_normal,
+            read_execution_record,
+            verify_activated_normal,
+        )
         try:
             record = finalize_pending_normal(
                 transaction_id, state_root=root, now=now,
@@ -863,8 +867,25 @@ def _resume_owned(
         value = dict(state)
         handoff = record.get("activation_handoff") if isinstance(record, Mapping) else None
         already_armed = record.get("phase") == "ACTIVATION_ARMED"
+        postboot = None
+        if already_armed:
+            try:
+                postboot = verify_activated_normal(
+                    transaction_id, state_root=root, now=now,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                value.update({
+                    "phase": "ATTENTION_REQUIRED",
+                    "blockers": ["normal_postboot_verification_failed"],
+                    "last_error": str(exc)[:4000],
+                    "last_attempt_at": stamp(now),
+                    "reboot_required": False,
+                    "reboot_performed": True,
+                })
+                return _save(_with_debt(value, now))
+            record = read_execution_record(root, transaction_id) or record
         value.update({
-            "phase": "VERIFYING_AFTER_RESTART" if already_armed else "READY_TO_RESTART",
+            "phase": UpdateState.HEALTHY.value if postboot else "READY_TO_RESTART",
             "blockers": [],
             "last_success_at": stamp(now),
             "execution": record,
@@ -873,12 +894,44 @@ def _resume_owned(
                 record.get("candidate_generation", {}).get("system_generation_id")
                 if isinstance(record.get("candidate_generation"), Mapping) else None
             ),
-            "reboot_required": not already_armed,
-            "reboot_performed": already_armed,
+            "reboot_required": postboot is None,
+            "reboot_performed": postboot is not None,
+            "postboot_verification": postboot,
             "user_status": (
-                "Verifying after restart."
-                if already_armed else "Update is ready. Restart to finish."
+                "Update verified after restart."
+                if postboot else "Update is ready. Restart to finish."
             ),
+        })
+        return _save(_with_debt(value, now))
+
+    if state.get("lane") == "normal" and phase in {
+        UpdateState.ACTIVE_VERIFYING.value, UpdateState.HEALTHY.value,
+    }:
+        from maho_update_automatic_execution import verify_activated_normal
+        try:
+            postboot = verify_activated_normal(
+                transaction_id, state_root=root, now=now,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            value = dict(state)
+            value.update({
+                "phase": "ATTENTION_REQUIRED",
+                "blockers": ["normal_postboot_verification_failed"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+            })
+            return _save(_with_debt(value, now))
+        value = dict(state)
+        value.update({
+            "phase": UpdateState.HEALTHY.value,
+            "blockers": [],
+            "last_success_at": stamp(now),
+            "postboot_verification": postboot,
+            "reboot_required": False,
+            "reboot_performed": True,
+            "user_status": "Update verified after restart.",
         })
         return _save(_with_debt(value, now))
 

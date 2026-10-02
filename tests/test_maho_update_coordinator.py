@@ -230,7 +230,7 @@ class CoordinatorContracts(unittest.TestCase):
                 ["native_boot_generation_publication_unavailable"],
             )
 
-    def test_post_reboot_pending_state_restores_handoff_and_reports_verifying(self):
+    def test_post_reboot_pending_state_verifies_and_reports_healthy(self):
         with tempfile.TemporaryDirectory() as state_tmp:
             root = Path(state_tmp)
             pending = transition_transaction(
@@ -261,7 +261,11 @@ class CoordinatorContracts(unittest.TestCase):
                 "candidate_generation": {"system_generation_id": "gen-" + "b" * 64},
             }
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
-                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record):
+                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
+                 patch("maho_update_automatic_execution.verify_activated_normal", return_value={
+                     "phase": "HEALTHY",
+                     "root_uuid": "22222222-2222-2222-2222-222222222222",
+                 }):
                 result = coordinator._resume_owned(
                     state,
                     REV,
@@ -270,10 +274,10 @@ class CoordinatorContracts(unittest.TestCase):
                     {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
                     NOW,
                 )
-            self.assertEqual(result["phase"], "VERIFYING_AFTER_RESTART")
+            self.assertEqual(result["phase"], "HEALTHY")
             self.assertFalse(result["reboot_required"])
             self.assertTrue(result["reboot_performed"])
-            self.assertEqual(result["user_status"], "Verifying after restart.")
+            self.assertEqual(result["user_status"], "Update verified after restart.")
 
     def test_discovery_uses_isolated_database_not_live_pacman_database(self):
         with tempfile.TemporaryDirectory() as tmp:

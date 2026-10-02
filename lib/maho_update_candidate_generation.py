@@ -41,6 +41,11 @@ def _write_atomic(path: Path, data: bytes, mode: int = 0o644) -> None:
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         os.chmod(path, mode)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             temporary.unlink()
@@ -265,17 +270,48 @@ def promote_normal_candidate_generation(
     tx = validate_transaction(transaction)
     if tx["state"] != UpdateState.HEALTHY.value:
         raise ValueError("candidate generation promotion requires HEALTHY transaction")
-    candidate = read_candidate_publication(tx["transaction_id"], root)
-    if candidate is None:
-        raise ValueError("candidate generation publication is unavailable")
-    if live_root_uuid != candidate["candidate_uuid"] or filesystem_uuid != candidate["filesystem_uuid"]:
-        raise ValueError("live root does not match candidate SystemGeneration")
     expected_versions = {
         item["name"]: item["candidate_version"]
         for item in tx["package_generation"]["packages"]
     }
     if dict(package_versions) != expected_versions:
         raise ValueError("live package set does not match candidate PackageGeneration")
+    already_live = read_live_publication(root)
+    if (
+        already_live is not None
+        and already_live.get("transaction_id") == tx["transaction_id"]
+        and already_live.get("package_generation_id") == tx["package_generation"]["id"]
+        and already_live.get("root_subvolume_uuid") == live_root_uuid
+        and already_live.get("filesystem_uuid") == filesystem_uuid
+        and already_live.get("running_kernel") == running_kernel_abi
+        and dict(already_live.get("boot_sha256", {})) == dict(boot_sha256)
+    ):
+        try:
+            system = SystemGeneration.parse(json.loads((
+                root / "manifests/system" / f"{already_live['system_generation_id']}.json"
+            ).read_text(encoding="utf-8")))
+            compatibility = json.loads((
+                root / "evidence/compatibility" /
+                f"{already_live['system_generation_id']}--{already_live['kernel_generation_id']}.json"
+            ).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            raise ValueError("existing candidate generation promotion is incomplete") from exc
+        if (
+            system.trust_state is not TrustState.VERIFIED
+            or str(system.generation_id) != already_live.get("system_generation_id")
+            or compatibility.get("system_generation_id") != already_live.get("system_generation_id")
+            or compatibility.get("kernel_generation_id") != already_live.get("kernel_generation_id")
+            or compatibility.get("kernel_abi") != running_kernel_abi
+            or compatibility.get("verifier_identity") != verifier_identity
+            or compatibility.get("independently_verified") is not True
+        ):
+            raise ValueError("existing candidate generation promotion binding mismatch")
+        return already_live
+    candidate = read_candidate_publication(tx["transaction_id"], root)
+    if candidate is None:
+        raise ValueError("candidate generation publication is unavailable")
+    if live_root_uuid != candidate["candidate_uuid"] or filesystem_uuid != candidate["filesystem_uuid"]:
+        raise ValueError("live root does not match candidate SystemGeneration")
     if dict(boot_sha256) != dict(candidate["candidate_boot_identity"].get("sha256", {})):
         raise ValueError("postboot boot identity drifted")
     if not verifier_identity:

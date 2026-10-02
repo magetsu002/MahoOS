@@ -317,6 +317,15 @@ def main() -> None:
         check("normal activation consumes candidate topology", not (ops.top / candidate_name(TX1)).exists())
         check("normal activation leaves every boot artifact unchanged", all((ops.boot_root / Path(a).relative_to('/boot')).read_bytes() == old[a] for a in BOOT_ARTIFACTS))
         check("normal root swap invokes no package manager or hidden reboot", result["package_manager_invoked"] is False and result["reboot_performed"] is False and result["firmware_mutated"] is False)
+        (ops.top / "@/var/lib/maho/update").mkdir(parents=True)
+        active_state = ops.activated_state_root(
+            expected_candidate_uuid=CANDIDATE_UUID,
+            expected_parent_root_uuid=CURRENT_UUID,
+        )
+        check(
+            "activation state resolves inside the exact newly selected root",
+            active_state == (ops.top / "@/var/lib/maho/update").resolve(),
+        )
         previous = ops.top / backup_name(TX1) / "var/lib/maho/update/automatic-executions"
         previous.mkdir(parents=True)
         evidence_path = previous / f"{TX1}.json"
@@ -330,6 +339,38 @@ def main() -> None:
             evidence["content"] == b'{"phase":"ACTIVATION_ARMED"}\n'
             and evidence["previous_root_uuid"] == CURRENT_UUID
             and evidence["active_root_uuid"] == CANDIDATE_UUID,
+        )
+
+    with tempfile.TemporaryDirectory(prefix="maho-normal-exchange-reconcile-") as temporary:
+        base = Path(temporary)
+        ops = FixtureBtrfs(TX1, base)
+        expected, _old = seed_fixture(ops)
+        source_record = ops.top / "@/var/lib/maho/update/automatic-executions" / f"{TX1}.json"
+        source_record.parent.mkdir(parents=True)
+        source_record.write_bytes(b'{"phase":"INSTALLED_PENDING_ACTIVATION"}\n')
+        (ops.top / ops.candidate / "var/lib/maho/update").mkdir(parents=True)
+        ops._set_read_only(ops.top / ops.candidate, False)
+        ops._rename_exchange(ops.top / "@", ops.top / ops.candidate)
+        evidence = ops.read_activation_source_file(
+            f"var/lib/maho/update/automatic-executions/{TX1}.json",
+            expected_active_uuid=CANDIDATE_UUID,
+            expected_previous_uuid=CURRENT_UUID,
+        )
+        check(
+            "immediate post-exchange interruption retains exact handoff source",
+            evidence["topology"] == "EXCHANGED_PENDING_BACKUP"
+            and evidence["content"] == b'{"phase":"INSTALLED_PENDING_ACTIVATION"}\n',
+        )
+        reconciled = ops.finalize_normal_activation_exchange(
+            expected_candidate_uuid=CANDIDATE_UUID,
+            expected_parent_root_uuid=CURRENT_UUID,
+            expected_boot_hashes={artifact: sha256_file(ops.boot_root / Path(artifact).relative_to('/boot')) for artifact in BOOT_ARTIFACTS},
+        )
+        check(
+            "post-exchange interruption finalizes without repeating root exchange",
+            reconciled["reconciled_after_exchange_interruption"] is True
+            and (ops.top / "@/.uuid").read_text().strip() == CANDIDATE_UUID
+            and (ops.top / backup_name(TX1) / ".ro").exists(),
         )
 
     with tempfile.TemporaryDirectory(prefix="maho-normal-root-activation-rollback-") as temporary:

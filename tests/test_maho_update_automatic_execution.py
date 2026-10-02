@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 import maho_update_automatic_execution as automatic  # noqa: E402
 from maho_update_execution_authority import (  # noqa: E402
+    consume_activation_handoff,
     issue_activation_handoff,
     publish_activation_handoff,
 )
@@ -119,6 +120,7 @@ class FakeBtrfs:
     offline_base: Path | None = None
     topology = "PREPARED"
     previous_record: bytes | None = None
+    active_state_root: Path | None = None
 
     def __init__(self, transaction_id: str):
         self.transaction_id = transaction_id
@@ -134,6 +136,8 @@ class FakeBtrfs:
         self.candidate_root = self.offline_base / "candidate"
         self.base_root.mkdir(exist_ok=True)
         self.candidate_root.mkdir(exist_ok=True)
+        self.active_state_root = self.offline_base / "activated" / "var/lib/maho/update"
+        self.active_state_root.mkdir(parents=True, exist_ok=True)
         FakeBtrfs.instances.append(self)
 
     def root_identity(self):
@@ -189,6 +193,11 @@ class FakeBtrfs:
             "relative_path": relative,
         }
 
+    def read_activation_source_file(self, relative, **_kwargs):
+        return self.read_previous_root_file(
+            relative, expected_active_uuid=CANDIDATE_UUID,
+        )
+
     def arm_root_activation(self, **kwargs):
         self.activation_calls.append(kwargs)
         return {
@@ -201,6 +210,26 @@ class FakeBtrfs:
             "reboot_performed": False,
             "firmware_mutated": False,
         }
+
+    def finalize_normal_activation_exchange(self, **kwargs):
+        self.activation_calls.append(kwargs)
+        return {
+            "candidate_uuid": CANDIDATE_UUID,
+            "previous_root_uuid": PARENT_UUID,
+            "previous_root_name": self.backup,
+            "boot_sha256": dict(BOOT_HASHES),
+            "boot_unchanged": True,
+            "package_manager_invoked": False,
+            "reboot_performed": False,
+            "firmware_mutated": False,
+            "reconciled_after_exchange_interruption": True,
+        }
+
+    def activated_state_root(self, **_kwargs):
+        return self.active_state_root
+
+    def prepared_candidate_state_root(self, **_kwargs):
+        return self.candidate_root / "var/lib/maho/update"
 
 
 class FakeOps:
@@ -248,6 +277,7 @@ class AutomaticExecutionContracts(unittest.TestCase):
         FakeOps.fail_install = False
         FakeBtrfs.topology = "PREPARED"
         FakeBtrfs.previous_record = None
+        FakeBtrfs.active_state_root = None
         self.state_tmp = tempfile.TemporaryDirectory()
         self.work_tmp = tempfile.TemporaryDirectory()
         self.gen_tmp = tempfile.TemporaryDirectory()
@@ -644,8 +674,103 @@ class AutomaticExecutionContracts(unittest.TestCase):
         self.assertFalse(result["reboot_performed"])
         self.assertEqual(len(FakeBtrfs.instances[-1].activation_calls), 1)
         record = automatic.read_execution_record(self.state, TXID)
+        self.assertEqual(record["phase"], "INSTALLED_PENDING_ACTIVATION")
+        activated = FakeBtrfs.instances[-1].active_state_root
+        record = automatic.read_execution_record(activated, TXID)
         self.assertEqual(record["phase"], "ACTIVATION_ARMED")
         self.assertFalse(record["activation"]["package_manager_invoked"])
+        receipts = list((activated / "activation-handoffs" / "consumed").glob("*.json"))
+        self.assertEqual(len(receipts), 1)
+        self.assertFalse((self.state / "activation-handoffs" / "consumed").exists())
+
+    def test_armed_replay_validates_receipt_and_never_repeats_exchange(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        candidate = {
+            "name": "@maho-update-candidate-abcdefabcdef",
+            "uuid": CANDIDATE_UUID,
+            "parent_root_uuid": PARENT_UUID,
+            "filesystem_uuid": FSUUID,
+            "admission_base_name": "@maho-update-admission-base-abcdefabcdef",
+            "admission_base_uuid": BASE_UUID,
+        }
+        authority = FakeAuthority().as_dict()
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        record = {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "INSTALLED_PENDING_ACTIVATION",
+            "candidate": candidate,
+            "activation_authority": authority,
+            "candidate_generation": {
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+            },
+            "activation_handoff": handoff.as_dict(),
+        }
+        automatic._atomic_json(automatic.record_path(self.state, TXID), record)
+        probe = FakeBtrfs(TXID)
+        activation = {
+            "candidate_uuid": CANDIDATE_UUID,
+            "previous_root_uuid": PARENT_UUID,
+            "previous_root_name": probe.backup,
+            "boot_sha256": dict(BOOT_HASHES),
+            "boot_unchanged": True,
+            "package_manager_invoked": False,
+            "reboot_performed": False,
+            "firmware_mutated": False,
+            "reconciled_after_interruption": True,
+        }
+        prepared_root = probe.prepared_candidate_state_root()
+        consume_activation_handoff(
+            prepared_root, handoff, activation_evidence=activation, now=NOW,
+        )
+        FakeBtrfs.topology = "PREPARED"
+        FakeBtrfs.instances.clear()
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()):
+            with self.assertRaisesRegex(ValueError, "unperformed activation"):
+                automatic.arm_normal_activation(
+                    TXID, state_root=self.state, generation_root=self.generations, now=NOW,
+                )
+        receipt_path = next((prepared_root / "activation-handoffs" / "consumed").glob("*.json"))
+        receipt_path.unlink()
+        FakeBtrfs.topology = "ARMED"
+        consume_activation_handoff(
+            probe.active_state_root, handoff, activation_evidence=activation, now=NOW,
+        )
+        FakeBtrfs.instances.clear()
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()):
+            result = automatic.arm_normal_activation(
+                TXID,
+                state_root=self.state,
+                generation_root=self.generations,
+                now=NOW + timedelta(days=2),
+            )
+        self.assertEqual(result["phase"], "ACTIVATION_ARMED")
+        self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
+        armed = automatic.read_execution_record(FakeBtrfs.instances[-1].active_state_root, TXID)
+        self.assertTrue(armed["handoff_consumption"]["replayed"])
 
     def test_wrong_activation_generation_is_rejected_before_root_swap(self):
         pending = transition_transaction(
@@ -740,7 +865,8 @@ class AutomaticExecutionContracts(unittest.TestCase):
             },
             "activation_handoff": handoff.as_dict(),
         })
-        with patch.object(automatic, "load_current_verified_generations", return_value=live_context()):
+        with patch.object(automatic, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()):
             with self.assertRaisesRegex(ValueError, "expired"):
                 automatic.arm_normal_activation(
                     TXID,
@@ -748,7 +874,7 @@ class AutomaticExecutionContracts(unittest.TestCase):
                     generation_root=self.generations,
                     now=NOW + timedelta(days=2),
                 )
-        self.assertFalse(FakeBtrfs.instances)
+        self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
 
     def test_post_reboot_restores_exact_handoff_record_and_candidate_generation(self):
         pending = transition_transaction(
@@ -841,6 +967,109 @@ class AutomaticExecutionContracts(unittest.TestCase):
         self.assertFalse(result["activation_attempted"])
         self.assertEqual(result["phase"], "ATTENTION_REQUIRED")
 
+    def test_exact_armed_postboot_converges_transaction_and_live_generation(self):
+        pending = transition_transaction(
+            transition_transaction(self.tx, UpdateState.INSTALLING, now=NOW),
+            UpdateState.INSTALLED_PENDING_ACTIVATION,
+            now=NOW,
+        )
+        publish_transaction(self.state, pending)
+        candidate = {
+            "name": "@maho-update-candidate-abcdefabcdef",
+            "uuid": CANDIDATE_UUID,
+            "parent_root_uuid": PARENT_UUID,
+            "filesystem_uuid": FSUUID,
+            "admission_base_name": "@maho-update-admission-base-abcdefabcdef",
+            "admission_base_uuid": BASE_UUID,
+        }
+        authority = FakeAuthority().as_dict()
+        handoff = issue_activation_handoff(
+            pending,
+            current_system_generation_id=CURRENT_SYSTEM,
+            candidate_system_generation_id=CANDIDATE_SYSTEM,
+            candidate_kernel_generation_id=CURRENT_KERNEL,
+            candidate_uuid=CANDIDATE_UUID,
+            previous_root_uuid=PARENT_UUID,
+            activation_authority=authority,
+            recovery_evidence={"ready": True},
+            candidate_boot_identity={"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            reboot_required=True,
+            reboot_reason="explicit restart required",
+            now=NOW,
+        )
+        activation = {
+            "candidate_uuid": CANDIDATE_UUID,
+            "previous_root_uuid": PARENT_UUID,
+            "previous_root_name": "@maho-update-backup-abcdefabcdef",
+            "boot_sha256": dict(BOOT_HASHES),
+            "boot_unchanged": True,
+            "package_manager_invoked": False,
+            "reboot_performed": False,
+            "firmware_mutated": False,
+        }
+        receipt = consume_activation_handoff(
+            self.state, handoff, activation_evidence=activation, now=NOW,
+        )
+        automatic._atomic_json(automatic.record_path(self.state, TXID), {
+            "schema_version": 1,
+            "kind": "maho-automatic-normal-execution",
+            "transaction_id": TXID,
+            "source_revision": REV,
+            "phase": "ACTIVATION_ARMED",
+            "candidate": candidate,
+            "activation_authority": authority,
+            "recovery_evidence": {"ready": True},
+            "candidate_boot_identity": {"unchanged": True, "sha256": dict(BOOT_HASHES)},
+            "candidate_generation": {
+                "system_generation_id": CANDIDATE_SYSTEM,
+                "kernel_generation_id": CURRENT_KERNEL,
+                "candidate_uuid": CANDIDATE_UUID,
+            },
+            "activation_handoff": handoff.as_dict(),
+            "handoff_consumption": receipt,
+        })
+
+        class PostBootBtrfs(FakeBtrfs):
+            topology = "ARMED"
+
+            def root_identity(self):
+                return SimpleNamespace(
+                    subvolume_uuid=CANDIDATE_UUID,
+                    filesystem_uuid=FSUUID,
+                    fsroot="/@",
+                )
+
+        cmdline = self.work / "cmdline"
+        cmdline.write_text("rootflags=subvol=@ rw\n")
+        promoted = {
+            "system_generation_id": CANDIDATE_SYSTEM,
+            "kernel_generation_id": CURRENT_KERNEL,
+            "root_subvolume_uuid": CANDIDATE_UUID,
+        }
+        with patch.object(automatic, "NativeBtrfsOps", PostBootBtrfs), \
+             patch.object(automatic, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(automatic, "_ensure_candidate_generation_after_activation", return_value={
+                 "system_generation_id": CANDIDATE_SYSTEM,
+                 "kernel_generation_id": CURRENT_KERNEL,
+             }), \
+             patch.object(automatic, "promote_normal_candidate_generation", return_value=promoted):
+            result = automatic.verify_activated_normal(
+                TXID,
+                state_root=self.state,
+                generation_root=self.generations,
+                now=NOW,
+                package_runner=lambda *args, **kwargs: SimpleNamespace(
+                    returncode=0, stdout="demo 2\n", stderr="",
+                ),
+                running_kernel=lambda: "6.1-cachyos",
+                cmdline_path=cmdline,
+            )
+        self.assertEqual(result["phase"], "HEALTHY")
+        self.assertEqual(read_transaction(transaction_path(self.state, TXID))["state"], "HEALTHY")
+        verified = automatic.read_execution_record(self.state, TXID)
+        self.assertEqual(verified["phase"], "POSTBOOT_VERIFIED")
+        self.assertFalse(verified["postboot_verification"]["recovery_invoked"])
+
     def test_reboot_activation_consumes_frozen_admission_without_rescan(self):
         source = (ROOT / "lib/maho_update_automatic_execution.py").read_text()
         start = source.index("def arm_normal_activation(")
@@ -902,12 +1131,16 @@ class AutomaticExecutionContracts(unittest.TestCase):
                 )
         self.assertEqual(FakeBtrfs.instances[-1].activation_calls, [])
 
-    def test_source_contains_no_hidden_reboot_or_postboot_health_promotion(self):
+    def test_source_contains_no_hidden_reboot_and_postboot_promotion_is_separate(self):
         source = (ROOT / "lib/maho_update_automatic_execution.py").read_text()
         self.assertNotIn("systemctl reboot", source)
         self.assertNotIn("/sbin/reboot", source)
-        self.assertNotIn("UpdateState.ACTIVE_VERIFYING", source)
-        self.assertNotIn("UpdateState.HEALTHY", source)
+        arm = source[source.index("def arm_normal_activation("):source.index("def _candidate_package_versions(")]
+        self.assertNotIn("UpdateState.ACTIVE_VERIFYING", arm)
+        self.assertNotIn("UpdateState.HEALTHY", arm)
+        postboot = source[source.index("def verify_activated_normal("):source.index("def activate_current_pending(")]
+        self.assertIn("UpdateState.ACTIVE_VERIFYING", postboot)
+        self.assertIn("promote_normal_candidate_generation(", postboot)
 
 
 if __name__ == "__main__":

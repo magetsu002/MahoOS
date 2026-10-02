@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 import copy
 from pathlib import Path
 import sys
@@ -15,6 +16,7 @@ from maho_update_execution_authority import (  # noqa: E402
     ACTIVATION_TTL,
     EXECUTION_TTL,
     consume_activation_handoff,
+    read_activation_handoff_consumption,
     consume_execution_authority,
     issue_activation_handoff,
     issue_execution_authority,
@@ -339,17 +341,36 @@ class ExecutionAuthorityContracts(unittest.TestCase):
             first = consume_activation_handoff(
                 root,
                 handoff,
-                activation_evidence={"candidate_uuid": CANDIDATE_UUID},
+                activation_evidence={
+                    "candidate_uuid": CANDIDATE_UUID,
+                    "previous_root_uuid": PARENT_UUID,
+                    "boot_sha256": {},
+                    "boot_unchanged": True,
+                    "package_manager_invoked": False,
+                    "reboot_performed": False,
+                    "firmware_mutated": False,
+                },
                 now=NOW,
             )
             self.assertEqual(first["handoff_id"], handoff.handoff_id)
+            self.assertEqual(
+                read_activation_handoff_consumption(root, handoff)["candidate_uuid"],
+                CANDIDATE_UUID,
+            )
             with self.assertRaisesRegex(ValueError, "already consumed"):
                 consume_activation_handoff(
                     root,
                     handoff,
-                    activation_evidence={"candidate_uuid": CANDIDATE_UUID},
+                    activation_evidence=first["activation_evidence"],
                     now=NOW,
                 )
+
+            path = root / "activation-handoffs" / "consumed" / f"{handoff.handoff_id}.json"
+            tampered = json.loads(path.read_text())
+            tampered["candidate_uuid"] = PARENT_UUID
+            path.write_text(json.dumps(tampered))
+            with self.assertRaisesRegex(ValueError, "consumption.*binding"):
+                read_activation_handoff_consumption(root, handoff)
 
 
 if __name__ == "__main__":
