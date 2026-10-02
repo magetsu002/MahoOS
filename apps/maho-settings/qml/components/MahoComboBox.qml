@@ -92,14 +92,15 @@ ComboBox {
     }
 
     delegate: ItemDelegate {
-        required property var model
+        id: delegateItem
+        required property var modelData
         required property int index
         width: ListView.view.width
         height: 36
         highlighted: root.highlightedIndex === index
 
         contentItem: Text {
-            text: root.textRole ? model[root.textRole] : modelData
+            text: root.textRole && modelData ? modelData[root.textRole] : modelData
             color: root.foreground
             font.pixelSize: 12
             verticalAlignment: Text.AlignVCenter
@@ -108,7 +109,7 @@ ComboBox {
 
         background: Rectangle {
             radius: 8
-            color: parent.highlighted
+            color: delegateItem.highlighted
                 ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.13)
                 : "transparent"
         }

@@ -7,7 +7,7 @@ Item {
     id: root
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.shortcuts ? bridge.state.shortcuts : ({})
+    readonly property var pageState: bridge && bridge.state.shortcuts ? bridge.state.shortcuts : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -19,7 +19,7 @@ Item {
     }
 
     function filteredBinds() {
-        const rows = root.state.binds || []
+        const rows = root.pageState.binds || []
         const q = filterField.text.trim().toLowerCase()
         if (q.length === 0)
             return rows
@@ -49,9 +49,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Shortcut state unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -62,7 +62,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Active shortcuts"
                 description: "Read directly from Hyprland. Editing remains disabled until the Maho configuration writer is certified."
                 surface: theme.surfaceElevated

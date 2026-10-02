@@ -8,7 +8,7 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.notifications ? bridge.state.notifications : ({})
+    readonly property var pageState: bridge && bridge.state.notifications ? bridge.state.notifications : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -42,9 +42,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Maho Notify unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -55,9 +55,9 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Notifications"
-                description: root.state.active
+                description: root.pageState.active
                     ? "Allow Maho Notify to deliver notifications"
                     : "Notification delivery is currently disabled"
                 iconName: "preferences-system-notifications"
@@ -65,8 +65,8 @@ Item {
 
                 MahoSwitch {
                     reducedMotion: theme.reducedMotion
-                    checked: !!root.state.active
-                    enabled: !!root.state.globalEnableSupported && !root.bridge.actionBusy
+                    checked: !!root.pageState.active
+                    enabled: !!root.pageState.globalEnableSupported && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -75,9 +75,9 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Do Not Disturb"
-                description: root.state.adaptiveQuiet
+                description: root.pageState.adaptiveQuiet
                     ? "Quiet mode is also being managed by Maho's current context policy"
                     : "Silence ordinary notifications until you turn it off"
                 iconName: "notifications-disabled"
@@ -85,7 +85,7 @@ Item {
 
                 MahoSwitch {
                     reducedMotion: theme.reducedMotion
-                    checked: !!root.state.dnd
+                    checked: !!root.pageState.dnd
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
@@ -95,16 +95,16 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Notification history"
-                description: Number(root.state.historyCount || 0) + " retained · "
-                    + Number(root.state.unreadCount || 0) + " unread"
+                description: Number(root.pageState.historyCount || 0) + " retained · "
+                    + Number(root.pageState.unreadCount || 0) + " unread"
                 iconName: "view-history"
                 theme: theme
 
                 ChoicePill {
                     text: "Clear History"
-                    enabled: !!root.state.historyClearSupported && !root.bridge.actionBusy
+                    enabled: !!root.pageState.historyClearSupported && !root.bridge.actionBusy
                     accent: theme.accent
                     surface: theme.controlFill
                     foreground: theme.textPrimary
@@ -114,7 +114,7 @@ Item {
             }
 
             Text {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4
@@ -125,7 +125,7 @@ Item {
             }
 
             Text {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4

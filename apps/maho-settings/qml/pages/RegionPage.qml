@@ -8,7 +8,7 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.region ? bridge.state.region : ({})
+    readonly property var pageState: bridge && bridge.state.region ? bridge.state.region : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -48,9 +48,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Region and time state unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -61,9 +61,9 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Time zone"
-                description: root.state.timeSynchronized
+                description: root.pageState.timeSynchronized
                     ? "Clock synchronization is active"
                     : "Clock synchronization is not currently confirmed"
                 iconName: "preferences-system-time"
@@ -71,10 +71,10 @@ Item {
 
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.timezones || []
+                    model: root.pageState.timezones || []
                     backendOwned: true
-                    backendIndex: root.stringIndex(model, root.state.timezone || "")
-                    enabled: !!root.state.timezoneControlAvailable && !root.bridge.actionBusy
+                    backendIndex: root.stringIndex(model, root.pageState.timezone || "")
+                    enabled: !!root.pageState.timezoneControlAvailable && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -87,7 +87,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Set time automatically"
                 description: "Keep the system clock synchronized automatically"
                 iconName: "appointment-soon"
@@ -95,8 +95,8 @@ Item {
 
                 MahoSwitch {
                     reducedMotion: theme.reducedMotion
-                    checked: !!root.state.automaticTime
-                    enabled: !!root.state.automaticTimeControlAvailable && !root.bridge.actionBusy
+                    checked: !!root.pageState.automaticTime
+                    enabled: !!root.pageState.automaticTimeControlAvailable && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -105,7 +105,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Regional format"
                 description: "Choose the system locale used for regional formatting"
                 iconName: "preferences-desktop-locale"
@@ -113,10 +113,10 @@ Item {
 
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.locales || []
+                    model: root.pageState.locales || []
                     backendOwned: true
-                    backendIndex: root.stringIndex(model, root.state.locale || "")
-                    enabled: !!root.state.localeControlAvailable && !root.bridge.actionBusy
+                    backendIndex: root.stringIndex(model, root.pageState.locale || "")
+                    enabled: !!root.pageState.localeControlAvailable && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -129,7 +129,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Keyboard layout"
                 description: "Choose the active keyboard layout"
                 iconName: "input-keyboard"
@@ -137,10 +137,10 @@ Item {
 
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.keyboardLayouts || []
+                    model: root.pageState.keyboardLayouts || []
                     backendOwned: true
-                    backendIndex: root.stringIndex(model, root.state.keyboardLayout || "")
-                    enabled: !!root.state.keyboardLayoutControlAvailable && !root.bridge.actionBusy
+                    backendIndex: root.stringIndex(model, root.pageState.keyboardLayout || "")
+                    enabled: !!root.pageState.keyboardLayoutControlAvailable && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -153,7 +153,7 @@ Item {
             }
 
             Text {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4

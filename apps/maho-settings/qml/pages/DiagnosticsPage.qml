@@ -7,7 +7,7 @@ Item {
     id: root
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.diagnostics ? bridge.state.diagnostics : ({})
+    readonly property var pageState: bridge && bridge.state.diagnostics ? bridge.state.diagnostics : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -37,10 +37,10 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             SettingCard {
-                title: root.state.configurationHealthy ? "Configuration healthy" : "Configuration issue detected"
-                description: root.state.configurationHealthy
+                title: root.pageState.configurationHealthy ? "Configuration healthy" : "Configuration issue detected"
+                description: root.pageState.configurationHealthy
                     ? "Hyprland reports no active configuration errors."
-                    : ((root.state.configErrors || []).join("\n") || root.state.providerError || "Configuration health could not be confirmed.")
+                    : ((root.pageState.configErrors || []).join("\n") || root.pageState.providerError || "Configuration health could not be confirmed.")
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
@@ -56,7 +56,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.providers || []
+                    model: root.pageState.providers || []
                     delegate: MahoInsetRow {
                         required property var modelData
                         title: modelData.name

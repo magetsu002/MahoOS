@@ -8,11 +8,11 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.input ? bridge.state.input : ({})
-    readonly property var current: state.current || ({})
+    readonly property var pageState: bridge && bridge.state.input ? bridge.state.input : ({})
+    readonly property var current: pageState.current || ({})
     property int selectedTouchpadIndex: 0
     readonly property string selectedTouchpad: {
-        const rows = state.touchpads || []
+        const rows = pageState.touchpads || []
         return selectedTouchpadIndex >= 0 && selectedTouchpadIndex < rows.length
             ? String(rows[selectedTouchpadIndex]) : ""
     }
@@ -27,7 +27,7 @@ Item {
     }
 
     function touchpadSpeed() {
-        const values = state.touchpadSpeeds || ({})
+        const values = pageState.touchpadSpeeds || ({})
         return selectedTouchpad.length > 0 && values[selectedTouchpad] !== undefined
             ? Number(values[selectedTouchpad]) : 0
     }
@@ -35,7 +35,7 @@ Item {
     Connections {
         target: root.bridge
         function onStateChanged() {
-            const rows = root.state.touchpads || []
+            const rows = root.pageState.touchpads || []
             if (root.selectedTouchpadIndex >= rows.length)
                 root.selectedTouchpadIndex = 0
         }
@@ -64,9 +64,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Input state unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -77,13 +77,13 @@ Item {
             }
 
             MahoSectionLabel {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 text: "Keyboard"
                 textColor: theme.textSecondary
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Repeat rate"
                 description: "How quickly a held key repeats"
                 iconName: "input-keyboard"
@@ -109,7 +109,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Repeat delay"
                 description: "Delay before a held key starts repeating"
                 iconName: "input-keyboard"
@@ -141,13 +141,13 @@ Item {
             }
 
             MahoSectionLabel {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 text: "Mouse"
                 textColor: theme.textSecondary
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Pointer speed"
                 description: "Adjust mouse sensitivity"
                 iconName: "input-mouse"
@@ -181,7 +181,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Acceleration"
                 description: root.current.accelProfile === "default"
                     ? "Using the compositor default profile"
@@ -219,7 +219,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Natural scrolling"
                 description: "Move content in the same direction as your fingers"
                 iconName: "input-mouse"
@@ -242,7 +242,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Primary button"
                 description: root.current.leftHanded ? "Right button is primary" : "Left button is primary"
                 iconName: "input-mouse"
@@ -265,13 +265,13 @@ Item {
             }
 
             MahoSectionLabel {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 text: "Touchpad"
                 textColor: theme.textSecondary
             }
 
             AppearanceRow {
-                visible: !!root.state.available && (root.state.touchpads || []).length > 1
+                visible: !!root.pageState.available && (root.pageState.touchpads || []).length > 1
                 title: "Touchpad"
                 description: "Choose which touchpad to configure"
                 iconName: "input-touchpad"
@@ -279,20 +279,20 @@ Item {
 
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.touchpads || []
+                    model: root.pageState.touchpads || []
                     currentIndex: root.selectedTouchpadIndex
                     enabled: !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: root.selectedTouchpadIndex = index
+                    onActivated: function(index) { root.selectedTouchpadIndex = index }
                 }
             }
 
             AppearanceRow {
-                visible: !!root.state.available && root.selectedTouchpad.length > 0
-                    && !!(root.state.capabilities || {}).touchpadSpeed
+                visible: !!root.pageState.available && root.selectedTouchpad.length > 0
+                    && !!(root.pageState.capabilities || {}).touchpadSpeed
                 title: "Touchpad speed"
                 description: root.selectedTouchpad
                 iconName: "input-touchpad"
@@ -328,7 +328,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Natural scrolling"
                 description: "Move content in the same direction as your fingers"
                 iconName: "input-touchpad"
@@ -351,7 +351,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Tap to click"
                 description: "Tap the touchpad to click"
                 iconName: "input-touchpad"
@@ -374,7 +374,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Disable while typing"
                 description: "Ignore accidental touchpad input while typing"
                 iconName: "input-touchpad"
@@ -397,14 +397,14 @@ Item {
             }
 
             Text {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4
                 text: "Detected: "
-                    + String((root.state.keyboards || []).length) + " keyboard(s), "
-                    + String((root.state.mice || []).length) + " mouse device(s), "
-                    + String((root.state.touchpads || []).length) + " touchpad(s)."
+                    + String((root.pageState.keyboards || []).length) + " keyboard(s), "
+                    + String((root.pageState.mice || []).length) + " mouse device(s), "
+                    + String((root.pageState.touchpads || []).length) + " touchpad(s)."
                 color: theme.textFaint
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap

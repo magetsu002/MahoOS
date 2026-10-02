@@ -9,7 +9,7 @@ Item {
     property var bridge
     property var themePalette
     property string targetRoute: "system"
-    readonly property var state: bridge && bridge.state.system ? bridge.state.system : ({})
+    readonly property var pageState: bridge && bridge.state.system ? bridge.state.system : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -65,13 +65,13 @@ Item {
 
             AppearanceRow {
                 title: "MahoOS"
-                description: root.state.mahoVersion || "Version information unavailable"
+                description: root.pageState.mahoVersion || "Version information unavailable"
                 iconName: "computer"
                 theme: theme
 
                 Text {
-                    text: root.state.sourceRevision
-                        ? String(root.state.sourceRevision).slice(0, 10)
+                    text: root.pageState.sourceRevision
+                        ? String(root.pageState.sourceRevision).slice(0, 10)
                         : ""
                     color: theme.textFaint
                     font.pixelSize: 11
@@ -89,15 +89,15 @@ Item {
 
                 Repeater {
                     model: [
-                        { label: "System", value: root.state.osName || "Unknown" },
-                        { label: "Kernel", value: root.state.kernel || "Unknown" },
-                        { label: "Architecture", value: root.state.architecture || "Unknown" },
-                        { label: "Hostname", value: root.state.hostname || "Unknown" },
-                        { label: "Processor", value: root.state.cpu || "Unknown" },
-                        { label: "Memory", value: root.state.memory || "Unknown" },
-                        { label: "Session", value: root.state.sessionType || root.state.desktop || "Unknown" },
-                        { label: "Hyprland", value: root.state.hyprland && root.state.hyprland.version
-                            ? root.state.hyprland.version : "Unavailable" }
+                        { label: "System", value: root.pageState.osName || "Unknown" },
+                        { label: "Kernel", value: root.pageState.kernel || "Unknown" },
+                        { label: "Architecture", value: root.pageState.architecture || "Unknown" },
+                        { label: "Hostname", value: root.pageState.hostname || "Unknown" },
+                        { label: "Processor", value: root.pageState.cpu || "Unknown" },
+                        { label: "Memory", value: root.pageState.memory || "Unknown" },
+                        { label: "Session", value: root.pageState.sessionType || root.pageState.desktop || "Unknown" },
+                        { label: "Hyprland", value: root.pageState.hyprland && root.pageState.hyprland.version
+                            ? root.pageState.hyprland.version : "Unavailable" }
                     ]
 
                     MahoInsetRow {

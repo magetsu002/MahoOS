@@ -25,8 +25,8 @@ Rectangle {
         spacing: 16
 
         MahoIcon {
-            width: 28
-            height: 28
+            Layout.preferredWidth: 28
+            Layout.preferredHeight: 28
             name: root.iconName
             tone: root.theme.textPrimary
             opacity: 0.94

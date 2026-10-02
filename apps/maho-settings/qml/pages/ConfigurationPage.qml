@@ -7,7 +7,7 @@ Item {
     id: root
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.configuration ? bridge.state.configuration : ({})
+    readonly property var pageState: bridge && bridge.state.configuration ? bridge.state.configuration : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -37,9 +37,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Configuration state unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -50,9 +50,9 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
-                title: root.state.healthy ? "Configuration healthy" : "Configuration needs attention"
-                description: root.state.healthy
+                visible: !!root.pageState.available
+                title: root.pageState.healthy ? "Configuration healthy" : "Configuration needs attention"
+                description: root.pageState.healthy
                     ? "Hyprland reports no current configuration errors."
                     : "Hyprland reported configuration errors below."
                 surface: theme.surfaceElevated
@@ -61,7 +61,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.configErrors || []
+                    model: root.pageState.configErrors || []
                     delegate: MahoInsetRow {
                         required property string modelData
                         title: modelData
@@ -72,7 +72,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Managed sources"
                 description: "These files currently participate in the Maho desktop configuration."
                 surface: theme.surfaceElevated
@@ -81,7 +81,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.managedFiles || []
+                    model: root.pageState.managedFiles || []
                     delegate: MahoInsetRow {
                         required property string modelData
                         title: modelData.split("/").pop()
@@ -93,7 +93,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available && !root.state.mutationAvailable
+                visible: !!root.pageState.available && !root.pageState.mutationAvailable
                 title: "Editing intentionally unavailable"
                 description: "Maho does not yet have a certified single-owner writer for advanced Hyprland configuration. Read-only inspection is available without weakening ownership."
                 surface: theme.surfaceElevated

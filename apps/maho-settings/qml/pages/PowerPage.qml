@@ -8,7 +8,7 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.power ? bridge.state.power : ({})
+    readonly property var pageState: bridge && bridge.state.power ? bridge.state.power : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -50,7 +50,7 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             SettingCard {
-                visible: (root.state.batteries || []).length > 0
+                visible: (root.pageState.batteries || []).length > 0
                 title: "Battery"
                 description: "Current battery state reported by the kernel"
                 surface: theme.surfaceElevated
@@ -59,7 +59,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.batteries || []
+                    model: root.pageState.batteries || []
 
                     MahoInsetRow {
                         required property var modelData
@@ -73,13 +73,13 @@ Item {
                             : modelData.status
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
-                        dividerVisible: index < (root.state.batteries || []).length - 1
+                        dividerVisible: index < (root.pageState.batteries || []).length - 1
                     }
                 }
             }
 
             AppearanceRow {
-                visible: (root.state.batteries || []).length === 0
+                visible: (root.pageState.batteries || []).length === 0
                 title: "Battery"
                 description: "No battery is currently reported by the kernel"
                 iconName: "battery-missing"
@@ -88,9 +88,9 @@ Item {
 
             AppearanceRow {
                 title: "Power mode"
-                description: root.state.profileControlAvailable
+                description: root.pageState.profileControlAvailable
                     ? "Choose the balance between performance and battery life"
-                    : (root.state.profileError || "Power mode control is unavailable on this system")
+                    : (root.pageState.profileError || "Power mode control is unavailable on this system")
                 iconName: "battery"
                 theme: theme
 
@@ -98,12 +98,12 @@ Item {
                     spacing: 6
 
                     Repeater {
-                        model: root.state.profileControlAvailable ? (root.state.profiles || []) : []
+                        model: root.pageState.profileControlAvailable ? (root.pageState.profiles || []) : []
 
                         ChoicePill {
                             required property string modelData
                             text: root.profileLabel(modelData)
-                            selected: root.state.profile === modelData
+                            selected: root.pageState.profile === modelData
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
                             surface: theme.controlFill
@@ -116,11 +116,11 @@ Item {
             }
 
             Text {
-                visible: !!root.state.sessionPolicyError
+                visible: !!root.pageState.sessionPolicyError
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4
-                text: root.state.sessionPolicyError || "No supported user-scoped session policy backend is available."
+                text: root.pageState.sessionPolicyError || "No supported user-scoped session policy backend is available."
                 color: theme.textFaint
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap

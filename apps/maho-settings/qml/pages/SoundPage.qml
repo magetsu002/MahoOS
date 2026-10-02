@@ -8,7 +8,7 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.sound ? bridge.state.sound : ({})
+    readonly property var pageState: bridge && bridge.state.sound ? bridge.state.sound : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -51,9 +51,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Audio backend unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -64,7 +64,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Output device"
                 description: "Choose where MahoOS plays audio"
                 iconName: "audio-volume-high"
@@ -73,17 +73,17 @@ Item {
                 MahoComboBox {
                     id: outputSelector
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.outputs || []
+                    model: root.pageState.outputs || []
                     textRole: "name"
                     backendOwned: true
-                    backendIndex: root.defaultIndex(root.state.outputs)
+                    backendIndex: root.defaultIndex(root.pageState.outputs)
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     enabled: count > 0 && !root.bridge.actionBusy
                     onIndexRequested: function(index) {
-                        const row = root.state.outputs[index]
+                        const row = root.pageState.outputs[index]
                         if (row)
                             root.bridge.perform("sound.default", { direction: "output", id: row.id })
                     }
@@ -91,10 +91,10 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Output volume"
-                description: root.state.output && !root.state.output.available
-                    ? (root.state.output.error || "Current output state is unavailable")
+                description: root.pageState.output && !root.pageState.output.available
+                    ? (root.pageState.output.error || "Current output state is unavailable")
                     : "Adjust the current output level"
                 iconName: "audio-volume-high"
                 theme: theme
@@ -104,8 +104,8 @@ Item {
                     from: 0
                     to: 100
                     backendOwned: true
-                    backendValue: root.state.output && root.state.output.available ? root.state.output.volume : 0
-                    enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
+                    backendValue: root.pageState.output && root.pageState.output.available ? root.pageState.output.volume : 0
+                    enabled: !!(root.pageState.output && root.pageState.output.available) && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     onValueRequested: function(value) {
@@ -117,7 +117,7 @@ Item {
                 }
 
                 Text {
-                    text: (root.state.output ? root.state.output.volume : 0) + "%"
+                    text: (root.pageState.output ? root.pageState.output.volume : 0) + "%"
                     color: theme.textSecondary
                     font.pixelSize: 11
                     Layout.preferredWidth: 38
@@ -132,9 +132,9 @@ Item {
 
                 MahoSwitch {
                     reducedMotion: theme.reducedMotion
-                    checked: root.state.output && root.state.output.available
-                        ? !!root.state.output.muted : false
-                    enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
+                    checked: root.pageState.output && root.pageState.output.available
+                        ? !!root.pageState.output.muted : false
+                    enabled: !!(root.pageState.output && root.pageState.output.available) && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -148,7 +148,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Input device"
                 description: "Choose the microphone MahoOS uses"
                 iconName: "audio-input-microphone"
@@ -157,17 +157,17 @@ Item {
                 MahoComboBox {
                     id: inputSelector
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.inputs || []
+                    model: root.pageState.inputs || []
                     textRole: "name"
                     backendOwned: true
-                    backendIndex: root.defaultIndex(root.state.inputs)
+                    backendIndex: root.defaultIndex(root.pageState.inputs)
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     enabled: count > 0 && !root.bridge.actionBusy
                     onIndexRequested: function(index) {
-                        const row = root.state.inputs[index]
+                        const row = root.pageState.inputs[index]
                         if (row)
                             root.bridge.perform("sound.default", { direction: "input", id: row.id })
                     }
@@ -175,10 +175,10 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Input level"
-                description: root.state.input && !root.state.input.available
-                    ? (root.state.input.error || "Current input state is unavailable")
+                description: root.pageState.input && !root.pageState.input.available
+                    ? (root.pageState.input.error || "Current input state is unavailable")
                     : "Adjust microphone gain"
                 iconName: "audio-input-microphone"
                 theme: theme
@@ -188,8 +188,8 @@ Item {
                     from: 0
                     to: 100
                     backendOwned: true
-                    backendValue: root.state.input && root.state.input.available ? root.state.input.volume : 0
-                    enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
+                    backendValue: root.pageState.input && root.pageState.input.available ? root.pageState.input.volume : 0
+                    enabled: !!(root.pageState.input && root.pageState.input.available) && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     onValueRequested: function(value) {
@@ -201,7 +201,7 @@ Item {
                 }
 
                 Text {
-                    text: (root.state.input ? root.state.input.volume : 0) + "%"
+                    text: (root.pageState.input ? root.pageState.input.volume : 0) + "%"
                     color: theme.textSecondary
                     font.pixelSize: 11
                     Layout.preferredWidth: 38
@@ -216,9 +216,9 @@ Item {
 
                 MahoSwitch {
                     reducedMotion: theme.reducedMotion
-                    checked: root.state.input && root.state.input.available
-                        ? !!root.state.input.muted : false
-                    enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
+                    checked: root.pageState.input && root.pageState.input.available
+                        ? !!root.pageState.input.muted : false
+                    enabled: !!(root.pageState.input && root.pageState.input.available) && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary

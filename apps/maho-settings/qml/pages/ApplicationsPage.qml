@@ -8,7 +8,7 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.applications ? bridge.state.applications : ({})
+    readonly property var pageState: bridge && bridge.state.applications ? bridge.state.applications : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -51,9 +51,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Application defaults unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -64,25 +64,25 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Default browser"
-                description: root.state.browser || "No browser default is currently registered"
+                description: root.pageState.browser || "No browser default is currently registered"
                 iconName: "applications-internet"
                 theme: theme
 
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.browserCandidates || []
+                    model: root.pageState.browserCandidates || []
                     textRole: "name"
                     backendOwned: true
-                    backendIndex: root.candidateIndex(model, root.state.browser || "")
+                    backendIndex: root.candidateIndex(model, root.pageState.browser || "")
                     enabled: count > 0 && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     onIndexRequested: function(index) {
-                        const row = root.state.browserCandidates[index]
+                        const row = root.pageState.browserCandidates[index]
                         if (row)
                             root.bridge.perform("applications.default", {
                                 kind: "browser",
@@ -93,25 +93,25 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "File manager"
-                description: root.state.fileManager || "No directory handler is currently registered"
+                description: root.pageState.fileManager || "No directory handler is currently registered"
                 iconName: "system-file-manager"
                 theme: theme
 
                 MahoComboBox {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
-                    model: root.state.fileManagerCandidates || []
+                    model: root.pageState.fileManagerCandidates || []
                     textRole: "name"
                     backendOwned: true
-                    backendIndex: root.candidateIndex(model, root.state.fileManager || "")
+                    backendIndex: root.candidateIndex(model, root.pageState.fileManager || "")
                     enabled: count > 0 && !root.bridge.actionBusy
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
                     onIndexRequested: function(index) {
-                        const row = root.state.fileManagerCandidates[index]
+                        const row = root.pageState.fileManagerCandidates[index]
                         if (row)
                             root.bridge.perform("applications.default", {
                                 kind: "fileManager",
@@ -122,7 +122,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Default associations"
                 description: "Common handlers managed through the system XDG MIME authority"
                 surface: theme.surfaceElevated
@@ -131,7 +131,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.mimeAssociations || []
+                    model: root.pageState.mimeAssociations || []
 
                     ColumnLayout {
                         required property var modelData
@@ -188,16 +188,16 @@ Item {
                         }
 
                         Rectangle {
-                            visible: index < (root.state.mimeAssociations || []).length - 1
+                            visible: index < (root.pageState.mimeAssociations || []).length - 1
                             Layout.fillWidth: true
-                            height: 1
+                            Layout.preferredHeight: 1
                             color: theme.divider
                         }
                     }
                 }
 
                 Text {
-                    visible: (root.state.mimeAssociations || []).length === 0
+                    visible: (root.pageState.mimeAssociations || []).length === 0
                     Layout.fillWidth: true
                     text: "No common file or link handlers are currently advertised."
                     color: theme.textSecondary
@@ -207,7 +207,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Start at login"
                 description: "Effective XDG session entries"
                 surface: theme.surfaceElevated
@@ -216,7 +216,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.autostart || []
+                    model: root.pageState.autostart || []
 
                     MahoInsetRow {
                         required property var modelData
@@ -226,12 +226,12 @@ Item {
                         trailingText: modelData.enabled ? "Enabled" : "Disabled"
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
-                        dividerVisible: index < (root.state.autostart || []).length - 1
+                        dividerVisible: index < (root.pageState.autostart || []).length - 1
                     }
                 }
 
                 Text {
-                    visible: (root.state.autostart || []).length === 0
+                    visible: (root.pageState.autostart || []).length === 0
                     Layout.fillWidth: true
                     text: "No effective startup entries were found."
                     color: theme.textSecondary
@@ -240,18 +240,18 @@ Item {
             }
 
             Text {
-                visible: !!root.state.available && !!root.state.terminalError
+                visible: !!root.pageState.available && !!root.pageState.terminalError
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4
-                text: root.state.terminalError
+                text: root.pageState.terminalError
                 color: theme.textFaint
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
             }
 
             Text {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4

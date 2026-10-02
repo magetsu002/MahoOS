@@ -7,7 +7,7 @@ Item {
     id: root
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.displays ? bridge.state.displays : ({})
+    readonly property var pageState: bridge && bridge.state.displays ? bridge.state.displays : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -23,7 +23,7 @@ Item {
     property int rollbackRemaining: 0
 
     readonly property var output: {
-        const rows = state.outputs || []
+        const rows = pageState.outputs || []
         return selectedOutputIndex >= 0 && selectedOutputIndex < rows.length ? rows[selectedOutputIndex] : ({})
     }
 
@@ -96,7 +96,7 @@ Item {
         target: root.bridge
         ignoreUnknownSignals: true
         function onStateChanged() {
-            const rows = root.state.outputs || []
+            const rows = root.pageState.outputs || []
             if (root.selectedOutputIndex >= rows.length)
                 root.selectedOutputIndex = 0
             Qt.callLater(root.syncControls)
@@ -150,9 +150,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Display backend unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -163,7 +163,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Output"
                 description: root.output.description || "Select an active compositor output."
                 surface: theme.surfaceElevated
@@ -174,14 +174,14 @@ Item {
                 MahoComboBox {
                     id: outputBox
                     Layout.fillWidth: true
-                    model: root.state.outputs || []
+                    model: root.pageState.outputs || []
                     textRole: "name"
                     currentIndex: root.selectedOutputIndex
                     surface: theme.surfaceElevated
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    onActivated: {
+                    onActivated: function(index) {
                         root.selectedOutputIndex = index
                         Qt.callLater(root.syncControls)
                     }
@@ -212,7 +212,7 @@ Item {
                         id: outputEnabled
                         checked: false
                         enabled: !root.bridge.actionBusy
-                            && (root.output.disabled || Number(root.state.enabledCount || 0) > 1)
+                            && (root.output.disabled || Number(root.pageState.enabledCount || 0) > 1)
                         accent: theme.accent
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
@@ -221,7 +221,7 @@ Item {
                 }
 
                 Text {
-                    visible: !!root.output.enabled && Number(root.state.enabledCount || 0) <= 1
+                    visible: !!root.output.enabled && Number(root.pageState.enabledCount || 0) <= 1
                     text: "The last active display cannot be disabled."
                     color: theme.textSecondary
                     font.pixelSize: 10
@@ -230,7 +230,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available && !!root.output.name
+                visible: !!root.pageState.available && !!root.output.name
                 title: "Mode"
                 description: "Resolution and refresh choices are constrained to modes advertised by the selected output."
                 surface: theme.surfaceElevated
@@ -256,7 +256,7 @@ Item {
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             accent: theme.accent
-                            onActivated: {
+                            onActivated: function(index) {
                                 const refreshes = root.refreshOptions(currentText)
                                 refreshBox.model = refreshes
                                 refreshBox.currentIndex = 0
@@ -318,7 +318,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available && !!root.output.name
+                visible: !!root.pageState.available && !!root.output.name
                 title: "Arrangement"
                 description: "Coordinates define output placement. Hyprland does not expose a truthful global “primary display” concept, so Settings does not invent one."
                 surface: theme.surfaceElevated

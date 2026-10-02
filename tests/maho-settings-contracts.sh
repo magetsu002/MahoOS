@@ -50,6 +50,20 @@ require_text "$QML/Main.qml" 'case "configuration": return "pages/ConfigurationP
 require_text "$QML/Main.qml" 'case "diagnostics": return "pages/DiagnosticsPage.qml"' "Diagnostics route is not implemented"
 echo PASS
 
+echo "=== interaction and QML state hygiene ==="
+for page in "$QML"/pages/*Page.qml; do
+    reject_text "$page" 'readonly property var state:' "page overrides QQuickItem.state: $page"
+done
+require_text "$QML/components/MahoSwitch.qml" 'checkable: false' "switch can drift away from backend-owned state"
+require_text "$QML/components/MahoSwitch.qml" 'signal toggleRequested(bool value)' "switch request signal missing"
+require_text "$QML/components/MahoComboBox.qml" 'property bool backendOwned: false' "combo box backend-owned mode missing"
+require_text "$QML/components/MahoComboBox.qml" 'delegateItem.highlighted' "combo highlight is not bound to its delegate"
+reject_text "$QML/components/MahoComboBox.qml" 'parent.highlighted' "combo highlight relies on an invalid parent property"
+require_text "$QML/components/MahoSlider.qml" 'property bool backendOwned: false' "slider backend-owned mode missing"
+require_text "$QML/components/MahoTextField.qml" 'property bool backendOwned: false' "text field backend-owned mode missing"
+require_text "$QML/Main.qml" 'id: dragRegion' "window dragging is not isolated from interactive content"
+echo PASS
+
 echo "=== deterministic search contract ==="
 python3 - "$BACKEND" <<'PY'
 import importlib.util, pathlib, sys

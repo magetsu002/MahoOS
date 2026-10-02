@@ -7,7 +7,7 @@ Item {
     id: root
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.motion ? bridge.state.motion : ({})
+    readonly property var pageState: bridge && bridge.state.motion ? bridge.state.motion : ({})
 
     MahoSettingsTheme {
         id: theme
@@ -50,9 +50,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Motion state unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -63,7 +63,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Configured animations"
                 description: "Only Maho-overridden animation leaves are shown. Editing is read-only in this milestone."
                 surface: theme.surfaceElevated
@@ -72,7 +72,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.animations || []
+                    model: root.pageState.animations || []
                     delegate: MahoInsetRow {
                         required property var modelData
                         title: modelData.name
@@ -85,7 +85,7 @@ Item {
             }
 
             SettingCard {
-                visible: !!root.state.available && (root.state.curves || []).length > 0
+                visible: !!root.pageState.available && (root.pageState.curves || []).length > 0
                 title: "Bézier curves"
                 description: "Live curve definitions currently loaded by Hyprland."
                 surface: theme.surfaceElevated
@@ -94,7 +94,7 @@ Item {
                 muted: theme.textSecondary
 
                 Repeater {
-                    model: root.state.curves || []
+                    model: root.pageState.curves || []
                     delegate: MahoInsetRow {
                         required property var modelData
                         title: modelData.name

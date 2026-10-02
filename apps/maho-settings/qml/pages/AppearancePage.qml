@@ -8,8 +8,8 @@ Item {
 
     property var bridge
     property var themePalette
-    readonly property var state: bridge && bridge.state.appearance ? bridge.state.appearance : ({})
-    readonly property bool reducedTransparency: !!root.state.reducedTransparency
+    readonly property var pageState: bridge && bridge.state.appearance ? bridge.state.appearance : ({})
+    readonly property bool reducedTransparency: !!root.pageState.reducedTransparency
 
     MahoSettingsTheme {
         id: theme
@@ -18,7 +18,7 @@ Item {
     }
 
     function wallpaperSource() {
-        const wall = root.state.wallpaper || ({})
+        const wall = root.pageState.wallpaper || ({})
         return wall.previewPath ? "file://" + wall.previewPath : ""
     }
 
@@ -45,9 +45,9 @@ Item {
             Item { Layout.preferredHeight: 6 }
 
             StatePanel {
-                visible: !root.state.available && !root.bridge.loading
+                visible: !root.pageState.available && !root.bridge.loading
                 title: "Appearance state unavailable"
-                detail: root.state.error || root.bridge.error
+                detail: root.pageState.error || root.bridge.error
                 retryVisible: true
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -58,7 +58,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Appearance mode"
                 description: "Choose how MahoOS looks"
                 iconName: "preferences-desktop-theme"
@@ -66,20 +66,20 @@ Item {
 
                 MahoSegmentedControl {
                     theme: theme
-                    currentValue: root.state.mode || "dark"
+                    currentValue: root.pageState.mode || "dark"
                     options: [
                         { label: "Dark", value: "dark" },
                         { label: "Light", value: "light" }
                     ]
                     onSelected: function(value) {
-                        if (!root.bridge.actionBusy && value !== root.state.mode)
+                        if (!root.bridge.actionBusy && value !== root.pageState.mode)
                             root.bridge.perform("appearance.mode", { mode: value })
                     }
                 }
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Wallpaper"
                 description: "Current wallpaper and derived color palette"
                 iconName: "image-x-generic"
@@ -115,7 +115,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Reduce motion"
                 description: "Minimize animations across MahoOS"
                 iconName: "preferences-desktop-effects"
@@ -123,8 +123,8 @@ Item {
 
                 MahoSwitch {
                         reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                    checked: !!root.state.reducedMotion
-                    enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
+                    checked: !!root.pageState.reducedMotion
+                    enabled: !!root.pageState.runtimeHooksAvailable && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -133,7 +133,7 @@ Item {
             }
 
             AppearanceRow {
-                visible: !!root.state.available
+                visible: !!root.pageState.available
                 title: "Reduce transparency"
                 description: "Reduce blur and transparency effects"
                 iconName: "preferences-desktop-effects"
@@ -141,8 +141,8 @@ Item {
 
                 MahoSwitch {
                         reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                    checked: !!root.state.reducedTransparency
-                    enabled: !!root.state.runtimeHooksAvailable && !root.bridge.actionBusy
+                    checked: !!root.pageState.reducedTransparency
+                    enabled: !!root.pageState.runtimeHooksAvailable && !root.bridge.actionBusy
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
