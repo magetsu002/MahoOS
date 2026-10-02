@@ -290,8 +290,10 @@ def build_production_declaration(
 def build_normal_production_declaration(
     roots: CandidateRoots,
     transaction: Mapping[str, Any],
+    *,
+    operational_paths: Iterable[str] = (),
 ) -> CandidateDeclaration:
-    """Declare exact normal-package ownership plus bounded package-manager metadata."""
+    """Declare exact normal-package ownership plus bounded transaction metadata."""
     generation_id, names = _package_generation(transaction)
     ownership, errors = package_ownership(roots.candidate_root)
     if errors:
@@ -299,6 +301,10 @@ def build_normal_production_declaration(
     package_set = set(names)
     declared = {path for path, owner in ownership.items() if owner in package_set}
     declared.update({"/var/lib/pacman/local", "/var/log/pacman.log", "/etc/ld.so.cache"})
+    for path in operational_paths:
+        if not isinstance(path, str) or not path.startswith("/var/lib/maho/update/"):
+            raise ProductionAdmissionError("normal_operational_path_invalid")
+        declared.add(path)
     if not declared:
         raise ProductionAdmissionError("normal_candidate_declaration_empty")
     return CandidateDeclaration(
@@ -314,8 +320,11 @@ def evaluate_normal_production_candidate(
     transaction: Mapping[str, Any],
     *,
     known_safe_graph_ids: Iterable[ArtifactID] = (),
+    operational_paths: Iterable[str] = (),
 ) -> NativeAdmissionResult:
-    declaration = build_normal_production_declaration(roots, transaction)
+    declaration = build_normal_production_declaration(
+        roots, transaction, operational_paths=operational_paths,
+    )
     runtime = offline_runtime_evidence(roots)
     return admit_candidate(
         roots,
@@ -922,6 +931,69 @@ def _parse_authority(value: Mapping[str, Any]) -> ProductionActivationAuthority:
     expected = ArtifactID.from_content(canonical_bytes(authority.identity_material()))
     if authority.authority_id != expected:
         raise ProductionAdmissionError("activation_authority_digest_mismatch")
+    return authority
+
+
+def verify_normal_activation_authority(
+    value: Mapping[str, Any],
+    *,
+    roots: CandidateRoots,
+    update_transaction_id: str,
+    transaction: Mapping[str, Any],
+    source_revision: str,
+) -> ProductionActivationAuthority:
+    """Revalidate one admitted normal candidate before root-only activation.
+
+    Normal S2.2 activation deliberately has no live Pacman mutation.  This
+    verifier therefore reuses the exact Guardian promotion authority against
+    the still-frozen candidate and the normal package declaration.
+    """
+    authority = _parse_authority(value)
+    generation_id, _ = _package_generation(transaction)
+    expected_guardian_tx = guardian_transaction_id(update_transaction_id)
+    if (
+        authority.update_transaction_id != update_transaction_id
+        or authority.guardian_transaction_id != expected_guardian_tx
+        or authority.candidate_id != roots.candidate_id
+        or authority.package_generation_id != generation_id
+        or authority.source_revision != source_revision
+    ):
+        raise ProductionAdmissionError("normal_activation_authority_context_mismatch")
+    if any((
+        authority.boot_generation_id is not None,
+        authority.boot_authority_id is not None,
+        authority.release_sequence is not None,
+        authority.security_epoch is not None,
+        authority.signer_fingerprint is not None,
+    )):
+        raise ProductionAdmissionError("normal_activation_authority_boot_scope_invalid")
+    declaration = build_normal_production_declaration(
+        roots,
+        transaction,
+        operational_paths=(
+            f"/var/lib/maho/update/transactions/{update_transaction_id}.json",
+            "/var/lib/maho/update/current",
+        ),
+    )
+    runtime = offline_runtime_evidence(roots)
+    try:
+        native, inspection = revalidate_promotion_authority(
+            authority.native_promotion_authority,
+            roots=roots,
+            declaration=declaration,
+            runtime=runtime,
+        )
+    except NativeAdmissionError as exc:
+        raise ProductionAdmissionError(str(exc)) from exc
+    if not isinstance(native, PromotionAuthority):
+        raise ProductionAdmissionError("normal_activation_authority_native_binding_invalid")
+    if (
+        authority.graph_id != inspection.graph.graph_id
+        or authority.base_root_identity != inspection.base_root_identity
+        or authority.candidate_root_identity != inspection.candidate_root_identity
+        or authority.runtime_evidence_sha256 != inspection.runtime_evidence_sha256
+    ):
+        raise ProductionAdmissionError("normal_activation_authority_evidence_mismatch")
     return authority
 
 
