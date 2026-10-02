@@ -137,10 +137,12 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("sound.mute", {
-                        direction: "output",
-                        muted: checked
-                    })
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("sound.mute", {
+                            direction: "output",
+                            muted: value
+                        })
+                    }
                 }
             }
 
@@ -218,10 +220,12 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("sound.mute", {
-                        direction: "input",
-                        muted: checked
-                    })
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("sound.mute", {
+                            direction: "input",
+                            muted: value
+                        })
+                    }
                 }
             }
 
