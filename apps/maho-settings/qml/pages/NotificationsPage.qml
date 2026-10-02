@@ -70,7 +70,7 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("notification.enabled", { enabled: checked })
+                    onToggleRequested: function(value) { root.bridge.perform("notification.enabled", { enabled: value }) }
                 }
             }
 
@@ -90,7 +90,7 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("notification.dnd", { enabled: checked })
+                    onToggleRequested: function(value) { root.bridge.perform("notification.dnd", { enabled: value }) }
                 }
             }
 
