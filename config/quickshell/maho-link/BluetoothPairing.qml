@@ -137,7 +137,7 @@ Item {
             width: 150
             height: 43
             radius: 14
-            color: cancelHover.containsMouse
+            color: cancelHover.containsMouse || cancelHover.activeFocus
                 ? chrome.theme.alpha(chrome.textSecondary, 0.12)
                 : chrome.theme.alpha(chrome.textSecondary, 0.075)
             border.width: 1
@@ -156,11 +156,17 @@ Item {
                 id: cancelHover
                 anchors.fill: parent
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: {
+
+                function activate() {
                     root.bluetooth.cancelPairing(root.device)
                     root.cancelRequested()
                 }
+
+                onClicked: activate()
+                Keys.onReturnPressed: activate()
+                Keys.onSpacePressed: activate()
             }
         }
     }

@@ -63,7 +63,7 @@ Rectangle {
                 root.destructive ? chrome.theme.error : chrome.theme.foreground,
                 root.destructive ? 0.09 : 0.07
             )
-        opacity: root.enabled && hover.containsMouse ? 1 : 0
+        opacity: root.enabled && (hover.containsMouse || hover.activeFocus) ? 1 : 0
 
         Behavior on opacity {
             NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
@@ -104,8 +104,11 @@ Rectangle {
         anchors.fill: parent
         enabled: root.enabled
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        activeFocusOnTab: true
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: root.clicked()
+        Keys.onReturnPressed: root.clicked()
+        Keys.onSpacePressed: root.clicked()
     }
 
     Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }

@@ -74,7 +74,8 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.075)
-                opacity: currentHover.containsMouse && currentCard.currentNetwork ? 1 : 0
+                opacity: (currentHover.containsMouse || currentHover.activeFocus)
+                    && currentCard.currentNetwork ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
@@ -164,7 +165,9 @@ Item {
                 Text {
                     width: parent.width
                     text: currentCard.currentNetwork
-                        ? "Connected · " + String(currentCard.currentNetwork.quality || "")
+                        ? (root.wifi.connectivity && root.wifi.connectivity.captivePortal
+                            ? "Connected · Sign-in required"
+                            : "Connected · " + String(currentCard.currentNetwork.quality || ""))
                         : root.wifi.available
                             ? (root.wifi.wifiEnabled ? "Choose a network below" : "Enable Wi-Fi to scan")
                             : "NetworkManager unavailable"
@@ -175,6 +178,20 @@ Item {
                     font.family: "Inter"
                     font.pixelSize: 11
                     font.weight: currentCard.currentNetwork ? Font.Medium : Font.Normal
+                }
+
+                Text {
+                    width: parent.width
+                    visible: Boolean(root.wifi.ethernet && root.wifi.ethernet.available)
+                    text: "Ethernet · " + String(root.wifi.ethernet.state || "Disconnected")
+                        + (root.wifi.ethernet.connected && root.wifi.ethernet.ipv4
+                            ? " · " + String(root.wifi.ethernet.ipv4) : "")
+                    color: root.wifi.ethernet && root.wifi.ethernet.connected
+                        ? chrome.theme.alpha(chrome.accent, 0.72)
+                        : chrome.theme.alpha(chrome.textSecondary, 0.52)
+                    elide: Text.ElideRight
+                    font.family: "Inter"
+                    font.pixelSize: 9
                 }
             }
 
@@ -207,11 +224,56 @@ Item {
 
             MouseArea {
                 id: currentHover
+                z: 1
                 anchors.fill: parent
                 enabled: currentCard.currentNetwork !== null
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.detailsRequested(currentCard.currentNetwork)
+                Keys.onReturnPressed: root.detailsRequested(currentCard.currentNetwork)
+                Keys.onSpacePressed: root.detailsRequested(currentCard.currentNetwork)
+            }
+
+            Rectangle {
+                id: portalLoginButton
+                z: 3
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 9
+                visible: Boolean(root.wifi.currentNetwork
+                    && root.wifi.connectivity && root.wifi.connectivity.loginAvailable)
+                width: visible ? 78 : 0
+                height: 24
+                radius: 10
+                antialiasing: true
+                color: portalLoginHover.containsMouse || portalLoginHover.activeFocus
+                    ? chrome.theme.alpha(chrome.accent, 0.15)
+                    : chrome.theme.alpha(chrome.accent, 0.09)
+                border.width: 1
+                border.color: chrome.theme.alpha(chrome.accent, 0.16)
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Open Login"
+                    color: chrome.theme.alpha(chrome.accent, 0.94)
+                    font.family: "Inter"
+                    font.pixelSize: 9
+                    font.weight: Font.Medium
+                }
+
+                MouseArea {
+                    id: portalLoginHover
+                    anchors.fill: parent
+                    enabled: !root.wifi.busy
+                    hoverEnabled: true
+                    activeFocusOnTab: true
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: root.wifi.openCaptivePortal()
+                    Keys.onReturnPressed: root.wifi.openCaptivePortal()
+                    Keys.onSpacePressed: root.wifi.openCaptivePortal()
+                }
             }
         }
 
@@ -222,7 +284,7 @@ Item {
             Text {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Available Networks"
+                text: "Wi-Fi Networks"
                 color: chrome.theme.alpha(chrome.textSecondary, 0.78)
                 font.family: "Inter"
                 font.pixelSize: 11
@@ -262,7 +324,8 @@ Item {
                 Text {
                     height: 18
                     verticalAlignment: Text.AlignVCenter
-                    text: root.wifi.busy ? "Scanning…" : "Refresh"
+                    text: root.wifi.scanning ? "Scanning…"
+                        : root.wifi.busy ? "Working…" : "Refresh"
                     color: root.wifi.wifiEnabled
                         ? chrome.theme.alpha(chrome.accent, 0.90)
                         : chrome.theme.alpha(chrome.textSecondary, 0.40)
@@ -271,12 +334,16 @@ Item {
                     font.weight: Font.Medium
 
                     MouseArea {
+                        id: refreshHover
                         anchors.fill: parent
                         anchors.margins: -8
                         enabled: root.wifi.wifiEnabled && !root.wifi.busy
                         hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
+                        activeFocusOnTab: true
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: root.wifi.rescan()
+                        Keys.onReturnPressed: root.wifi.rescan()
+                        Keys.onSpacePressed: root.wifi.rescan()
                     }
                 }
             }
@@ -335,6 +402,8 @@ Item {
                         network: modelData
                         interactionEnabled: !root.wifi.busy
                         onSelected: root.networkSelected(modelData)
+                        onForgetRequested:
+                            root.wifi.forgetSaved(String(modelData.profileUuid || ""))
                     }
 
                     Rectangle {
@@ -446,7 +515,7 @@ Item {
                     radius: 15
                     antialiasing: true
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.030)
-                    opacity: otherHover.containsMouse ? 1 : 0
+                    opacity: otherHover.containsMouse || otherHover.activeFocus ? 1 : 0
 
                     Behavior on opacity {
                         NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -510,8 +579,11 @@ Item {
                     anchors.fill: parent
                     enabled: root.wifi.wifiEnabled && !root.wifi.busy
                     hoverEnabled: true
+                    activeFocusOnTab: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: root.manualRequested()
+                    Keys.onReturnPressed: root.manualRequested()
+                    Keys.onSpacePressed: root.manualRequested()
                 }
             }
         }

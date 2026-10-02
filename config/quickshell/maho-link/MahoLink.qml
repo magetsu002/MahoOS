@@ -106,8 +106,13 @@ Item {
     function selectNetwork(network) {
         wifi.errorText = ""
         wifi.actionMessage = ""
+        if (network.saved && String(network.profileUuid || "") !== "") {
+            wifi.connectSaved(String(network.profileUuid))
+            return
+        }
         if (network.enterprise) {
-            wifi.errorText = "Enterprise Wi-Fi needs an existing NetworkManager profile in this milestone."
+            selectedNetwork = network
+            page = "enterprise"
             return
         }
         if (network.secured) {
@@ -251,7 +256,7 @@ Item {
             height: 32
             radius: 10
             antialiasing: true
-            color: backHover.containsMouse
+            color: backHover.containsMouse || backHover.activeFocus
                 ? theme.alpha(theme.foreground, 0.045)
                 : "transparent"
 
@@ -269,8 +274,11 @@ Item {
                 id: backHover
                 anchors.fill: parent
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.goBack()
+                Keys.onReturnPressed: root.goBack()
+                Keys.onSpacePressed: root.goBack()
             }
         }
 
@@ -285,6 +293,7 @@ Item {
                     : root.page === "forget" ? "Forget Device" : "Bluetooth")
                 : root.page === "main" ? "Wi-Fi"
                     : root.page === "password" ? "Join Network"
+                    : root.page === "enterprise" ? "Enterprise Wi-Fi"
                     : root.page === "manual" ? "Other Network"
                     : "Network Details"
             color: root.textPrimary
@@ -307,8 +316,10 @@ Item {
                 antialiasing: true
                 opacity: root.wifi.available && !root.wifi.busy ? 1 : 0.48
                 color: root.wifi.wifiEnabled
-                    ? theme.alpha(root.accent, toggleHover.containsMouse ? 0.77 : 0.67)
-                    : theme.alpha(theme.surfaceHigh, 0.42)
+                    ? theme.alpha(root.accent,
+                        (toggleHover.containsMouse || toggleHover.activeFocus) ? 0.77 : 0.67)
+                    : theme.alpha(theme.surfaceHigh,
+                        toggleHover.activeFocus ? 0.52 : 0.42)
                 border.width: 1
                 border.color: root.wifi.wifiEnabled
                     ? theme.alpha(root.accent, 0.22)
@@ -358,8 +369,11 @@ Item {
                     anchors.fill: parent
                     enabled: root.wifi.available && !root.wifi.busy
                     hoverEnabled: true
+                    activeFocusOnTab: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: root.wifi.setWifiEnabled(!root.wifi.wifiEnabled)
+                    Keys.onReturnPressed: root.wifi.setWifiEnabled(!root.wifi.wifiEnabled)
+                    Keys.onSpacePressed: root.wifi.setWifiEnabled(!root.wifi.wifiEnabled)
                 }
             }
 
@@ -368,7 +382,7 @@ Item {
                 height: 32
                 radius: 10
                 antialiasing: true
-                color: closeHover.containsMouse
+                color: closeHover.containsMouse || closeHover.activeFocus
                     ? theme.alpha(theme.foreground, 0.045)
                     : "transparent"
 
@@ -384,8 +398,11 @@ Item {
                     id: closeHover
                     anchors.fill: parent
                     hoverEnabled: true
+                    activeFocusOnTab: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.closeRequested()
+                    Keys.onReturnPressed: root.closeRequested()
+                    Keys.onSpacePressed: root.closeRequested()
                 }
             }
         }
@@ -424,6 +441,15 @@ Item {
             chrome: root
             wifi: root.wifi
             network: root.selectedNetwork || ({"ssid": "Wi-Fi"})
+            onBackRequested: root.goBack()
+        }
+
+        MahoLinkEnterprise {
+            anchors.fill: parent
+            visible: root.section === "wifi" && root.page === "enterprise"
+            chrome: root
+            wifi: root.wifi
+            network: root.selectedNetwork || ({"ssid": "Enterprise Wi-Fi", "enterprise": true})
             onBackRequested: root.goBack()
         }
 

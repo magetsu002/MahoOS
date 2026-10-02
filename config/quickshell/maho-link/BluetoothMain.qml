@@ -175,7 +175,8 @@ Item {
                 antialiasing: true
                 opacity: root.bluetooth.available && !root.bluetooth.busy ? 1 : 0.48
                 color: root.bluetooth.bluetoothEnabled
-                    ? chrome.theme.alpha(chrome.accent, toggleHover.containsMouse ? 0.77 : 0.67)
+                    ? chrome.theme.alpha(chrome.accent,
+                        (toggleHover.containsMouse || toggleHover.activeFocus) ? 0.77 : 0.67)
                     : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.42)
                 border.width: 1
                 border.color: root.bluetooth.bluetoothEnabled
@@ -226,8 +227,13 @@ Item {
                     anchors.fill: parent
                     enabled: root.bluetooth.available && !root.bluetooth.busy
                     hoverEnabled: true
+                    activeFocusOnTab: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: root.bluetooth.setBluetoothEnabled(!root.bluetooth.bluetoothEnabled)
+                    Keys.onReturnPressed:
+                        root.bluetooth.setBluetoothEnabled(!root.bluetooth.bluetoothEnabled)
+                    Keys.onSpacePressed:
+                        root.bluetooth.setBluetoothEnabled(!root.bluetooth.bluetoothEnabled)
                 }
             }
         }
@@ -261,7 +267,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.075)
-                opacity: heroHover.containsMouse ? 1 : 0
+                opacity: heroHover.containsMouse || heroHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
@@ -432,8 +438,11 @@ Item {
                 id: heroHover
                 anchors.fill: parent
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.detailsRequested(root.primaryDevice)
+                Keys.onReturnPressed: root.detailsRequested(root.primaryDevice)
+                Keys.onSpacePressed: root.detailsRequested(root.primaryDevice)
             }
         }
 
@@ -609,17 +618,24 @@ Item {
                     font.weight: Font.Medium
 
                     MouseArea {
+                        id: discoveryHover
                         anchors.fill: parent
                         anchors.margins: -8
                         enabled: !root.bluetooth.busy
                         hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
+                        activeFocusOnTab: true
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+                        function activate() {
                             if (root.bluetooth.discovering)
                                 root.bluetooth.stopDiscovery()
                             else
                                 root.bluetooth.startDiscovery()
                         }
+
+                        onClicked: activate()
+                        Keys.onReturnPressed: activate()
+                        Keys.onSpacePressed: activate()
                     }
                 }
             }
@@ -766,7 +782,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.075)
-                opacity: pairHover.containsMouse ? 1 : 0
+                opacity: pairHover.containsMouse || pairHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -847,11 +863,17 @@ Item {
                 anchors.fill: parent
                 enabled: !root.bluetooth.busy
                 hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
+                activeFocusOnTab: true
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+                function activate() {
                     if (!root.bluetooth.discovering)
                         root.bluetooth.startDiscovery()
                 }
+
+                onClicked: activate()
+                Keys.onReturnPressed: activate()
+                Keys.onSpacePressed: activate()
             }
         }
     }

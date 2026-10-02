@@ -10,6 +10,15 @@ Scope {
     property string device: ""
     property var currentNetwork: null
     property var networks: []
+    property var savedNetworks: []
+    property var ethernet: ({
+        "available": false, "connected": false, "device": "", "state": "Unavailable",
+        "profile": "", "uuid": "", "ipv4": "", "gateway": ""
+    })
+    property var connectivity: ({
+        "state": "unknown", "captivePortal": false, "limited": false,
+        "online": false, "loginAvailable": false
+    })
     property string errorText: ""
     property string actionMessage: ""
     property bool statusReady: false
@@ -112,6 +121,28 @@ Scope {
         return runAction(args, password || "", false)
     }
 
+    function connectSaved(profileUuid) {
+        if (!profileUuid)
+            return false
+        return runAction(["connect-saved", String(profileUuid)], "", false)
+    }
+
+    function forgetSaved(profileUuid) {
+        if (!profileUuid)
+            return false
+        return runAction(["forget", String(profileUuid)], "", false)
+    }
+
+    function connectEnterprise(ssid, fields) {
+        if (!ssid || !fields)
+            return false
+        return runAction(["connect-enterprise", String(ssid)], JSON.stringify(fields), false)
+    }
+
+    function openCaptivePortal() {
+        return runAction(["portal-login"], "", false)
+    }
+
     Process {
         id: statusProcess
         stdout: StdioCollector {
@@ -122,9 +153,26 @@ Scope {
                     state.wifiEnabled = Boolean(payload.enabled)
                     state.device = String(payload.device || "")
                     state.currentNetwork = state.mergeStatusCurrent(payload.current || null)
+                    state.ethernet = payload.ethernet || ({
+                        "available": false, "connected": false, "device": "", "state": "Unavailable",
+                        "profile": "", "uuid": "", "ipv4": "", "gateway": ""
+                    })
+                    state.connectivity = payload.connectivity || ({
+                        "state": "unknown", "captivePortal": false, "limited": false,
+                        "online": false, "loginAvailable": false
+                    })
                     state.errorText = String(payload.error || "")
+                    if (!state.available) {
+                        state.currentNetwork = null
+                        state.networks = []
+                        state.savedNetworks = []
+                        state.networksReady = true
+                    }
                 } catch (error) {
                     state.available = false
+                    state.currentNetwork = null
+                    state.networks = []
+                    state.savedNetworks = []
                     state.errorText = "Wi-Fi status could not be read."
                     console.log("maho-link status parse:", error)
                 }
@@ -144,8 +192,11 @@ Scope {
                 try {
                     const payload = JSON.parse(this.text)
                     state.networks = payload.networks || []
+                    state.savedNetworks = payload.saved || []
                     if (payload.current)
                         state.currentNetwork = payload.current
+                    else if (!Boolean(payload.enabled))
+                        state.currentNetwork = null
                     state.networksReady = true
                     state.snapshotReady = state.statusReady
                     if (state.errorText === "")
@@ -155,6 +206,10 @@ Scope {
                     // gets to trigger one bounded real scan.
                     state.maybeStartupScan()
                 } catch (error) {
+                    state.networks = []
+                    state.savedNetworks = []
+                    state.networksReady = true
+                    state.errorText = "Wi-Fi networks could not be read."
                     console.log("maho-link network parse:", error)
                 }
                 if (state.scanning)
@@ -199,6 +254,40 @@ Scope {
                 state.activeAction = ""
                 refreshDelay.restart()
             }
+        }
+    }
+
+    // NetworkManager owns connectivity truth. Listen to its monitor stream so
+    // external nmcli/Settings changes refresh Link immediately; the slow timer
+    // below remains only a reconnect/resume fallback.
+    Process {
+        id: networkManagerMonitor
+        command: ["nmcli", "monitor"]
+        running: true
+        stdout: SplitParser {
+            onRead: function(line) {
+                if (String(line).length > 0)
+                    networkManagerDebounce.restart()
+            }
+        }
+        onRunningChanged: {
+            if (!running)
+                networkManagerMonitorRestart.restart()
+        }
+    }
+
+    Timer {
+        id: networkManagerDebounce
+        interval: 140
+        onTriggered: state.refresh()
+    }
+
+    Timer {
+        id: networkManagerMonitorRestart
+        interval: 2500
+        onTriggered: {
+            if (!networkManagerMonitor.running)
+                networkManagerMonitor.running = true
         }
     }
 

@@ -36,6 +36,7 @@ for file in \
     MahoLinkSignal.qml \
     MahoLinkButton.qml \
     MahoLinkPassword.qml \
+    MahoLinkEnterprise.qml \
     MahoLinkManual.qml \
     MahoLinkDetails.qml \
     BluetoothState.qml \
@@ -79,7 +80,14 @@ require_text "$LINK/MahoLinkMain.qml" 'root.height - 157' "empty/list height no 
 require_text "$LINK/MahoLinkDetails.qml" 'readonly property color glassRaised:' "Wi-Fi details did not inherit glass material"
 require_text "$LINK/MahoLinkPassword.qml" 'readonly property color glassInteractive:' "Wi-Fi password flow did not inherit glass material"
 require_text "$LINK/MahoLinkManual.qml" 'readonly property color glassInteractive:' "manual Wi-Fi flow did not inherit glass material"
+require_text "$LINK/MahoLinkEnterprise.qml" 'readonly property color glassInteractive:' "enterprise Wi-Fi flow did not inherit glass material"
+require_text "$LINK/MahoLinkEnterprise.qml" 'connectEnterprise' "enterprise Wi-Fi flow is not wired to NetworkManager"
 require_text "$LINK/MahoLinkState.qml" 'id: statusClearTimer' "transient success feedback timer missing"
+require_text "$LINK/MahoLinkState.qml" 'command: ["nmcli", "monitor"]' "external NetworkManager changes are not observed live"
+require_text "$LINK/MahoLinkState.qml" 'function connectSaved(profileUuid)' "saved NetworkManager profiles cannot reconnect"
+require_text "$LINK/MahoLinkState.qml" 'function forgetSaved(profileUuid)' "saved NetworkManager profiles cannot be forgotten"
+require_text "$LINK/MahoLinkState.qml" 'function openCaptivePortal()' "captive portal login path missing"
+require_text "$LINK/MahoLinkMain.qml" 'Ethernet · ' "truthful Ethernet state is not surfaced"
 require_text "$LINK/MahoLinkState.qml" 'interval: 1500' "success feedback no longer clears promptly"
 require_text "$LINK/MahoLinkTheme.qml" '/.cache/maho/theme/active.json' "Maho Link does not use authoritative Maho palette"
 require_text "$LINK/MahoLinkTheme.qml" 'watchChanges: true' "Maho Link palette is not reactive"

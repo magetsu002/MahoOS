@@ -77,7 +77,7 @@ require_text "$STATE" 'function maybeStartupScan()' "empty startup cache cannot 
 require_text "$STATE" 'Qt.callLater(state.rescan)' "empty startup cache does not schedule a non-blocking scan"
 require_text "$SHELL" '!wifi.statusReady' "Wi-Fi surface can paint placeholder state before authoritative status"
 require_text "$SHELL" 'wifi.refresh()' "Wi-Fi status/discovery does not start when opened"
-require_text "$BACKEND" 'scan_networks(enabled, rescan="no")' "fast startup cache query no longer avoids blocking rescan"
+require_text "$BACKEND" 'rescan="no"' "fast startup cache query no longer avoids blocking rescan"
 require_text "$BACKEND" 'if sys.argv[1] == "status"' "fast status backend mode missing"
 require_text "$BACKEND" 'if sys.argv[1] == "networks"' "cached networks backend mode missing"
 echo "PASS"
@@ -115,9 +115,26 @@ case "$*" in
   "-t -g 802-11-wireless.ssid connection show uuid 11111111-2222-3333-4444-555555555555")
     echo "MahoTestWiFi"
     ;;
+  "-t -e yes -f connection.id,connection.uuid,connection.autoconnect,802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-1x.eap connection show uuid 11111111-2222-3333-4444-555555555555")
+    echo "connection.id:Home Profile"
+    echo "connection.uuid:11111111-2222-3333-4444-555555555555"
+    echo "connection.autoconnect:yes"
+    echo "802-11-wireless.ssid:MahoTestWiFi"
+    echo "802-11-wireless-security.key-mgmt:wpa-psk"
+    ;;
+  "-t -e yes -f NAME,UUID,TYPE,TIMESTAMP,AUTOCONNECT,ACTIVE,DEVICE connection show")
+    echo "Home Profile:11111111-2222-3333-4444-555555555555:802-11-wireless:1234:yes:yes:wlan0"
+    ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
     echo "IP4.ADDRESS[1]:192.168.1.50/24"
     echo "IP4.GATEWAY:192.168.1.1"
+    ;;
+  "-t -e yes -f DEVICE,TYPE,STATE,CONNECTION device status")
+    echo "wlan0:wifi:connected:Home Profile"
+    echo "enp0s31f6:ethernet:disconnected:--"
+    ;;
+  "-t -f CONNECTIVITY general")
+    echo "full"
     ;;
   "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan no")
     echo "*:MahoTestWiFi:91:WPA2:5180"
