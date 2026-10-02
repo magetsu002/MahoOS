@@ -121,7 +121,7 @@ Item {
 
             SettingCard {
                 visible: !!root.state.available
-                title: "File & link defaults"
+                title: "Default associations"
                 description: "Common handlers managed through the system XDG MIME authority"
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
@@ -244,6 +244,17 @@ Item {
                 text: root.state.terminalError
                 color: theme.textFaint
                 font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                visible: !!root.state.available
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: "Application defaults remain owned by the XDG MIME authority. Settings does not invent a private default-terminal registry when the system has no supported terminal-default authority."
+                color: theme.textFaint
+                font.pixelSize: 10
                 wrapMode: Text.WordWrap
             }
 

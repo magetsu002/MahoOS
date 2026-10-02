@@ -118,9 +118,20 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4
-                text: "Critical alert behavior stays managed by Maho Notify."
+                text: "Critical alert behavior and adaptive quiet remain owned by Maho Notify."
                 color: theme.textFaint
                 font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                visible: !!root.state.available
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: "Maho Notify does not currently expose notification sound, lock-screen visibility, or retention-duration preferences."
+                color: theme.textFaint
+                font.pixelSize: 10
                 wrapMode: Text.WordWrap
             }
 

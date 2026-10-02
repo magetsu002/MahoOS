@@ -5,6 +5,7 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.input ? bridge.state.input : ({})
@@ -15,11 +16,15 @@ Item {
         return selectedTouchpadIndex >= 0 && selectedTouchpadIndex < rows.length
             ? String(rows[selectedTouchpadIndex]) : ""
     }
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     function touchpadSpeed() {
         const values = state.touchpadSpeeds || ({})
@@ -39,306 +44,366 @@ Item {
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Input"
-                subtitle: "Keyboard, pointer and touchpad preferences"
-                foreground: root.foreground
-                muted: root.muted
+                subtitle: "Keyboard, mouse and touchpad preferences"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Input state unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
-            SettingCard {
+            MahoSectionLabel {
                 visible: !!root.state.available
-                title: "Detected devices"
-                description: "Truthful compositor inventory. Device-specific touchpad speed is keyed to the exact Hyprland device identity."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                text: "Keyboard"
+                textColor: theme.textSecondary
+            }
 
-                Text {
-                    Layout.fillWidth: true
-                    text: "Keyboards: " + ((root.state.keyboards || []).join(", ") || "None")
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: "Mice: " + ((root.state.mice || []).join(", ") || "None")
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: "Touchpads: " + ((root.state.touchpads || []).join(", ") || "None")
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Repeat rate"
+                description: "How quickly a held key repeats"
+                iconName: "input-keyboard"
+                theme: theme
+
+                MahoTextField {
+                    Layout.preferredWidth: 112
+                    text: Number(root.current.repeatRate || 25).toString()
+                    validator: IntValidator { bottom: 1; top: 100 }
+                    surface: theme.surfaceElevated
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
+                    enabled: !root.bridge.actionBusy
+                    onEditingFinished: root.bridge.perform("input.set", {
+                        key: "repeatRate",
+                        value: Number(text)
+                    })
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Keyboard"
-                description: "Repeat settings apply live and persist as user-owned session preferences."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Repeat delay"
+                description: "Delay before a held key starts repeating"
+                iconName: "input-keyboard"
+                theme: theme
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Repeat rate"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    TextField {
-                        id: repeatRate
-                        Layout.preferredWidth: 100
-                        text: Number(root.current.repeatRate || 25).toString()
-                        validator: IntValidator { bottom: 1; top: 100 }
-                        color: root.foreground
-                        onEditingFinished: root.bridge.perform("input.set", { key: "repeatRate", value: Number(text) })
-                        background: Rectangle {
-                            radius: 10
-                            color: root.surface
-                            border.width: 1
-                            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
-                        }
-                    }
+                MahoTextField {
+                    Layout.preferredWidth: 112
+                    text: Number(root.current.repeatDelay || 600).toString()
+                    validator: IntValidator { bottom: 100; top: 2000 }
+                    surface: theme.surfaceElevated
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
+                    enabled: !root.bridge.actionBusy
+                    onEditingFinished: root.bridge.perform("input.set", {
+                        key: "repeatDelay",
+                        value: Number(text)
+                    })
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Repeat delay (ms)"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    TextField {
-                        id: repeatDelay
-                        Layout.preferredWidth: 100
-                        text: Number(root.current.repeatDelay || 600).toString()
-                        validator: IntValidator { bottom: 100; top: 2000 }
-                        color: root.foreground
-                        onEditingFinished: root.bridge.perform("input.set", { key: "repeatDelay", value: Number(text) })
-                        background: Rectangle {
-                            radius: 10
-                            color: root.surface
-                            border.width: 1
-                            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
-                        }
-                    }
+                Text {
+                    text: "ms"
+                    color: theme.textSecondary
+                    font.pixelSize: 11
                 }
             }
 
-            SettingCard {
+            MahoSectionLabel {
                 visible: !!root.state.available
-                title: "Mouse"
-                description: "Hyprland-backed pointer speed, acceleration profile, scrolling direction, and primary-button preference."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                text: "Mouse"
+                textColor: theme.textSecondary
+            }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Sensitivity"; color: root.foreground; font.pixelSize: 13 }
-                    MahoSlider {
-                        Layout.fillWidth: true
-                        from: -1
-                        to: 1
-                        stepSize: 0.05
-                        value: Number(root.current.sensitivity || 0)
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        onPressedChanged: {
-                            if (!pressed)
-                                root.bridge.perform("input.set", { key: "sensitivity", value: Number(value.toFixed(2)) })
-                        }
-                    }
-                    Text {
-                        text: Number(root.current.sensitivity || 0).toFixed(2)
-                        color: root.muted
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 38
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Pointer speed"
+                description: "Adjust mouse sensitivity"
+                iconName: "input-mouse"
+                theme: theme
+
+                MahoSlider {
+                    Layout.preferredWidth: Math.min(280, Math.max(170, root.width * 0.28))
+                    from: -1
+                    to: 1
+                    stepSize: 0.05
+                    value: Number(root.current.sensitivity || 0)
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    onPressedChanged: {
+                        if (!pressed)
+                            root.bridge.perform("input.set", {
+                                key: "sensitivity",
+                                value: Number(value.toFixed(2))
+                            })
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Acceleration · " + (root.current.accelProfile === "default" ? "compositor default" : root.current.accelProfile)
-                        color: root.foreground
-                        font.pixelSize: 12
-                        Layout.fillWidth: true
-                    }
-                    ChoicePill {
-                        text: "Adaptive"
-                        selected: root.current.accelProfile === "adaptive"
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "accelProfile", value: "adaptive" })
-                    }
-                    ChoicePill {
-                        text: "Flat"
-                        selected: root.current.accelProfile === "flat"
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("input.set", { key: "accelProfile", value: "flat" })
-                    }
+                Text {
+                    text: Number(root.current.sensitivity || 0).toFixed(2)
+                    color: theme.textSecondary
+                    font.pixelSize: 11
+                    Layout.preferredWidth: 38
+                    horizontalAlignment: Text.AlignRight
+                }
+            }
+
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Acceleration"
+                description: root.current.accelProfile === "default"
+                    ? "Using the compositor default profile"
+                    : "Choose how pointer acceleration behaves"
+                iconName: "input-mouse"
+                theme: theme
+
+                ChoicePill {
+                    text: "Adaptive"
+                    selected: root.current.accelProfile === "adaptive"
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("input.set", {
+                        key: "accelProfile",
+                        value: "adaptive"
+                    })
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Natural scrolling"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.current.mouseNaturalScroll
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "mouseNaturalScroll", value: value }) }
-                    }
+                ChoicePill {
+                    text: "Flat"
+                    selected: root.current.accelProfile === "flat"
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("input.set", {
+                        key: "accelProfile",
+                        value: "flat"
+                    })
                 }
+            }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Primary button on right"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.current.leftHanded
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "leftHanded", value: value }) }
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Natural scrolling"
+                description: "Move content in the same direction as your fingers"
+                iconName: "input-mouse"
+                theme: theme
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.current.mouseNaturalScroll
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "mouseNaturalScroll",
+                            value: value
+                        })
                     }
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
+                title: "Primary button"
+                description: root.current.leftHanded ? "Right button is primary" : "Left button is primary"
+                iconName: "input-mouse"
+                theme: theme
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.current.leftHanded
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "leftHanded",
+                            value: value
+                        })
+                    }
+                }
+            }
+
+            MahoSectionLabel {
+                visible: !!root.state.available
+                text: "Touchpad"
+                textColor: theme.textSecondary
+            }
+
+            AppearanceRow {
+                visible: !!root.state.available && (root.state.touchpads || []).length > 1
                 title: "Touchpad"
-                description: (root.state.touchpads || []).length > 0
-                    ? "Global touchpad behavior plus per-device pointer speed through Hyprland's Lua device authority."
-                    : "No touchpad is currently reported; global touchpad preferences remain available for future sessions."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                description: "Choose which touchpad to configure"
+                iconName: "input-touchpad"
+                theme: theme
 
                 MahoComboBox {
-                    visible: (root.state.touchpads || []).length > 1
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.state.touchpads || []
                     currentIndex: root.selectedTouchpadIndex
                     enabled: !root.bridge.actionBusy
-                    surface: root.surface
-                    foreground: root.foreground
-                    muted: root.muted
-                    accent: root.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                     onActivated: root.selectedTouchpadIndex = index
                 }
+            }
 
-                RowLayout {
-                    visible: root.selectedTouchpad.length > 0
-                        && !!(root.state.capabilities || {}).touchpadSpeed
-                    Layout.fillWidth: true
-                    Text { text: "Pointer speed"; color: root.foreground; font.pixelSize: 13 }
-                    MahoSlider {
-                        Layout.fillWidth: true
-                        from: -1
-                        to: 1
-                        stepSize: 0.05
-                        value: root.touchpadSpeed()
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        onPressedChanged: {
-                            if (!pressed && root.selectedTouchpad.length > 0)
-                                root.bridge.perform("input.set", {
-                                    key: "touchpadSensitivity",
-                                    device: root.selectedTouchpad,
-                                    value: Number(value.toFixed(2))
-                                })
-                        }
-                    }
-                    Text {
-                        text: root.touchpadSpeed().toFixed(2)
-                        color: root.muted
-                        font.pixelSize: 11
-                        Layout.preferredWidth: 38
+            AppearanceRow {
+                visible: !!root.state.available && root.selectedTouchpad.length > 0
+                    && !!(root.state.capabilities || {}).touchpadSpeed
+                title: "Touchpad speed"
+                description: root.selectedTouchpad
+                iconName: "input-touchpad"
+                theme: theme
+
+                MahoSlider {
+                    Layout.preferredWidth: Math.min(280, Math.max(170, root.width * 0.28))
+                    from: -1
+                    to: 1
+                    stepSize: 0.05
+                    value: root.touchpadSpeed()
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    onPressedChanged: {
+                        if (!pressed && root.selectedTouchpad.length > 0)
+                            root.bridge.perform("input.set", {
+                                key: "touchpadSensitivity",
+                                device: root.selectedTouchpad,
+                                value: Number(value.toFixed(2))
+                            })
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Natural scrolling"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.current.naturalScroll
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "naturalScroll", value: value }) }
-                    }
+                Text {
+                    text: root.touchpadSpeed().toFixed(2)
+                    color: theme.textSecondary
+                    font.pixelSize: 11
+                    Layout.preferredWidth: 38
+                    horizontalAlignment: Text.AlignRight
                 }
+            }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Tap to click"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.current.tapToClick
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "tapToClick", value: value }) }
-                    }
-                }
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Natural scrolling"
+                description: "Move content in the same direction as your fingers"
+                iconName: "input-touchpad"
+                theme: theme
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Disable while typing"; color: root.foreground; font.pixelSize: 13; Layout.fillWidth: true }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.current.disableWhileTyping
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onToggleRequested: function(value) { root.bridge.perform("input.set", { key: "disableWhileTyping", value: value }) }
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.current.naturalScroll
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "naturalScroll",
+                            value: value
+                        })
                     }
                 }
             }
 
-            Item { Layout.preferredHeight: 6 }
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Tap to click"
+                description: "Tap the touchpad to click"
+                iconName: "input-touchpad"
+                theme: theme
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.current.tapToClick
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "tapToClick",
+                            value: value
+                        })
+                    }
+                }
+            }
+
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Disable while typing"
+                description: "Ignore accidental touchpad input while typing"
+                iconName: "input-touchpad"
+                theme: theme
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.current.disableWhileTyping
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onToggleRequested: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "disableWhileTyping",
+                            value: value
+                        })
+                    }
+                }
+            }
+
+            Text {
+                visible: !!root.state.available
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: "Detected: "
+                    + String((root.state.keyboards || []).length) + " keyboard(s), "
+                    + String((root.state.mice || []).length) + " mouse device(s), "
+                    + String((root.state.touchpads || []).length) + " touchpad(s)."
+                color: theme.textFaint
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }

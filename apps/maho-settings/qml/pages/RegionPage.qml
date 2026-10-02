@@ -149,6 +149,17 @@ Item {
                 }
             }
 
+            Text {
+                visible: !!root.state.available
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: "Regional format remains delegated to systemd-localed."
+                color: theme.textFaint
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+            }
+
             Item { Layout.preferredHeight: 8 }
         }
     }

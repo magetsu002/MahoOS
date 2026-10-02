@@ -120,9 +120,19 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 4
                 Layout.rightMargin: 4
-                text: root.state.sessionPolicyError
+                text: root.state.sessionPolicyError || "No supported user-scoped session policy backend is available."
                 color: theme.textFaint
                 font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: "Changing Power preferences here never triggers suspend, reboot, or shutdown."
+                color: theme.textFaint
+                font.pixelSize: 10
                 wrapMode: Text.WordWrap
             }
 
