@@ -5,154 +5,126 @@ import "../components"
 
 Item {
     id: root
+
     property var bridge
     property var themePalette
     readonly property var state: bridge && bridge.state.notifications ? bridge.state.notifications : ({})
-    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
-    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
-    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
-    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
 
     ScrollView {
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
         ScrollBar.vertical: MahoScrollBar {
-            foreground: root.foreground
+            foreground: theme.textPrimary
+            reducedMotion: theme.reducedMotion
         }
 
         ColumnLayout {
-            width: Math.max(0, root.width - 14)
-            spacing: 14
+            width: Math.max(0, root.width - 12)
+            spacing: 12
 
             PageHeader {
                 title: "Notifications"
-                subtitle: "Control notification behavior and history"
-                foreground: root.foreground
-                muted: root.muted
+                subtitle: "Control how MahoOS delivers and keeps notifications"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
             }
+
+            Item { Layout.preferredHeight: 6 }
 
             StatePanel {
                 visible: !root.state.available && !root.bridge.loading
                 title: "Maho Notify unavailable"
                 detail: root.state.error || root.bridge.error
                 retryVisible: true
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-                accent: root.accent
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+                accent: theme.accent
                 onRetryRequested: root.bridge.refresh()
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "Delivery"
-                description: root.state.active ? "Maho Notify is active." : "Maho Notify is currently inactive."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                title: "Notifications"
+                description: root.state.active
+                    ? "Allow Maho Notify to deliver notifications"
+                    : "Notification delivery is currently disabled"
+                iconName: "preferences-system-notifications"
+                theme: theme
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Notifications enabled"
-                        color: root.foreground
-                        font.pixelSize: 13
-                        Layout.fillWidth: true
-                    }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.state.active
-                        enabled: !!root.state.globalEnableSupported && !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("notification.enabled", { enabled: checked })
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Do Not Disturb"
-                        color: root.foreground
-                        font.pixelSize: 13
-                        Layout.fillWidth: true
-                    }
-                    MahoSwitch {
-                        reducedMotion: root.bridge && root.bridge.state.appearance ? !!root.bridge.state.appearance.reducedMotion : false
-                        checked: !!root.state.dnd
-                        enabled: !root.bridge.actionBusy
-                        accent: root.accent
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("notification.dnd", { enabled: checked })
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.state.adaptiveQuiet
-                        ? "Adaptive quiet is currently active from the existing Maho context policy."
-                        : "Critical-alert behavior and adaptive quiet remain owned by Maho Notify."
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.state.active
+                    enabled: !!root.state.globalEnableSupported && !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("notification.enabled", { enabled: checked })
                 }
             }
 
-            SettingCard {
+            AppearanceRow {
                 visible: !!root.state.available
-                title: "History"
+                title: "Do Not Disturb"
+                description: root.state.adaptiveQuiet
+                    ? "Quiet mode is also being managed by Maho's current context policy"
+                    : "Silence ordinary notifications until you turn it off"
+                iconName: "notifications-disabled"
+                theme: theme
+
+                MahoSwitch {
+                    reducedMotion: theme.reducedMotion
+                    checked: !!root.state.dnd
+                    enabled: !root.bridge.actionBusy
+                    accent: theme.accent
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("notification.dnd", { enabled: checked })
+                }
+            }
+
+            AppearanceRow {
+                visible: !!root.state.available
+                title: "Notification history"
                 description: Number(root.state.historyCount || 0) + " retained · "
                     + Number(root.state.unreadCount || 0) + " unread"
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
+                iconName: "view-history"
+                theme: theme
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "History retention follows Maho Notify's existing bounded policy."
-                        color: root.muted
-                        font.pixelSize: 11
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-                    ChoicePill {
-                        text: "Clear History"
-                        enabled: !!root.state.historyClearSupported && !root.bridge.actionBusy
-                        accent: root.accent
-                        surface: root.surface
-                        foreground: root.foreground
-                        muted: root.muted
-                        onClicked: root.bridge.perform("notification.clearHistory", {})
-                    }
+                ChoicePill {
+                    text: "Clear History"
+                    enabled: !!root.state.historyClearSupported && !root.bridge.actionBusy
+                    accent: theme.accent
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    onClicked: root.bridge.perform("notification.clearHistory", {})
                 }
             }
 
-            SettingCard {
+            Text {
                 visible: !!root.state.available
-                title: "Capability boundary"
-                description: "Maho Notify supports bounded runtime enable/disable and DND. It does not currently expose notification sound, lock-screen visibility, or retention-duration preferences."
-                surface: root.surface
-                borderColor: root.borderColor
-                foreground: root.foreground
-                muted: root.muted
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "Settings leaves those controls absent instead of creating a second notification policy store."
-                    color: root.muted
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                }
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 4
+                text: "Critical alert behavior stays managed by Maho Notify."
+                color: theme.textFaint
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
             }
 
-            Item { Layout.preferredHeight: 6 }
+            Item { Layout.preferredHeight: 8 }
         }
     }
 }
