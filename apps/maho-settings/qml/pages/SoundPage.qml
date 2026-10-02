@@ -6,13 +6,13 @@ import "../components"
 Item {
     id: root
     property var bridge
-    property var palette
+    property var themePalette
     readonly property var state: bridge && bridge.state.sound ? bridge.state.sound : ({})
-    readonly property color foreground: palette ? palette.foreground : "#f3eef8"
-    readonly property color muted: palette ? palette.muted : "#aaa3af"
-    readonly property color accent: palette ? palette.accent : "#d0bcff"
-    readonly property color surface: palette ? palette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: palette ? palette.border : "#3d3942"
+    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
+    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
+    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
+    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
+    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
 
     function defaultIndex(rows) {
         if (!rows)
@@ -77,6 +77,15 @@ Item {
                     }
                 }
 
+                Text {
+                    visible: root.state.output && !root.state.output.available
+                    Layout.fillWidth: true
+                    text: root.state.output ? (root.state.output.error || "Default output state unavailable.") : ""
+                    color: root.muted
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     Text {
@@ -88,8 +97,8 @@ Item {
                         Layout.fillWidth: true
                         from: 0
                         to: 100
-                        value: root.state.output ? root.state.output.volume : 0
-                        enabled: !root.bridge.actionBusy
+                        value: root.state.output && root.state.output.available ? root.state.output.volume : 0
+                        enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
                         accent: root.accent
                         foreground: root.foreground
                         onPressedChanged: {
@@ -104,8 +113,8 @@ Item {
                         Layout.preferredWidth: 38
                     }
                     MahoSwitch {
-                        checked: root.state.output ? !!root.state.output.muted : false
-                        enabled: !root.bridge.actionBusy
+                        checked: root.state.output && root.state.output.available ? !!root.state.output.muted : false
+                        enabled: !!(root.state.output && root.state.output.available) && !root.bridge.actionBusy
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted
@@ -140,6 +149,15 @@ Item {
                     }
                 }
 
+                Text {
+                    visible: root.state.input && !root.state.input.available
+                    Layout.fillWidth: true
+                    text: root.state.input ? (root.state.input.error || "Default input state unavailable.") : ""
+                    color: root.muted
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     Text { text: "Input level"; color: root.foreground; font.pixelSize: 12 }
@@ -147,8 +165,8 @@ Item {
                         Layout.fillWidth: true
                         from: 0
                         to: 100
-                        value: root.state.input ? root.state.input.volume : 0
-                        enabled: !root.bridge.actionBusy
+                        value: root.state.input && root.state.input.available ? root.state.input.volume : 0
+                        enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
                         accent: root.accent
                         foreground: root.foreground
                         onPressedChanged: {
@@ -163,8 +181,8 @@ Item {
                         Layout.preferredWidth: 38
                     }
                     MahoSwitch {
-                        checked: root.state.input ? !!root.state.input.muted : false
-                        enabled: !root.bridge.actionBusy
+                        checked: root.state.input && root.state.input.available ? !!root.state.input.muted : false
+                        enabled: !!(root.state.input && root.state.input.available) && !root.bridge.actionBusy
                         accent: root.accent
                         foreground: root.foreground
                         muted: root.muted

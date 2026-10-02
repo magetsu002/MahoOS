@@ -36,10 +36,13 @@ qt_add_qml_module(maho-settings
         qml/components/StatePanel.qml
         qml/pages/AboutPage.qml
         qml/pages/AppearancePage.qml
+        qml/pages/ApplicationsPage.qml
         qml/pages/DeferredPage.qml
         qml/pages/DisplaysPage.qml
         qml/pages/InputPage.qml
+        qml/pages/NotificationsPage.qml
         qml/pages/PowerPage.qml
+        qml/pages/RegionPage.qml
         qml/pages/SoundPage.qml
 )
 

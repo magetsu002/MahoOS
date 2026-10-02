@@ -51,10 +51,17 @@ SEARCH_TARGETS = (
     ("power", "Power", "Power Mode", "performance balanced saver profile power"),
     ("system", "System", "About", "about version kernel hardware session system mahoos"),
     ("network", "Network & Bluetooth", "Advanced Settings", "network wifi ethernet bluetooth connectivity"),
-    ("notifications", "Notifications", "Preferences", "notifications alerts dnd quiet"),
-    ("applications", "Applications", "Defaults", "applications apps defaults handlers"),
+    ("notifications", "Notifications", "Do Not Disturb", "notifications alerts dnd quiet focus"),
+    ("notifications", "Notifications", "History", "notifications history unread clear retained"),
+    ("applications", "Applications", "Default Browser", "applications apps defaults browser web handler"),
+    ("applications", "Applications", "File Manager", "applications apps defaults files folders directory handler"),
+    ("applications", "Applications", "Default Associations", "applications defaults mime associations file types handlers"),
+    ("applications", "Applications", "Autostart", "applications startup login autostart session"),
     ("users", "Users", "Accounts", "users accounts login"),
-    ("region", "Region & Time", "Locale & Time", "region language locale time timezone"),
+    ("region", "Region & Time", "Time Zone", "region time timezone clock"),
+    ("region", "Region & Time", "Automatic Time", "region time ntp automatic synchronized"),
+    ("region", "Region & Time", "Locale", "region language locale formats"),
+    ("region", "Region & Time", "Keyboard Layout", "region keyboard layout xkb language input"),
     ("accessibility", "Accessibility", "Accessibility", "accessibility contrast motion transparency"),
     ("updates", "System", "Updates", "updates update packages maintenance"),
     ("recovery", "System", "Recovery", "recovery restore rollback generation rescue"),
@@ -63,8 +70,7 @@ SEARCH_TARGETS = (
 )
 
 DEFERRED_ROUTES = {
-    "network", "notifications", "applications", "users", "region",
-    "accessibility", "updates", "recovery", "guardian", "storage",
+    "network", "users", "accessibility", "updates", "recovery", "guardian", "storage",
 }
 
 
@@ -192,6 +198,51 @@ def hypr(args: Iterable[str], *, timeout: float = 5.0) -> tuple[int, str, str]:
     return run([*prefix, *args], timeout=timeout)
 
 
+def _lua_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _lua_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return _lua_string(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if not (float("-inf") < value < float("inf")):
+            raise ValueError("non-finite Lua number")
+        return repr(value)
+    raise ValueError("unsupported Lua value")
+
+
+def _lua_table(path: tuple[str, ...], value: Any) -> str:
+    if not path or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) for key in path):
+        raise ValueError("invalid Lua config path")
+    body = f"{path[-1]} = {_lua_value(value)}"
+    for key in reversed(path[:-1]):
+        body = f"{key} = {{ {body} }}"
+    return "{ " + body + " }"
+
+
+def hypr_eval(expression: str) -> tuple[bool, str]:
+    code, out, err = hypr(["eval", expression])
+    if code != 0:
+        return False, err or out or "Hyprland Lua request failed."
+    response = out.strip()
+    if response != "ok":
+        return False, err or response or "Hyprland did not confirm the Lua request."
+    return True, ""
+
+
+def _hypr_config(path: tuple[str, ...], value: Any) -> tuple[bool, str]:
+    try:
+        expression = f"hl.config({_lua_table(path, value)})"
+    except ValueError as exc:
+        return False, str(exc)
+    return hypr_eval(expression)
+
+
 def hypr_json(args: Iterable[str]) -> tuple[Any | None, str]:
     code, out, err = hypr(args)
     if code != 0:
@@ -206,6 +257,8 @@ def hypr_option(name: str, fallback: Any = None) -> Any:
     payload, _ = hypr_json(["getoption", name, "-j"])
     if not isinstance(payload, dict):
         return fallback
+    if "bool" in payload:
+        return payload["bool"]
     if "int" in payload:
         return payload["int"]
     if "float" in payload:
@@ -263,17 +316,17 @@ def set_appearance_mode(mode: str) -> dict[str, Any]:
 
 
 def set_reduced_motion(enabled: bool) -> dict[str, Any]:
-    code, out, err = hypr(["keyword", "animations:enabled", "0" if enabled else "1"])
-    if code != 0:
-        return {"ok": False, "error": err or out or "Hyprland rejected the motion preference."}
+    ok, error = _hypr_config(("animations", "enabled"), not enabled)
+    if not ok:
+        return {"ok": False, "error": error or "Hyprland rejected the motion preference."}
     intent_set("appearance.reduced_motion", enabled)
     return {"ok": True, "message": "Motion preference applied."}
 
 
 def set_reduced_transparency(enabled: bool) -> dict[str, Any]:
-    code, out, err = hypr(["keyword", "decoration:blur:enabled", "0" if enabled else "1"])
-    if code != 0:
-        return {"ok": False, "error": err or out or "Hyprland rejected the transparency preference."}
+    ok, error = _hypr_config(("decoration", "blur", "enabled"), not enabled)
+    if not ok:
+        return {"ok": False, "error": error or "Hyprland rejected the transparency preference."}
     intent_set("appearance.reduced_transparency", enabled)
     return {"ok": True, "message": "Transparency preference applied."}
 
@@ -317,12 +370,13 @@ def _display_row(raw: dict[str, Any]) -> dict[str, Any]:
         "transform": int(raw.get("transform", 0) or 0),
         "focused": bool(raw.get("focused", False)),
         "disabled": bool(raw.get("disabled", False)),
+        "enabled": not bool(raw.get("disabled", False)),
         "modes": modes,
     }
 
 
 def snapshot_displays() -> dict[str, Any]:
-    payload, error = hypr_json(["monitors", "-j"])
+    payload, error = hypr_json(["monitors", "all", "-j"])
     if not isinstance(payload, list):
         return {
             "available": False,
@@ -338,6 +392,7 @@ def snapshot_displays() -> dict[str, Any]:
         "primarySupported": False,
         "primaryOutput": "",
         "arrangementSupported": True,
+        "enabledCount": sum(1 for row in outputs if row.get("enabled")),
         "rollbackSeconds": DISPLAY_ROLLBACK_SECONDS,
         "error": "",
     }
@@ -347,15 +402,20 @@ def _refresh_text(value: float) -> str:
     return f"{value:.3f}".rstrip("0").rstrip(".")
 
 
-def _monitor_spec(row: dict[str, Any]) -> str:
-    return ",".join([
-        str(row["name"]),
-        f"{row['resolution']}@{_refresh_text(float(row['refresh']))}",
-        f"{int(row['x'])}x{int(row['y'])}",
-        _refresh_text(float(row["scale"])),
-        "transform",
-        str(int(row["transform"])),
-    ])
+def _monitor_eval(row: dict[str, Any]) -> str:
+    output = _lua_string(str(row["name"]))
+    if row.get("enabled") is False:
+        return f"hl.monitor({{ output = {output}, disabled = true }})"
+    mode = _lua_string(f"{row['resolution']}@{_refresh_text(float(row['refresh']))}")
+    position = _lua_string(f"{int(row['x'])}x{int(row['y'])}")
+    scale = _lua_value(float(row["scale"]))
+    transform = int(row["transform"])
+    return (
+        "hl.monitor({ "
+        f"output = {output}, mode = {mode}, position = {position}, "
+        f"scale = {scale}, transform = {transform}, disabled = false"
+        " })"
+    )
 
 
 def _persisted_display_rows() -> list[dict[str, Any]]:
@@ -366,19 +426,28 @@ def _persisted_display_rows() -> list[dict[str, Any]]:
     return outputs if isinstance(outputs, list) else []
 
 
-def _display_snapshot_rows() -> list[dict[str, Any]]:
-    snap = snapshot_displays()
+def _rows_from_display_snapshot(snap: dict[str, Any]) -> list[dict[str, Any]]:
     return [
-        {key: row[key] for key in ("name", "resolution", "refresh", "scale", "x", "y", "transform")}
+        {key: row[key] for key in ("name", "resolution", "refresh", "scale", "x", "y", "transform", "enabled")}
         for row in snap.get("outputs", [])
+        if isinstance(row, dict) and row.get("name")
     ] if snap.get("available") else []
 
 
+def _display_snapshot_rows() -> list[dict[str, Any]]:
+    return _rows_from_display_snapshot(snapshot_displays())
+
+
 def _apply_display_rows(rows: list[dict[str, Any]]) -> tuple[bool, str]:
-    for row in rows:
-        code, out, err = hypr(["keyword", "monitor", _monitor_spec(row)])
-        if code != 0:
-            return False, err or out or f"Hyprland rejected display {row.get('name', '')}."
+    ordered = sorted(rows, key=lambda row: row.get("enabled") is False)
+    for row in ordered:
+        try:
+            expression = _monitor_eval(row)
+        except (KeyError, TypeError, ValueError) as exc:
+            return False, f"Invalid display row: {exc}"
+        ok, error = hypr_eval(expression)
+        if not ok:
+            return False, error or f"Hyprland rejected display {row.get('name', '')}."
     return True, ""
 
 
@@ -389,6 +458,9 @@ def _validate_display_candidate(payload: dict[str, Any], current: dict[str, Any]
     resolution = payload.get("resolution")
     if not isinstance(resolution, str) or not re.fullmatch(r"\d+x\d+", resolution):
         return None, "Invalid display resolution."
+    enabled = payload.get("enabled", True)
+    if not isinstance(enabled, bool):
+        return None, "Display enabled state must be boolean."
     try:
         refresh = float(payload.get("refresh"))
         scale = float(payload.get("scale"))
@@ -415,6 +487,7 @@ def _validate_display_candidate(payload: dict[str, Any], current: dict[str, Any]
         "x": x,
         "y": y,
         "transform": transform,
+        "enabled": enabled,
     }, ""
 
 
@@ -428,25 +501,58 @@ def display_preview(payload: dict[str, Any]) -> dict[str, Any]:
     candidate, error = _validate_display_candidate(payload, current)
     if candidate is None:
         return {"ok": False, "error": error}
-    baseline = _display_snapshot_rows()
+    if not candidate["enabled"] and snapshot.get("enabledCount", 0) <= 1:
+        return {"ok": False, "error": "The last active display cannot be disabled."}
+
+    baseline = _rows_from_display_snapshot(snapshot)
+    proposed = [dict(row) for row in baseline]
+    for index, row in enumerate(proposed):
+        if row.get("name") == candidate["name"]:
+            proposed[index] = dict(candidate)
+            break
+
     token = uuid.uuid4().hex
     TX_DIR.mkdir(parents=True, exist_ok=True)
     transaction = {
         "version": 1,
         "token": token,
         "createdAt": time.time(),
+        "topology": sorted(row["name"] for row in baseline),
         "baseline": baseline,
+        "proposed": proposed,
         "candidate": candidate,
         "status": "preview",
     }
     atomic_json(TX_DIR / f"{token}.json", transaction)
     ok, apply_error = _apply_display_rows([candidate])
     if not ok:
+        _apply_display_rows(baseline)
         try:
             (TX_DIR / f"{token}.json").unlink()
         except OSError:
             pass
         return {"ok": False, "error": apply_error}
+
+    live_after_preview = _display_snapshot_rows()
+    selected_after_preview = next(
+        (row for row in live_after_preview if row.get("name") == candidate["name"]),
+        None,
+    )
+    if selected_after_preview is None or not _display_candidate_matches(selected_after_preview, candidate):
+        rollback_ok, rollback_error = _apply_display_rows(baseline)
+        rollback_verified = rollback_ok and _display_layout_matches(_display_snapshot_rows(), baseline)
+        try:
+            (TX_DIR / f"{token}.json").unlink()
+        except OSError:
+            pass
+        detail = "Hyprland did not apply the requested display preview."
+        if not rollback_verified:
+            detail += " Automatic restoration could not be verified"
+            if rollback_error:
+                detail += f": {rollback_error}"
+            detail += "."
+        return {"ok": False, "error": detail}
+
     subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "_display-watch", token],
         stdin=subprocess.DEVNULL,
@@ -472,6 +578,36 @@ def _load_transaction(token: str) -> tuple[Path | None, dict[str, Any] | None]:
     return path, payload
 
 
+def _display_candidate_matches(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    if current.get("name") != candidate.get("name"):
+        return False
+    if bool(current.get("enabled", True)) != bool(candidate.get("enabled", True)):
+        return False
+    if not candidate.get("enabled", True):
+        return True
+    try:
+        return (
+            current.get("resolution") == candidate.get("resolution")
+            and abs(float(current.get("refresh", 0)) - float(candidate.get("refresh", 0))) <= 0.2
+            and abs(float(current.get("scale", 0)) - float(candidate.get("scale", 0))) <= 0.01
+            and int(current.get("x", 0)) == int(candidate.get("x", 0))
+            and int(current.get("y", 0)) == int(candidate.get("y", 0))
+            and int(current.get("transform", 0)) == int(candidate.get("transform", 0))
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _display_layout_matches(current: list[dict[str, Any]], expected: list[dict[str, Any]]) -> bool:
+    if {row.get("name") for row in current} != {row.get("name") for row in expected}:
+        return False
+    for candidate in expected:
+        selected = next((row for row in current if row.get("name") == candidate.get("name")), None)
+        if selected is None or not _display_candidate_matches(selected, candidate):
+            return False
+    return True
+
+
 def display_commit(token: str) -> dict[str, Any]:
     path, transaction = _load_transaction(token)
     if path is None or transaction is None:
@@ -479,7 +615,17 @@ def display_commit(token: str) -> dict[str, Any]:
     current = _display_snapshot_rows()
     if not current:
         return {"ok": False, "error": "Current display state cannot be verified."}
-    atomic_json(DISPLAY_CONFIG, {"version": 1, "outputs": current})
+    topology = transaction.get("topology")
+    if not isinstance(topology, list) or sorted(row.get("name") for row in current) != sorted(topology):
+        return {"ok": False, "error": "Display topology changed during the preview; nothing was persisted."}
+    candidate = transaction.get("candidate")
+    selected = next((row for row in current if isinstance(candidate, dict) and row.get("name") == candidate.get("name")), None)
+    if not isinstance(candidate, dict) or selected is None or not _display_candidate_matches(selected, candidate):
+        return {"ok": False, "error": "The live display state no longer matches the preview; nothing was persisted."}
+    proposed = transaction.get("proposed")
+    if not isinstance(proposed, list):
+        return {"ok": False, "error": "Display preview persistence evidence is invalid."}
+    atomic_json(DISPLAY_CONFIG, {"version": 1, "outputs": proposed})
     marker = TX_DIR / f"{token}.commit"
     marker.write_text("committed\n", encoding="utf-8")
     try:
@@ -496,18 +642,32 @@ def display_revert(token: str, *, automatic: bool = False) -> dict[str, Any]:
     baseline = transaction.get("baseline")
     if not isinstance(baseline, list):
         return {"ok": False, "error": "Display rollback evidence is invalid."}
+    commit_marker = TX_DIR / f"{token}.commit"
+    if automatic and commit_marker.exists():
+        return {"ok": True, "message": "Display preview was already committed.", "error": ""}
+
     marker = TX_DIR / f"{token}.revert"
     ok, error = _apply_display_rows([row for row in baseline if isinstance(row, dict)])
-    if ok:
+    if ok and automatic and commit_marker.exists():
+        # A Keep request won the narrow watchdog race. Re-apply the confirmed proposal.
+        proposed = transaction.get("proposed")
+        if isinstance(proposed, list):
+            keep_ok, keep_error = _apply_display_rows([row for row in proposed if isinstance(row, dict)])
+            if keep_ok and _display_layout_matches(_display_snapshot_rows(), proposed):
+                return {"ok": True, "message": "Display preview was already committed.", "error": ""}
+            return {"ok": False, "error": keep_error or "Committed display state could not be restored."}
+
+    verified = ok and _display_layout_matches(_display_snapshot_rows(), baseline)
+    if verified:
         marker.write_text("automatic\n" if automatic else "requested\n", encoding="utf-8")
         try:
             path.unlink()
         except OSError:
             pass
     return {
-        "ok": ok,
-        "message": "Display configuration reverted." if ok else "",
-        "error": error if not ok else "",
+        "ok": verified,
+        "message": "Display configuration reverted." if verified else "",
+        "error": (error or "Display rollback could not be verified.") if not verified else "",
     }
 
 
@@ -526,50 +686,137 @@ def display_watch(token: str) -> int:
     return 0 if result.get("ok") else 1
 
 
+def display_focus(name: str) -> dict[str, Any]:
+    snapshot = snapshot_displays()
+    row = next((item for item in snapshot.get("outputs", []) if item.get("name") == name), None)
+    if not snapshot.get("available") or row is None or not row.get("enabled"):
+        return {"ok": False, "error": "The requested display is not currently active."}
+    ok, error = hypr_eval(
+        f"hl.dispatch(hl.dsp.focus({{ monitor = {_lua_string(name)} }}))"
+    )
+    if not ok:
+        return {"ok": False, "message": "", "error": error}
+    confirmed = snapshot_displays()
+    focused = next(
+        (item for item in confirmed.get("outputs", []) if item.get("name") == name),
+        None,
+    )
+    verified = bool(confirmed.get("available") and focused and focused.get("focused"))
+    return {
+        "ok": verified,
+        "message": "Display focused for the current session." if verified else "",
+        "error": "" if verified else "Hyprland did not confirm the focused display.",
+    }
+
+
 def _audio_rows(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     sinks: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
+    in_audio = False
     section = ""
     for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped == "Audio":
+            in_audio = True
+            section = ""
+            continue
+        if in_audio and stripped in {"Video", "Settings"}:
+            break
+        if not in_audio:
+            continue
         if "Sinks:" in raw:
             section = "sink"
             continue
         if "Sources:" in raw:
             section = "source"
             continue
-        if section not in {"sink", "source"}:
+        if "Filters:" in raw:
+            section = "filter"
             continue
+        if "Streams:" in raw or "Devices:" in raw:
+            section = ""
+            continue
+        if section not in {"sink", "source", "filter"}:
+            continue
+
         cleaned = re.sub(r"^[\s│├└─]+", "", raw)
         default = cleaned.lstrip().startswith("*")
         cleaned = cleaned.lstrip().lstrip("*").strip()
-        match = re.match(r"^(\d+)\.\s+(.+?)(?:\s+\[vol:.*)?$", cleaned)
+        match = re.match(r"^(\d+)\.\s+(.+?)\s*(?:\[([^\]]+)\])?$", cleaned)
         if not match:
             continue
-        row = {"id": int(match.group(1)), "name": match.group(2).strip(), "default": default}
-        (sinks if section == "sink" else sources).append(row)
+        object_id = int(match.group(1))
+        name = match.group(2).strip()
+        metadata = (match.group(3) or "").strip()
+
+        target = section
+        if section == "filter":
+            if metadata == "Audio/Sink":
+                target = "sink"
+            elif metadata == "Audio/Source":
+                target = "source"
+            else:
+                continue
+        if target in {"sink", "source"}:
+            row = {"id": object_id, "name": name, "default": default}
+            (sinks if target == "sink" else sources).append(row)
     return sinks, sources
+
+
+def _audio_friendly_name(object_id: int, fallback: str) -> str:
+    if not fallback.startswith(("bluez_", "alsa_")):
+        return fallback
+    executable = shutil.which("wpctl")
+    if not executable:
+        return fallback
+    code, out, _ = run([executable, "inspect", str(object_id)], timeout=2.0)
+    if code != 0:
+        return fallback
+    for key in ("node.description", "media.name"):
+        match = re.search(rf'(?m)^\s*\*?\s*{re.escape(key)}\s*=\s*"([^"]+)"\s*$', out)
+        if match and match.group(1).strip():
+            return match.group(1).strip()
+    return fallback
 
 
 def _default_audio_state(target: str) -> dict[str, Any]:
     executable = shutil.which("wpctl")
     if not executable:
-        return {"volume": 0, "muted": False}
-    code, out, _ = run([executable, "get-volume", target], timeout=3.0)
+        return {
+            "available": False, "volume": 0, "muted": False,
+            "error": "WirePlumber wpctl is unavailable.",
+        }
+    code, out, err = run([executable, "get-volume", target], timeout=3.0)
     if code != 0:
-        return {"volume": 0, "muted": False}
+        return {
+            "available": False, "volume": 0, "muted": False,
+            "error": err or out or "Default audio state is unavailable.",
+        }
     match = re.search(r"Volume:\s*([0-9.]+)", out)
-    volume = round(float(match.group(1)) * 100) if match else 0
-    return {"volume": max(0, min(150, volume)), "muted": "[MUTED]" in out}
+    if not match:
+        return {
+            "available": False, "volume": 0, "muted": False,
+            "error": "WirePlumber returned an invalid volume state.",
+        }
+    volume = round(float(match.group(1)) * 100)
+    return {
+        "available": True,
+        "volume": max(0, min(150, volume)),
+        "muted": "[MUTED]" in out,
+        "error": "",
+    }
 
 
 def snapshot_sound() -> dict[str, Any]:
     executable = shutil.which("wpctl")
     if not executable:
         return {"available": False, "outputs": [], "inputs": [], "error": "WirePlumber wpctl is unavailable."}
-    code, out, err = run([executable, "status", "--name"], timeout=4.0)
+    code, out, err = run([executable, "status"], timeout=4.0)
     if code != 0:
         return {"available": False, "outputs": [], "inputs": [], "error": err or out or "PipeWire state is unavailable."}
     outputs, inputs = _audio_rows(out)
+    for row in [*outputs, *inputs]:
+        row["name"] = _audio_friendly_name(int(row["id"]), str(row["name"]))
     return {
         "available": True,
         "outputs": outputs,
@@ -581,64 +828,151 @@ def snapshot_sound() -> dict[str, Any]:
 
 
 def sound_default(direction: str, object_id: int) -> dict[str, Any]:
+    if direction not in {"output", "input"}:
+        return {"ok": False, "error": "Invalid audio device direction."}
     snapshot = snapshot_sound()
-    rows = snapshot.get("outputs" if direction == "output" else "inputs", []) if direction in {"output", "input"} else []
+    if not snapshot.get("available"):
+        return {"ok": False, "error": snapshot.get("error", "Audio state is unavailable.")}
+    rows = snapshot.get("outputs" if direction == "output" else "inputs", [])
     if not any(row.get("id") == object_id for row in rows):
         return {"ok": False, "error": "The selected audio device is not currently available."}
     executable = shutil.which("wpctl")
-    code, out, err = run([executable, "set-default", str(object_id)]) if executable else (127, "", "wpctl unavailable")
-    return {"ok": code == 0, "message": "Default audio device changed." if code == 0 else "", "error": (err or out) if code != 0 else ""}
+    if not executable:
+        return {"ok": False, "error": "WirePlumber wpctl is unavailable."}
+    code, out, err = run([executable, "set-default", str(object_id)])
+    if code != 0:
+        return {"ok": False, "error": err or out or "WirePlumber rejected the default-device request."}
+    confirmed = snapshot_sound()
+    confirmed_rows = confirmed.get("outputs" if direction == "output" else "inputs", [])
+    if not confirmed.get("available") or not any(
+        row.get("id") == object_id and row.get("default") for row in confirmed_rows
+    ):
+        return {"ok": False, "error": "WirePlumber did not confirm the requested default audio device."}
+    return {"ok": True, "message": "Default audio device changed."}
 
 
 def sound_volume(direction: str, percent: int) -> dict[str, Any]:
     if direction not in {"output", "input"} or not (0 <= percent <= 150):
         return {"ok": False, "error": "Invalid audio volume request."}
     executable = shutil.which("wpctl")
+    if not executable:
+        return {"ok": False, "error": "WirePlumber wpctl is unavailable."}
     target = "@DEFAULT_AUDIO_SINK@" if direction == "output" else "@DEFAULT_AUDIO_SOURCE@"
-    code, out, err = run([executable, "set-volume", target, f"{percent / 100:.3f}"]) if executable else (127, "", "wpctl unavailable")
-    return {"ok": code == 0, "message": "Volume updated." if code == 0 else "", "error": (err or out) if code != 0 else ""}
+    before = _default_audio_state(target)
+    if not before.get("available"):
+        return {"ok": False, "error": before.get("error", "Default audio state is unavailable.")}
+    code, out, err = run([executable, "set-volume", target, f"{percent / 100:.3f}"])
+    if code != 0:
+        return {"ok": False, "error": err or out or "WirePlumber rejected the volume request."}
+    confirmed = _default_audio_state(target)
+    if not confirmed.get("available") or abs(int(confirmed.get("volume", -999)) - percent) > 1:
+        return {"ok": False, "error": "WirePlumber did not confirm the requested volume."}
+    return {"ok": True, "message": "Volume updated."}
 
 
 def sound_mute(direction: str, muted: bool) -> dict[str, Any]:
     if direction not in {"output", "input"}:
         return {"ok": False, "error": "Invalid audio mute request."}
     executable = shutil.which("wpctl")
+    if not executable:
+        return {"ok": False, "error": "WirePlumber wpctl is unavailable."}
     target = "@DEFAULT_AUDIO_SINK@" if direction == "output" else "@DEFAULT_AUDIO_SOURCE@"
-    code, out, err = run([executable, "set-mute", target, "1" if muted else "0"]) if executable else (127, "", "wpctl unavailable")
-    return {"ok": code == 0, "message": "Mute state updated." if code == 0 else "", "error": (err or out) if code != 0 else ""}
-
+    before = _default_audio_state(target)
+    if not before.get("available"):
+        return {"ok": False, "error": before.get("error", "Default audio state is unavailable.")}
+    code, out, err = run([executable, "set-mute", target, "1" if muted else "0"])
+    if code != 0:
+        return {"ok": False, "error": err or out or "WirePlumber rejected the mute request."}
+    confirmed = _default_audio_state(target)
+    if not confirmed.get("available") or bool(confirmed.get("muted")) != muted:
+        return {"ok": False, "error": "WirePlumber did not confirm the requested mute state."}
+    return {"ok": True, "message": "Mute state updated."}
 
 _INPUT_SPECS: dict[str, tuple[str, type, float, float]] = {
     "repeatRate": ("input:repeat_rate", int, 1, 100),
     "repeatDelay": ("input:repeat_delay", int, 100, 2000),
     "sensitivity": ("input:sensitivity", float, -1.0, 1.0),
+    "mouseNaturalScroll": ("input:natural_scroll", bool, 0, 1),
+    "leftHanded": ("input:left_handed", bool, 0, 1),
     "naturalScroll": ("input:touchpad:natural_scroll", bool, 0, 1),
     "tapToClick": ("input:touchpad:tap-to-click", bool, 0, 1),
     "disableWhileTyping": ("input:touchpad:disable_while_typing", bool, 0, 1),
 }
+_INPUT_ENUMS: dict[str, tuple[str, set[str]]] = {
+    "accelProfile": ("input:accel_profile", {"adaptive", "flat"}),
+}
+_INPUT_LUA_PATHS: dict[str, tuple[str, ...]] = {
+    "input:repeat_rate": ("input", "repeat_rate"),
+    "input:repeat_delay": ("input", "repeat_delay"),
+    "input:sensitivity": ("input", "sensitivity"),
+    "input:natural_scroll": ("input", "natural_scroll"),
+    "input:left_handed": ("input", "left_handed"),
+    "input:accel_profile": ("input", "accel_profile"),
+    "input:touchpad:natural_scroll": ("input", "touchpad", "natural_scroll"),
+    "input:touchpad:tap-to-click": ("input", "touchpad", "tap_to_click"),
+    "input:touchpad:disable_while_typing": ("input", "touchpad", "disable_while_typing"),
+    "input:kb_layout": ("input", "kb_layout"),
+}
+
+
+def _hypr_set_input_option(option: str, value: Any) -> tuple[bool, str]:
+    path = _INPUT_LUA_PATHS.get(option)
+    if path is None:
+        return False, "Unsupported Hyprland input option."
+    return _hypr_config(path, value)
+
+
+def _hypr_set_device_input(device: str, option: str, value: Any) -> tuple[bool, str]:
+    if option != "sensitivity":
+        return False, "Unsupported per-device input option."
+    if not isinstance(device, str) or not device or len(device) > 256:
+        return False, "Invalid input device identity."
+    try:
+        expression = (
+            "hl.device({ "
+            f"name = {_lua_string(device)}, {option} = {_lua_value(value)}"
+            " })"
+        )
+    except ValueError as exc:
+        return False, str(exc)
+    return hypr_eval(expression)
 
 
 def _input_current() -> dict[str, Any]:
+    accel = str(hypr_option("input:accel_profile", "") or "")
+    if accel in {"", "[[EMPTY]]"}:
+        accel = "default"
     return {
         "repeatRate": int(hypr_option("input:repeat_rate", 25) or 25),
         "repeatDelay": int(hypr_option("input:repeat_delay", 600) or 600),
         "sensitivity": float(hypr_option("input:sensitivity", 0.0) or 0.0),
-        "naturalScroll": bool(hypr_option("input:touchpad:natural_scroll", 0)),
-        "tapToClick": bool(hypr_option("input:touchpad:tap-to-click", 1)),
-        "disableWhileTyping": bool(hypr_option("input:touchpad:disable_while_typing", 0)),
+        "mouseNaturalScroll": bool(hypr_option("input:natural_scroll", False)),
+        "leftHanded": bool(hypr_option("input:left_handed", False)),
+        "accelProfile": accel,
+        "naturalScroll": bool(hypr_option("input:touchpad:natural_scroll", False)),
+        "tapToClick": bool(hypr_option("input:touchpad:tap-to-click", True)),
+        "disableWhileTyping": bool(hypr_option("input:touchpad:disable_while_typing", False)),
+        "keyboardLayout": str(hypr_option("input:kb_layout", "") or ""),
     }
 
 
 def snapshot_input() -> dict[str, Any]:
     payload, error = hypr_json(["devices", "-j"])
     if not isinstance(payload, dict):
-        return {"available": False, "keyboards": [], "mice": [], "touchpads": [], "error": error or "Input state is unavailable."}
+        return {
+            "available": False, "keyboards": [], "mice": [], "touchpads": [],
+            "touchpadSpeeds": {}, "error": error or "Input state is unavailable.",
+        }
+
+    def rows(key: str) -> list[dict[str, Any]]:
+        value = payload.get(key)
+        return [row for row in value if isinstance(row, dict) and row.get("name")] if isinstance(value, list) else []
 
     def names(key: str) -> list[str]:
-        rows = payload.get(key)
-        return [str(row.get("name")) for row in rows if isinstance(row, dict) and row.get("name")] if isinstance(rows, list) else []
+        return [str(row["name"]) for row in rows(key)]
 
-    pointer_names = names("mice")
+    pointer_rows = rows("mice")
+    pointer_names = [str(row["name"]) for row in pointer_rows]
     explicit_touchpads = names("touchpads")
     touchpads = explicit_touchpads or [
         name for name in pointer_names
@@ -646,45 +980,127 @@ def snapshot_input() -> dict[str, Any]:
     ]
     touchpad_set = set(touchpads)
     mice = [name for name in pointer_names if name not in touchpad_set]
+    speed_rows = {
+        str(row["name"]): float(row.get("defaultSpeed", 0.0) or 0.0)
+        for row in [*pointer_rows, *rows("touchpads")]
+        if str(row.get("name", "")) in touchpad_set
+    }
     return {
         "available": True,
         "keyboards": names("keyboards"),
         "mice": mice,
         "touchpads": touchpads,
+        "touchpadSpeeds": speed_rows,
         "current": _input_current(),
+        "capabilities": {
+            "accelerationProfile": True,
+            "primaryButton": True,
+            "mouseNaturalScroll": True,
+            "touchpadSpeed": bool(touchpads),
+        },
         "error": "",
     }
 
 
-def input_set(key: str, value: Any) -> dict[str, Any]:
-    spec = _INPUT_SPECS.get(key)
-    if spec is None:
-        return {"ok": False, "error": "Unsupported input setting."}
-    option, kind, low, high = spec
-    if kind is bool:
-        if not isinstance(value, bool):
-            return {"ok": False, "error": "Input toggle must be boolean."}
-        encoded = "true" if value else "false"
-        normalized: Any = value
-    else:
-        try:
-            normalized = kind(value)
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "Invalid input setting value."}
-        if not (low <= normalized <= high):
-            return {"ok": False, "error": "Input setting is outside the supported range."}
-        encoded = str(normalized)
-    code, out, err = hypr(["keyword", option, encoded])
-    if code != 0:
-        return {"ok": False, "error": err or out or "Hyprland rejected the input setting."}
+def _persist_input_value(key: str, value: Any) -> tuple[bool, str]:
     payload = read_json(INPUT_CONFIG)
     if not isinstance(payload, dict) or payload.get("version") != 1:
-        payload = {"version": 1, "values": {}}
+        payload = {"version": 1, "values": {}, "devices": {}}
     values = payload.setdefault("values", {})
     if not isinstance(values, dict):
-        return {"ok": False, "error": "Persisted input settings are invalid."}
-    values[key] = normalized
+        return False, "Persisted input settings are invalid."
+    if "devices" not in payload:
+        payload["devices"] = {}
+    values[key] = value
     atomic_json(INPUT_CONFIG, payload)
+    return True, ""
+
+
+def _persist_input_device_value(device: str, key: str, value: Any) -> tuple[bool, str]:
+    payload = read_json(INPUT_CONFIG)
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        payload = {"version": 1, "values": {}, "devices": {}}
+    values = payload.setdefault("values", {})
+    devices = payload.setdefault("devices", {})
+    if not isinstance(values, dict) or not isinstance(devices, dict):
+        return False, "Persisted input settings are invalid."
+    row = devices.setdefault(device, {})
+    if not isinstance(row, dict):
+        return False, "Persisted per-device input settings are invalid."
+    row[key] = value
+    atomic_json(INPUT_CONFIG, payload)
+    return True, ""
+
+
+def _input_value_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, bool):
+        return isinstance(actual, bool) and actual is expected
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        try:
+            return abs(float(actual) - float(expected)) <= 0.001
+        except (TypeError, ValueError):
+            return False
+    return str(actual) == str(expected)
+
+
+def input_set(key: str, value: Any, device: str = "") -> dict[str, Any]:
+    if key == "touchpadSensitivity":
+        try:
+            normalized_speed = float(value)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Invalid touchpad speed."}
+        if not (-1.0 <= normalized_speed <= 1.0):
+            return {"ok": False, "error": "Touchpad speed is outside the supported range."}
+        current = snapshot_input()
+        if not current.get("available") or device not in current.get("touchpads", []):
+            return {"ok": False, "error": "The selected touchpad is no longer available."}
+        ok, error = _hypr_set_device_input(device, "sensitivity", normalized_speed)
+        if not ok:
+            return {"ok": False, "error": error or "Hyprland rejected the touchpad speed."}
+        confirmed = snapshot_input()
+        actual_speed = (confirmed.get("touchpadSpeeds") or {}).get(device)
+        if not confirmed.get("available") or not _input_value_matches(actual_speed, normalized_speed):
+            return {"ok": False, "error": "Hyprland did not confirm the requested touchpad speed."}
+        persisted, persist_error = _persist_input_device_value(device, "sensitivity", normalized_speed)
+        if not persisted:
+            return {"ok": False, "error": persist_error}
+        return {"ok": True, "message": "Touchpad speed applied and persisted."}
+
+    if key == "keyboardLayout":
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_+,-]{1,64}", value):
+            return {"ok": False, "error": "Invalid keyboard layout."}
+        option, normalized = "input:kb_layout", value
+    elif key in _INPUT_ENUMS:
+        option, allowed = _INPUT_ENUMS[key]
+        if not isinstance(value, str) or value not in allowed:
+            return {"ok": False, "error": "Unsupported input setting value."}
+        normalized = value
+    else:
+        spec = _INPUT_SPECS.get(key)
+        if spec is None:
+            return {"ok": False, "error": "Unsupported input setting."}
+        option, kind, low, high = spec
+        if kind is bool:
+            if not isinstance(value, bool):
+                return {"ok": False, "error": "Input toggle must be boolean."}
+            normalized = value
+        else:
+            try:
+                normalized = kind(value)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "Invalid input setting value."}
+            if not (low <= normalized <= high):
+                return {"ok": False, "error": "Input setting is outside the supported range."}
+
+    ok, error = _hypr_set_input_option(option, normalized)
+    if not ok:
+        return {"ok": False, "error": error or "Hyprland rejected the input setting."}
+    confirmed = hypr_option(option, None)
+    if not _input_value_matches(confirmed, normalized):
+        return {"ok": False, "error": "Hyprland did not confirm the requested input setting."}
+    persisted, persist_error = _persist_input_value(key, normalized)
+    if not persisted:
+        return {"ok": False, "error": persist_error}
     return {"ok": True, "message": "Input preference applied and persisted."}
 
 
@@ -751,6 +1167,8 @@ def snapshot_power() -> dict[str, Any]:
         "profile": current,
         "profiles": profiles,
         "profileError": error,
+        "sessionPolicyControlAvailable": False,
+        "sessionPolicyError": "No supported user-scoped screen, suspend, or lid policy backend is available.",
         "error": "",
     }
 
@@ -761,7 +1179,394 @@ def power_profile(profile_name: str) -> dict[str, Any]:
         return {"ok": False, "error": error or "Unsupported power profile."}
     executable = shutil.which("powerprofilesctl")
     code, out, err = run([executable, "set", profile_name], timeout=5.0) if executable else (127, "", "powerprofilesctl unavailable")
-    return {"ok": code == 0, "message": "Power mode changed." if code == 0 else "", "error": (err or out) if code != 0 else ""}
+    if code != 0:
+        return {"ok": False, "message": "", "error": err or out or "Power-profile request was rejected."}
+    confirmed, current, _, confirm_error = _power_profiles()
+    if not confirmed or current != profile_name:
+        return {"ok": False, "message": "", "error": confirm_error or "Power profile change could not be verified."}
+    return {"ok": True, "message": "Power mode changed.", "error": ""}
+
+
+def snapshot_notifications() -> dict[str, Any]:
+    command = root_command("maho-notify")
+    if not command:
+        return {
+            "available": False, "active": False, "dnd": False,
+            "historyCount": 0, "unreadCount": 0,
+            "globalEnableSupported": False, "soundPreferenceSupported": False,
+            "lockScreenPreferenceSupported": False, "historyRetentionSupported": False,
+            "historyClearSupported": False,
+            "error": "Maho Notify is unavailable.",
+        }
+    code, out, err = run([command, "status", "--json"], timeout=5.0)
+    if not out:
+        return {
+            "available": False, "active": False, "dnd": False,
+            "historyCount": 0, "unreadCount": 0,
+            "globalEnableSupported": False, "soundPreferenceSupported": False,
+            "lockScreenPreferenceSupported": False, "historyRetentionSupported": False,
+            "historyClearSupported": False,
+            "error": err or "Maho Notify status is unavailable.",
+        }
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError:
+        return {"available": False, "error": "Maho Notify returned invalid status."}
+    if not isinstance(payload, dict):
+        return {"available": False, "error": "Maho Notify returned invalid status."}
+    return {
+        "available": code == 0 or bool(payload),
+        "active": bool(payload.get("active", False)),
+        "dnd": bool(payload.get("dnd", False)),
+        "adaptiveQuiet": bool(payload.get("adaptive_quiet", False)),
+        "historyCount": int(payload.get("history_count", 0) or 0),
+        "unreadCount": int(payload.get("unread_count", 0) or 0),
+        "globalEnableSupported": True,
+        "soundPreferenceSupported": False,
+        "lockScreenPreferenceSupported": False,
+        "historyRetentionSupported": False,
+        "historyClearSupported": True,
+        "error": "" if payload else (err or "Maho Notify status is unavailable."),
+    }
+
+
+def notification_enabled(enabled: bool) -> dict[str, Any]:
+    command = root_command("maho-notify")
+    if not command:
+        return {"ok": False, "error": "Maho Notify is unavailable."}
+    code, out, err = run([command, "start" if enabled else "stop"], timeout=8.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "Maho Notify rejected the enable request."}
+    state = snapshot_notifications()
+    if not state.get("available") or bool(state.get("active")) != enabled:
+        return {"ok": False, "error": "Maho Notify did not confirm the requested enabled state."}
+    return {"ok": True, "message": "Notification service updated."}
+
+
+def notification_dnd(enabled: bool) -> dict[str, Any]:
+    command = root_command("maho-notify")
+    if not command:
+        return {"ok": False, "error": "Maho Notify is unavailable."}
+    code, out, err = run([command, "dnd", "on" if enabled else "off"], timeout=6.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "Maho Notify rejected the DND request."}
+    state = snapshot_notifications()
+    if not state.get("available") or bool(state.get("dnd")) != enabled:
+        return {"ok": False, "error": "Maho Notify did not confirm the requested DND state."}
+    return {"ok": True, "message": "Do Not Disturb updated."}
+
+
+def notification_clear_history() -> dict[str, Any]:
+    command = root_command("maho-notify")
+    if not command:
+        return {"ok": False, "error": "Maho Notify is unavailable."}
+    code, out, err = run([command, "history", "clear"], timeout=6.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "Maho Notify could not clear history."}
+    state = snapshot_notifications()
+    if state.get("available") and int(state.get("historyCount", 0)) != 0:
+        return {"ok": False, "error": "Maho Notify did not confirm that history was cleared."}
+    return {"ok": True, "message": "Notification history cleared."}
+
+
+def _timedate_state() -> tuple[dict[str, str], str]:
+    executable = shutil.which("timedatectl")
+    if not executable:
+        return {}, "systemd timedatectl is unavailable."
+    code, out, err = run([
+        executable, "show", "--no-pager",
+        "--property=Timezone", "--property=NTP", "--property=NTPSynchronized",
+    ], timeout=4.0)
+    if code != 0:
+        return {}, err or out or "Time state is unavailable."
+    values: dict[str, str] = {}
+    for line in out.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value
+    return values, ""
+
+
+def _command_list(args: list[str], *, timeout: float = 5.0) -> list[str]:
+    code, out, _ = run(args, timeout=timeout)
+    return [line.strip() for line in out.splitlines() if line.strip()] if code == 0 else []
+
+
+def _system_locale() -> tuple[str, str]:
+    executable = shutil.which("localectl")
+    if not executable:
+        return "", "systemd localectl is unavailable."
+    code, out, err = run([executable, "status", "--no-pager"], timeout=4.0)
+    if code != 0:
+        return "", err or out or "Locale state is unavailable."
+    match = re.search(r"(?m)^\s*System Locale:\s+.*?\bLANG=([^\s]+)", out)
+    return (match.group(1) if match else ""), ""
+
+
+def snapshot_region() -> dict[str, Any]:
+    time_state, time_error = _timedate_state()
+    locale_value, locale_error = _system_locale()
+    timedate = shutil.which("timedatectl")
+    localectl = shutil.which("localectl")
+    timezones = _command_list([timedate, "list-timezones", "--no-pager"], timeout=5.0) if timedate else []
+    locales = _command_list([shutil.which("locale") or "locale", "-a"], timeout=4.0)
+    if locale_value and locale_value not in locales:
+        locales.insert(0, locale_value)
+    layouts = _command_list([localectl, "list-x11-keymap-layouts", "--no-pager"], timeout=5.0) if localectl else []
+    keyboard_layout = str(_input_current().get("keyboardLayout", ""))
+    if keyboard_layout and keyboard_layout not in layouts:
+        layouts.insert(0, keyboard_layout)
+    return {
+        "available": bool(time_state) or bool(locale_value),
+        "timezone": time_state.get("Timezone", ""),
+        "automaticTime": time_state.get("NTP", "").lower() == "yes",
+        "timeSynchronized": time_state.get("NTPSynchronized", "").lower() == "yes",
+        "timezoneControlAvailable": timedate is not None,
+        "automaticTimeControlAvailable": timedate is not None,
+        "timezones": timezones,
+        "locale": locale_value,
+        "localeControlAvailable": localectl is not None,
+        "locales": locales,
+        "keyboardLayout": keyboard_layout,
+        "keyboardLayoutControlAvailable": hypr_prefix()[0] is not None and bool(layouts),
+        "keyboardLayouts": layouts,
+        "error": time_error or locale_error,
+    }
+
+
+def region_timezone(value: str) -> dict[str, Any]:
+    executable = shutil.which("timedatectl")
+    if not executable:
+        return {"ok": False, "error": "systemd timedatectl is unavailable."}
+    allowed = _command_list([executable, "list-timezones", "--no-pager"], timeout=5.0)
+    if value not in allowed:
+        return {"ok": False, "error": "Unknown time zone."}
+    code, out, err = run([executable, "set-timezone", value], timeout=12.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "The time-zone request was rejected."}
+    current, state_error = _timedate_state()
+    if current.get("Timezone") != value:
+        return {"ok": False, "error": state_error or "The time-zone change could not be verified."}
+    return {"ok": True, "message": "Time zone updated."}
+
+
+def region_automatic_time(enabled: bool) -> dict[str, Any]:
+    executable = shutil.which("timedatectl")
+    if not executable:
+        return {"ok": False, "error": "systemd timedatectl is unavailable."}
+    code, out, err = run([executable, "set-ntp", "true" if enabled else "false"], timeout=12.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "The automatic-time request was rejected."}
+    current, state_error = _timedate_state()
+    if (current.get("NTP", "").lower() == "yes") != enabled:
+        return {"ok": False, "error": state_error or "The automatic-time change could not be verified."}
+    return {"ok": True, "message": "Automatic time updated."}
+
+
+def region_locale(value: str) -> dict[str, Any]:
+    executable = shutil.which("localectl")
+    if not executable:
+        return {"ok": False, "error": "systemd localectl is unavailable."}
+    allowed = _command_list([shutil.which("locale") or "locale", "-a"], timeout=4.0)
+    if value not in allowed:
+        return {"ok": False, "error": "Unknown locale."}
+    code, out, err = run([executable, "set-locale", f"LANG={value}"], timeout=12.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "The locale request was rejected."}
+    current, state_error = _system_locale()
+    if current != value:
+        return {"ok": False, "error": state_error or "The locale change could not be verified."}
+    return {"ok": True, "message": "System locale updated."}
+
+
+_COMMON_MIME_ASSOCIATIONS: tuple[tuple[str, str], ...] = (
+    ("application/pdf", "PDF documents"),
+    ("text/plain", "Text files"),
+    ("image/png", "PNG images"),
+    ("image/jpeg", "JPEG images"),
+    ("video/mp4", "MP4 video"),
+    ("audio/mpeg", "MP3 audio"),
+    ("x-scheme-handler/mailto", "Email links"),
+)
+
+
+def _desktop_entry(path: Path) -> dict[str, Any]:
+    fields: dict[str, str] = {}
+    in_desktop = False
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if line.startswith("[") and line.endswith("]"):
+                in_desktop = line == "[Desktop Entry]"
+                continue
+            if not in_desktop or "=" not in line or line.startswith("#"):
+                continue
+            key, value = line.split("=", 1)
+            if key in {"Type", "Name", "Exec", "MimeType", "Categories", "Hidden", "NoDisplay"}:
+                fields[key] = value
+    except OSError:
+        return {}
+    if fields.get("Type", "Application") != "Application":
+        return {}
+    return {
+        "id": path.name,
+        "name": fields.get("Name", path.stem),
+        "exec": fields.get("Exec", ""),
+        "mimes": [item for item in fields.get("MimeType", "").split(";") if item],
+        "categories": [item for item in fields.get("Categories", "").split(";") if item],
+        "hidden": fields.get("Hidden", "").lower() == "true",
+        "noDisplay": fields.get("NoDisplay", "").lower() == "true",
+    }
+
+
+def _application_entries() -> dict[str, dict[str, Any]]:
+    data_home = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+    data_dirs = [Path(item) for item in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":") if item]
+    result: dict[str, dict[str, Any]] = {}
+    for directory in [data_home, *data_dirs]:
+        app_dir = directory / "applications"
+        if not app_dir.is_dir():
+            continue
+        for path in sorted(app_dir.glob("*.desktop")):
+            if path.name in result:
+                continue
+            row = _desktop_entry(path)
+            if row:
+                result[path.name] = row
+    return result
+
+
+def _xdg_default(mime: str) -> str:
+    executable = shutil.which("xdg-mime")
+    if not executable:
+        return ""
+    code, out, _ = run([executable, "query", "default", mime], timeout=3.0)
+    return out.strip() if code == 0 else ""
+
+
+def _app_candidates(entries: dict[str, dict[str, Any]], wanted: set[str]) -> list[dict[str, str]]:
+    rows = []
+    for row in entries.values():
+        if row.get("hidden") or row.get("noDisplay"):
+            continue
+        if wanted.intersection(set(row.get("mimes", []))):
+            rows.append({"id": row["id"], "name": row["name"]})
+    rows.sort(key=lambda item: (item["name"].lower(), item["id"]))
+    return rows
+
+
+def _autostart_entries() -> list[dict[str, Any]]:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    config_dirs = [Path(item) for item in os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":") if item]
+    rows: dict[str, dict[str, Any]] = {}
+    for source, directory in [("user", config_home), *[("system", item) for item in config_dirs]]:
+        autostart = directory / "autostart"
+        if not autostart.is_dir():
+            continue
+        for path in sorted(autostart.glob("*.desktop")):
+            if path.name in rows:
+                continue
+            entry = _desktop_entry(path)
+            if not entry:
+                continue
+            rows[path.name] = {
+                "id": path.name,
+                "name": entry.get("name", path.stem),
+                "enabled": not entry.get("hidden", False),
+                "source": source,
+            }
+    return sorted(rows.values(), key=lambda item: (item["name"].lower(), item["id"]))[:250]
+
+
+def snapshot_applications() -> dict[str, Any]:
+    entries = _application_entries()
+    browser_mimes = {"x-scheme-handler/http", "x-scheme-handler/https", "text/html"}
+    file_mimes = {"inode/directory"}
+    browser_candidates = _app_candidates(entries, browser_mimes)
+    file_candidates = _app_candidates(entries, file_mimes)
+    browser = _xdg_default("x-scheme-handler/http") or _xdg_default("text/html")
+    file_manager = _xdg_default("inode/directory")
+    associations = []
+    for mime, label in _COMMON_MIME_ASSOCIATIONS:
+        candidates = _app_candidates(entries, {mime})
+        current = _xdg_default(mime)
+        if current or candidates:
+            associations.append({
+                "mime": mime,
+                "label": label,
+                "default": current,
+                "candidates": candidates,
+            })
+    return {
+        "available": shutil.which("xdg-mime") is not None,
+        "browser": browser,
+        "browserCandidates": browser_candidates,
+        "fileManager": file_manager,
+        "fileManagerCandidates": file_candidates,
+        "mimeAssociations": associations,
+        "terminalControlAvailable": False,
+        "terminal": "",
+        "terminalError": "No supported xdg-terminal-exec/default-terminal authority is installed.",
+        "autostart": _autostart_entries(),
+        "error": "" if shutil.which("xdg-mime") else "xdg-mime is unavailable.",
+    }
+
+
+def application_default(kind: str, desktop_id: str) -> dict[str, Any]:
+    executable = shutil.which("xdg-mime")
+    if not executable:
+        return {"ok": False, "error": "xdg-mime is unavailable."}
+    entries = _application_entries()
+    if kind == "browser":
+        mimes = ["x-scheme-handler/http", "x-scheme-handler/https", "text/html"]
+        candidates = {row["id"] for row in _app_candidates(entries, set(mimes))}
+    elif kind == "fileManager":
+        mimes = ["inode/directory"]
+        candidates = {row["id"] for row in _app_candidates(entries, set(mimes))}
+    else:
+        return {"ok": False, "error": "Unsupported default-application kind."}
+    if desktop_id not in candidates:
+        return {"ok": False, "error": "The selected application does not advertise support for this default."}
+
+    before = {mime: _xdg_default(mime) for mime in mimes}
+    changed: list[str] = []
+    for mime in mimes:
+        code, out, err = run([executable, "default", desktop_id, mime], timeout=5.0)
+        if code != 0:
+            for rollback_mime in reversed(changed):
+                previous = before.get(rollback_mime)
+                if previous:
+                    run([executable, "default", previous, rollback_mime], timeout=5.0)
+            return {"ok": False, "error": err or out or "The default-application request was rejected."}
+        changed.append(mime)
+    if any(_xdg_default(mime) != desktop_id for mime in mimes):
+        for mime, previous in before.items():
+            if previous:
+                run([executable, "default", previous, mime], timeout=5.0)
+        return {"ok": False, "error": "The default application change could not be verified and was rolled back."}
+    return {"ok": True, "message": "Default application updated."}
+
+
+def application_mime_default(mime: str, desktop_id: str) -> dict[str, Any]:
+    allowed = {item[0] for item in _COMMON_MIME_ASSOCIATIONS}
+    if mime not in allowed:
+        return {"ok": False, "error": "Unsupported MIME association."}
+    executable = shutil.which("xdg-mime")
+    if not executable:
+        return {"ok": False, "error": "xdg-mime is unavailable."}
+    entries = _application_entries()
+    candidates = {row["id"] for row in _app_candidates(entries, {mime})}
+    if desktop_id not in candidates:
+        return {"ok": False, "error": "The selected application does not advertise support for this MIME type."}
+    previous = _xdg_default(mime)
+    code, out, err = run([executable, "default", desktop_id, mime], timeout=5.0)
+    if code != 0:
+        return {"ok": False, "error": err or out or "The MIME association request was rejected."}
+    if _xdg_default(mime) != desktop_id:
+        if previous:
+            run([executable, "default", previous, mime], timeout=5.0)
+        return {"ok": False, "error": "The MIME association change could not be verified and was rolled back."}
+    return {"ok": True, "message": "Default association updated."}
 
 
 def _os_release() -> dict[str, str]:
@@ -880,6 +1685,9 @@ def snapshot(section: str = "all") -> dict[str, Any]:
         "sound": snapshot_sound,
         "input": snapshot_input,
         "power": snapshot_power,
+        "notifications": snapshot_notifications,
+        "applications": snapshot_applications,
+        "region": snapshot_region,
         "system": snapshot_about,
     }
     if section != "all":
@@ -892,31 +1700,61 @@ def snapshot(section: str = "all") -> dict[str, Any]:
 
 def _apply_persisted_input() -> list[str]:
     payload = read_json(INPUT_CONFIG)
-    if not isinstance(payload, dict) or payload.get("version") != 1 or not isinstance(payload.get("values"), dict):
+    if not isinstance(payload, dict) or payload.get("version") != 1:
         return []
-    applied = []
-    for key, value in payload["values"].items():
-        spec = _INPUT_SPECS.get(key)
-        if spec is None:
-            continue
-        option, kind, low, high = spec
-        if kind is bool and isinstance(value, bool):
-            encoded = "true" if value else "false"
-        elif kind is not bool:
-            try:
-                normalized = kind(value)
-            except (TypeError, ValueError):
-                continue
-            if not (low <= normalized <= high):
-                continue
-            encoded = str(normalized)
-        else:
-            continue
-        code, _, _ = hypr(["keyword", option, encoded])
-        if code == 0:
-            applied.append(key)
-    return applied
+    values = payload.get("values", {})
+    devices = payload.get("devices", {})
+    if not isinstance(values, dict) or not isinstance(devices, dict):
+        return []
 
+    applied: list[str] = []
+    for key, value in values.items():
+        if key == "keyboardLayout":
+            if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_+,-]{1,64}", value):
+                continue
+            option, value_to_apply = "input:kb_layout", value
+        elif key in _INPUT_ENUMS:
+            option, allowed = _INPUT_ENUMS[key]
+            if not isinstance(value, str) or value not in allowed:
+                continue
+            value_to_apply = value
+        else:
+            spec = _INPUT_SPECS.get(key)
+            if spec is None:
+                continue
+            option, kind, low, high = spec
+            if kind is bool:
+                if not isinstance(value, bool):
+                    continue
+                value_to_apply = value
+            else:
+                try:
+                    normalized = kind(value)
+                except (TypeError, ValueError):
+                    continue
+                if not (low <= normalized <= high):
+                    continue
+                value_to_apply = normalized
+        ok, _ = _hypr_set_input_option(option, value_to_apply)
+        if ok:
+            applied.append(key)
+
+    live = snapshot_input()
+    active_touchpads = set(live.get("touchpads", [])) if live.get("available") else set()
+    for device, row in devices.items():
+        if device not in active_touchpads or not isinstance(row, dict):
+            continue
+        value = row.get("sensitivity")
+        try:
+            sensitivity = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not (-1.0 <= sensitivity <= 1.0):
+            continue
+        ok, _ = _hypr_set_device_input(device, "sensitivity", sensitivity)
+        if ok:
+            applied.append(f"touchpadSensitivity:{device}")
+    return applied
 
 def apply_session() -> dict[str, Any]:
     applied: list[str] = []
@@ -925,11 +1763,11 @@ def apply_session() -> dict[str, Any]:
         return {"ok": True, "applied": [], "skipped": ["hyprland-unavailable"]}
 
     reduced_motion = bool(intent_get("appearance.reduced_motion", False))
-    if hypr(["keyword", "animations:enabled", "0" if reduced_motion else "1"])[0] == 0:
+    if _hypr_config(("animations", "enabled"), not reduced_motion)[0]:
         applied.append("appearance.reduced_motion")
 
     reduced_transparency = bool(intent_get("appearance.reduced_transparency", False))
-    if hypr(["keyword", "decoration:blur:enabled", "0" if reduced_transparency else "1"])[0] == 0:
+    if _hypr_config(("decoration", "blur", "enabled"), not reduced_transparency)[0]:
         applied.append("appearance.reduced_transparency")
 
     applied.extend(f"input.{key}" for key in _apply_persisted_input())
@@ -939,11 +1777,16 @@ def apply_session() -> dict[str, Any]:
         current = _display_snapshot_rows()
         if {row.get("name") for row in current} == {row.get("name") for row in persisted}:
             ok, _ = _apply_display_rows([row for row in persisted if isinstance(row, dict)])
-            if ok:
+            verified = ok and _display_layout_matches(_display_snapshot_rows(), persisted)
+            if verified:
                 applied.append("displays")
             else:
-                _apply_display_rows([row for row in current if isinstance(row, dict)])
-                skipped.append("displays-apply-failed-rolled-back")
+                rollback_ok, _ = _apply_display_rows([row for row in current if isinstance(row, dict)])
+                rollback_verified = rollback_ok and _display_layout_matches(_display_snapshot_rows(), current)
+                skipped.append(
+                    "displays-apply-failed-rolled-back"
+                    if rollback_verified else "displays-apply-failed-rollback-unverified"
+                )
         else:
             skipped.append("displays-topology-changed")
 
@@ -966,6 +1809,8 @@ def action(name: str, payload: dict[str, Any]) -> dict[str, Any]:
         return display_preview(payload)
     if name == "display.commit":
         return display_commit(str(payload.get("token", "")))
+    if name == "display.focus":
+        return display_focus(str(payload.get("name", "")))
     if name == "display.revert":
         return display_revert(str(payload.get("token", "")))
     if name == "sound.default":
@@ -981,7 +1826,41 @@ def action(name: str, payload: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "error": "Invalid volume."}
         return sound_volume(str(payload.get("direction", "")), percent)
     if name == "input.set":
-        return input_set(str(payload.get("key", "")), payload.get("value"))
+        return input_set(
+            str(payload.get("key", "")),
+            payload.get("value"),
+            str(payload.get("device", "")),
+        )
+    if name == "notification.enabled":
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            return {"ok": False, "error": "Notification enabled value must be boolean."}
+        return notification_enabled(enabled)
+    if name == "notification.dnd":
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            return {"ok": False, "error": "DND value must be boolean."}
+        return notification_dnd(enabled)
+    if name == "notification.clearHistory":
+        return notification_clear_history()
+    if name == "region.timezone":
+        return region_timezone(str(payload.get("timezone", "")))
+    if name == "region.automaticTime":
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            return {"ok": False, "error": "Automatic-time value must be boolean."}
+        return region_automatic_time(enabled)
+    if name == "region.locale":
+        return region_locale(str(payload.get("locale", "")))
+    if name == "region.keyboardLayout":
+        return input_set("keyboardLayout", payload.get("layout"))
+    if name == "applications.default":
+        return application_default(str(payload.get("kind", "")), str(payload.get("desktopId", "")))
+    if name == "applications.mimeDefault":
+        return application_mime_default(
+            str(payload.get("mime", "")),
+            str(payload.get("desktopId", "")),
+        )
     if name == "power.profile":
         return power_profile(str(payload.get("profile", "")))
     return {"ok": False, "error": "Unsupported settings action."}

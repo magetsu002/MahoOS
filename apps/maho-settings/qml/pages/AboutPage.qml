@@ -6,14 +6,14 @@ import "../components"
 Item {
     id: root
     property var bridge
-    property var palette
+    property var themePalette
     property string targetRoute: "system"
     readonly property var state: bridge && bridge.state.system ? bridge.state.system : ({})
-    readonly property color foreground: palette ? palette.foreground : "#f3eef8"
-    readonly property color muted: palette ? palette.muted : "#aaa3af"
-    readonly property color accent: palette ? palette.accent : "#d0bcff"
-    readonly property color surface: palette ? palette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: palette ? palette.border : "#3d3942"
+    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
+    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
+    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
+    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
+    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
 
     function deferredTitle() {
         switch (targetRoute) {
@@ -112,7 +112,7 @@ Item {
 
             SettingCard {
                 title: "Deferred V1 pages"
-                description: "The route model is ready for these surfaces without pretending their deeper backends are implemented."
+                description: "The remaining bounded routes stay explicit without pretending their deeper backends are implemented."
                 surface: root.surface
                 borderColor: root.borderColor
                 foreground: root.foreground
@@ -123,7 +123,7 @@ Item {
                     spacing: 7
 
                     Repeater {
-                        model: ["Network & Bluetooth", "Notifications", "Applications", "Users", "Region & Time", "Accessibility", "Updates", "Recovery", "Guardian", "Storage"]
+                        model: ["Network & Bluetooth", "Users", "Accessibility", "Updates", "Recovery", "Guardian", "Storage"]
 
                         Rectangle {
                             required property string modelData

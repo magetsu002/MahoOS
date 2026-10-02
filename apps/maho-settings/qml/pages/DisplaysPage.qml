@@ -6,13 +6,13 @@ import "../components"
 Item {
     id: root
     property var bridge
-    property var palette
+    property var themePalette
     readonly property var state: bridge && bridge.state.displays ? bridge.state.displays : ({})
-    readonly property color foreground: palette ? palette.foreground : "#f3eef8"
-    readonly property color muted: palette ? palette.muted : "#aaa3af"
-    readonly property color accent: palette ? palette.accent : "#d0bcff"
-    readonly property color surface: palette ? palette.surfaceElevated : "#2b2930"
-    readonly property color borderColor: palette ? palette.border : "#3d3942"
+    readonly property color foreground: themePalette ? themePalette.foreground : "#f3eef8"
+    readonly property color muted: themePalette ? themePalette.muted : "#aaa3af"
+    readonly property color accent: themePalette ? themePalette.accent : "#d0bcff"
+    readonly property color surface: themePalette ? themePalette.surfaceElevated : "#2b2930"
+    readonly property color borderColor: themePalette ? themePalette.border : "#3d3942"
     property int selectedOutputIndex: 0
     property string pendingToken: ""
     property int rollbackRemaining: 0
@@ -30,7 +30,7 @@ Item {
             if (result.indexOf(value) < 0)
                 result.push(value)
         }
-        if (output.resolution && result.indexOf(output.resolution) < 0)
+        if (output.enabled && output.resolution && result.indexOf(output.resolution) < 0)
             result.unshift(output.resolution)
         return result
     }
@@ -69,6 +69,7 @@ Item {
         xField.text = Number(out.x || 0).toString()
         yField.text = Number(out.y || 0).toString()
         orientationBox.currentIndex = Math.max(0, Number(out.transform || 0))
+        outputEnabled.checked = !!out.enabled
     }
 
     function preview() {
@@ -81,7 +82,8 @@ Item {
             scale: Number(scaleField.text),
             x: Number(xField.text),
             y: Number(yField.text),
-            transform: orientationBox.currentValue
+            transform: orientationBox.currentValue,
+            enabled: outputEnabled.checked
         })
     }
 
@@ -174,10 +176,40 @@ Item {
 
                 Text {
                     text: root.output.name
-                        ? root.output.resolution + " @ " + Number(root.output.refresh).toFixed(2) + " Hz · scale " + root.output.scale
+                        ? (root.output.enabled
+                            ? root.output.resolution + " @ " + Number(root.output.refresh).toFixed(2) + " Hz · scale " + root.output.scale
+                            : "Disabled")
+                            + (root.output.focused ? " · focused" : "")
                         : ""
                     color: root.muted
                     font.pixelSize: 11
+                    Layout.fillWidth: true
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "Enabled"
+                        color: root.foreground
+                        font.pixelSize: 12
+                        Layout.fillWidth: true
+                    }
+                    MahoSwitch {
+                        id: outputEnabled
+                        checked: !!root.output.enabled
+                        enabled: !root.bridge.actionBusy
+                            && (root.output.disabled || Number(root.state.enabledCount || 0) > 1)
+                        accent: root.accent
+                        foreground: root.foreground
+                        muted: root.muted
+                    }
+                }
+
+                Text {
+                    visible: !!root.output.enabled && Number(root.state.enabledCount || 0) <= 1
+                    text: "The last active display cannot be disabled."
+                    color: root.muted
+                    font.pixelSize: 10
                     Layout.fillWidth: true
                 }
             }
@@ -192,6 +224,8 @@ Item {
                 muted: root.muted
 
                 GridLayout {
+                    enabled: outputEnabled.checked
+                    opacity: enabled ? 1.0 : 0.45
                     columns: root.width < 760 ? 1 : 2
                     columnSpacing: 12
                     rowSpacing: 10
@@ -312,6 +346,17 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    ChoicePill {
+                        text: root.output.focused ? "Focused" : "Focus Display"
+                        selected: !!root.output.focused
+                        enabled: !!root.output.enabled && !root.output.focused
+                            && !root.bridge.actionBusy && root.pendingToken.length === 0
+                        accent: root.accent
+                        surface: root.surface
+                        foreground: root.foreground
+                        muted: root.muted
+                        onClicked: root.bridge.perform("display.focus", { name: root.output.name })
+                    }
                     Item { Layout.fillWidth: true }
                     ChoicePill {
                         text: "Preview Changes"

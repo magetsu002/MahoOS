@@ -37,6 +37,9 @@ ApplicationWindow {
         { route: "sound", label: "Sound", glyph: "S" },
         { route: "input", label: "Keyboard & Pointer", glyph: "K" },
         { route: "power", label: "Power", glyph: "P" },
+        { route: "notifications", label: "Notifications", glyph: "N" },
+        { route: "region", label: "Region & Time", glyph: "R" },
+        { route: "applications", label: "Applications", glyph: "A" },
         { route: "system", label: "System", glyph: "i" }
     ]
 
@@ -51,6 +54,9 @@ ApplicationWindow {
         case "sound": return "pages/SoundPage.qml"
         case "input": return "pages/InputPage.qml"
         case "power": return "pages/PowerPage.qml"
+        case "notifications": return "pages/NotificationsPage.qml"
+        case "region": return "pages/RegionPage.qml"
+        case "applications": return "pages/ApplicationsPage.qml"
         case "system": return "pages/AboutPage.qml"
         default: return "pages/DeferredPage.qml"
         }
@@ -208,6 +214,27 @@ ApplicationWindow {
                 onActivated: root.selectRoute(root.categories[currentIndex].route)
             }
 
+            Rectangle {
+                visible: settingsBridge.error.length > 0 && !settingsBridge.loading
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? Math.max(38, errorText.implicitHeight + 16) : 0
+                radius: 12
+                color: root.alpha(root.accent, 0.09)
+                border.width: 1
+                border.color: root.alpha(root.accent, 0.26)
+
+                Text {
+                    id: errorText
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    text: settingsBridge.error
+                    color: root.foreground
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -246,7 +273,7 @@ ApplicationWindow {
                             if (!item)
                                 return
                             item.bridge = settingsBridge
-                            item.palette = mahoPalette
+                            item.themePalette = mahoPalette
                             if (item.hasOwnProperty("targetRoute"))
                                 item.targetRoute = root.currentTarget
                         }
