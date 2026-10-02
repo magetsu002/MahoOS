@@ -9,6 +9,7 @@ depends=(
   'bash'
   'python'
   'python-cryptography'
+  'gtk4'
   'systemd'
   'util-linux'
   'cryptsetup'
@@ -79,6 +80,13 @@ build() {
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release
   cmake --build "$srcdir/build-maho-files" --parallel 2
+  cmake \
+    -S "$source_root/apps/maho-polkit-agent" \
+    -B "$srcdir/build-maho-polkit-agent" \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$srcdir/build-maho-polkit-agent" --parallel 2
+  "$srcdir/build-maho-polkit-agent/maho-polkit-agent" --self-test
   mkdir -p "$srcdir/build-prevention"
   clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
     -fdebug-prefix-map="$srcdir"=/usr/src/debug/maho-os \
@@ -106,6 +114,8 @@ package() {
 
   install -Dm755 "$srcdir/build-maho-files/maho-files" \
     "$pkgdir/usr/lib/maho/apps/maho-files/prebuilt/maho-files"
+  install -Dm755 "$srcdir/build-maho-polkit-agent/maho-polkit-agent" \
+    "$pkgdir/usr/lib/maho/apps/maho-polkit-agent/prebuilt/maho-polkit-agent"
   install -Dm644 "$srcdir/release.json" \
     "$pkgdir/usr/lib/maho/share/maho/release.json"
   install -Dm755 "$source_root/packaging/arch/maho-install" \
