@@ -99,7 +99,7 @@ Item {
                     accent: theme.accent
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
-                    onClicked: root.bridge.perform("region.automaticTime", { enabled: checked })
+                    onToggleRequested: function(value) { root.bridge.perform("region.automaticTime", { enabled: value }) }
                 }
             }
 
