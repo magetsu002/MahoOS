@@ -29,6 +29,7 @@ on:
       - 'config/tmpfiles.d/**'
       - 'share/maho/release.json'
       - '.github/workflows/package-arch.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -165,6 +166,7 @@ jobs:
           grep -Fq 'Current runtime' /tmp/maho-recovery-inspect.txt
 
       - name: Upload package candidate
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: maho-os-arch-package
@@ -172,4 +174,5 @@ jobs:
             dist/maho-os-*.pkg.tar.*
             dist/release.json
             dist/SHA256SUMS
+          if-no-files-found: error
           retention-days: 7
