@@ -11,21 +11,29 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
 {
     connect(&m_snapshotProcess, &QProcess::finished, this,
             [this](int, QProcess::ExitStatus) {
+        const QString completedSection = m_snapshotSection;
+        m_snapshotSection.clear();
+
         QString parseError;
         const QVariantMap payload = parseObject(m_snapshotProcess.readAllStandardOutput(), &parseError);
-        setLoading(false);
         if (!parseError.isEmpty()) {
             setError(parseError);
-            return;
-        }
-        if (!payload.value(QStringLiteral("ok")).toBool()) {
+        } else if (!payload.value(QStringLiteral("ok")).toBool()) {
             setError(payload.value(QStringLiteral("error")).toString());
-            return;
+        } else {
+            if (completedSection == QStringLiteral("all")) {
+                m_state = payload;
+                m_state.remove(QStringLiteral("ok"));
+            } else {
+                const QVariant sectionValue = payload.value(completedSection);
+                if (sectionValue.canConvert<QVariantMap>())
+                    m_state.insert(completedSection, sectionValue);
+            }
+            emit stateChanged();
+            setError({});
         }
-        m_state = payload;
-        m_state.remove(QStringLiteral("ok"));
-        emit stateChanged();
-        setError({});
+
+        finishRefresh();
     });
 
     connect(&m_searchProcess, &QProcess::finished, this,
@@ -61,8 +69,16 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
         else
             setError({});
         emit actionFinished(action, ok, message, payload);
-        if (ok)
-            refresh();
+        if (ok) {
+            const QString section = sectionForAction(action);
+            const QVariant confirmedState = payload.value(QStringLiteral("state"));
+            if (section != QStringLiteral("all") && confirmedState.canConvert<QVariantMap>()) {
+                m_state.insert(section, confirmedState);
+                emit stateChanged();
+            } else {
+                refreshSection(section);
+            }
+        }
     });
 
     refresh();
@@ -85,12 +101,70 @@ QString MahoSettingsBridge::backendPath() const
 
 void MahoSettingsBridge::refresh()
 {
-    if (m_snapshotProcess.state() != QProcess::NotRunning)
+    refreshSection(QStringLiteral("all"));
+}
+
+void MahoSettingsBridge::refreshSection(const QString &section)
+{
+    const QString requested = section.isEmpty() ? QStringLiteral("all") : section;
+
+    if (m_snapshotProcess.state() != QProcess::NotRunning) {
+        if (m_pendingRefreshSection.isEmpty()) {
+            m_pendingRefreshSection = requested;
+        } else if (m_pendingRefreshSection != requested) {
+            // Two different sections have changed while an observation is
+            // already in flight. One bounded full refresh is simpler and safer
+            // than allowing either section to remain stale.
+            m_pendingRefreshSection = QStringLiteral("all");
+        }
         return;
-    setLoading(true);
+    }
+
+    startRefresh(requested);
+}
+
+void MahoSettingsBridge::startRefresh(const QString &section)
+{
+    m_snapshotSection = section;
+    if (section == QStringLiteral("all"))
+        setLoading(true);
+
     m_snapshotProcess.setProgram(pythonProgram());
-    m_snapshotProcess.setArguments({backendPath(), QStringLiteral("snapshot"), QStringLiteral("all")});
+    m_snapshotProcess.setArguments({backendPath(), QStringLiteral("snapshot"), section});
     m_snapshotProcess.start();
+}
+
+void MahoSettingsBridge::finishRefresh()
+{
+    if (!m_pendingRefreshSection.isEmpty()) {
+        const QString nextSection = m_pendingRefreshSection;
+        m_pendingRefreshSection.clear();
+        startRefresh(nextSection);
+        return;
+    }
+
+    setLoading(false);
+}
+
+QString MahoSettingsBridge::sectionForAction(const QString &action)
+{
+    if (action.startsWith(QStringLiteral("appearance.")))
+        return QStringLiteral("appearance");
+    if (action.startsWith(QStringLiteral("display.")))
+        return QStringLiteral("displays");
+    if (action.startsWith(QStringLiteral("sound.")))
+        return QStringLiteral("sound");
+    if (action.startsWith(QStringLiteral("input.")))
+        return QStringLiteral("input");
+    if (action.startsWith(QStringLiteral("notification.")))
+        return QStringLiteral("notifications");
+    if (action.startsWith(QStringLiteral("region.")))
+        return QStringLiteral("region");
+    if (action.startsWith(QStringLiteral("applications.")))
+        return QStringLiteral("applications");
+    if (action.startsWith(QStringLiteral("power.")))
+        return QStringLiteral("power");
+    return QStringLiteral("all");
 }
 
 void MahoSettingsBridge::search(const QString &query)

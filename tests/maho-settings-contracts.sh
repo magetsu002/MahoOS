@@ -62,6 +62,10 @@ reject_text "$QML/components/MahoComboBox.qml" 'parent.highlighted' "combo highl
 require_text "$QML/components/MahoSlider.qml" 'property bool backendOwned: false' "slider backend-owned mode missing"
 require_text "$QML/components/MahoTextField.qml" 'property bool backendOwned: false' "text field backend-owned mode missing"
 require_text "$QML/Main.qml" 'id: dragRegion' "window dragging is not isolated from interactive content"
+require_text "$APP/src/MahoSettingsBridge.cpp" 'const QString section = sectionForAction(action)' "successful mutations do not select a bounded refresh owner"
+require_text "$APP/src/MahoSettingsBridge.cpp" 'confirmedState.canConvert<QVariantMap>()' "verified owner state is not reused after mutations"
+require_text "$APP/src/MahoSettingsBridge.cpp" 'refreshSection(section)' "successful mutations still force an all-provider refresh"
+require_text "$APP/src/MahoSettingsBridge.cpp" 'm_pendingRefreshSection = QStringLiteral("all")' "overlapping refreshes can drop a changed section"
 echo PASS
 
 echo "=== deterministic search contract ==="

@@ -687,6 +687,7 @@ class DailyDriverMutationContracts(unittest.TestCase):
         ):
             result = settings.notification_enabled(True)
         self.assertTrue(result["ok"])
+        self.assertTrue(result["state"]["active"])
 
     def test_notification_enabled_failed_confirmation_is_not_success(self) -> None:
         with (
@@ -710,6 +711,7 @@ class DailyDriverMutationContracts(unittest.TestCase):
         ):
             result = settings.notification_dnd(True)
         self.assertTrue(result["ok"])
+        self.assertTrue(result["state"]["dnd"])
 
     def test_notification_clear_history_requires_empty_owner_state(self) -> None:
         with (
@@ -717,6 +719,18 @@ class DailyDriverMutationContracts(unittest.TestCase):
             mock.patch.object(settings, "run", return_value=(0, "cleared", "")),
             mock.patch.object(settings, "snapshot_notifications", return_value={
                 "available": True, "historyCount": 3,
+            }),
+        ):
+            result = settings.notification_clear_history()
+        self.assertFalse(result["ok"])
+        self.assertIn("confirm", result["error"].lower())
+
+    def test_notification_clear_history_requires_available_owner_state(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "cleared", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": False, "historyCount": 0,
             }),
         ):
             result = settings.notification_clear_history()

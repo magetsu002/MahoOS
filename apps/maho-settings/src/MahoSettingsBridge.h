@@ -38,6 +38,10 @@ signals:
 private:
     QString pythonProgram() const;
     QString backendPath() const;
+    void refreshSection(const QString &section);
+    void startRefresh(const QString &section);
+    void finishRefresh();
+    static QString sectionForAction(const QString &action);
     void setLoading(bool value);
     void setActionBusy(bool value);
     void setError(const QString &value);
@@ -49,6 +53,8 @@ private:
     bool m_actionBusy = false;
     QString m_error;
     QString m_pendingAction;
+    QString m_snapshotSection;
+    QString m_pendingRefreshSection;
 
     QProcess m_snapshotProcess;
     QProcess m_searchProcess;

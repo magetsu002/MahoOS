@@ -1254,7 +1254,7 @@ def notification_enabled(enabled: bool) -> dict[str, Any]:
     state = snapshot_notifications()
     if not state.get("available") or bool(state.get("active")) != enabled:
         return {"ok": False, "error": "Maho Notify did not confirm the requested enabled state."}
-    return {"ok": True, "message": "Notification service updated."}
+    return {"ok": True, "message": "Notification service updated.", "state": state}
 
 
 def notification_dnd(enabled: bool) -> dict[str, Any]:
@@ -1267,7 +1267,7 @@ def notification_dnd(enabled: bool) -> dict[str, Any]:
     state = snapshot_notifications()
     if not state.get("available") or bool(state.get("dnd")) != enabled:
         return {"ok": False, "error": "Maho Notify did not confirm the requested DND state."}
-    return {"ok": True, "message": "Do Not Disturb updated."}
+    return {"ok": True, "message": "Do Not Disturb updated.", "state": state}
 
 
 def notification_clear_history() -> dict[str, Any]:
@@ -1278,9 +1278,9 @@ def notification_clear_history() -> dict[str, Any]:
     if code != 0:
         return {"ok": False, "error": err or out or "Maho Notify could not clear history."}
     state = snapshot_notifications()
-    if state.get("available") and int(state.get("historyCount", 0)) != 0:
+    if not state.get("available") or int(state.get("historyCount", 0)) != 0:
         return {"ok": False, "error": "Maho Notify did not confirm that history was cleared."}
-    return {"ok": True, "message": "Notification history cleared."}
+    return {"ok": True, "message": "Notification history cleared.", "state": state}
 
 
 def _timedate_state() -> tuple[dict[str, str], str]:
