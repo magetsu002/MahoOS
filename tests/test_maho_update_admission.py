@@ -27,6 +27,7 @@ from maho_update_admission import (  # noqa: E402
     issue_frozen_activation_authority,
     verify_frozen_activation_authority,
     verify_activation_authority,
+    verify_normal_activation_authority,
 )
 from maho_update_state import create_transaction  # noqa: E402
 
@@ -236,6 +237,14 @@ def main() -> None:
         normal_result = evaluate_normal_production_candidate(roots, tx)
         check("normal admission tolerates legitimate zero-file meta packages", normal_result.inspection.graph.inspection_complete)
         check("ordinary same-package normal update reaches ALLOW", normal_result.decision.outcome is AdmissionOutcome.ALLOW and normal_result.promotion_authority is not None)
+        normal_authority = issue_activation_authority(
+            normal_result, update_transaction_id=TX, transaction=tx, source_revision=SOURCE,
+        )
+        normal_verified = verify_normal_activation_authority(
+            normal_authority.as_dict(), roots=roots, update_transaction_id=TX,
+            transaction=tx, source_revision=SOURCE,
+        )
+        check("normal root-swap authority is revalidated against the exact frozen candidate", normal_verified.authority_id == normal_authority.authority_id)
         authority = issue_activation_authority(
             result, update_transaction_id=TX, transaction=tx, source_revision=SOURCE,
         )
