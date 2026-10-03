@@ -32,6 +32,11 @@ notify_count() {
 }
 
 notify_running() {
+    local pid
+    pid="$(notify_status_pid_fast 2>/dev/null || true)"
+    if [ -n "$pid" ] && notify_pid_is_live "$pid"; then
+        return 0
+    fi
     [ "$(notify_count)" -gt 0 ]
 }
 
@@ -93,9 +98,26 @@ set_hyprland_material_rule() {
     fi
 }
 
-notify_status_pid() {
-    local path="$RUNTIME_DIR/maho/notify-status.json"
+notify_status_pid_fast() {
+    local path="$RUNTIME_DIR/maho/notify-status.json" pid
     [ -r "$path" ] || return 1
+    grep -Eq '"active"[[:space:]]*:[[:space:]]*true' "$path" || return 1
+    pid="$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$path" | head -1)"
+    case "$pid" in
+        ''|*[!0-9]*|0|1) return 1 ;;
+    esac
+    printf '%s\n' "$pid"
+}
+
+notify_status_pid() {
+    local path="$RUNTIME_DIR/maho/notify-status.json" pid
+    [ -r "$path" ] || return 1
+
+    pid="$(notify_status_pid_fast 2>/dev/null || true)"
+    if [ -n "$pid" ]; then
+        printf '%s\n' "$pid"
+        return 0
+    fi
 
     python - "$path" <<'PY_STATUS_PID'
 import json
@@ -118,10 +140,25 @@ PY_STATUS_PID
 }
 
 notify_pid_is_live() {
-    local candidate="$1" pid
-    while read -r pid; do
-        [ "$pid" = "$candidate" ] && return 0
-    done < <(notify_pids)
+    local candidate="$1" argument executable
+    case "$candidate" in
+        ''|*[!0-9]*|0|1) return 1 ;;
+    esac
+    [ -r "/proc/$candidate/cmdline" ] || return 1
+
+    executable="$(tr '\0' '\n' < "/proc/$candidate/cmdline" | head -1)"
+    case "${executable##*/}" in
+        quickshell) ;;
+        *) return 1 ;;
+    esac
+
+    while read -r argument; do
+        case "$argument" in
+            */maho-notify|*/maho-notify/shell.qml)
+                return 0
+                ;;
+        esac
+    done < <(tr '\0' '\n' < "/proc/$candidate/cmdline")
     return 1
 }
 
@@ -286,6 +323,67 @@ doctor() {
     return "$failed"
 }
 
+settings_status_json() {
+    local running=false runtime_json="" sidecar_json="{}"
+    local adaptive_quiet=false history_count=0
+    local sidecar="$RUNTIME_DIR/maho/notify-status.json"
+
+    notify_running && running=true
+
+    if [ "$running" = "true" ]; then
+        if grep -Fq 'function settingsStatus(): string' "$CONFIG" 2>/dev/null; then
+            runtime_json="$(ipc_value settingsStatus || true)"
+        fi
+        case "$runtime_json" in
+            {*})
+                SETTINGS_META="$runtime_json" python - <<'PY'
+import json
+import os
+
+try:
+    meta = json.loads(os.environ["SETTINGS_META"])
+except (TypeError, ValueError, json.JSONDecodeError):
+    meta = {}
+
+print(json.dumps({
+    "active": True,
+    "dnd": bool(meta.get("dnd", False)),
+    "adaptive_quiet": bool(meta.get("adaptive_quiet", False)),
+    "history_count": int(meta.get("history_count", 0)),
+    "unread_count": int(meta.get("unread_count", 0)),
+}, separators=(",", ":")))
+PY
+                return
+                ;;
+        esac
+
+        # Compatibility path for older immutable Notify runtimes: use the
+        # privacy-safe reactive sidecar for DND/unread and only two IPC calls
+        # for values the v1 sidecar does not publish.
+        [ -r "$sidecar" ] && sidecar_json="$(cat "$sidecar" 2>/dev/null || echo '{}')"
+        adaptive_quiet="$(ipc_value adaptiveQuietStatus || echo false)"
+        history_count="$(ipc_value historyCount || echo 0)"
+    fi
+
+    RUNNING="$running"     SIDECAR_JSON="$sidecar_json"     ADAPTIVE_QUIET="$adaptive_quiet"     HISTORY_COUNT="$history_count"     python - <<'PY'
+import json
+import os
+
+try:
+    sidecar = json.loads(os.environ["SIDECAR_JSON"])
+except (TypeError, ValueError, json.JSONDecodeError):
+    sidecar = {}
+
+print(json.dumps({
+    "active": os.environ["RUNNING"] == "true",
+    "dnd": bool(sidecar.get("dnd", False)),
+    "adaptive_quiet": os.environ.get("ADAPTIVE_QUIET", "false") == "true",
+    "history_count": int(os.environ.get("HISTORY_COUNT", "0") or 0),
+    "unread_count": int(sidecar.get("unread_count", 0) or 0),
+}, separators=(",", ":")))
+PY
+}
+
 status_json() {
     local running=false service_state="missing" owner="" meta_json
     local dnd_value=false adaptive_quiet=false history_count=0 unread_count=0
@@ -294,33 +392,44 @@ status_json() {
     dbus_has_owner && owner="$(dbus_owner)"
 
     if [ "$running" = "true" ]; then
-        dnd_value="$(ipc_value dndStatus || echo false)"
-        adaptive_quiet="$(ipc_value adaptiveQuietStatus || echo false)"
-        history_count="$(ipc_value historyCount || echo 0)"
-        unread_count="$(ipc_value unreadCount || echo 0)"
-        visible_count="$(ipc_value visibleCount || echo 0)"
-        queued_count="$(ipc_value queuedCount || echo 0)"
-        live_count="$(ipc_value livePopupCount || echo 0)"
-        dropped_count="$(ipc_value droppedPopupCount || echo 0)"
-        suppressed_count="$(ipc_value suppressedPopupCount || echo 0)"
-        [ -n "$dnd_value" ] || dnd_value=false
-        [ -n "$history_count" ] || history_count=0
-        [ -n "$unread_count" ] || unread_count=0
-        [ -n "$visible_count" ] || visible_count=0
-        [ -n "$queued_count" ] || queued_count=0
-        [ -n "$live_count" ] || live_count=0
-        [ -n "$dropped_count" ] || dropped_count=0
-        [ -n "$suppressed_count" ] || suppressed_count=0
-        meta_json="$(META_DND="$dnd_value" META_HISTORY="$history_count" META_UNREAD="$unread_count" python - <<'PY'
+        # Settings/Edge only need one coherent observation. New Notify runtimes
+        # publish it in one IPC round trip instead of spawning quickshell nine
+        # times. Keep the legacy calls as a compatibility fallback while older
+        # immutable runtimes are still active.
+        meta_json="$(ipc_value settingsStatus || true)"
+        case "$meta_json" in
+            {*}) ;;
+            *)
+                dnd_value="$(ipc_value dndStatus || echo false)"
+                adaptive_quiet="$(ipc_value adaptiveQuietStatus || echo false)"
+                history_count="$(ipc_value historyCount || echo 0)"
+                unread_count="$(ipc_value unreadCount || echo 0)"
+                visible_count="$(ipc_value visibleCount || echo 0)"
+                queued_count="$(ipc_value queuedCount || echo 0)"
+                live_count="$(ipc_value livePopupCount || echo 0)"
+                dropped_count="$(ipc_value droppedPopupCount || echo 0)"
+                suppressed_count="$(ipc_value suppressedPopupCount || echo 0)"
+                [ -n "$dnd_value" ] || dnd_value=false
+                [ -n "$history_count" ] || history_count=0
+                [ -n "$unread_count" ] || unread_count=0
+                [ -n "$visible_count" ] || visible_count=0
+                [ -n "$queued_count" ] || queued_count=0
+                [ -n "$live_count" ] || live_count=0
+                [ -n "$dropped_count" ] || dropped_count=0
+                [ -n "$suppressed_count" ] || suppressed_count=0
+                meta_json="$(META_DND="$dnd_value" META_HISTORY="$history_count" META_UNREAD="$unread_count" python - <<'PY'
 import json
 import os
 print(json.dumps({
     "dnd": os.environ["META_DND"] == "true",
+    "adaptive_quiet": os.environ.get("ADAPTIVE_QUIET", "false") == "true",
     "history_count": int(os.environ["META_HISTORY"]),
     "unread_count": int(os.environ["META_UNREAD"]),
 }, separators=(",", ":")))
 PY
 )"
+                ;;
+        esac
     else
         meta_json="$(state_metadata)"
     fi
@@ -360,15 +469,18 @@ print(json.dumps({
     "service": os.environ["SERVICE_STATE"],
     "notification_owner": os.environ["OWNER"] or None,
     "dnd": bool(meta.get("dnd", False)),
-    "adaptive_quiet": os.environ.get("ADAPTIVE_QUIET", "false") == "true",
+    "adaptive_quiet": bool(meta.get(
+        "adaptive_quiet",
+        os.environ.get("ADAPTIVE_QUIET", "false") == "true",
+    )),
     "history_count": int(meta.get("history_count", 0)),
     "unread_count": int(meta.get("unread_count", 0)),
     "popup": {
-        "visible": int(os.environ["VISIBLE_COUNT"]),
-        "queued": int(os.environ["QUEUED_COUNT"]),
-        "live": int(os.environ["LIVE_COUNT"]),
-        "dropped": int(os.environ["DROPPED_COUNT"]),
-        "suppressed": int(os.environ["SUPPRESSED_COUNT"]),
+        "visible": int(meta.get("visible_count", os.environ["VISIBLE_COUNT"])),
+        "queued": int(meta.get("queued_count", os.environ["QUEUED_COUNT"])),
+        "live": int(meta.get("live_count", os.environ["LIVE_COUNT"])),
+        "dropped": int(meta.get("dropped_count", os.environ["DROPPED_COUNT"])),
+        "suppressed": int(meta.get("suppressed_count", os.environ["SUPPRESSED_COUNT"])),
     },
     "config": {
         "path": os.environ["CONFIG_PATH"],
@@ -572,6 +684,14 @@ case "${1:-run}" in
         echo "Maho Notify: inactive"
         exit 1
         ;;
+    settings-status)
+        if [ "${2:-}" = "--json" ] || [ -z "${2:-}" ]; then
+            settings_status_json
+            exit 0
+        fi
+        echo "maho-notify: settings-status accepts only --json" >&2
+        exit 2
+        ;;
     doctor)
         doctor
         ;;
@@ -598,7 +718,7 @@ case "${1:-run}" in
         ;;
     *)
         cat <<'HELP'
-Usage: maho-notify [run|start|stop|restart|reload|status [--json]|doctor|logs [LINES]|center|toggle-center|dnd on|off|toggle|status|adaptive-quiet on|off|status|history clear]
+Usage: maho-notify [run|start|stop|restart|reload|status [--json]|settings-status [--json]|doctor|logs [LINES]|center|toggle-center|dnd on|off|toggle|status|adaptive-quiet on|off|status|history clear]
 
 Maho Notify is the independent Quickshell notification surface shipped with
 Maho OS. It refuses to displace an existing org.freedesktop.Notifications owner.
@@ -606,7 +726,8 @@ Maho OS. It refuses to displace an existing org.freedesktop.Notifications owner.
 Commands:
   doctor         Check notification ownership and required runtime state.
   logs [LINES]   Print a bounded runtime-log tail (default 120, max 500).
-  status --json  Emit machine-readable service/config/ownership state.
+  status --json  Emit full machine-readable service/config/ownership state.
+  settings-status Emit the bounded state needed by Maho Settings.
   reload         Restart Maho Notify through the managed runtime path.
   dnd ...        Read or change persistent Do Not Disturb state.
   adaptive-quiet Read or change temporary adaptive popup suppression.

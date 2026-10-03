@@ -40,3 +40,23 @@ hl.window_rule({
     no_blur = true,
 })
 
+
+-- Maho Settings is a calm centered control surface, not a tiling workload.
+-- The application draws its own rim and rounded material; Hyprland only owns
+-- placement and the outer compositor geometry.
+hl.window_rule({
+    name = "maho-settings",
+    match = {
+        class = "^(io\\.maho\\.Settings)$",
+    },
+
+    float = true,
+    center = true,
+    size = {
+        "monitor_w * 0.75",
+        "monitor_h * 0.84",
+    },
+    border_size = 0,
+    rounding = 20,
+})
+
