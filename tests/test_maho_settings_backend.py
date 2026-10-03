@@ -1147,6 +1147,24 @@ class NewPageTruthContracts(unittest.TestCase):
         self.assertFalse(state["readOnly"])
         self.assertEqual(state["writer"]["backupCount"], 2)
 
+    def test_root_command_uses_installed_maho_wrapper_outside_component_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            component = base / "component"
+            home = base / "home"
+            installed = home / ".local" / "bin" / "maho-notify"
+            component.mkdir(parents=True)
+            installed.parent.mkdir(parents=True)
+            installed.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            installed.chmod(0o755)
+            with (
+                mock.patch.object(settings, "ROOT", component),
+                mock.patch.object(settings.Path, "home", return_value=home),
+                mock.patch.object(settings.shutil, "which", return_value=None),
+            ):
+                resolved = settings.root_command("maho-notify")
+        self.assertEqual(resolved, str(installed))
+
     def test_notify_missing_backend_is_unavailable(self) -> None:
         with mock.patch.object(settings, "root_command", return_value=None):
             state = settings.snapshot_notifications()

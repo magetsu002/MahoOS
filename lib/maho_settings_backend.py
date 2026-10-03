@@ -181,8 +181,23 @@ def intent_set(key: str, value: Any) -> None:
 
 def root_command(name: str) -> str | None:
     local = ROOT / "bin" / name
-    if local.is_file():
+    if local.is_file() and os.access(local, os.X_OK):
         return str(local)
+
+    # Component-scoped runtimes intentionally do not duplicate every Maho
+    # command. Cross-component calls go through the installed Maho wrapper so
+    # Settings keeps following the currently converged immutable authority even
+    # when the graphical session PATH does not contain ~/.local/bin.
+    installed = Path.home() / ".local" / "bin" / name
+    if installed.is_file() and os.access(installed, os.X_OK):
+        return str(installed)
+
+    runtime = Path(
+        os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+    ) / "maho" / "runtime" / "current" / "bin" / name
+    if runtime.is_file() and os.access(runtime, os.X_OK):
+        return str(runtime)
+
     return shutil.which(name)
 
 

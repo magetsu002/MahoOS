@@ -197,6 +197,8 @@ require_text "$BACKEND" 'root_command("maho-theme")' "Appearance does not reuse 
 require_text "$BACKEND" 'root_command("maho-wallpaper")' "Appearance does not read the Maho wallpaper owner"
 require_text "$BACKEND" 'primarySupported": False' "Settings invents a primary-display capability"
 require_text "$BACKEND" 'root_command("maho-notify")' "Notifications do not delegate to Maho Notify"
+require_text "$BACKEND" 'Path.home() / ".local" / "bin" / name' "component-scoped Settings cannot resolve installed Maho command owners"
+require_text "$BACKEND" '/ "maho" / "runtime" / "current" / "bin" / name' "Settings command discovery lacks immutable-runtime fallback"
 require_text "$BACKEND" 'shutil.which("timedatectl")' "Region & Time does not delegate clock policy to timedatectl"
 require_text "$BACKEND" 'shutil.which("localectl")' "Region & Time does not delegate locale policy to localectl"
 require_text "$BACKEND" 'shutil.which("xdg-mime")' "Application defaults do not use XDG MIME authority"
