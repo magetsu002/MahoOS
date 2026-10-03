@@ -462,6 +462,11 @@ static void request_cancel(AuthRequest *request, const gchar *reason) {
         return;
     }
 
+    g_message(
+        "maho-polkit-agent: request %" G_GUINT64_FORMAT " cancelled: %s",
+        request->gate.request_id,
+        reason != NULL ? reason : "Authentication was cancelled."
+    );
     request->cancel_requested = TRUE;
     g_free(request->error_text);
     request->error_text = clean_text(reason, "Authentication was cancelled.");
@@ -522,10 +527,18 @@ static void on_session_completed(
     }
 
     if (gained_authorization) {
+        g_message(
+            "maho-polkit-agent: request %" G_GUINT64_FORMAT " authentication succeeded",
+            request->gate.request_id
+        );
         request_finish(request, TRUE, NULL);
         return;
     }
 
+    g_message(
+        "maho-polkit-agent: request %" G_GUINT64_FORMAT " authentication failed; retrying",
+        request->gate.request_id
+    );
     request_cleanup_session(request);
     request->attempt++;
     g_free(request->error_text);
@@ -1012,6 +1025,11 @@ static void listener_initiate_authentication(
     request->selected_index = default_identity_index(choices);
     request->gate.request_id = self->next_request_id++;
     self->active = request;
+    g_message(
+        "maho-polkit-agent: request %" G_GUINT64_FORMAT " started for action %s",
+        request->gate.request_id,
+        request->action_id
+    );
 
     if (request->cancellable != NULL) {
         if (g_cancellable_is_cancelled(request->cancellable)) {
