@@ -607,6 +607,9 @@ void MahoDirectoryModel::openWithIndex(int row)
     if (row < 0 || row >= m_items.size())
         return;
 
+    // KIO's native Open With dialog uses the desktop's XDG MIME association
+    // authority. Maho Settings reads and changes that same authority through
+    // xdg-mime; Files deliberately owns no second default-handler registry.
     auto *job = new KIO::ApplicationLauncherJob(this);
     job->setUrls({m_items.at(row).url()});
     job->setUiDelegate(KIO::createDefaultJobUiDelegate(
