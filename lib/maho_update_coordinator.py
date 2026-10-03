@@ -835,6 +835,7 @@ def _resume_owned(
         if current is None or current.get("transaction_id") != transaction_id:
             return None
         from maho_update_bad_recovery import (
+            RecoveryTerminalCommitError,
             _read_record as read_bad_update_record,
             reverify_recovered_normal,
         )
@@ -844,6 +845,21 @@ def _resume_owned(
                 generation_root=Path("/var/lib/maho/generations"),
             )
             recovery_record = read_bad_update_record(root, transaction_id)
+        except RecoveryTerminalCommitError as exc:
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.RECOVERING.value,
+                "blockers": ["recovery_terminal_commit_retry_required"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+                "user_status": (
+                    "Recovered verification completed, but its terminal "
+                    "evidence commit must be reconciled."
+                ),
+            })
+            return _save(_with_debt(value, now))
         except (OSError, RuntimeError, ValueError) as exc:
             value = dict(state)
             value.update({

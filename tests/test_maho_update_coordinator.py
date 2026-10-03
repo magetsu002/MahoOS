@@ -656,10 +656,31 @@ class CoordinatorContracts(unittest.TestCase):
                 "recovery_attempts": 1,
             }
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch(
+                     "maho_update_bad_recovery.reverify_recovered_normal",
+                     side_effect=bad_recovery.RecoveryTerminalCommitError(
+                         "injected reconciliation record write interruption",
+                     ),
+                 ):
+                retry = coordinator._resume_owned(
+                    interrupted, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(seconds=30),
+                )
+            self.assertEqual(retry["phase"], "RECOVERING")
+            self.assertEqual(
+                retry["blockers"], ["recovery_terminal_commit_retry_required"],
+            )
+            self.assertNotEqual(retry["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(
+                read_transaction(transaction_path(root, TXID))["state"], "RECOVERED",
+            )
+
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
                  patch("maho_update_bad_recovery.reverify_recovered_normal", return_value=current), \
                  patch("maho_update_bad_recovery._read_record", return_value=final_record):
                 reconciled = coordinator._resume_owned(
-                    interrupted, REV, "magetsu", {"source_revision": REV},
+                    retry, REV, "magetsu", {"source_revision": REV},
                     {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
                     NOW + timedelta(minutes=1),
                 )

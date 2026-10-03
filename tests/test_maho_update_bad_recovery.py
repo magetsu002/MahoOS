@@ -548,6 +548,25 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
             "RECOVERED_VERIFIED_PENDING_TRANSACTION",
         )
         with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(recovery, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(
+                 recovery, "_atomic_json",
+                 side_effect=OSError("injected reconciliation write interruption"),
+             ):
+            with self.assertRaisesRegex(
+                recovery.RecoveryTerminalCommitError,
+                "reconcile final recovered verification",
+            ):
+                recovery.reverify_recovered_normal(
+                    TXID, state_root=self.recovered, generation_root=self.generations,
+                    cmdline_path=cmdline, package_runner=package_runner,
+                    running_kernel=lambda: "6.1-cachyos",
+                )
+        self.assertEqual(
+            recovery._read_record(self.recovered, TXID)["phase"],
+            "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+        )
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
              patch.object(recovery, "load_current_verified_generations", return_value=live_context()):
             result = recovery.reverify_recovered_normal(
                 TXID, state_root=self.recovered, generation_root=self.generations,

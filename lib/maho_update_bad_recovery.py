@@ -1249,7 +1249,12 @@ def reverify_recovered_normal(
             "reboot_required": False,
             "reboot_performed": True,
         })
-        _atomic_json(recovery_record_path(state_root, transaction_id), reconciled)
+        try:
+            _atomic_json(recovery_record_path(state_root, transaction_id), reconciled)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise RecoveryTerminalCommitError(
+                "could not reconcile final recovered verification",
+            ) from exc
     return {
         "transaction_id": transaction_id,
         "phase": UpdateState.RECOVERED.value,
