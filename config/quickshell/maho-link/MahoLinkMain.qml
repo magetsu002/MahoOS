@@ -507,6 +507,7 @@ Item {
                         chrome: root.chrome
                         network: modelData
                         interactionEnabled: !root.wifi.busy
+                        allowForget: root.networkTab === "saved"
                         onSelected: {
                             if (Boolean(modelData.active) && root.wifi.currentNetwork)
                                 root.detailsRequested(root.wifi.currentNetwork)

@@ -5,8 +5,10 @@ Item {
     required property var chrome
     required property var network
     property bool interactionEnabled: true
+    property bool allowForget: true
     readonly property bool forgettable:
-        Boolean(network.saved)
+        root.allowForget
+        && Boolean(network.saved)
         && !Boolean(network.active)
         && String(network.profileUuid || "") !== ""
     signal selected()

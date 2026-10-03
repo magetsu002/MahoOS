@@ -385,6 +385,8 @@ assert 'root.networkTab === "saved"' in main_source
 assert 'root.savedNetworkRows' in main_source
 assert 'visible: root.networkTab === "nearby"' in main_source
 assert 'id: forgetGlow' in row_source
+assert 'property bool allowForget: true' in row_source
+assert 'allowForget: root.networkTab === "saved"' in main_source
 assert 'color: forgetHover.containsMouse || forgetHover.activeFocus' not in row_source
 assert '!Boolean(network.active)' in row_source
 
