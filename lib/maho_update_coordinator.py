@@ -1068,7 +1068,9 @@ def _resume_owned(
         )
         try:
             recovery_record = read_bad_update_record(root, transaction_id)
-            if recovery_record.get("phase") != "RECOVERY_ARMED":
+            if recovery_record.get("phase") not in {
+                "RECOVERY_ARMED", "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+            }:
                 resumed = resume_bad_update_recovery(
                     transaction_id, state_root=root,
                     campaign_root=campaign_root(), now=now,
@@ -1089,6 +1091,55 @@ def _resume_owned(
                 generation_root=Path("/var/lib/maho/generations"), now=now,
             )
         except (OSError, RuntimeError, ValueError) as exc:
+            try:
+                durable = read_transaction(transaction_path(root, transaction_id))
+                checkpoint = read_bad_update_record(root, transaction_id)
+            except (OSError, RuntimeError, ValueError):
+                durable = None
+                checkpoint = None
+            if (
+                isinstance(durable, Mapping)
+                and isinstance(checkpoint, Mapping)
+                and durable.get("state") in {
+                    UpdateState.RECOVERING.value, UpdateState.RECOVERED.value,
+                }
+                and checkpoint.get("phase") == "RECOVERED_VERIFIED_PENDING_TRANSACTION"
+                and checkpoint.get("recovery_attempts") == 1
+                and isinstance(checkpoint.get("post_recovery_verification"), Mapping)
+            ):
+                terminal = durable["state"] == UpdateState.RECOVERED.value
+                verification = checkpoint["post_recovery_verification"]
+                value = dict(state)
+                value.update({
+                    "phase": (
+                        UpdateState.ATTENTION_REQUIRED.value
+                        if terminal else UpdateState.RECOVERING.value
+                    ),
+                    "blockers": ["recovery_terminal_commit_retry_required"],
+                    "last_error": str(exc)[:4000],
+                    "last_attempt_at": stamp(now),
+                    "reboot_required": False,
+                    "reboot_performed": True,
+                    "user_status": (
+                        "Recovered state is current, but its terminal evidence "
+                        "commit must be reconciled."
+                    ),
+                })
+                if terminal:
+                    value["recovery"] = {
+                        "transaction_id": transaction_id,
+                        "phase": UpdateState.RECOVERED.value,
+                        "failed_candidate_uuid": verification.get("failed_candidate_uuid"),
+                        "failed_system_generation_id": verification.get("failed_system_generation_id"),
+                        "root_uuid": verification.get("recovered_root_uuid"),
+                        "system_generation_id": verification.get("recovered_system_generation_id"),
+                        "kernel_generation_id": verification.get("kernel_generation_id"),
+                        "package_versions": verification.get("package_versions"),
+                        "recovery_attempts": 1,
+                        "reboot_required": False,
+                        "reboot_performed": True,
+                    }
+                return _save(_with_debt(value, now))
             attention = attention_after_recovery_failure(
                 transaction_id, state_root=root, detail=str(exc),
                 blocker="recovered_generation_verification_failed", now=now,

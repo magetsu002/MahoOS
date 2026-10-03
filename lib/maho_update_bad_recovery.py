@@ -626,6 +626,18 @@ def _attention(
     detail: str = "", now: datetime | None = None,
 ) -> dict[str, Any]:
     transaction = read_transaction(transaction_path(state_root, transaction_id))
+    try:
+        checkpoint = _read_record(state_root, transaction_id)
+    except (OSError, ValueError):
+        checkpoint = None
+    if (
+        isinstance(checkpoint, Mapping)
+        and checkpoint.get("phase") == "RECOVERED_VERIFIED_PENDING_TRANSACTION"
+    ):
+        return {
+            "phase": transaction["state"], "transaction": transaction,
+            "checkpoint_preserved": True,
+        }
     if transaction["state"] == UpdateState.ATTENTION_REQUIRED.value:
         return {"phase": transaction["state"], "transaction": transaction}
     if transaction["state"] in {

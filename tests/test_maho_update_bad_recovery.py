@@ -447,6 +447,18 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
             recovery._read_record(self.recovered, TXID)["phase"],
             "RECOVERED_VERIFIED_PENDING_TRANSACTION",
         )
+        attention = recovery.attention_after_recovery_failure(
+            TXID, state_root=self.recovered, detail="simulated coordinator catch", now=NOW,
+        )
+        self.assertTrue(attention["checkpoint_preserved"])
+        self.assertEqual(
+            read_transaction(transaction_path(self.recovered, TXID))["state"],
+            "RECOVERING",
+        )
+        self.assertEqual(
+            recovery._read_record(self.recovered, TXID)["phase"],
+            "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+        )
         with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
              patch.object(recovery, "load_current_verified_generations", return_value=live_context()):
             result = recovery.verify_recovered_normal(
@@ -490,6 +502,14 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
             read_transaction(transaction_path(self.recovered, TXID))["state"],
             "RECOVERED",
         )
+        self.assertEqual(
+            recovery._read_record(self.recovered, TXID)["phase"],
+            "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+        )
+        attention = recovery.attention_after_recovery_failure(
+            TXID, state_root=self.recovered, detail="simulated coordinator catch", now=NOW,
+        )
+        self.assertTrue(attention["checkpoint_preserved"])
         self.assertEqual(
             recovery._read_record(self.recovered, TXID)["phase"],
             "RECOVERED_VERIFIED_PENDING_TRANSACTION",
