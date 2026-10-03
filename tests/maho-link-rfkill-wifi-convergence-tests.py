@@ -305,6 +305,7 @@ assert "id: statusProcess" not in state_source
 assert "id: networkProcess" not in state_source
 assert "state.refreshPending = true" in state_source
 assert "observedAt < state.lastObservationAtMs" in state_source
+assert "state.statusReady = false" in state_source
 refresh_start = state_source.index("function refresh()")
 refresh_end = state_source.index("function maybeStartupScan()", refresh_start)
 refresh_body = state_source[refresh_start:refresh_end]

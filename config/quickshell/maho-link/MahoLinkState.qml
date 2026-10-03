@@ -57,6 +57,11 @@ Scope {
             return
         }
         state.refreshPending = false
+        // Keep the last coherent rows in memory, but do not reveal a newly
+        // reopened Link surface until this fresh NetworkManager observation
+        // completes. Existing visible surfaces keep rendering their last known
+        // coherent truth while the non-blocking refresh runs.
+        state.statusReady = false
         snapshotProcess.exec(["python", backendPath(), "snapshot"])
     }
 
