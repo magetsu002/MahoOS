@@ -84,6 +84,7 @@ struct _MahoPolkitListener {
     GtkEntry *entry;
     GtkButton *cancel_button;
     GtkButton *auth_button;
+    GtkCssProvider *css_provider;
     GDBusConnection *system_bus;
     guint authority_watch;
     guint lock_watch;
@@ -359,13 +360,16 @@ static void apply_palette(MahoPolkitListener *self) {
     );
     g_free(json);
 
-    GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, css);
-    GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(self->window));
-    gtk_style_context_add_provider_for_display(
-        display, GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
-    );
-    g_object_unref(provider);
+    if (self->css_provider == NULL) {
+        self->css_provider = gtk_css_provider_new();
+        GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(self->window));
+        gtk_style_context_add_provider_for_display(
+            display,
+            GTK_STYLE_PROVIDER(self->css_provider),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+        );
+    }
+    gtk_css_provider_load_from_string(self->css_provider, css);
 }
 
 static void auth_request_free(AuthRequest *request);
@@ -754,6 +758,7 @@ static gboolean on_key_pressed(
 
 static void build_window(MahoPolkitListener *self) {
     self->window = GTK_WINDOW(gtk_application_window_new(self->app));
+    g_object_ref_sink(self->window);
     gtk_window_set_title(self->window, "Authentication Required");
     gtk_window_set_default_size(self->window, 430, -1);
     gtk_window_set_resizable(self->window, FALSE);
@@ -1051,6 +1056,20 @@ static void maho_polkit_listener_dispose(GObject *object) {
     if (self->registration_handle != NULL) {
         polkit_agent_listener_unregister(self->registration_handle);
         self->registration_handle = NULL;
+    }
+
+    if (self->css_provider != NULL && self->window != NULL) {
+        GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(self->window));
+        gtk_style_context_remove_provider_for_display(
+            display,
+            GTK_STYLE_PROVIDER(self->css_provider)
+        );
+    }
+    g_clear_object(&self->css_provider);
+
+    if (self->window != NULL) {
+        gtk_window_destroy(self->window);
+        g_clear_object(&self->window);
     }
 
     G_OBJECT_CLASS(maho_polkit_listener_parent_class)->dispose(object);
