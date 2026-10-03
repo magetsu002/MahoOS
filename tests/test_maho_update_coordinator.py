@@ -518,6 +518,89 @@ class CoordinatorContracts(unittest.TestCase):
             self.assertTrue(result["reboot_performed"])
             verify.assert_called_once()
 
+    def test_recovered_transaction_is_terminal_only_with_exact_current_verified_evidence(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            transaction = prepared_tx()
+            for phase in (
+                UpdateState.MAINTENANCE_READY,
+                UpdateState.INSTALLING,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                UpdateState.ACTIVE_VERIFYING,
+                UpdateState.RECOVERING,
+                UpdateState.RECOVERED,
+            ):
+                transaction = transition_transaction(transaction, phase, now=NOW)
+            publish_transaction(root, transaction)
+            recovered_root = "1" * 8 + "-1111-1111-1111-" + "1" * 12
+            recovered_generation = "gen-" + "2" * 64
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "lane": "normal",
+                "phase": "RECOVERED",
+                "reboot_required": False,
+                "reboot_performed": True,
+                "recovery": {
+                    "transaction_id": TXID,
+                    "phase": "RECOVERED",
+                    "root_uuid": recovered_root,
+                    "system_generation_id": recovered_generation,
+                    "recovery_attempts": 1,
+                },
+            }
+            record = {
+                "phase": "RECOVERED_VERIFIED",
+                "transaction_state": "RECOVERED",
+                "recovery_attempts": 1,
+                "post_recovery_verification": {
+                    "recovered_root_uuid": recovered_root,
+                    "recovered_system_generation_id": recovered_generation,
+                    "recovery_attempts": 1,
+                },
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_bad_recovery._read_record", return_value=record):
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=1),
+                )
+            self.assertEqual(result["phase"], "RECOVERED")
+            self.assertEqual(result["active_transaction_id"], TXID)
+            self.assertFalse(result["reboot_required"])
+            self.assertTrue(result["reboot_performed"])
+
+    def test_historical_recovered_transaction_is_not_treated_as_current(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            recovered = prepared_tx()
+            for phase in (
+                UpdateState.MAINTENANCE_READY,
+                UpdateState.INSTALLING,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                UpdateState.ACTIVE_VERIFYING,
+                UpdateState.RECOVERING,
+                UpdateState.RECOVERED,
+            ):
+                recovered = transition_transaction(recovered, phase, now=NOW)
+            publish_transaction(root, recovered)
+            newer_id = "upd-20260927T080000Z-bbbbbbbbbbbb"
+            publish_transaction(root, prepared_tx(txid=newer_id))
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "lane": "normal",
+                "phase": "RECOVERED",
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False):
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=1),
+                )
+            self.assertIsNone(result)
+
     def test_discovery_uses_isolated_database_not_live_pacman_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             backend = IsolatedPacmanDiscovery(Path(tmp) / "discovery")

@@ -830,6 +830,61 @@ def _resume_owned(
     phase = transaction["state"]
     _, _, cache = _work_for(transaction_id)
 
+    if state.get("lane") == "normal" and phase == UpdateState.RECOVERED.value:
+        current = _current_transaction(root)
+        if current is None or current.get("transaction_id") != transaction_id:
+            return None
+        from maho_update_bad_recovery import _read_record as read_bad_update_record
+        try:
+            recovery_record = read_bad_update_record(root, transaction_id)
+        except (OSError, RuntimeError, ValueError) as exc:
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.ATTENTION_REQUIRED.value,
+                "blockers": ["recovered_state_evidence_invalid"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+            })
+            return _save(_with_debt(value, now))
+        verification = recovery_record.get("post_recovery_verification")
+        recovery = state.get("recovery")
+        if (
+            recovery_record.get("phase") != "RECOVERED_VERIFIED"
+            or recovery_record.get("transaction_state") != UpdateState.RECOVERED.value
+            or recovery_record.get("recovery_attempts") != 1
+            or not isinstance(verification, Mapping)
+            or not isinstance(recovery, Mapping)
+            or recovery.get("transaction_id") != transaction_id
+            or recovery.get("phase") != UpdateState.RECOVERED.value
+            or recovery.get("recovery_attempts") != 1
+            or verification.get("recovery_attempts") != 1
+            or verification.get("recovered_root_uuid") != recovery.get("root_uuid")
+            or verification.get("recovered_system_generation_id") != recovery.get("system_generation_id")
+        ):
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.ATTENTION_REQUIRED.value,
+                "blockers": ["recovered_state_evidence_invalid"],
+                "last_error": "exact recovered-state evidence binding is invalid",
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+            })
+            return _save(_with_debt(value, now))
+        value = dict(state)
+        value.update({
+            "phase": UpdateState.RECOVERED.value,
+            "blockers": [],
+            "last_error": None,
+            "last_attempt_at": stamp(now),
+            "reboot_required": False,
+            "reboot_performed": True,
+            "user_status": "Previous known-good system recovered and verified.",
+        })
+        return _save(_with_debt(value, now))
+
     def _resume_started_recovery() -> dict[str, Any] | None:
         durable = read_transaction(transaction_path(root, transaction_id))
         if durable["state"] != UpdateState.RECOVERING.value:
