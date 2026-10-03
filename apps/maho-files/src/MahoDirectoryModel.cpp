@@ -14,11 +14,17 @@
 #include <QFileInfo>
 #include <QStorageInfo>
 #include <QGuiApplication>
+#include <QFontMetrics>
+#include <QPixmap>
+#include <QPalette>
+#include <QPainter>
+#include <QIcon>
 #include <QLocale>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QStyleHints>
 #include <QUrl>
 #include <QUuid>
@@ -1654,6 +1660,78 @@ void MahoDirectoryModel::startDragForRow(int row)
 
     QDrag drag(this);
     drag.setMimeData(mime);
+
+    // Native Wayland drags otherwise collapse to only the compositor cursor/action
+    // badge. Give the drag an explicit high-DPI card so the user can see the exact
+    // item being carried; multi-selection adds a compact count badge.
+    const KFileItem &primary = m_items.at(row);
+    constexpr int logicalWidth = 228;
+    constexpr int logicalHeight = 72;
+    const qreal dpr = std::max<qreal>(1.0, QGuiApplication::primaryScreen()
+        ? QGuiApplication::primaryScreen()->devicePixelRatio()
+        : 1.0);
+    QPixmap preview(QSize(qRound(logicalWidth * dpr), qRound(logicalHeight * dpr)));
+    preview.setDevicePixelRatio(dpr);
+    preview.fill(Qt::transparent);
+
+    QPainter painter(&preview);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QPalette palette = QGuiApplication::palette();
+    QColor card = palette.color(QPalette::Window);
+    card.setAlpha(238);
+    QColor rim = palette.color(QPalette::Mid);
+    rim.setAlpha(150);
+    painter.setPen(QPen(rim, 1));
+    painter.setBrush(card);
+    painter.drawRoundedRect(QRectF(0.5, 0.5, logicalWidth - 1.0, logicalHeight - 1.0), 16, 16);
+
+    const QIcon icon = QIcon::fromTheme(
+        primary.iconName(), QIcon::fromTheme(primary.isDir()
+            ? QStringLiteral("folder")
+            : QStringLiteral("text-x-generic")));
+    const QPixmap iconPixmap = icon.pixmap(QSize(qRound(46 * dpr), qRound(46 * dpr)));
+    painter.drawPixmap(QRectF(13, 13, 46, 46), iconPixmap, QRectF(iconPixmap.rect()));
+
+    QFont nameFont = QGuiApplication::font();
+    nameFont.setPixelSize(13);
+    nameFont.setWeight(QFont::Medium);
+    painter.setFont(nameFont);
+    painter.setPen(palette.color(QPalette::WindowText));
+    const QFontMetrics metrics(nameFont);
+    const QString label = metrics.elidedText(primary.name(), Qt::ElideMiddle, 142);
+    painter.drawText(QRectF(70, 18, 144, 20), Qt::AlignLeft | Qt::AlignVCenter, label);
+
+    QFont detailFont = nameFont;
+    detailFont.setPixelSize(10);
+    detailFont.setWeight(QFont::Normal);
+    painter.setFont(detailFont);
+    QColor detail = palette.color(QPalette::WindowText);
+    detail.setAlpha(165);
+    painter.setPen(detail);
+    const QString detailText = rows.size() > 1
+        ? QStringLiteral("%1 items").arg(rows.size())
+        : primary.mimeComment();
+    painter.drawText(QRectF(70, 40, 144, 17), Qt::AlignLeft | Qt::AlignVCenter, detailText);
+
+    if (rows.size() > 1) {
+        const QString count = QString::number(rows.size());
+        QFont badgeFont = nameFont;
+        badgeFont.setPixelSize(10);
+        badgeFont.setWeight(QFont::DemiBold);
+        painter.setFont(badgeFont);
+        const int badgeWidth = std::max(24, QFontMetrics(badgeFont).horizontalAdvance(count) + 14);
+        QColor badge = palette.color(QPalette::Highlight);
+        badge.setAlpha(238);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(badge);
+        painter.drawRoundedRect(QRectF(logicalWidth - badgeWidth - 8, 7, badgeWidth, 24), 12, 12);
+        painter.setPen(palette.color(QPalette::HighlightedText));
+        painter.drawText(QRectF(logicalWidth - badgeWidth - 8, 7, badgeWidth, 24), Qt::AlignCenter, count);
+    }
+    painter.end();
+
+    drag.setPixmap(preview);
+    drag.setHotSpot(QPoint(24, 24));
     drag.exec(Qt::CopyAction | Qt::MoveAction, naturalDragAction(urls));
 }
 

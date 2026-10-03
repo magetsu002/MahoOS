@@ -32,6 +32,14 @@ require_text "$MODEL_H" 'bool eventFilter(QObject *watched, QEvent *event) overr
     'file drag initiation is not integrated with the native Qt event path'
 require_text "$MODEL_CPP" '#include <QDrag>' \
     'native Qt drag object is missing'
+require_text "$MODEL_CPP" 'drag.setPixmap(preview)' \
+    'native file drag has no visible file preview attached to the cursor'
+require_text "$MODEL_CPP" 'drag.setHotSpot(QPoint(24, 24))' \
+    'native drag preview has no stable cursor hotspot'
+require_text "$MODEL_CPP" 'QStringLiteral("%1 items").arg(rows.size())' \
+    'multi-selection drag preview has no item-count cue'
+require_text "$MODEL_CPP" 'QIcon::fromTheme(' \
+    'native drag preview does not carry the dragged file icon'
 require_text "$MODEL_CPP" 'mime->setUrls(urls);' \
     'drag payload does not export a standards-aware URL list'
 require_text "$MODEL_CPP" 'm_selectedRows.size() > 1 && m_selectedRows.contains(row)' \

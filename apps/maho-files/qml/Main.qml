@@ -1164,8 +1164,12 @@ ApplicationWindow {
                     }
                 }
 
-                CompactActionButton {
-                    label: "Cancel"
+                IconButton {
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    radius: 12
+                    iconName: "window-close"
+                    tooltip: "Close"
                     onTriggered: openWithPopup.close()
                 }
             }

@@ -260,6 +260,8 @@ require_text "$MODEL_CPP" 'KApplicationTrader::queryByMimeType' "Open With does 
 require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(service, this)' "Maho Open With choices do not launch through KIO"
 require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(this)' "unknown/no-handler fallback no longer has the native KDE chooser"
 require_text "$QML" 'id: openWithPopup' "compact Maho Open With surface is missing"
+require_text "$QML" 'iconName: "window-close"' "Open With still uses a wordy close/cancel button instead of the compact close icon"
+reject_text "$QML" 'label: "Cancel"\n                    onTriggered: openWithPopup.close()' "Open With regressed to a text Cancel button"
 require_text "$QML" 'directoryModel.openWithDetails(row)' "Open With surface does not query authoritative candidates"
 require_text "$MODEL_CPP" 'result.insert(QStringLiteral("url"), item.url())' "Open With details do not capture the exact target URL"
 require_text "$QML" 'targetUrl = details.url || ""' "Open With popup does not bind to the exact target URL at open time"
