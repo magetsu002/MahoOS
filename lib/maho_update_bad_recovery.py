@@ -548,6 +548,29 @@ def _package_versions(
     return observed
 
 
+def _verified_root_identity_binding(
+    live: Mapping[str, Any], identity: Any, *, previous_root_uuid: str,
+    filesystem_uuid: str,
+) -> bool:
+    """Require an exact root UUID proof, including for legacy @ manifests."""
+    if identity is None:
+        return False
+    filesystem_matches = (
+        str(live.get("filesystem_uuid", "")).lower() == filesystem_uuid.lower()
+        and str(getattr(identity, "filesystem_identity", "")).lower()
+        == f"uuid:{filesystem_uuid.lower()}"
+    )
+    if not filesystem_matches or live.get("root_subvolume_uuid") != previous_root_uuid:
+        return False
+    snapshot_identity = getattr(identity, "snapshot_identity", "")
+    if snapshot_identity == f"btrfs-uuid:{previous_root_uuid}":
+        return True
+    # Older verified manifests named the canonical live root instead of recording
+    # its UUID. Accept that one legacy spelling only when the signed live
+    # publication supplies the exact UUID and filesystem binding above.
+    return snapshot_identity == "btrfs-subvolume:@"
+
+
 def _validate_target_recovery_artifacts(
     generation_root: Path, *, previous_root_uuid: str, filesystem_uuid: str,
     system_generation_id: str, kernel_generation_id: str,
@@ -561,9 +584,10 @@ def _validate_target_recovery_artifacts(
         or str(live.get("filesystem_uuid", "")).lower() != filesystem_uuid.lower()
         or str(system.generation_id) != system_generation_id
         or str(kernel.kernel_generation_id) != kernel_generation_id
-        or identity is None
-        or identity.snapshot_identity != f"btrfs-uuid:{previous_root_uuid}"
-        or identity.filesystem_identity.lower() != f"uuid:{filesystem_uuid.lower()}"
+        or not _verified_root_identity_binding(
+            live, identity, previous_root_uuid=previous_root_uuid,
+            filesystem_uuid=filesystem_uuid,
+        )
     ):
         raise ValueError("retained previous generation artifacts do not bind the selected root")
     path = generation_root / "evidence/compatibility" / (
@@ -682,10 +706,11 @@ def begin_bad_update_recovery(
         or live.get("kernel_generation_id") != str(kernel.kernel_generation_id)
         or str(kernel.kernel_generation_id) != handoff.candidate_kernel_generation_id
         or candidate_generation.get("parent_system_generation_id") != str(system.generation_id)
-        or getattr(system, "root_identity", None) is None
-        or system.root_identity.snapshot_identity != f"btrfs-uuid:{handoff.previous_root_uuid}"
-        or system.root_identity.filesystem_identity.lower()
-        != f"uuid:{str(candidate.get('filesystem_uuid', '')).lower()}"
+        or not _verified_root_identity_binding(
+            live, getattr(system, "root_identity", None),
+            previous_root_uuid=handoff.previous_root_uuid,
+            filesystem_uuid=str(candidate.get("filesystem_uuid", "")),
+        )
     ):
         raise ValueError("previous known-good generation binding mismatch")
 

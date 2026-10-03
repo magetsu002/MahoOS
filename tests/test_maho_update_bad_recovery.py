@@ -333,6 +333,47 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
         self.assertFalse(execution["package_manager_invoked"])
         self.assertFalse(execution["firmware_mutated"])
 
+    def test_legacy_canonical_root_name_requires_exact_live_uuid_binding(self):
+        live, system, kernel = live_context()
+        legacy_system = SimpleNamespace(
+            generation_id=system.generation_id,
+            root_identity=SimpleNamespace(
+                snapshot_identity="btrfs-subvolume:@",
+                filesystem_identity=system.root_identity.filesystem_identity,
+                root_manifest_sha256=system.root_identity.root_manifest_sha256,
+            ),
+        )
+        legacy_context = (live, legacy_system, kernel)
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(
+                 recovery, "load_current_verified_generations",
+                 return_value=legacy_context,
+             ):
+            result = recovery.begin_bad_update_recovery(
+                TXID, failure_code="controlled_postboot_failure",
+                failure_detail="injected package mismatch", state_root=self.state,
+                generation_root=self.generations, executor=EXECUTOR, now=NOW,
+            )
+        self.assertEqual(result["phase"], "RECOVERING")
+        self.assertEqual(result["selected_root_uuid"], PREVIOUS_UUID)
+        self.assertEqual(FakeBtrfs.arm_calls, 1)
+
+        self.assertFalse(recovery._verified_root_identity_binding(
+            {**live, "root_subvolume_uuid": FAILED_UUID},
+            legacy_system.root_identity,
+            previous_root_uuid=PREVIOUS_UUID,
+            filesystem_uuid=FILESYSTEM_UUID,
+        ))
+        self.assertFalse(recovery._verified_root_identity_binding(
+            live,
+            SimpleNamespace(
+                snapshot_identity="btrfs-subvolume:@other",
+                filesystem_identity=f"uuid:{FILESYSTEM_UUID}",
+            ),
+            previous_root_uuid=PREVIOUS_UUID,
+            filesystem_uuid=FILESYSTEM_UUID,
+        ))
+
     def test_repeated_pre_reboot_verification_waits_without_second_recovery(self):
         self._begin()
         FakeBtrfs.topology = "RECOVERY_ARMED"
