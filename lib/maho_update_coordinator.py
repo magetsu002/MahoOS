@@ -1061,6 +1061,7 @@ def _resume_owned(
 
     if state.get("lane") == "normal" and phase == UpdateState.RECOVERING.value:
         from maho_update_bad_recovery import (
+            RecoveryTerminalCommitError,
             _read_record as read_bad_update_record,
             attention_after_recovery_failure,
             resume_bad_update_recovery,
@@ -1090,14 +1091,15 @@ def _resume_owned(
                 transaction_id, state_root=root,
                 generation_root=Path("/var/lib/maho/generations"), now=now,
             )
-        except (OSError, RuntimeError, ValueError) as exc:
+        except RecoveryTerminalCommitError as exc:
             try:
                 durable = read_transaction(transaction_path(root, transaction_id))
                 checkpoint = read_bad_update_record(root, transaction_id)
             except (OSError, RuntimeError, ValueError):
                 durable = None
                 checkpoint = None
-            if (
+
+            pending = (
                 isinstance(durable, Mapping)
                 and isinstance(checkpoint, Mapping)
                 and durable.get("state") in {
@@ -1106,7 +1108,8 @@ def _resume_owned(
                 and checkpoint.get("phase") == "RECOVERED_VERIFIED_PENDING_TRANSACTION"
                 and checkpoint.get("recovery_attempts") == 1
                 and isinstance(checkpoint.get("post_recovery_verification"), Mapping)
-            ):
+            )
+            if pending:
                 terminal = durable["state"] == UpdateState.RECOVERED.value
                 verification = checkpoint["post_recovery_verification"]
                 value = dict(state)
@@ -1121,8 +1124,8 @@ def _resume_owned(
                     "reboot_required": False,
                     "reboot_performed": True,
                     "user_status": (
-                        "Recovered state is current, but its terminal evidence "
-                        "commit must be reconciled."
+                        "Recovered verification completed, but its terminal "
+                        "evidence commit must be reconciled."
                     ),
                 })
                 if terminal:
@@ -1140,6 +1143,40 @@ def _resume_owned(
                         "reboot_performed": True,
                     }
                 return _save(_with_debt(value, now))
+
+            if (
+                isinstance(durable, Mapping)
+                and durable.get("state") == UpdateState.RECOVERING.value
+            ):
+                value = dict(state)
+                value.update({
+                    "phase": UpdateState.RECOVERING.value,
+                    "blockers": ["recovery_terminal_commit_retry_required"],
+                    "last_error": str(exc)[:4000],
+                    "last_attempt_at": stamp(now),
+                    "reboot_required": False,
+                    "reboot_performed": True,
+                    "user_status": (
+                        "Recovered verification completed, but terminal evidence "
+                        "persistence must be retried."
+                    ),
+                })
+                return _save(_with_debt(value, now))
+
+            attention = attention_after_recovery_failure(
+                transaction_id, state_root=root, detail=str(exc),
+                blocker="recovery_terminal_commit_retry_required", now=now,
+            )
+            value = dict(state)
+            value.update({
+                "phase": attention["phase"],
+                "blockers": ["recovery_terminal_commit_retry_required"],
+                "last_error": str(exc)[:4000], "last_attempt_at": stamp(now),
+                "reboot_required": False, "reboot_performed": True,
+                "user_status": "Recovery terminal evidence could not be reconciled.",
+            })
+            return _save(_with_debt(value, now))
+        except (OSError, RuntimeError, ValueError) as exc:
             attention = attention_after_recovery_failure(
                 transaction_id, state_root=root, detail=str(exc),
                 blocker="recovered_generation_verification_failed", now=now,

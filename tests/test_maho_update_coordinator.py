@@ -16,6 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
+import maho_update_bad_recovery as bad_recovery  # noqa: E402
 import maho_update_coordinator as coordinator  # noqa: E402
 from maho_update_discovery import IsolatedPacmanDiscovery  # noqa: E402
 from maho_update_maintenance import MaintenanceContext, evaluate_maintenance  # noqa: E402
@@ -555,7 +556,9 @@ class CoordinatorContracts(unittest.TestCase):
                  patch("maho_update_bad_recovery._read_record", return_value=pending), \
                  patch(
                      "maho_update_bad_recovery.verify_recovered_normal",
-                     side_effect=OSError("injected transaction publication interruption"),
+                     side_effect=bad_recovery.RecoveryTerminalCommitError(
+                         "injected transaction publication interruption",
+                     ),
                  ), \
                  patch("maho_update_bad_recovery.resume_bad_update_recovery") as resume, \
                  patch("maho_update_bad_recovery.attention_after_recovery_failure") as attention:
@@ -615,7 +618,9 @@ class CoordinatorContracts(unittest.TestCase):
                     durable, UpdateState.RECOVERED, evidence=verification, now=NOW,
                 )
                 publish_transaction(root, durable)
-                raise OSError("injected final record interruption")
+                raise bad_recovery.RecoveryTerminalCommitError(
+                    "injected final record interruption",
+                )
 
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
                  patch("maho_update_bad_recovery._read_record", side_effect=(armed, pending)), \
@@ -659,6 +664,83 @@ class CoordinatorContracts(unittest.TestCase):
                 )
             self.assertEqual(reconciled["phase"], "RECOVERED")
             self.assertEqual(reconciled["recovery"]["recovery_attempts"], 1)
+
+    def test_pending_checkpoint_fresh_verification_failures_require_attention(self):
+        failures = (
+            ("package-generation query failure", OSError("package generation query failed")),
+            ("wrong current root drift", RuntimeError("recovered live root identity mismatch")),
+            ("topology drift", RuntimeError("recovered recovery topology mismatch")),
+            ("boot-artifact drift", RuntimeError("post-recovery boot identity drifted")),
+            ("KernelGeneration drift", RuntimeError("recovered KernelGeneration binding mismatch")),
+            ("SystemGeneration drift", RuntimeError("recovered SystemGeneration binding mismatch")),
+        )
+        for name, failure in failures:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as state_tmp:
+                root = Path(state_tmp)
+                transaction = prepared_tx()
+                for phase in (
+                    UpdateState.MAINTENANCE_READY,
+                    UpdateState.INSTALLING,
+                    UpdateState.INSTALLED_PENDING_ACTIVATION,
+                    UpdateState.ACTIVE_VERIFYING,
+                    UpdateState.RECOVERING,
+                ):
+                    transaction = transition_transaction(transaction, phase, now=NOW)
+                publish_transaction(root, transaction)
+                verification = {
+                    "failed_candidate_uuid": "2" * 8 + "-2222-2222-2222-" + "2" * 12,
+                    "failed_system_generation_id": "gen-" + "3" * 64,
+                    "recovered_root_uuid": "1" * 8 + "-1111-1111-1111-" + "1" * 12,
+                    "recovered_system_generation_id": "gen-" + "4" * 64,
+                    "kernel_generation_id": "kgen-" + "5" * 64,
+                    "package_versions": {"demo": "1"},
+                    "recovery_attempts": 1,
+                }
+                pending = {
+                    "phase": "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+                    "transaction_state": UpdateState.RECOVERING.value,
+                    "recovery_attempts": 1,
+                    "post_recovery_verification": verification,
+                }
+                bad_recovery._atomic_json(
+                    bad_recovery.recovery_record_path(root, TXID), pending,
+                )
+                state = {
+                    **coordinator._base_state(NOW, REV),
+                    "active_transaction_id": TXID,
+                    "lane": "normal",
+                    "phase": UpdateState.RECOVERING.value,
+                }
+                with patch.dict(
+                    os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False,
+                ), patch(
+                    "maho_update_bad_recovery.verify_recovered_normal",
+                    side_effect=failure,
+                ), patch(
+                    "maho_update_bad_recovery.resume_bad_update_recovery",
+                ) as resume:
+                    result = coordinator._resume_owned(
+                        state, REV, "magetsu", {"source_revision": REV},
+                        {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                        NOW,
+                    )
+                self.assertEqual(result["phase"], UpdateState.ATTENTION_REQUIRED.value)
+                self.assertEqual(
+                    result["blockers"], ["recovered_generation_verification_failed"],
+                )
+                self.assertNotIn("Recovered state is current", result["user_status"])
+                durable = read_transaction(transaction_path(root, TXID))
+                self.assertEqual(durable["state"], UpdateState.ATTENTION_REQUIRED.value)
+                recovery_record = bad_recovery._read_record(root, TXID)
+                self.assertEqual(
+                    recovery_record["phase"], UpdateState.ATTENTION_REQUIRED.value,
+                )
+                self.assertEqual(
+                    recovery_record["recovery_blocker"],
+                    "recovered_generation_verification_failed",
+                )
+                self.assertEqual(recovery_record["recovery_attempts"], 1)
+                resume.assert_not_called()
 
     def test_recovered_transaction_is_terminal_only_with_exact_current_verified_evidence(self):
         with tempfile.TemporaryDirectory() as state_tmp:

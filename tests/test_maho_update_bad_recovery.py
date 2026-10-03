@@ -420,6 +420,41 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
                     cmdline_path=cmdline,
                 )
 
+    def test_pending_verification_record_write_is_terminal_commit_error(self):
+        self._begin()
+        self._compatibility()
+        FakeBtrfs.topology = "RECOVERY_ARMED"
+        FakeBtrfs.live_uuid = PREVIOUS_UUID
+        cmdline = self.base / "cmdline"
+        cmdline.write_text("rootflags=subvol=@ rw\n")
+        package_runner = lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout="demo 1\n", stderr="",
+        )
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(recovery, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(
+                 recovery, "_atomic_json",
+                 side_effect=OSError("injected pending record interruption"),
+             ):
+            with self.assertRaisesRegex(
+                recovery.RecoveryTerminalCommitError,
+                "persist pending recovered verification",
+            ):
+                recovery.verify_recovered_normal(
+                    TXID, state_root=self.recovered, generation_root=self.generations,
+                    now=NOW, cmdline_path=cmdline, package_runner=package_runner,
+                    running_kernel=lambda: "6.1-cachyos",
+                )
+        self.assertEqual(
+            read_transaction(transaction_path(self.recovered, TXID))["state"],
+            UpdateState.RECOVERING.value,
+        )
+        self.assertEqual(
+            recovery._read_record(self.recovered, TXID)["phase"],
+            "RECOVERY_ARMED",
+        )
+        self.assertEqual(FakeBtrfs.arm_calls, 1)
+
     def test_interrupted_terminal_transaction_publication_resumes_same_verification(self):
         self._begin()
         self._compatibility()
@@ -433,7 +468,10 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
         with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
              patch.object(recovery, "load_current_verified_generations", return_value=live_context()), \
              patch.object(recovery, "publish_transaction", side_effect=OSError("injected terminal publish interruption")):
-            with self.assertRaisesRegex(OSError, "terminal publish interruption"):
+            with self.assertRaisesRegex(
+                recovery.RecoveryTerminalCommitError,
+                "publish terminal recovered transaction",
+            ):
                 recovery.verify_recovered_normal(
                     TXID, state_root=self.recovered, generation_root=self.generations,
                     now=NOW, cmdline_path=cmdline, package_runner=package_runner,
@@ -447,10 +485,6 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
             recovery._read_record(self.recovered, TXID)["phase"],
             "RECOVERED_VERIFIED_PENDING_TRANSACTION",
         )
-        attention = recovery.attention_after_recovery_failure(
-            TXID, state_root=self.recovered, detail="simulated coordinator catch", now=NOW,
-        )
-        self.assertTrue(attention["checkpoint_preserved"])
         self.assertEqual(
             read_transaction(transaction_path(self.recovered, TXID))["state"],
             "RECOVERING",
@@ -492,7 +526,10 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
         with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
              patch.object(recovery, "load_current_verified_generations", return_value=live_context()), \
              patch.object(recovery, "_atomic_json", side_effect=interrupt_final_record):
-            with self.assertRaisesRegex(OSError, "final record interruption"):
+            with self.assertRaisesRegex(
+                recovery.RecoveryTerminalCommitError,
+                "persist final recovered verification",
+            ):
                 recovery.verify_recovered_normal(
                     TXID, state_root=self.recovered, generation_root=self.generations,
                     now=NOW, cmdline_path=cmdline, package_runner=package_runner,
@@ -506,10 +543,6 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
             recovery._read_record(self.recovered, TXID)["phase"],
             "RECOVERED_VERIFIED_PENDING_TRANSACTION",
         )
-        attention = recovery.attention_after_recovery_failure(
-            TXID, state_root=self.recovered, detail="simulated coordinator catch", now=NOW,
-        )
-        self.assertTrue(attention["checkpoint_preserved"])
         self.assertEqual(
             recovery._read_record(self.recovered, TXID)["phase"],
             "RECOVERED_VERIFIED_PENDING_TRANSACTION",

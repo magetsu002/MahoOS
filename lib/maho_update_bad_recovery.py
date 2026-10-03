@@ -48,6 +48,10 @@ _EXECUTION_FIELDS = {
 }
 
 
+class RecoveryTerminalCommitError(RuntimeError):
+    """Terminal recovery verification succeeded, but durable commit did not."""
+
+
 def _stamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -626,18 +630,6 @@ def _attention(
     detail: str = "", now: datetime | None = None,
 ) -> dict[str, Any]:
     transaction = read_transaction(transaction_path(state_root, transaction_id))
-    try:
-        checkpoint = _read_record(state_root, transaction_id)
-    except (OSError, ValueError):
-        checkpoint = None
-    if (
-        isinstance(checkpoint, Mapping)
-        and checkpoint.get("phase") == "RECOVERED_VERIFIED_PENDING_TRANSACTION"
-    ):
-        return {
-            "phase": transaction["state"], "transaction": transaction,
-            "checkpoint_preserved": True,
-        }
     if transaction["state"] == UpdateState.ATTENTION_REQUIRED.value:
         return {"phase": transaction["state"], "transaction": transaction}
     if transaction["state"] in {
@@ -1181,20 +1173,35 @@ def verify_recovered_normal(
         "reboot_required": False,
         "reboot_performed": True,
     })
-    _atomic_json(recovery_record_path(state_root, transaction_id), pending_record)
+    try:
+        _atomic_json(recovery_record_path(state_root, transaction_id), pending_record)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RecoveryTerminalCommitError(
+            "could not persist pending recovered verification",
+        ) from exc
     transaction = transition_transaction(
         transaction, UpdateState.RECOVERED,
         reason="exact previous known-good SystemGeneration passed independent verification",
         evidence=verification, now=current,
     )
-    publish_transaction(state_root, transaction)
+    try:
+        publish_transaction(state_root, transaction)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RecoveryTerminalCommitError(
+            "could not publish terminal recovered transaction",
+        ) from exc
     pending_record.update({
         "phase": "RECOVERED_VERIFIED",
         "transaction_state": UpdateState.RECOVERED.value,
         "reboot_required": False,
         "reboot_performed": True,
     })
-    _atomic_json(recovery_record_path(state_root, transaction_id), pending_record)
+    try:
+        _atomic_json(recovery_record_path(state_root, transaction_id), pending_record)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise RecoveryTerminalCommitError(
+            "could not persist final recovered verification",
+        ) from exc
     return {
         "transaction_id": transaction_id,
         "phase": UpdateState.RECOVERED.value,
