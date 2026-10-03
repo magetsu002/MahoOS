@@ -10,6 +10,7 @@ TARGET="$ROOT/systemd/user/maho-hyprland-session.target"
 SETUP="$ROOT/bin/maho-setup"
 SESSION="$ROOT/bin/maho-session"
 PKG="$ROOT/packaging/arch/PKGBUILD.in"
+WINDOWING="$ROOT/config/hypr/maho/core/windowing.lua"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require_text() { grep -Fq -- "$2" "$1" || fail "$3"; }
@@ -61,6 +62,9 @@ require_text "$SOURCE" 'gtk_entry_set_activates_default(self->entry, TRUE)' "Ent
 require_text "$SOURCE" 'active.json' "wallpaper-derived Maho palette integration missing"
 require_text "$SOURCE" 'Authenticate as:' "actual selected identity is not displayed"
 require_text "$SOURCE" 'Requested by:' "requesting application/process presentation missing"
+require_text "$WINDOWING" 'class = "^io[.]maho[.]PolkitAgent$"' "auth window is not matched by Maho window policy"
+require_text "$WINDOWING" 'pin = true' "auth window can become stale on another workspace"
+require_text "$WINDOWING" 'stay_focused = true' "auth window can lose focus while visible"
 echo "PASS"
 
 echo "=== session integration ==="
