@@ -11,9 +11,14 @@ sys.path.insert(0,str(ROOT/'lib'))
 
 from maho_update_discovery import CommandResult
 from maho_update_effects import repository_provenance
-from maho_update_normal import NormalPreparationEvidence, execute_normal_update, prepare_normal_transaction
+from maho_update_normal import (
+    NormalPreparationEvidence,
+    execute_normal_candidate,
+    execute_normal_update,
+    prepare_normal_transaction,
+)
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction
-from maho_update_state import create_transaction
+from maho_update_state import UpdateState, create_transaction, transition_transaction
 
 NOW=datetime(2026,9,20,7,30,tzinfo=timezone.utc)
 
@@ -105,6 +110,15 @@ def main():
         executed=execute_normal_update(prepared.transaction,prepared.plan,ops,now=NOW)
         check('fixture normal update completes HEALTHY lifecycle',executed.transaction['state']=='HEALTHY')
         check('fixture lifecycle requires Guardian Admission',ops.calls==['install','admit','activate','verify'])
+
+        ready=transition_transaction(
+            prepared.transaction,UpdateState.MAINTENANCE_READY,
+            reason='fixture S2.2 maintenance authority',now=NOW)
+        candidate_ops=FixtureOps()
+        candidate=execute_normal_candidate(ready,prepared.plan,candidate_ops,now=NOW)
+        check('S2.2 normal candidate execution stops at INSTALLED_PENDING_ACTIVATION',candidate.transaction['state']=='INSTALLED_PENDING_ACTIVATION')
+        check('S2.2 normal candidate execution never invokes live activation or postboot verification',candidate_ops.calls==['install','admit'])
+        check('S2.2 candidate transaction explicitly records no live-root mutation',candidate.transaction['history'][-1]['evidence']['live_root_mutation'] is False)
 
     with tempfile.TemporaryDirectory(prefix='maho-normal-prod-') as temporary:
         staged,cache=stage(Path(temporary))

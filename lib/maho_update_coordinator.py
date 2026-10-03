@@ -90,6 +90,10 @@ def work_root() -> Path:
     return Path(os.environ.get("MAHO_UPDATE_AUTO_WORK_ROOT", str(DEFAULT_WORK_ROOT)))
 
 
+def campaign_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
 def coordinator_path(root: Path | None = None) -> Path:
     return (root or state_root()) / "coordinator.json"
 
@@ -654,6 +658,105 @@ def _maintenance_transition(
     }
 
 
+def _execution_repository_observation(repo: Mapping[str, Any]) -> dict[str, str]:
+    temporary = work_root() / f"execute-observe-{os.getpid()}-{secrets.token_hex(4)}"
+    try:
+        return _repo_hashes(repo, temporary)
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+
+
+def _execution_maintenance_observation(user: str, now: datetime) -> dict[str, Any]:
+    raw = _read_adaptive_status(user, now)
+    ready, reasons = _adaptive_ready(raw)
+    if not ready:
+        raise RuntimeError("maintenance_opportunity_revoked:" + ",".join(reasons))
+    return {
+        "safe": True,
+        "snapshot_id": raw.get("snapshot_id"),
+        "captured_at": raw.get("captured_at"),
+        "decision_at": stamp(now),
+    }
+
+
+def _fresh_ready_normal_evidence(
+    transaction: Mapping[str, Any],
+    state: Mapping[str, Any],
+    user: str,
+    repo: Mapping[str, Any],
+    now: datetime,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    current = validate_transaction(transaction)
+    reasons: list[str] = []
+    authority_state = _authority_state(
+        current["source_revision"], "normal", transaction=current,
+    )
+    if authority_state != "current":
+        reasons.append("normal_execution_authority_" + authority_state.replace("-", "_"))
+    try:
+        adaptive = _read_adaptive_status(user, now)
+        adaptive_ready, adaptive_reasons = _adaptive_ready(adaptive)
+    except RuntimeError as exc:
+        adaptive = {}
+        adaptive_ready = False
+        adaptive_reasons = [str(exc).split(":", 1)[0]]
+    if not adaptive_ready:
+        reasons.extend(adaptive_reasons)
+    if not _generation_is_current(current):
+        reasons.append("stale_update_transaction")
+
+    value = dict(state)
+    observed_at = parse_stamp(value.get("repository_observed_at"))
+    if observed_at is None or now - observed_at > REPOSITORY_EVIDENCE_MAX_AGE:
+        temporary = work_root() / f"execute-revalidate-{os.getpid()}-{secrets.token_hex(4)}"
+        try:
+            observed_hashes = _repo_hashes(repo, temporary)
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
+        expected_hashes = value.get("repository_hashes")
+        if not isinstance(expected_hashes, Mapping) or dict(expected_hashes) != observed_hashes:
+            reasons.append("repository_generation_drifted")
+        else:
+            value["repository_observed_at"] = stamp(now)
+            value["repository_hashes"] = observed_hashes
+
+    _, _, cache = _work_for(current["transaction_id"])
+    if not cache.is_dir() or not _manifest_for(cache, current).is_file():
+        reasons.append("staged_preparation_artifacts_missing")
+        available = 0
+        required = 0
+        recovery_ready = False
+    else:
+        available = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
+        required = sum(
+            int(item["installed_size"]) + int(item["download_size"])
+            for item in current["package_generation"]["packages"]
+        ) + PREPARATION_OVERHEAD_BYTES
+        if available < required or available - required < SAFE_STORAGE_RESERVE_BYTES:
+            reasons.append("disk_headroom_unconfirmed")
+        recovery_ready = _candidate_capability(current["transaction_id"])
+        if not recovery_ready:
+            reasons.append("recovery_prerequisites_unready")
+
+    evidence = {
+        "ready": not reasons,
+        "reasons": reasons,
+        "transaction_id": current["transaction_id"],
+        "package_generation_id": current["package_generation"]["id"],
+        "source_revision": current["source_revision"],
+        "adaptive_snapshot_id": adaptive.get("snapshot_id"),
+        "adaptive_captured_at": adaptive.get("captured_at"),
+        "repository_hashes": dict(value.get("repository_hashes") or {}),
+        "repository_observed_at": value.get("repository_observed_at"),
+        "available_disk_bytes": available,
+        "required_disk_bytes": required,
+        "recovery_ready": recovery_ready,
+        "execution_authority_state": authority_state,
+        "decision_at": stamp(now),
+    }
+    return evidence, value
+
+
 def _revalidate_repository(
     transaction: Mapping[str, Any],
     state: Mapping[str, Any],
@@ -726,14 +829,224 @@ def _resume_owned(
         return _save(_with_debt(value, now))
     phase = transaction["state"]
     _, _, cache = _work_for(transaction_id)
+
+    if state.get("lane") == "normal" and phase == UpdateState.INSTALLING.value:
+        from maho_update_automatic_execution import recover_interrupted_normal_execution
+        result = recover_interrupted_normal_execution(
+            transaction_id, state_root=root, now=now,
+        )
+        value = dict(state)
+        value.update({
+            "phase": str(result.get("phase") or "ATTENTION_REQUIRED"),
+            "blockers": list(result.get("transaction", {}).get("blockers") or []),
+            "execution": result,
+            "last_attempt_at": stamp(now),
+            "last_success_at": stamp(now),
+        })
+        return _save(_with_debt(value, now))
+
+    if state.get("lane") == "normal" and phase == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
+        from maho_update_automatic_execution import (
+            finalize_pending_normal,
+            read_execution_record,
+            verify_activated_normal,
+        )
+        try:
+            record = finalize_pending_normal(
+                transaction_id, state_root=root, now=now,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            value = dict(state)
+            value.update({
+                "phase": "ATTENTION_REQUIRED",
+                "blockers": ["normal_activation_handoff_unavailable"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+            })
+            return _save(_with_debt(value, now))
+        value = dict(state)
+        handoff = record.get("activation_handoff") if isinstance(record, Mapping) else None
+        already_armed = record.get("phase") == "ACTIVATION_ARMED"
+        postboot = None
+        if already_armed:
+            try:
+                postboot = verify_activated_normal(
+                    transaction_id, state_root=root, now=now,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                value.update({
+                    "phase": "ATTENTION_REQUIRED",
+                    "blockers": ["normal_postboot_verification_failed"],
+                    "last_error": str(exc)[:4000],
+                    "last_attempt_at": stamp(now),
+                    "reboot_required": False,
+                    "reboot_performed": True,
+                })
+                return _save(_with_debt(value, now))
+            record = read_execution_record(root, transaction_id) or record
+        value.update({
+            "phase": UpdateState.HEALTHY.value if postboot else "READY_TO_RESTART",
+            "blockers": [],
+            "last_success_at": stamp(now),
+            "execution": record,
+            "activation_handoff_id": handoff.get("handoff_id") if isinstance(handoff, Mapping) else None,
+            "candidate_system_generation_id": (
+                record.get("candidate_generation", {}).get("system_generation_id")
+                if isinstance(record.get("candidate_generation"), Mapping) else None
+            ),
+            "reboot_required": postboot is None,
+            "reboot_performed": postboot is not None,
+            "postboot_verification": postboot,
+            "user_status": (
+                "Update verified after restart."
+                if postboot else "Update is ready. Restart to finish."
+            ),
+        })
+        return _save(_with_debt(value, now))
+
+    if state.get("lane") == "normal" and phase in {
+        UpdateState.ACTIVE_VERIFYING.value, UpdateState.HEALTHY.value,
+    }:
+        from maho_update_automatic_execution import verify_activated_normal
+        try:
+            postboot = verify_activated_normal(
+                transaction_id, state_root=root, now=now,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            value = dict(state)
+            value.update({
+                "phase": "ATTENTION_REQUIRED",
+                "blockers": ["normal_postboot_verification_failed"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+            })
+            return _save(_with_debt(value, now))
+        value = dict(state)
+        value.update({
+            "phase": UpdateState.HEALTHY.value,
+            "blockers": [],
+            "last_success_at": stamp(now),
+            "postboot_verification": postboot,
+            "reboot_required": False,
+            "reboot_performed": True,
+            "user_status": "Update verified after restart.",
+        })
+        return _save(_with_debt(value, now))
+
     if phase == UpdateState.MAINTENANCE_READY.value:
         value = dict(state)
         value.update({
             "phase": "MAINTENANCE_READY",
             "blockers": [],
             "last_success_at": stamp(now),
-            "normal_execution_authority": _authority_state(source_revision, state.get("lane")),
+            "normal_execution_authority": _authority_state(
+                source_revision,
+                state.get("lane"),
+                transaction=transaction if state.get("lane") == "normal" else None,
+            ),
         })
+        if state.get("lane") == "native":
+            blocked = transition_transaction(
+                transaction,
+                UpdateState.BLOCKED,
+                reason=(
+                    "automatic native execution requires an exact BootGeneration "
+                    "publication authority; production Signed Boot publication is "
+                    "outside S2.2 scope"
+                ),
+                blockers=["native_boot_generation_publication_unavailable"],
+                evidence={
+                    "lane": "native",
+                    "m3b_m4b_prepared": True,
+                    "live_root_mutation": False,
+                    "signed_boot_mutation_attempted": False,
+                    "required_generation": "BootGeneration",
+                },
+                now=now,
+            )
+            publish_transaction(root, blocked)
+            value.update({
+                "phase": "BLOCKED",
+                "blockers": ["native_boot_generation_publication_unavailable"],
+                "last_attempt_at": stamp(now),
+                "native_execution_deferred": True,
+                "live_root_mutation_started": False,
+                "reboot_performed": False,
+                "user_status": "Kernel update prepared; exact boot publication authority is unavailable.",
+            })
+            return _save(_with_debt(value, now))
+        if state.get("lane") != "normal":
+            return _save(_with_debt(value, now))
+        maintenance, refreshed = _fresh_ready_normal_evidence(
+            transaction, value, user, repo, now,
+        )
+        value.update(refreshed)
+        value["maintenance_evidence"] = maintenance
+        value["last_attempt_at"] = stamp(now)
+        if maintenance["ready"] is not True:
+            value.update({
+                "phase": "WAITING_MAINTENANCE",
+                "blockers": list(maintenance["reasons"]),
+            })
+            return _save(_with_debt(value, now))
+        from maho_update_automatic_execution import execute_ready_normal
+        try:
+            record = execute_ready_normal(
+                transaction,
+                cache_root=cache,
+                manifest_path=_manifest_for(cache, transaction),
+                maintenance_evidence=maintenance,
+                repository_evidence={
+                    "repository_hashes": dict(value.get("repository_hashes") or {}),
+                },
+                repository_reobserve=lambda: _execution_repository_observation(repo),
+                maintenance_reobserve=lambda: _execution_maintenance_observation(
+                    user, utc_now(),
+                ),
+                state_root=root,
+                campaign_root=campaign_root(),
+                now=now,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            observed = read_transaction(transaction_path(root, transaction_id))
+            if observed["state"] == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
+                from maho_update_automatic_execution import finalize_pending_normal
+                record = finalize_pending_normal(
+                    transaction_id, state_root=root, now=now,
+                )
+            else:
+                value.update({
+                    "phase": "MAINTENANCE_READY",
+                    "blockers": [str(exc).split(":", 1)[0]],
+                    "last_error": str(exc)[:4000],
+                })
+                return _save(_with_debt(value, now))
+        observed = read_transaction(transaction_path(root, transaction_id))
+        value["execution"] = record
+        value["last_success_at"] = stamp(now)
+        if observed["state"] == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
+            handoff = record.get("activation_handoff") if isinstance(record, Mapping) else None
+            value.update({
+                "phase": "READY_TO_RESTART",
+                "blockers": [],
+                "activation_handoff_id": handoff.get("handoff_id") if isinstance(handoff, Mapping) else None,
+                "candidate_system_generation_id": (
+                    record.get("candidate_generation", {}).get("system_generation_id")
+                    if isinstance(record.get("candidate_generation"), Mapping) else None
+                ),
+                "reboot_required": True,
+                "reboot_performed": False,
+                "user_status": "Update is ready. Restart to finish.",
+            })
+        else:
+            value.update({
+                "phase": observed["state"],
+                "blockers": list(observed.get("blockers") or []),
+                "reboot_required": False,
+                "reboot_performed": False,
+            })
         return _save(_with_debt(value, now))
     if phase in {UpdateState.STAGED.value, UpdateState.BLOCKED.value}:
         if not cache.is_dir() or not _manifest_for(cache, transaction).is_file():
@@ -1016,7 +1329,12 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
     source_revision = _source_revision(root)
     previous = read_coordinator_state()
     retry = parse_stamp((previous or {}).get("next_retry_at"))
-    if retry is not None and current < retry:
+    if (
+        previous
+        and previous.get("source_revision") == source_revision
+        and retry is not None
+        and current < retry
+    ):
         value = dict(previous)
         value["last_attempt_at"] = stamp(current)
         value["phase"] = "RETRY_DEFERRED"
@@ -1070,6 +1388,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="maho-update-coordinator")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run")
+    sub.add_parser("activate-current")
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -1082,6 +1401,22 @@ def main() -> None:
             blockers = payload.get("blockers") or []
             if blockers:
                 print("Blockers: " + ", ".join(str(item) for item in blockers))
+        return
+    if args.command == "activate-current":
+        from maho_update_automatic_execution import activate_current_pending
+        _require_root()
+        try:
+            with coordinator_mutex():
+                payload = activate_current_pending(state_root=state_root())
+        except CoordinatorBusy:
+            payload = {
+                "schema_version": SCHEMA_VERSION,
+                "phase": "COALESCED",
+                "blockers": ["update_campaign_busy"],
+                "activation_attempted": False,
+                "reboot_performed": False,
+            }
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return
     try:
         payload = run_once()
