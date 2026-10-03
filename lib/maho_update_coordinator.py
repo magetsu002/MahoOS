@@ -966,6 +966,7 @@ def _resume_owned(
                         "last_attempt_at": stamp(now),
                         "reboot_required": False, "reboot_performed": True,
                     })
+                    return _save(_with_debt(value, now))
                 return _save_after_recovery(
                     _with_debt(value, now), recovery,
                 )

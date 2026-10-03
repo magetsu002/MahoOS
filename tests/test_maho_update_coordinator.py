@@ -428,6 +428,47 @@ class CoordinatorContracts(unittest.TestCase):
             resume.assert_called_once()
             attention.assert_not_called()
 
+    def test_postboot_recovery_start_failure_converges_to_attention(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            pending = transition_transaction(
+                transition_transaction(
+                    transition_transaction(
+                        prepared_tx(), UpdateState.MAINTENANCE_READY, now=NOW,
+                    ),
+                    UpdateState.INSTALLING, now=NOW,
+                ),
+                UpdateState.INSTALLED_PENDING_ACTIVATION, now=NOW,
+            )
+            publish_transaction(root, pending)
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": pending["package_generation"]["id"],
+                "lane": "normal", "phase": "READY_TO_RESTART",
+            }
+            record = {
+                "phase": "ACTIVATION_ARMED",
+                "activation_handoff": {"handoff_id": "art-" + "a" * 64},
+                "candidate_generation": {"system_generation_id": "gen-" + "b" * 64},
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
+                 patch("maho_update_automatic_execution.verify_activated_normal", side_effect=RuntimeError("package query failed")), \
+                 patch("maho_update_bad_recovery.begin_bad_update_recovery", side_effect=RuntimeError("recovery evidence invalid")), \
+                 patch("maho_update_bad_recovery.attention_after_recovery_failure", return_value={"phase": "ATTENTION_REQUIRED"}) as attention:
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(result["blockers"], ["bad_update_recovery_evidence_invalid"])
+            self.assertEqual(result["last_error"], "recovery evidence invalid")
+            self.assertFalse(result["reboot_required"])
+            self.assertTrue(result["reboot_performed"])
+            attention.assert_called_once()
+
     def test_recovering_transaction_verifies_once_and_converges_recovered(self):
         with tempfile.TemporaryDirectory() as state_tmp:
             root = Path(state_tmp)
