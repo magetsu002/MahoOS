@@ -236,8 +236,14 @@ echo PASS
 echo '=== V1 external-open authority ==='
 require_text "$MODEL_CPP" 'new KIO::OpenUrlJob(item.url(), item.mimetype(), this)' \
     'regular file open is not routed to the system application authority'
-require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(this)' \
-    'Open With is not routed to the KDE application authority'
+require_text "$MODEL_CPP" 'KApplicationTrader::queryByMimeType' \
+    'Open With candidates do not come from the KDE/XDG application authority'
+require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(service, this)' \
+    'selected Open With applications are not launched through KIO'
+require_text "$QML" 'id: openWithPopup' \
+    'Open With still lacks a compact Maho-native chooser surface'
+require_text "$QML" 'sequence: "Ctrl+Shift+O"' \
+    'compact Open With has no keyboard-accessible path'
 reject_text "$MODEL_CPP" 'QDesktopServices::openUrl' \
     'file opening bypasses the existing KIO authority'
 reject_text "$MODEL_CPP" 'xdg-open' \

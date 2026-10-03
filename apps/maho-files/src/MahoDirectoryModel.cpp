@@ -3,6 +3,8 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <KIO/ApplicationLauncherJob>
+#include <KApplicationTrader>
+#include <KService>
 #include <KIO/JobUiDelegateFactory>
 #include <KIO/OpenUrlJob>
 #include <KJobUiDelegate>
@@ -864,8 +866,64 @@ void MahoDirectoryModel::openWithIndex(int row)
     job->setUiDelegate(KIO::createDefaultJobUiDelegate(
         KJobUiDelegate::AutoHandlingEnabled, nullptr));
     connect(job, &KJob::result, this, [this](KJob *completed) {
-        if (completed->error())
+        if (completed->error() && completed->error() != KJob::KilledJobError)
             setOperationMessage(completed->errorString());
+    });
+    job->start();
+}
+
+QVariantMap MahoDirectoryModel::openWithDetails(int row) const
+{
+    QVariantMap result;
+    if (row < 0 || row >= m_items.size())
+        return result;
+
+    const KFileItem &item = m_items.at(row);
+    result.insert(QStringLiteral("name"), item.name());
+    result.insert(QStringLiteral("mimeType"), item.mimetype());
+    result.insert(QStringLiteral("mimeComment"), item.mimeComment());
+
+    QVariantList applications;
+    if (!item.mimetype().isEmpty()) {
+        const KService::Ptr preferred = KApplicationTrader::preferredService(item.mimetype());
+        const QString preferredId = preferred ? preferred->storageId() : QString();
+        const KService::List services = KApplicationTrader::queryByMimeType(item.mimetype());
+        for (const KService::Ptr &service : services) {
+            if (!service || service->noDisplay())
+                continue;
+            QVariantMap app;
+            app.insert(QStringLiteral("name"), service->name());
+            app.insert(QStringLiteral("genericName"), service->genericName());
+            app.insert(QStringLiteral("iconName"), service->icon());
+            app.insert(QStringLiteral("storageId"), service->storageId());
+            app.insert(QStringLiteral("isDefault"), !preferredId.isEmpty() && service->storageId() == preferredId);
+            applications.push_back(app);
+        }
+    }
+    result.insert(QStringLiteral("applications"), applications);
+    return result;
+}
+
+void MahoDirectoryModel::openWithApplication(int row, const QString &storageId)
+{
+    if (row < 0 || row >= m_items.size() || storageId.trimmed().isEmpty())
+        return;
+
+    const KService::Ptr service = KService::serviceByStorageId(storageId);
+    if (!service) {
+        setOperationMessage(QStringLiteral("That application is no longer available."));
+        return;
+    }
+
+    auto *job = new KIO::ApplicationLauncherJob(service, this);
+    job->setUrls({m_items.at(row).url()});
+    job->setUiDelegate(KIO::createDefaultJobUiDelegate(
+        KJobUiDelegate::AutoHandlingEnabled, nullptr));
+    connect(job, &KJob::result, this, [this, job, service]() {
+        if (job->error() && job->error() != KJob::KilledJobError)
+            setOperationMessage(job->errorString().isEmpty()
+                ? QStringLiteral("Could not open with %1.").arg(service->name())
+                : job->errorString());
     });
     job->start();
 }

@@ -435,6 +435,30 @@ private slots:
         QVERIFY(folderDetails.contains(QStringLiteral("Contents: 1 file")));
     }
 
+    void openWithDetailsExposeAuthoritativeApplicationIdentity()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        writeFile(temp.filePath(QStringLiteral("sample.txt")), "open-with");
+
+        MahoDirectoryModel model;
+        openAndSettle(model, temp.path());
+        QTRY_VERIFY_WITH_TIMEOUT(findRow(model, QStringLiteral("sample.txt")) >= 0, 5000);
+
+        const QVariantMap details = model.openWithDetails(findRow(model, QStringLiteral("sample.txt")));
+        QCOMPARE(details.value(QStringLiteral("name")).toString(), QStringLiteral("sample.txt"));
+        QVERIFY(!details.value(QStringLiteral("mimeType")).toString().isEmpty());
+        QVERIFY(details.contains(QStringLiteral("applications")));
+
+        const QVariantList applications = details.value(QStringLiteral("applications")).toList();
+        for (const QVariant &value : applications) {
+            const QVariantMap app = value.toMap();
+            QVERIFY(!app.value(QStringLiteral("name")).toString().isEmpty());
+            QVERIFY(!app.value(QStringLiteral("storageId")).toString().isEmpty());
+            QVERIFY(app.contains(QStringLiteral("isDefault")));
+        }
+    }
+
     void staleCurrentDirectoryFailsMutations()
     {
         QTemporaryDir temp;

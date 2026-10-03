@@ -13,6 +13,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # Arch's kio package installs /usr/lib/cmake/KF6KIO/KF6KIOConfig.cmake.
 # Consume that package directly instead of depending on ECM's umbrella FindKF6.
 find_package(KF6KIO CONFIG REQUIRED)
+find_package(KF6Service CONFIG REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -65,6 +66,7 @@ target_link_libraries(maho-files PRIVATE
     KF6::KIOCore
     KF6::KIOGui
     KF6::KIOFileWidgets
+    KF6::Service
 )
 
 
@@ -86,6 +88,7 @@ if(MAHO_FILES_BUILD_TESTS)
         KF6::KIOCore
         KF6::KIOGui
         KF6::KIOFileWidgets
+        KF6::Service
     )
 
     enable_testing()

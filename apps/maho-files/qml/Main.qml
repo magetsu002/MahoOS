@@ -375,7 +375,7 @@ ApplicationWindow {
 
     function handleBrowseKey(event) {
         if (event.accepted || root.textEntryHasFocus() || namePopup.opened
-                || morePopup.opened || contextPopup.opened || backgroundPopup.opened)
+                || morePopup.opened || contextPopup.opened || backgroundPopup.opened || openWithPopup.opened)
             return
 
         if (event.key === Qt.Key_Escape && root.searchVisible) {
@@ -693,6 +693,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+N"; onActivated: namePopup.beginNewFolder() }
     Shortcut { sequence: "F5"; onActivated: directoryModel.reload() }
     Shortcut { sequence: "F2"; enabled: root.selectedCount === 1; onActivated: namePopup.beginRename(root.selectedIndex) }
+    Shortcut { sequence: "Ctrl+Shift+O"; enabled: root.selectedCount === 1; onActivated: openWithPopup.openFor(root.selectedIndex) }
     Shortcut {
         sequence: "Delete"
         enabled: root.selectedCount > 0
@@ -910,7 +911,11 @@ ApplicationWindow {
                 label: "Open With…"
                 iconName: "system-run"
                 enabledState: root.selectedCount === 1
-                onTriggered: { contextPopup.close(); directoryModel.openWithIndex(contextPopup.targetIndex) }
+                onTriggered: {
+                    const row = contextPopup.targetIndex
+                    contextPopup.close()
+                    openWithPopup.openFor(row)
+                }
             }
             MenuAction {
                 label: "Properties"
@@ -1058,6 +1063,250 @@ ApplicationWindow {
                 label: "Reload"
                 iconName: "view-refresh"
                 onTriggered: { backgroundPopup.close(); directoryModel.reload() }
+            }
+        }
+    }
+
+    Popup {
+        id: openWithPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        padding: 16
+        width: Math.min(438, Math.max(310, root.width - 28))
+        height: Math.min(486, Math.max(244, 174 + Math.min(5, applications.length) * 58))
+        anchors.centerIn: Overlay.overlay
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        property int targetIndex: -1
+        property var details: ({})
+        property var applications: []
+
+        function openFor(row) {
+            if (row < 0)
+                return
+            targetIndex = row
+            details = directoryModel.openWithDetails(row)
+            applications = details.applications || []
+            openWithList.currentIndex = applications.length > 0 ? 0 : -1
+            open()
+            Qt.callLater(function() {
+                if (applications.length > 0)
+                    openWithList.forceActiveFocus()
+            })
+        }
+
+        function launch(storageId) {
+            const row = targetIndex
+            close()
+            directoryModel.openWithApplication(row, storageId)
+        }
+
+        onClosed: {
+            targetIndex = -1
+            details = ({})
+            applications = []
+        }
+
+        background: Rectangle {
+            radius: 24
+            color: root.menuFill
+            border.width: 1
+            border.color: root.quietRim
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Rectangle {
+                    Layout.preferredWidth: 42
+                    Layout.preferredHeight: 42
+                    radius: 13
+                    color: root.alpha(root.accent, root.lightMode ? 0.11 : 0.16)
+                    border.width: 1
+                    border.color: root.alpha(root.accent, 0.16)
+
+                    Image {
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        sourceSize: Qt.size(44, 44)
+                        source: root.icon("system-run")
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Open With"
+                        color: root.foreground
+                        font.pixelSize: 17
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: String(openWithPopup.details.name || "")
+                        color: root.alpha(root.muted, 0.90)
+                        font.pixelSize: 11
+                        elide: Text.ElideMiddle
+                    }
+                }
+
+                CompactActionButton {
+                    label: "Cancel"
+                    onTriggered: openWithPopup.close()
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; height: 1; color: root.divider }
+
+            Text {
+                visible: openWithPopup.applications.length === 0
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                text: "No registered apps were found for this file type."
+                color: root.alpha(root.muted, 0.90)
+                font.pixelSize: 12
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                wrapMode: Text.Wrap
+            }
+
+            ListView {
+                id: openWithList
+                visible: openWithPopup.applications.length > 0
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 4
+                model: openWithPopup.applications
+                boundsBehavior: Flickable.StopAtBounds
+                focus: true
+                keyNavigationEnabled: true
+                Keys.onReturnPressed: {
+                    if (currentIndex >= 0 && currentIndex < openWithPopup.applications.length)
+                        openWithPopup.launch(openWithPopup.applications[currentIndex].storageId)
+                }
+                Keys.onEnterPressed: {
+                    if (currentIndex >= 0 && currentIndex < openWithPopup.applications.length)
+                        openWithPopup.launch(openWithPopup.applications[currentIndex].storageId)
+                }
+
+                delegate: Rectangle {
+                    required property var modelData
+                    width: openWithList.width
+                    height: 54
+                    radius: 15
+                    color: appMouse.containsMouse || ListView.isCurrentItem
+                        ? root.hoverFill
+                        : modelData.isDefault ? root.alpha(root.accent, root.lightMode ? 0.07 : 0.10) : "transparent"
+                    border.width: modelData.isDefault || ListView.isCurrentItem ? 1 : 0
+                    border.color: ListView.isCurrentItem
+                        ? root.alpha(root.accent, 0.28)
+                        : root.alpha(root.accent, 0.14)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 11
+                        anchors.rightMargin: 11
+                        spacing: 11
+
+                        Rectangle {
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
+                            radius: 11
+                            color: root.alpha(root.surfaceElevated, root.lightMode ? 0.50 : 0.32)
+
+                            Image {
+                                anchors.centerIn: parent
+                                width: 24
+                                height: 24
+                                sourceSize: Qt.size(48, 48)
+                                source: root.icon(modelData.iconName || "application-x-executable")
+                                fillMode: Image.PreserveAspectFit
+                                smooth: true
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData.name || "Application"
+                                color: root.foreground
+                                font.pixelSize: 13
+                                font.weight: Font.Medium
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                visible: String(modelData.genericName || "").length > 0
+                                Layout.fillWidth: true
+                                text: modelData.genericName || ""
+                                color: root.alpha(root.muted, 0.78)
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Rectangle {
+                            visible: modelData.isDefault === true
+                            Layout.preferredWidth: defaultText.implicitWidth + 14
+                            Layout.preferredHeight: 22
+                            radius: 11
+                            color: root.alpha(root.accent, root.lightMode ? 0.10 : 0.15)
+                            Text {
+                                id: defaultText
+                                anchors.centerIn: parent
+                                text: "Default"
+                                color: root.alpha(root.foreground, 0.84)
+                                font.pixelSize: 9
+                                font.weight: Font.Medium
+                            }
+                        }
+
+                        Image {
+                            Layout.preferredWidth: 14
+                            Layout.preferredHeight: 14
+                            sourceSize: Qt.size(28, 28)
+                            source: root.icon("go-next")
+                            opacity: 0.46
+                        }
+                    }
+
+                    MouseArea {
+                        id: appMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { openWithList.currentIndex = index; openWithPopup.launch(modelData.storageId) }
+                    }
+                }
+
+                ScrollBar.vertical: MahoScrollBar {
+                    thumbColor: root.alpha(root.foreground, 0.20)
+                    thumbHoverColor: root.alpha(root.foreground, 0.36)
+                    thumbPressedColor: root.alpha(root.foreground, 0.50)
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: openWithPopup.details.mimeComment
+                    ? String(openWithPopup.details.mimeComment)
+                    : String(openWithPopup.details.mimeType || "")
+                color: root.alpha(root.muted, 0.66)
+                font.pixelSize: 10
+                elide: Text.ElideRight
             }
         }
     }
