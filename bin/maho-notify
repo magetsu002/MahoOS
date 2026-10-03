@@ -32,6 +32,11 @@ notify_count() {
 }
 
 notify_running() {
+    local pid
+    pid="$(notify_status_pid_fast 2>/dev/null || true)"
+    if [ -n "$pid" ] && notify_pid_is_live "$pid"; then
+        return 0
+    fi
     [ "$(notify_count)" -gt 0 ]
 }
 
@@ -93,9 +98,26 @@ set_hyprland_material_rule() {
     fi
 }
 
-notify_status_pid() {
-    local path="$RUNTIME_DIR/maho/notify-status.json"
+notify_status_pid_fast() {
+    local path="$RUNTIME_DIR/maho/notify-status.json" pid
     [ -r "$path" ] || return 1
+    grep -Eq '"active"[[:space:]]*:[[:space:]]*true' "$path" || return 1
+    pid="$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$path" | head -1)"
+    case "$pid" in
+        ''|*[!0-9]*|0|1) return 1 ;;
+    esac
+    printf '%s\n' "$pid"
+}
+
+notify_status_pid() {
+    local path="$RUNTIME_DIR/maho/notify-status.json" pid
+    [ -r "$path" ] || return 1
+
+    pid="$(notify_status_pid_fast 2>/dev/null || true)"
+    if [ -n "$pid" ]; then
+        printf '%s\n' "$pid"
+        return 0
+    fi
 
     python - "$path" <<'PY_STATUS_PID'
 import json
@@ -118,10 +140,25 @@ PY_STATUS_PID
 }
 
 notify_pid_is_live() {
-    local candidate="$1" pid
-    while read -r pid; do
-        [ "$pid" = "$candidate" ] && return 0
-    done < <(notify_pids)
+    local candidate="$1" argument executable
+    case "$candidate" in
+        ''|*[!0-9]*|0|1) return 1 ;;
+    esac
+    [ -r "/proc/$candidate/cmdline" ] || return 1
+
+    executable="$(tr '\0' '\n' < "/proc/$candidate/cmdline" | head -1)"
+    case "${executable##*/}" in
+        quickshell) ;;
+        *) return 1 ;;
+    esac
+
+    while read -r argument; do
+        case "$argument" in
+            */maho-notify|*/maho-notify/shell.qml)
+                return 0
+                ;;
+        esac
+    done < <(tr '\0' '\n' < "/proc/$candidate/cmdline")
     return 1
 }
 
