@@ -447,10 +447,10 @@ hl = {
     config_merged = deep_merge(config_merged, t)
   end,
   monitor = function(spec)
-    collect_spec(collected_monitors, spec, 3)
+    collect_spec(collected_monitors, spec, 4)
   end,
   device = function(spec)
-    collect_spec(collected_devices, spec, 3)
+    collect_spec(collected_devices, spec, 4)
   end,
   window_rule = function(spec)
     spec = type(spec) == "table" and spec or {}
@@ -478,7 +478,7 @@ hl = {
     return rule_object()
   end,
   workspace_rule = function(spec)
-    collect_spec(collected_workspace_rules, spec, 3)
+    collect_spec(collected_workspace_rules, spec, 4)
   end,
   layer_rule = function(spec)
     spec = type(spec) == "table" and spec or {}

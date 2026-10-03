@@ -205,6 +205,11 @@ Video
         with (
             mock.patch.object(settings, "hypr_json", return_value=(payload, "")),
             mock.patch.object(settings, "_collect_hypr_config", return_value=({"binds": []}, "")),
+            mock.patch.object(
+                settings.hypr_config_writer,
+                "status",
+                return_value={"mutationAvailable": False, "path": ""},
+            ),
         ):
             snapshot = settings.snapshot_shortcuts()
         self.assertTrue(snapshot["available"])
@@ -217,7 +222,15 @@ Video
             {"name": "windows", "overridden": True, "bezier": "wind", "enabled": True, "speed": 5.0, "style": "slide"},
             {"name": "layers", "overridden": False, "bezier": "", "enabled": True, "speed": 0.0, "style": ""},
         ], [{"name": "wind", "X0": 0.1, "Y0": 0.2, "X1": 0.3, "Y1": 1.0}]]
-        with mock.patch.object(settings, "hypr_json", return_value=(payload, "")):
+        with (
+            mock.patch.object(settings, "hypr_json", return_value=(payload, "")),
+            mock.patch.object(settings, "_collect_hypr_config", return_value=({"animations": [], "curves": []}, "")),
+            mock.patch.object(
+                settings.hypr_config_writer,
+                "status",
+                return_value={"mutationAvailable": False, "path": ""},
+            ),
+        ):
             snapshot = settings.snapshot_motion()
         self.assertEqual([row["name"] for row in snapshot["animations"]], ["windows"])
         self.assertEqual(snapshot["curves"][0]["name"], "wind")

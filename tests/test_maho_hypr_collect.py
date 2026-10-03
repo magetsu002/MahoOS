@@ -73,6 +73,7 @@ class CollectorContracts(unittest.TestCase):
         state = self.collect(
             'hl.window_rule({ name = "float-test", match = { class = "test" }, float = true })\n'
             'hl.layer_rule({ name = "blur-shell", match = { namespace = "shell" }, blur = true })\n'
+            'hl.workspace_rule({ workspace = "special:test", persistent = false })\n'
             'hl.curve("wind", { type = "bezier", points = { { 0.1, 0.2 }, { 0.3, 1.0 } } })\n'
             'hl.animation({ leaf = "windows", enabled = true, speed = 5, bezier = "wind" })\n'
             'hl.on("hyprland.start", function() hl.exec_cmd("agent") end)\n'
@@ -80,6 +81,8 @@ class CollectorContracts(unittest.TestCase):
         self.assertEqual(state["window_rules"][0]["effects"]["float"], True)
         self.assertEqual(state["window_rules"][0]["match"]["class"], "test")
         self.assertEqual(state["layer_rules"][0]["effects"]["blur"], True)
+        self.assertEqual(state["workspace_rules"][0]["fields"]["workspace"], "special:test")
+        self.assertTrue(state["workspace_rules"][0]["source_file"].endswith("hyprland.lua"))
         self.assertEqual(state["curves"][0]["name"], "wind")
         self.assertEqual(state["animations"][0]["fields"]["leaf"], "windows")
         self.assertEqual(state["startup"][0]["when"], "start")
