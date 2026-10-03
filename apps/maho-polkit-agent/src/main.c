@@ -376,6 +376,8 @@ static void auth_request_free(AuthRequest *request);
 static void request_cancel(AuthRequest *request, const gchar *reason);
 static void request_start_session(AuthRequest *request);
 static void request_update_ui(AuthRequest *request);
+static void build_window(MahoPolkitListener *self);
+static void destroy_window(MahoPolkitListener *self);
 
 static gboolean request_is_current(AuthRequest *request) {
     return request != NULL
@@ -385,7 +387,9 @@ static gboolean request_is_current(AuthRequest *request) {
 }
 
 static void clear_entry_secret(MahoPolkitListener *self) {
-    gtk_editable_set_text(GTK_EDITABLE(self->entry), "");
+    if (self->entry != NULL) {
+        gtk_editable_set_text(GTK_EDITABLE(self->entry), "");
+    }
 }
 
 static void request_cleanup_session(AuthRequest *request) {
@@ -433,8 +437,8 @@ static void request_finish(AuthRequest *request, gboolean handled, GError *error
     request_disconnect_cancellable(request);
     request_cleanup_session(request);
     clear_entry_secret(self);
-    gtk_widget_set_visible(GTK_WIDGET(self->window), FALSE);
     self->active = NULL;
+    destroy_window(self);
 
     if (error != NULL) {
         g_task_return_error(request->task, error);
@@ -863,8 +867,39 @@ static void build_window(MahoPolkitListener *self) {
     apply_palette(self);
 }
 
+static void destroy_window(MahoPolkitListener *self) {
+    if (self->css_provider != NULL && self->window != NULL) {
+        GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(self->window));
+        gtk_style_context_remove_provider_for_display(
+            display,
+            GTK_STYLE_PROVIDER(self->css_provider)
+        );
+    }
+    g_clear_object(&self->css_provider);
+
+    if (self->window != NULL) {
+        gtk_window_destroy(self->window);
+        g_clear_object(&self->window);
+    }
+
+    self->action_label = NULL;
+    self->message_label = NULL;
+    self->requester_label = NULL;
+    self->identity_label = NULL;
+    self->prompt_label = NULL;
+    self->info_label = NULL;
+    self->error_label = NULL;
+    self->identity_dropdown = NULL;
+    self->entry = NULL;
+    self->cancel_button = NULL;
+    self->auth_button = NULL;
+}
+
 static void present_request(AuthRequest *request) {
     MahoPolkitListener *self = request->owner;
+    if (self->window == NULL) {
+        build_window(self);
+    }
     apply_palette(self);
     clear_entry_secret(self);
     gtk_label_set_text(self->action_label, request->action_id);
@@ -1058,19 +1093,7 @@ static void maho_polkit_listener_dispose(GObject *object) {
         self->registration_handle = NULL;
     }
 
-    if (self->css_provider != NULL && self->window != NULL) {
-        GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(self->window));
-        gtk_style_context_remove_provider_for_display(
-            display,
-            GTK_STYLE_PROVIDER(self->css_provider)
-        );
-    }
-    g_clear_object(&self->css_provider);
-
-    if (self->window != NULL) {
-        gtk_window_destroy(self->window);
-        g_clear_object(&self->window);
-    }
+    destroy_window(self);
 
     G_OBJECT_CLASS(maho_polkit_listener_parent_class)->dispose(object);
 }
@@ -1226,7 +1249,6 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
 
     MahoPolkitListener *listener = g_object_new(MAHO_TYPE_POLKIT_LISTENER, NULL);
     listener->app = app;
-    build_window(listener);
 
     g_autoptr(GError) error = NULL;
     if (!listener_register(listener, &error)) {
