@@ -1202,6 +1202,7 @@ ApplicationWindow {
                 }
 
                 delegate: Rectangle {
+                    required property int index
                     required property var modelData
                     width: openWithList.width
                     height: 54

@@ -262,6 +262,7 @@ require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(this)' "unknown/no-ha
 require_text "$QML" 'id: openWithPopup' "compact Maho Open With surface is missing"
 require_text "$QML" 'directoryModel.openWithDetails(row)' "Open With surface does not query authoritative candidates"
 require_text "$QML" 'directoryModel.openWithApplication(row, storageId)' "Open With surface does not launch the chosen authoritative service"
+require_text "$QML" 'required property int index' "Open With delegate lacks a stable model index for click selection"
 reject_text "$QML" 'label: "More apps…"' "ordinary Open With still exposes the oversized native chooser as a primary path"
 require_text "$MODEL_CPP" 'copyPathIndex' "Copy Path action is missing"
 require_text "$MODEL_CPP" 'duplicateIndex' "Duplicate action is missing"
