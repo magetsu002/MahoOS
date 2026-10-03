@@ -335,6 +335,7 @@ class CoordinatorContracts(unittest.TestCase):
                 "reboot_performed": False,
                 "failed_candidate_uuid": "22222222-2222-2222-2222-222222222222",
                 "selected_root_uuid": "11111111-1111-1111-1111-111111111111",
+                "filesystem_uuid": "33333333-3333-3333-3333-333333333333",
             }
             selected_state = root / "selected-state"
             selected_state.mkdir()
@@ -346,7 +347,7 @@ class CoordinatorContracts(unittest.TestCase):
                     self.transaction_id = transaction_id
 
                 def selected_state_root_for_recovery(self, **kwargs):
-                    self.assertions = kwargs
+                    type(self).assertions = kwargs
                     return selected_state
 
                 def close(self):
@@ -366,6 +367,14 @@ class CoordinatorContracts(unittest.TestCase):
             self.assertTrue(result["reboot_required"])
             self.assertFalse(result["reboot_performed"])
             self.assertTrue((selected_state / "coordinator.json").is_file())
+            self.assertEqual(
+                SelectedRootOps.assertions,
+                {
+                    "expected_failed_uuid": "22222222-2222-2222-2222-222222222222",
+                    "expected_previous_uuid": "11111111-1111-1111-1111-111111111111",
+                    "expected_filesystem_uuid": "33333333-3333-3333-3333-333333333333",
+                },
+            )
             self.assertTrue(SelectedRootOps.closed)
             self.assertNotEqual(result["phase"], "HEALTHY")
             begin.assert_called_once()

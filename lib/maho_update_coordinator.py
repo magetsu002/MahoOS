@@ -845,13 +845,15 @@ def _resume_owned(
     ) -> dict[str, Any]:
         failed = result.get("failed_candidate_uuid")
         selected = result.get("selected_root_uuid")
-        if not isinstance(failed, str) or not isinstance(selected, str):
+        filesystem = result.get("filesystem_uuid")
+        if not all(isinstance(item, str) and item for item in (failed, selected, filesystem)):
             return _save(value)
         ops = NativeBtrfsOps(transaction_id)
         try:
             selected_state_root = ops.selected_state_root_for_recovery(
                 expected_failed_uuid=failed,
                 expected_previous_uuid=selected,
+                expected_filesystem_uuid=filesystem,
             )
             return _save(value, selected_state_root)
         finally:
