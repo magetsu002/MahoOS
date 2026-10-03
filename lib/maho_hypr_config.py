@@ -304,10 +304,22 @@ def normalize_model(raw: Any) -> dict[str, Any]:
         })
 
     unbinds = []
+    seen_unbinds: set[tuple[str, str]] = set()
     for value in _bounded_list(raw.get("unbinds", []), "unbinds"):
-        chord = _bounded_string(value, "unbind chord")
-        if chord not in unbinds:
-            unbinds.append(chord)
+        if isinstance(value, str):
+            keys = _bounded_string(value, "unbind chord")
+            submap = ""
+        elif isinstance(value, dict):
+            keys = _bounded_string(value.get("keys"), "unbind chord")
+            submap = _bounded_string(
+                value.get("submap", ""), "unbind submap", allow_empty=True
+            )
+        else:
+            raise ConfigWriteError("unbind entry must be a chord string or object")
+        identity = (submap, keys)
+        if identity not in seen_unbinds:
+            seen_unbinds.add(identity)
+            unbinds.append({"keys": keys, "submap": submap})
 
     submaps = []
     seen_submaps: set[str] = set()
@@ -324,6 +336,11 @@ def normalize_model(raw: Any) -> dict[str, Any]:
             "name": name,
             "reset": _bounded_string(row.get("reset", ""), "submap reset", allow_empty=True),
         })
+
+    for unbind in unbinds:
+        if unbind["submap"] and unbind["submap"] not in seen_submaps:
+            seen_submaps.add(unbind["submap"])
+            submaps.append({"name": unbind["submap"], "reset": ""})
 
     binds = [_normalize_bind(row) for row in _bounded_list(raw.get("binds", []), "binds")]
     seen_bind_keys: set[tuple[str, str]] = set()
@@ -427,10 +444,11 @@ def render_model(raw: Any) -> tuple[dict[str, Any], str]:
             out.append(f"hl.env({_lua_string(row['name'])}, {_lua_string(row['value'])})")
         out.append("")
 
-    if model["unbinds"]:
+    global_unbinds = [row for row in model["unbinds"] if not row["submap"]]
+    if global_unbinds:
         out.append("-- Shortcut overrides")
-        for chord in model["unbinds"]:
-            out.append(f"hl.unbind({_lua_string(chord)})")
+        for row in global_unbinds:
+            out.append(f"hl.unbind({_lua_string(row['keys'])})")
         out.append("")
 
     global_binds = [row for row in model["binds"] if not row["submap"]]
@@ -441,7 +459,8 @@ def render_model(raw: Any) -> tuple[dict[str, Any], str]:
 
     for submap in model["submaps"]:
         rows = [row for row in model["binds"] if row["submap"] == submap["name"]]
-        if not rows:
+        removals = [row for row in model["unbinds"] if row["submap"] == submap["name"]]
+        if not rows and not removals:
             continue
         out.append(f"-- Submap: {submap['name']}")
         if submap["reset"]:
@@ -451,6 +470,7 @@ def render_model(raw: Any) -> tuple[dict[str, Any], str]:
             )
         else:
             out.append(f"hl.define_submap({_lua_string(submap['name'])}, function()")
+        out.extend(f"  hl.unbind({_lua_string(row['keys'])})" for row in removals)
         out.extend(_render_bind(row, "  ") for row in rows)
         out.append("end)")
         out.append("")

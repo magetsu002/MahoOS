@@ -11,6 +11,8 @@ BINDINGS="$ROOT/config/hypr/maho/core/binds.lua"
 HYPR_LOADER="$ROOT/config/hypr/hyprland.lua"
 HYPR_WRITER="$ROOT/lib/maho_hypr_config.py"
 HYPR_WRITER_TEST="$ROOT/tests/test_maho_hypr_config.py"
+HYPR_COLLECTOR="$ROOT/lib/maho_hypr_collect.lua"
+HYPR_COLLECTOR_TEST="$ROOT/tests/test_maho_hypr_collect.py"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require_file() { [ -f "$1" ] || fail "missing $1"; }
@@ -29,6 +31,8 @@ echo "=== native persistent application structure ==="
 require_file "$HYPR_LOADER"
 require_file "$HYPR_WRITER"
 require_file "$HYPR_WRITER_TEST"
+require_file "$HYPR_COLLECTOR"
+require_file "$HYPR_COLLECTOR_TEST"
 for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/MahoSettingsTheme.qml"     "$QML/components/MahoSidebarItem.qml"     "$QML/components/MahoSegmentedControl.qml"     "$QML/components/MahoScrollBar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
     require_file "$file"
 done
@@ -53,9 +57,18 @@ require_text "$QML/Main.qml" 'route: "configuration"' "Configuration navigation 
 require_text "$QML/Main.qml" 'route: "diagnostics"' "Diagnostics navigation route missing"
 require_text "$QML/Main.qml" 'route: "about"' "About navigation route missing"
 require_text "$QML/Main.qml" 'case "shortcuts": return "pages/ShortcutsPage.qml"' "Shortcuts route is not implemented"
+require_text "$QML/Main.qml" 'case "rules": return "pages/RulesPage.qml"' "Rules route is not implemented"
 require_text "$QML/Main.qml" 'case "motion": return "pages/MotionPage.qml"' "Motion route is not implemented"
+require_text "$QML/Main.qml" 'case "session": return "pages/SessionPage.qml"' "Session route is not implemented"
 require_text "$QML/Main.qml" 'case "configuration": return "pages/ConfigurationPage.qml"' "Configuration route is not implemented"
 require_text "$QML/Main.qml" 'case "diagnostics": return "pages/DiagnosticsPage.qml"' "Diagnostics route is not implemented"
+for file in \
+    "$QML/components/MahoTextArea.qml" \
+    "$QML/components/ManagedListRow.qml" \
+    "$QML/pages/RulesPage.qml" \
+    "$QML/pages/SessionPage.qml"; do
+    require_file "$file"
+done
 echo PASS
 
 echo "=== interaction and QML state hygiene ==="
@@ -106,7 +119,26 @@ require_text "$HYPR_WRITER" 'def _writer_lock(' "writer lacks serialized mutatio
 require_text "$HYPR_WRITER" 'if not _loader_installed(paths):' "writer can mutate before the live loader is installed"
 require_text "$HYPR_WRITER" 'observed_errors != baseline_errors' "writer does not verify config health after reload"
 require_text "$BACKEND" 'writer = hypr_config_writer.status()' "Configuration page does not expose writer readiness"
-python3 -m unittest -q tests.test_maho_hypr_config
+require_text "$HYPR_COLLECTOR" 'unbind = function(keys)' "collector does not model execution-order unbind semantics"
+require_text "$HYPR_COLLECTOR" 'window_rules = collected_rules' "collector does not publish window rules"
+require_text "$HYPR_COLLECTOR" 'startup = collected_startup' "collector does not publish session startup"
+require_text "$HYPR_WRITER" 'removals = [row for row in model["unbinds"] if row["submap"] == submap["name"]]' "writer cannot shadow submap shortcuts"
+python3 -m unittest -q tests.test_maho_hypr_config tests.test_maho_hypr_collect
+echo PASS
+
+echo "=== advanced Hyprland editors ==="
+require_text "$QML/pages/ShortcutsPage.qml" 'root.bridge.perform("shortcuts.upsert"' "Shortcuts editor cannot write managed overrides"
+require_text "$QML/pages/ShortcutsPage.qml" 'root.bridge.perform("shortcuts.disable"' "Shortcuts editor cannot disable an inherited shortcut"
+require_text "$QML/pages/RulesPage.qml" 'root.bridge.perform("rules.upsert"' "Rules editor cannot write window/layer rules"
+require_text "$QML/pages/RulesPage.qml" 'root.bridge.perform("rules.workspaceUpsert"' "Rules editor cannot write workspace rules"
+require_text "$QML/pages/MotionPage.qml" 'root.bridge.perform("motion.animationUpsert"' "Motion editor cannot write animation overrides"
+require_text "$QML/pages/MotionPage.qml" 'root.bridge.perform("motion.curveUpsert"' "Motion editor cannot write curves"
+require_text "$QML/pages/SessionPage.qml" 'root.bridge.perform("session.startupUpsert"' "Session editor cannot write startup entries"
+require_text "$QML/pages/ConfigurationPage.qml" 'root.bridge.perform("configuration.reset"' "Configuration cannot reset managed overrides"
+require_text "$BACKEND" 'def _apply_managed_hypr_model(' "advanced mutation path does not use the single-owner writer"
+require_text "$BACKEND" 'def snapshot_rules()' "Rules provider is missing"
+require_text "$BACKEND" 'def snapshot_session()' "Session provider is missing"
+require_text "$BACKEND" 'if name == "configuration.reset":' "managed configuration reset action is missing"
 echo PASS
 
 echo "=== deterministic search contract ==="

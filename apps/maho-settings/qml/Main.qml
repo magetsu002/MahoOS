@@ -96,7 +96,9 @@ ApplicationWindow {
         case "applications": return "pages/ApplicationsPage.qml"
         case "region": return "pages/RegionPage.qml"
         case "shortcuts": return "pages/ShortcutsPage.qml"
+        case "rules": return "pages/RulesPage.qml"
         case "motion": return "pages/MotionPage.qml"
+        case "session": return "pages/SessionPage.qml"
         case "configuration": return "pages/ConfigurationPage.qml"
         case "diagnostics": return "pages/DiagnosticsPage.qml"
         case "about": return "pages/AboutPage.qml"
@@ -109,7 +111,7 @@ ApplicationWindow {
             bridge: root.bridge,
             themePalette: root.paletteObject
         }
-        if (route === "about" || route === "rules" || route === "session")
+        if (route === "about")
             properties.targetRoute = target || route
         return properties
     }

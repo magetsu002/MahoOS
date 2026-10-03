@@ -133,6 +133,18 @@ class RenderContracts(unittest.TestCase):
 
 
 class TransactionContracts(unittest.TestCase):
+    def test_submap_unbind_is_materialized_inside_submap(self) -> None:
+        model, rendered = writer.render_model({
+            "version": 1,
+            "unbinds": [{"keys": "N", "submap": "media"}],
+        })
+        self.assertEqual(
+            model["unbinds"],
+            [{"keys": "N", "submap": "media"}],
+        )
+        self.assertIn('hl.define_submap("media", function()', rendered)
+        self.assertIn('  hl.unbind("N")', rendered)
+
     def test_syntax_check_compiles_without_executing_generated_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "generated.lua"

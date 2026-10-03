@@ -73,7 +73,9 @@ class SnapshotAggregationContracts(unittest.TestCase):
             "snapshot_applications": provider("applications"),
             "snapshot_region": provider("region"),
             "snapshot_shortcuts": provider("shortcuts"),
+            "snapshot_rules": provider("rules"),
             "snapshot_motion": provider("motion"),
+            "snapshot_session": provider("session"),
             "snapshot_configuration": provider("configuration"),
             "snapshot_diagnostics": provider("diagnostics"),
             "snapshot_about": provider("system"),
@@ -101,7 +103,9 @@ class SnapshotAggregationContracts(unittest.TestCase):
                 "applications",
                 "region",
                 "shortcuts",
+                "rules",
                 "motion",
+                "session",
                 "configuration",
                 "diagnostics",
                 "system",
@@ -198,7 +202,10 @@ Video
             "locked": False,
             "submap": "",
         }]
-        with mock.patch.object(settings, "hypr_json", return_value=(payload, "")):
+        with (
+            mock.patch.object(settings, "hypr_json", return_value=(payload, "")),
+            mock.patch.object(settings, "_collect_hypr_config", return_value=({"binds": []}, "")),
+        ):
             snapshot = settings.snapshot_shortcuts()
         self.assertTrue(snapshot["available"])
         self.assertEqual(snapshot["binds"][0]["chord"], "Super + Ctrl + RETURN")
@@ -1145,6 +1152,96 @@ class NewPageTruthContracts(unittest.TestCase):
         self.assertFalse(state["terminalControlAvailable"])
         self.assertIn("authority", state["terminalError"])
 
+
+
+class AdvancedHyprMutationContracts(unittest.TestCase):
+    def empty_model(self) -> dict:
+        return {
+            "version": 1,
+            "variables": [],
+            "environment": [],
+            "unbinds": [],
+            "binds": [],
+            "submaps": [],
+            "windowRules": [],
+            "workspaceRules": [],
+            "layerRules": [],
+            "curves": [],
+            "animations": [],
+            "startup": [],
+        }
+
+    def test_submap_shortcut_override_is_scoped(self) -> None:
+        collection = {"binds": [{"keys": "N", "submap": "media", "command": "old"}]}
+        with (
+            mock.patch.object(settings, "_collect_hypr_config", return_value=(collection, "")),
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(self.empty_model(), "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,
+            mock.patch.object(settings, "snapshot_shortcuts", return_value={"available": True}),
+        ):
+            result = settings.shortcut_upsert(
+                "N", "playerctl next", "Next", submap="media", replace_existing=True
+            )
+        self.assertTrue(result["ok"])
+        model = apply.call_args.args[0]
+        self.assertEqual(model["binds"][0]["submap"], "media")
+        self.assertEqual(model["unbinds"], [{"keys": "N", "submap": "media"}])
+
+    def test_workspace_rule_edit_only_replaces_owned_model_entry(self) -> None:
+        model = self.empty_model()
+        model["workspaceRules"] = [{"workspace": "1", "monitor": "eDP-1"}]
+        with (
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(model, "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,
+            mock.patch.object(settings, "snapshot_rules", return_value={"available": True}),
+        ):
+            result = settings.workspace_rule_upsert(
+                {"workspace": "1", "monitor": "DP-1"},
+                original_fields={"workspace": "1", "monitor": "eDP-1"},
+            )
+        self.assertTrue(result["ok"])
+        written = apply.call_args.args[0]["workspaceRules"]
+        self.assertEqual(written, [{"workspace": "1", "monitor": "DP-1"}])
+
+    def test_session_writer_rejects_reload_lifecycle(self) -> None:
+        with mock.patch.object(settings, "_apply_managed_hypr_model") as apply:
+            result = settings.session_startup_upsert("echo nope", "reload")
+        self.assertFalse(result["ok"])
+        self.assertIn("login or shutdown", result["error"])
+        apply.assert_not_called()
+
+    def test_motion_animation_rejects_unbounded_speed(self) -> None:
+        with mock.patch.object(settings, "_apply_managed_hypr_model") as apply:
+            result = settings.motion_animation_upsert(
+                "windows", True, 500.0, "default", "slide"
+            )
+        self.assertFalse(result["ok"])
+        apply.assert_not_called()
+
+    def test_configuration_reset_writes_empty_managed_model(self) -> None:
+        with (
+            mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,
+            mock.patch.object(settings, "snapshot_configuration", return_value={"healthy": True}),
+        ):
+            result = settings.configuration_reset()
+        self.assertTrue(result["ok"])
+        self.assertEqual(apply.call_args.args[0], {"version": settings.hypr_config_writer.MODEL_VERSION})
+
+    def test_rule_edit_refuses_unknown_managed_id(self) -> None:
+        with (
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(self.empty_model(), "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model") as apply,
+        ):
+            result = settings.rule_upsert(
+                "window",
+                "Float test",
+                {"class": "test"},
+                {"float": True},
+                rule_id="missing-id",
+            )
+        self.assertFalse(result["ok"])
+        self.assertIn("Maho-owned", result["error"])
+        apply.assert_not_called()
 
 
 if __name__ == "__main__":

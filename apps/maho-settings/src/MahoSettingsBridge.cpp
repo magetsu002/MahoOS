@@ -306,6 +306,16 @@ QString MahoSettingsBridge::sectionForAction(const QString &action)
         return QStringLiteral("applications");
     if (action.startsWith(QStringLiteral("power.")))
         return QStringLiteral("power");
+    if (action.startsWith(QStringLiteral("shortcuts.")))
+        return QStringLiteral("shortcuts");
+    if (action.startsWith(QStringLiteral("rules.")))
+        return QStringLiteral("rules");
+    if (action.startsWith(QStringLiteral("motion.")))
+        return QStringLiteral("motion");
+    if (action.startsWith(QStringLiteral("session.")))
+        return QStringLiteral("session");
+    if (action.startsWith(QStringLiteral("configuration.")))
+        return QStringLiteral("configuration");
     return QStringLiteral("all");
 }
 

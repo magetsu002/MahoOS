@@ -8,6 +8,7 @@ Maho theme/wallpaper helpers, the kernel and MahoSystem remain authoritative.
 from __future__ import annotations
 
 import json
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -17,9 +18,10 @@ import shutil
 import socket
 import subprocess
 import sys
+from threading import Lock
 import time
 import uuid
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 LIB_DIR = Path(__file__).resolve().parent
 if str(LIB_DIR) not in sys.path:
@@ -38,6 +40,9 @@ INTENT_USER = CONFIG_HOME / "maho" / "intent.json"
 DISPLAY_CONFIG = SETTINGS_CONFIG / "displays.json"
 INPUT_CONFIG = SETTINGS_CONFIG / "input.json"
 DISPLAY_ROLLBACK_SECONDS = 15
+
+_HYPR_COLLECTION_LOCK = Lock()
+_HYPR_COLLECTION_CACHE: tuple[dict[str, Any] | None, str] | None = None
 
 SEARCH_TARGETS = (
     ("appearance", "Appearance", "Theme", "light dark automatic theme appearance palette wallpaper color"),
@@ -69,7 +74,9 @@ SEARCH_TARGETS = (
     ("region", "Region & Time", "Locale", "region language locale formats"),
     ("region", "Region & Time", "Keyboard Layout", "region keyboard layout xkb language input"),
     ("shortcuts", "Shortcuts", "Keyboard Shortcuts", "shortcuts keybinds binds hotkeys keys keyboard"),
+    ("rules", "Rules", "Window Rules", "rules window workspace layer behavior matching"),
     ("motion", "Motion", "Animations", "motion animations animation curves bezier transitions"),
+    ("session", "Session", "Startup", "session startup autostart login logout commands"),
     ("configuration", "Configuration", "Managed Configuration", "configuration hyprland managed config source"),
     ("diagnostics", "Diagnostics", "Configuration Health", "diagnostics configuration health config errors providers backend"),
     ("accessibility", "Accessibility", "Accessibility", "accessibility contrast motion transparency"),
@@ -261,6 +268,124 @@ def hypr_json(args: Iterable[str]) -> tuple[Any | None, str]:
         return json.loads(out), ""
     except json.JSONDecodeError:
         return None, "Hyprland returned invalid JSON."
+
+
+def _collect_hypr_config(*, force: bool = False) -> tuple[dict[str, Any] | None, str]:
+    global _HYPR_COLLECTION_CACHE
+
+    with _HYPR_COLLECTION_LOCK:
+        if _HYPR_COLLECTION_CACHE is not None and not force:
+            return _HYPR_COLLECTION_CACHE
+
+        lua = shutil.which("lua")
+        collector = ROOT / "lib" / "maho_hypr_collect.lua"
+        config = CONFIG_HOME / "hypr" / "hyprland.lua"
+        if not config.is_file():
+            source_config = ROOT / "config" / "hypr" / "hyprland.lua"
+            config = source_config if source_config.is_file() else config
+
+        if not lua:
+            result = (None, "Lua configuration collector is unavailable.")
+        elif not collector.is_file():
+            result = (None, "Maho Hyprland configuration collector is unavailable.")
+        elif not config.is_file():
+            result = (None, "Hyprland configuration source is unavailable.")
+        else:
+            code, out, err = run([lua, str(collector), str(config)], timeout=5.0)
+            if code != 0 or not out:
+                result = (None, err or out or "Hyprland configuration collection failed.")
+            else:
+                try:
+                    payload = json.loads(out)
+                except json.JSONDecodeError:
+                    result = (None, "Hyprland configuration collector returned invalid JSON.")
+                else:
+                    if not isinstance(payload, dict):
+                        result = (None, "Hyprland configuration collector returned invalid state.")
+                    else:
+                        collection_error = str(payload.get("error", "") or "")
+                        result = (payload, collection_error)
+
+        _HYPR_COLLECTION_CACHE = result
+        return result
+
+
+def _clear_hypr_collection_cache() -> None:
+    global _HYPR_COLLECTION_CACHE
+    with _HYPR_COLLECTION_LOCK:
+        _HYPR_COLLECTION_CACHE = None
+
+
+def _writer_source_is_overlay(source_file: str, writer: dict[str, Any]) -> bool:
+    if not source_file:
+        return False
+    overlay = str(writer.get("path", "") or "")
+    if not overlay:
+        return False
+    try:
+        return Path(source_file).resolve(strict=False) == Path(overlay).resolve(strict=False)
+    except OSError:
+        return False
+
+
+def _apply_managed_hypr_model(
+    model: dict[str, Any],
+    *,
+    verify: Callable[[dict[str, Any]], bool] | None = None,
+) -> tuple[bool, dict[str, Any], str]:
+    writer = hypr_config_writer.status()
+    if not bool(writer.get("mutationAvailable")):
+        return False, {}, (
+            "Managed Hyprland editing is not live yet. "
+            "The certified Maho user-overlay loader is not installed in this runtime."
+        )
+
+    prefix, session_error = hypr_prefix()
+    if prefix is None:
+        return False, {}, session_error or "No unique Hyprland session is available."
+
+    try:
+        previous = hypr_config_writer.load_model()
+    except hypr_config_writer.ConfigWriteError as exc:
+        return False, {}, str(exc)
+
+    runner = lambda command, timeout: run(command, timeout=timeout)
+    try:
+        result = hypr_config_writer.apply_model(
+            model,
+            hypr_prefix=prefix,
+            runner=runner,
+            reload_live=True,
+        )
+    except hypr_config_writer.ConfigWriteError as exc:
+        return False, {}, str(exc)
+
+    _clear_hypr_collection_cache()
+    if verify is None:
+        return True, result, ""
+
+    observed, observe_error = _collect_hypr_config(force=True)
+    if isinstance(observed, dict) and not observe_error and verify(observed):
+        return True, result, ""
+
+    verification_error = observe_error or "The requested configuration was not observed after reload."
+    try:
+        hypr_config_writer.apply_model(
+            previous,
+            hypr_prefix=prefix,
+            runner=runner,
+            reload_live=True,
+        )
+        _clear_hypr_collection_cache()
+        restored, restore_error = _collect_hypr_config(force=True)
+        if restore_error or not isinstance(restored, dict):
+            return False, {}, (
+                f"{verification_error} Rollback ran but current configuration could not be re-observed."
+            )
+    except hypr_config_writer.ConfigWriteError as exc:
+        return False, {}, f"{verification_error} Rollback failed: {exc}"
+
+    return False, {}, f"{verification_error} The managed change was rolled back."
 
 
 def hypr_option(name: str, fallback: Any = None) -> Any:
@@ -1252,7 +1377,7 @@ def snapshot_notifications() -> dict[str, Any]:
             "historyClearSupported": False,
             "error": "Maho Notify is unavailable.",
         }
-    code, out, err = run([command, "status", "--json"], timeout=5.0)
+    code, out, err = run([command, "settings-status", "--json"], timeout=3.0)
     if not out:
         return {
             "available": False, "active": False, "dnd": False,
@@ -1692,61 +1817,1267 @@ def _shortcut_chord(row: dict[str, Any]) -> str:
     return " + ".join(parts)
 
 
-def snapshot_shortcuts() -> dict[str, Any]:
-    payload, error = hypr_json(["binds", "-j"])
-    if not isinstance(payload, list):
-        return {"available": False, "binds": [], "error": error or "Shortcut state is unavailable."}
+def _shortcut_identity(chord: str) -> str:
+    return " + ".join(
+        part.strip().casefold()
+        for part in chord.split("+")
+        if part.strip()
+    )
 
-    binds = []
-    for raw in payload:
+
+def _managed_hypr_model() -> tuple[dict[str, Any] | None, str]:
+    try:
+        return hypr_config_writer.load_model(), ""
+    except hypr_config_writer.ConfigWriteError as exc:
+        return None, str(exc)
+
+
+def _shortcut_collection_has(
+    collection: dict[str, Any],
+    chord: str,
+    *,
+    command: str | None = None,
+    submap: str = "",
+) -> bool:
+    for raw in collection.get("binds", []):
         if not isinstance(raw, dict):
             continue
-        dispatcher = str(raw.get("dispatcher", "") or "")
+        if _shortcut_identity(str(raw.get("keys", "") or "")) != _shortcut_identity(chord):
+            continue
+        if str(raw.get("submap", "") or "") != submap:
+            continue
+        if command is not None and str(raw.get("command", "") or "") != command:
+            continue
+        return True
+    return False
+
+
+def shortcut_upsert(
+    chord: str,
+    command: str,
+    description: str = "",
+    *,
+    submap: str = "",
+    original_chord: str = "",
+    original_submap: str = "",
+    replace_existing: bool = False,
+) -> dict[str, Any]:
+    chord = chord.strip()
+    command = command.strip()
+    submap = submap.strip()
+    original_chord = original_chord.strip()
+    original_submap = original_submap.strip()
+    if not chord:
+        return {"ok": False, "error": "Shortcut chord cannot be empty."}
+    if not command:
+        return {"ok": False, "error": "Shortcut command cannot be empty."}
+    if not isinstance(description, str):
+        return {"ok": False, "error": "Shortcut description must be text."}
+
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict) or collection_error:
+        return {
+            "ok": False,
+            "error": collection_error or "Current shortcut configuration cannot be verified.",
+        }
+
+    conflict = _shortcut_collection_has(collection, chord, submap=submap)
+    same_target = bool(original_chord) and (
+        _shortcut_identity(original_chord) == _shortcut_identity(chord)
+        and original_submap == submap
+    )
+    if conflict and not same_target and not replace_existing:
+        scope = f" in submap {submap}" if submap else ""
+        return {
+            "ok": False,
+            "error": f"{chord} is already assigned{scope}. Choose Override to replace it.",
+        }
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed shortcut state is unavailable."}
+
+    preserved_id = ""
+    if original_chord:
+        for row in model.get("binds", []):
+            if (
+                isinstance(row, dict)
+                and str(row.get("submap", "") or "") == original_submap
+                and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(original_chord)
+            ):
+                preserved_id = str(row.get("id", "") or "")
+                break
+        model["binds"] = [
+            row
+            for row in model.get("binds", [])
+            if not (
+                isinstance(row, dict)
+                and str(row.get("submap", "") or "") == original_submap
+                and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(original_chord)
+            )
+        ]
+        if original_submap != submap or _shortcut_identity(original_chord) != _shortcut_identity(chord):
+            model["unbinds"] = [
+                row
+                for row in model.get("unbinds", [])
+                if not (
+                    isinstance(row, dict)
+                    and str(row.get("submap", "") or "") == original_submap
+                    and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(original_chord)
+                )
+            ]
+
+    model["binds"] = [
+        row
+        for row in model.get("binds", [])
+        if not (
+            isinstance(row, dict)
+            and str(row.get("submap", "") or "") == submap
+            and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(chord)
+        )
+    ]
+
+    if conflict or same_target or replace_existing:
+        if not any(
+            isinstance(row, dict)
+            and str(row.get("submap", "") or "") == submap
+            and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(chord)
+            for row in model.get("unbinds", [])
+        ):
+            model.setdefault("unbinds", []).append({"keys": chord, "submap": submap})
+
+    model.setdefault("binds", []).append({
+        "id": preserved_id or str(uuid.uuid4()),
+        "keys": chord,
+        "command": command,
+        "description": description.strip(),
+        "submap": submap,
+        "flags": [],
+    })
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: _shortcut_collection_has(
+            observed, chord, command=command, submap=submap
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+
+    return {
+        "ok": True,
+        "message": "Shortcut updated.",
+        "state": snapshot_shortcuts(),
+    }
+
+
+def shortcut_disable(chord: str, submap: str = "") -> dict[str, Any]:
+    chord = chord.strip()
+    submap = submap.strip()
+    if not chord:
+        return {"ok": False, "error": "Shortcut chord cannot be empty."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed shortcut state is unavailable."}
+
+    model["binds"] = [
+        row
+        for row in model.get("binds", [])
+        if not (
+            isinstance(row, dict)
+            and str(row.get("submap", "") or "") == submap
+            and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(chord)
+        )
+    ]
+    if not any(
+        isinstance(row, dict)
+        and str(row.get("submap", "") or "") == submap
+        and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(chord)
+        for row in model.get("unbinds", [])
+    ):
+        model.setdefault("unbinds", []).append({"keys": chord, "submap": submap})
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: not _shortcut_collection_has(observed, chord, submap=submap),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Shortcut disabled.",
+        "state": snapshot_shortcuts(),
+    }
+
+
+def shortcut_reset(chord: str, submap: str = "") -> dict[str, Any]:
+    chord = chord.strip()
+    submap = submap.strip()
+    if not chord:
+        return {"ok": False, "error": "Shortcut chord cannot be empty."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed shortcut state is unavailable."}
+
+    model["binds"] = [
+        row
+        for row in model.get("binds", [])
+        if not (
+            isinstance(row, dict)
+            and str(row.get("submap", "") or "") == submap
+            and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(chord)
+        )
+    ]
+    model["unbinds"] = [
+        row
+        for row in model.get("unbinds", [])
+        if not (
+            isinstance(row, dict)
+            and str(row.get("submap", "") or "") == submap
+            and _shortcut_identity(str(row.get("keys", "") or "")) == _shortcut_identity(chord)
+        )
+    ]
+
+    writer = hypr_config_writer.status()
+
+    def verified(observed: dict[str, Any]) -> bool:
+        for raw in observed.get("binds", []):
+            if not isinstance(raw, dict):
+                continue
+            if _shortcut_identity(str(raw.get("keys", "") or "")) != _shortcut_identity(chord):
+                continue
+            if str(raw.get("submap", "") or "") != submap:
+                continue
+            if _writer_source_is_overlay(str(raw.get("source_file", "") or ""), writer):
+                return False
+        return True
+
+    ok, _, apply_error = _apply_managed_hypr_model(model, verify=verified)
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Shortcut restored to the underlying configuration.",
+        "state": snapshot_shortcuts(),
+    }
+
+def snapshot_shortcuts() -> dict[str, Any]:
+    collection, collection_error = _collect_hypr_config()
+    live_payload, live_error = hypr_json(["binds", "-j"])
+    if not isinstance(collection, dict):
+        return {
+            "available": False,
+            "binds": [],
+            "count": 0,
+            "mutationAvailable": False,
+            "readOnly": True,
+            "error": collection_error or live_error or "Shortcut state is unavailable.",
+        }
+
+    writer = hypr_config_writer.status()
+    prefix, _ = hypr_prefix()
+    mutation_available = (
+        bool(writer.get("mutationAvailable"))
+        and prefix is not None
+        and not bool(collection_error)
+    )
+    overlay_path = Path(str(writer.get("path", "") or ""))
+    try:
+        overlay_resolved = overlay_path.resolve(strict=False) if str(overlay_path) else None
+    except OSError:
+        overlay_resolved = None
+
+    live_identities: set[tuple[str, str]] = set()
+    if isinstance(live_payload, list):
+        for raw in live_payload:
+            if not isinstance(raw, dict):
+                continue
+            live_identities.add((
+                str(raw.get("submap", "") or ""),
+                _shortcut_identity(_shortcut_chord(raw)),
+            ))
+
+    binds = []
+    for index, raw in enumerate(collection.get("binds", [])):
+        if not isinstance(raw, dict):
+            continue
+        chord = str(raw.get("keys", "") or "").strip()
+        if not chord:
+            continue
+        submap = str(raw.get("submap", "") or "")
+        command = str(raw.get("command", "") or "")
+        action = str(raw.get("action", "") or "")
         description = str(raw.get("description", "") or "").strip()
-        if not description:
-            description = "Managed Maho action" if dispatcher == "__lua" else dispatcher.replace("_", " ").strip()
+        source_file = str(raw.get("source_file", "") or "")
+        source_line = int(raw.get("source_line", 0) or 0)
+        flags = [
+            str(flag)
+            for flag in raw.get("flags", [])
+            if isinstance(flag, str)
+        ]
+        try:
+            source_resolved = Path(source_file).resolve(strict=False) if source_file else None
+        except OSError:
+            source_resolved = None
+        user_owned = (
+            overlay_resolved is not None
+            and source_resolved is not None
+            and source_resolved == overlay_resolved
+        )
+        bind_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"maho-shortcut:{source_file}:{source_line}:{submap}:{chord}:{index}",
+        ))
         binds.append({
-            "chord": _shortcut_chord(raw),
-            "description": description or "Shortcut action",
-            "submap": str(raw.get("submap", "") or ""),
-            "repeat": bool(raw.get("repeat", False)),
-            "mouse": bool(raw.get("mouse", False)),
-            "locked": bool(raw.get("locked", False)),
+            "id": bind_id,
+            "chord": chord,
+            "command": command,
+            "action": action,
+            "description": description or command or action or "Shortcut action",
+            "submap": submap,
+            "repeat": "repeating" in flags,
+            "mouse": "mouse" in flags,
+            "locked": "locked" in flags,
+            "flags": flags,
+            "sourceFile": source_file,
+            "sourceLine": source_line,
+            "userOwned": user_owned,
+            "canOverride": mutation_available,
+            "canDelete": mutation_available and user_owned,
+            "live": (submap, _shortcut_identity(chord)) in live_identities if live_identities else True,
         })
-    return {"available": True, "binds": binds, "count": len(binds), "readOnly": True, "error": ""}
+
+    collected_identities = {
+        (str(row.get("submap", "") or ""), _shortcut_identity(str(row.get("chord", "") or "")))
+        for row in binds
+    }
+    if isinstance(live_payload, list):
+        for index, raw in enumerate(live_payload):
+            if not isinstance(raw, dict):
+                continue
+            chord = _shortcut_chord(raw)
+            submap = str(raw.get("submap", "") or "")
+            identity = (submap, _shortcut_identity(chord))
+            if identity in collected_identities:
+                continue
+            dispatcher = str(raw.get("dispatcher", "") or "")
+            description = str(raw.get("description", "") or "").strip()
+            binds.append({
+                "id": str(uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"maho-live-shortcut:{submap}:{chord}:{index}",
+                )),
+                "chord": chord,
+                "command": "",
+                "action": dispatcher,
+                "description": description or (
+                    "Managed Maho action" if dispatcher == "__lua"
+                    else dispatcher.replace("_", " ").strip() or "Shortcut action"
+                ),
+                "submap": submap,
+                "repeat": bool(raw.get("repeat", False)),
+                "mouse": bool(raw.get("mouse", False)),
+                "locked": bool(raw.get("locked", False)),
+                "flags": [],
+                "sourceFile": "",
+                "sourceLine": 0,
+                "userOwned": False,
+                "canOverride": mutation_available,
+                "canDelete": False,
+                "live": True,
+            })
+            collected_identities.add(identity)
+
+    binds.sort(key=lambda row: (
+        str(row["submap"]).lower(),
+        str(row["chord"]).lower(),
+        str(row["description"]).lower(),
+    ))
+    return {
+        "available": True,
+        "binds": binds,
+        "count": len(binds),
+        "mutationAvailable": mutation_available,
+        "readOnly": not mutation_available,
+        "writerReady": bool(writer.get("mutationAvailable")),
+        "collectionError": collection_error,
+        "liveError": live_error,
+        "error": collection_error or "",
+    }
 
 
 def snapshot_motion() -> dict[str, Any]:
     payload, error = hypr_json(["animations", "-j"])
     if not isinstance(payload, list) or len(payload) < 2:
-        return {"available": False, "animations": [], "curves": [], "error": error or "Motion state is unavailable."}
+        return {
+            "available": False,
+            "animations": [],
+            "curves": [],
+            "mutationAvailable": False,
+            "readOnly": True,
+            "error": error or "Motion state is unavailable.",
+        }
+
+    collection, collection_error = _collect_hypr_config()
+    writer = hypr_config_writer.status()
+    prefix, _ = hypr_prefix()
+    mutation_available = (
+        bool(writer.get("mutationAvailable"))
+        and prefix is not None
+        and not bool(collection_error)
+    )
+    overlay = Path(str(writer.get("path", "") or ""))
+    try:
+        overlay_resolved = overlay.resolve(strict=False) if str(overlay) else None
+    except OSError:
+        overlay_resolved = None
+
+    animation_sources: dict[str, dict[str, Any]] = {}
+    curve_sources: dict[str, dict[str, Any]] = {}
+    if isinstance(collection, dict):
+        for raw in collection.get("animations", []):
+            if not isinstance(raw, dict):
+                continue
+            fields = raw.get("fields", {})
+            if not isinstance(fields, dict):
+                continue
+            leaf = str(fields.get("leaf", "") or raw.get("name", "") or "")
+            if leaf:
+                animation_sources[leaf] = raw
+        for raw in collection.get("curves", []):
+            if isinstance(raw, dict):
+                name = str(raw.get("name", "") or "")
+                if name:
+                    curve_sources[name] = raw
+
+    def source_meta(raw: dict[str, Any] | None) -> tuple[str, int, bool]:
+        if not isinstance(raw, dict):
+            return "", 0, False
+        source_file = str(raw.get("source_file", "") or "")
+        source_line = int(raw.get("source_line", 0) or 0)
+        try:
+            source_resolved = Path(source_file).resolve(strict=False) if source_file else None
+        except OSError:
+            source_resolved = None
+        user_owned = (
+            overlay_resolved is not None
+            and source_resolved is not None
+            and source_resolved == overlay_resolved
+        )
+        return source_file, source_line, user_owned
+
     raw_animations = payload[0] if isinstance(payload[0], list) else []
     raw_curves = payload[1] if isinstance(payload[1], list) else []
     animations = []
     for raw in raw_animations:
         if not isinstance(raw, dict) or not bool(raw.get("overridden", False)):
             continue
+        name = str(raw.get("name", ""))
+        source_file, source_line, user_owned = source_meta(animation_sources.get(name))
         animations.append({
-            "name": str(raw.get("name", "")),
+            "name": name,
             "enabled": bool(raw.get("enabled", False)),
             "speed": float(raw.get("speed", 0.0) or 0.0),
             "curve": str(raw.get("bezier", "") or "default"),
             "style": str(raw.get("style", "") or ""),
+            "sourceFile": source_file,
+            "sourceLine": source_line,
+            "userOwned": user_owned,
+            "canOverride": mutation_available,
+            "canDelete": mutation_available and user_owned,
         })
     curves = []
     for raw in raw_curves:
         if not isinstance(raw, dict):
             continue
+        name = str(raw.get("name", ""))
+        source_file, source_line, user_owned = source_meta(curve_sources.get(name))
         curves.append({
-            "name": str(raw.get("name", "")),
+            "name": name,
             "x0": float(raw.get("X0", 0.0) or 0.0),
             "y0": float(raw.get("Y0", 0.0) or 0.0),
             "x1": float(raw.get("X1", 0.0) or 0.0),
             "y1": float(raw.get("Y1", 0.0) or 0.0),
+            "sourceFile": source_file,
+            "sourceLine": source_line,
+            "userOwned": user_owned,
+            "canOverride": mutation_available and name != "default",
+            "canDelete": mutation_available and user_owned,
         })
     animations.sort(key=lambda row: row["name"].lower())
     curves.sort(key=lambda row: row["name"].lower())
-    return {"available": True, "animations": animations, "curves": curves, "readOnly": True, "error": ""}
+    return {
+        "available": True,
+        "animations": animations,
+        "curves": curves,
+        "mutationAvailable": mutation_available,
+        "readOnly": not mutation_available,
+        "collectionError": collection_error,
+        "error": collection_error or "",
+    }
+
+
+def _rule_collection_has(
+    collection: dict[str, Any],
+    *,
+    kind: str,
+    name: str,
+    match: dict[str, Any],
+    effects: dict[str, Any],
+    require_overlay: bool = False,
+) -> bool:
+    key = "window_rules" if kind == "window" else "layer_rules"
+    writer = hypr_config_writer.status()
+    for raw in collection.get(key, []):
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("name", "") or "") != name:
+            continue
+        if (raw.get("match", {}) if isinstance(raw.get("match"), dict) else {}) != match:
+            continue
+        if (raw.get("effects", {}) if isinstance(raw.get("effects"), dict) else {}) != effects:
+            continue
+        if require_overlay and not _writer_source_is_overlay(
+            str(raw.get("source_file", "") or ""), writer
+        ):
+            continue
+        return True
+    return False
+
+
+def rule_upsert(
+    kind: str,
+    name: str,
+    match: dict[str, Any],
+    effects: dict[str, Any],
+    *,
+    rule_id: str = "",
+) -> dict[str, Any]:
+    if kind not in {"window", "layer"}:
+        return {"ok": False, "error": "Only window and layer rules are writable in this Settings version."}
+    name = name.strip()
+    if not name:
+        return {"ok": False, "error": "Rule name cannot be empty."}
+    if not isinstance(match, dict) or not match:
+        return {"ok": False, "error": "Rule match must contain at least one condition."}
+    if not isinstance(effects, dict) or not effects:
+        return {"ok": False, "error": "Rule must contain at least one effect."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed rule state is unavailable."}
+
+    key = "windowRules" if kind == "window" else "layerRules"
+    rows = [row for row in model.get(key, []) if isinstance(row, dict)]
+    preserved_id = ""
+    if rule_id:
+        existing = next((row for row in rows if str(row.get("id", "")) == rule_id), None)
+        if existing is None:
+            return {
+                "ok": False,
+                "error": "Only Maho-owned custom rules can be edited. System rules remain read-only.",
+            }
+        preserved_id = rule_id
+        rows = [row for row in rows if str(row.get("id", "")) != rule_id]
+
+    if any(str(row.get("name", "") or "") == name for row in rows):
+        return {"ok": False, "error": f"A managed {kind} rule named {name!r} already exists."}
+
+    rows.append({
+        "id": preserved_id or str(uuid.uuid4()),
+        "name": name,
+        "match": match,
+        "effects": effects,
+    })
+    model[key] = rows
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: _rule_collection_has(
+            observed,
+            kind=kind,
+            name=name,
+            match=match,
+            effects=effects,
+            require_overlay=True,
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": f"{kind.capitalize()} rule updated.",
+        "state": snapshot_rules(),
+    }
+
+
+def rule_delete(kind: str, rule_id: str) -> dict[str, Any]:
+    if kind not in {"window", "layer"}:
+        return {"ok": False, "error": "Only window and layer rules are writable in this Settings version."}
+    rule_id = rule_id.strip()
+    if not rule_id:
+        return {"ok": False, "error": "Managed rule identity is required."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed rule state is unavailable."}
+
+    key = "windowRules" if kind == "window" else "layerRules"
+    rows = [row for row in model.get(key, []) if isinstance(row, dict)]
+    existing = next((row for row in rows if str(row.get("id", "")) == rule_id), None)
+    if existing is None:
+        return {"ok": False, "error": "System rules cannot be deleted from Maho Settings."}
+
+    name = str(existing.get("name", "") or "")
+    match = existing.get("match", {}) if isinstance(existing.get("match"), dict) else {}
+    effects = existing.get("effects", {}) if isinstance(existing.get("effects"), dict) else {}
+    model[key] = [row for row in rows if str(row.get("id", "")) != rule_id]
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: not _rule_collection_has(
+            observed,
+            kind=kind,
+            name=name,
+            match=match,
+            effects=effects,
+            require_overlay=True,
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": f"{kind.capitalize()} rule removed.",
+        "state": snapshot_rules(),
+    }
+
+
+def _workspace_rule_collection_has(
+    collection: dict[str, Any],
+    fields: dict[str, Any],
+    *,
+    require_overlay: bool = False,
+) -> bool:
+    writer = hypr_config_writer.status()
+    for raw in collection.get("workspace_rules", []):
+        if not isinstance(raw, dict):
+            continue
+        observed = raw.get("fields", {}) if isinstance(raw.get("fields"), dict) else {}
+        if observed != fields:
+            continue
+        if require_overlay and not _writer_source_is_overlay(
+            str(raw.get("source_file", "") or ""), writer
+        ):
+            continue
+        return True
+    return False
+
+
+def workspace_rule_upsert(
+    fields: dict[str, Any],
+    *,
+    original_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(fields, dict) or not fields:
+        return {"ok": False, "error": "Workspace rule fields cannot be empty."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed workspace-rule state is unavailable."}
+    rows = [row for row in model.get("workspaceRules", []) if isinstance(row, dict)]
+    if original_fields is not None:
+        if not isinstance(original_fields, dict) or not original_fields:
+            return {"ok": False, "error": "Original workspace rule is invalid."}
+        before = len(rows)
+        rows = [row for row in rows if row != original_fields]
+        if len(rows) == before:
+            return {"ok": False, "error": "Only Maho-owned workspace rules can be edited."}
+    if any(row == fields for row in rows):
+        return {"ok": False, "error": "That managed workspace rule already exists."}
+    rows.append(dict(fields))
+    model["workspaceRules"] = rows
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: _workspace_rule_collection_has(
+            observed, fields, require_overlay=True
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {"ok": True, "message": "Workspace rule updated.", "state": snapshot_rules()}
+
+
+def workspace_rule_delete(fields: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(fields, dict) or not fields:
+        return {"ok": False, "error": "Workspace rule identity is missing."}
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed workspace-rule state is unavailable."}
+    rows = [row for row in model.get("workspaceRules", []) if isinstance(row, dict)]
+    before = len(rows)
+    rows = [row for row in rows if row != fields]
+    if len(rows) == before:
+        return {"ok": False, "error": "System workspace rules cannot be deleted from Maho Settings."}
+    model["workspaceRules"] = rows
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: not _workspace_rule_collection_has(
+            observed, fields, require_overlay=True
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {"ok": True, "message": "Workspace rule removed.", "state": snapshot_rules()}
+
+
+def _startup_collection_has(
+    collection: dict[str, Any],
+    *,
+    command: str,
+    when: str,
+    workspace: str,
+    require_overlay: bool = False,
+) -> bool:
+    writer = hypr_config_writer.status()
+    for raw in collection.get("startup", []):
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("command", "") or "") != command:
+            continue
+        if str(raw.get("when", "") or "") != when:
+            continue
+        if str(raw.get("workspace", "") or "") != workspace:
+            continue
+        if require_overlay and not _writer_source_is_overlay(
+            str(raw.get("source_file", "") or ""), writer
+        ):
+            continue
+        return True
+    return False
+
+
+def session_startup_upsert(
+    command: str,
+    when: str,
+    workspace: str = "",
+    *,
+    startup_id: str = "",
+) -> dict[str, Any]:
+    command = command.strip()
+    when = when.strip().lower()
+    workspace = workspace.strip()
+    if not command:
+        return {"ok": False, "error": "Startup command cannot be empty."}
+    # Top-level reload entries execute on every unrelated config reload, which
+    # is too broad an authority for Settings. Keep user startup lifecycle-bound.
+    if when not in {"start", "shutdown"}:
+        return {"ok": False, "error": "Managed session commands may run only at login or shutdown."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed session state is unavailable."}
+
+    rows = [row for row in model.get("startup", []) if isinstance(row, dict)]
+    preserved_id = ""
+    if startup_id:
+        existing = next((row for row in rows if str(row.get("id", "")) == startup_id), None)
+        if existing is None:
+            return {"ok": False, "error": "Only Maho-owned session entries can be edited."}
+        preserved_id = startup_id
+        rows = [row for row in rows if str(row.get("id", "")) != startup_id]
+
+    identity = (command, when, workspace)
+    if any(
+        (
+            str(row.get("command", "") or ""),
+            str(row.get("when", "") or ""),
+            str(row.get("workspace", "") or ""),
+        ) == identity
+        for row in rows
+    ):
+        return {"ok": False, "error": "That managed session command already exists."}
+
+    rows.append({
+        "id": preserved_id or str(uuid.uuid4()),
+        "command": command,
+        "when": when,
+        "workspace": workspace,
+    })
+    model["startup"] = rows
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: _startup_collection_has(
+            observed,
+            command=command,
+            when=when,
+            workspace=workspace,
+            require_overlay=True,
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Session command updated.",
+        "state": snapshot_session(),
+    }
+
+
+def session_startup_delete(startup_id: str) -> dict[str, Any]:
+    startup_id = startup_id.strip()
+    if not startup_id:
+        return {"ok": False, "error": "Managed session entry identity is required."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed session state is unavailable."}
+
+    rows = [row for row in model.get("startup", []) if isinstance(row, dict)]
+    existing = next((row for row in rows if str(row.get("id", "")) == startup_id), None)
+    if existing is None:
+        return {"ok": False, "error": "System session entries cannot be deleted from Maho Settings."}
+
+    command = str(existing.get("command", "") or "")
+    when = str(existing.get("when", "") or "")
+    workspace = str(existing.get("workspace", "") or "")
+    model["startup"] = [row for row in rows if str(row.get("id", "")) != startup_id]
+
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: not _startup_collection_has(
+            observed,
+            command=command,
+            when=when,
+            workspace=workspace,
+            require_overlay=True,
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Session command removed.",
+        "state": snapshot_session(),
+    }
+
+
+def _motion_collection_has_animation(
+    collection: dict[str, Any],
+    leaf: str,
+    *,
+    require_overlay: bool = False,
+) -> bool:
+    writer = hypr_config_writer.status()
+    for raw in collection.get("animations", []):
+        if not isinstance(raw, dict):
+            continue
+        fields = raw.get("fields", {}) if isinstance(raw.get("fields"), dict) else {}
+        if str(fields.get("leaf", "") or raw.get("name", "") or "") != leaf:
+            continue
+        if require_overlay and not _writer_source_is_overlay(
+            str(raw.get("source_file", "") or ""), writer
+        ):
+            continue
+        return True
+    return False
+
+
+def motion_animation_upsert(
+    leaf: str,
+    enabled: bool,
+    speed: float,
+    curve: str,
+    style: str = "",
+) -> dict[str, Any]:
+    leaf = leaf.strip()
+    curve = curve.strip()
+    style = style.strip()
+    if not leaf or not curve:
+        return {"ok": False, "error": "Animation leaf and curve are required."}
+    if not isinstance(enabled, bool):
+        return {"ok": False, "error": "Animation enabled state must be boolean."}
+    if not math.isfinite(speed) or speed < 0 or speed > 50:
+        return {"ok": False, "error": "Animation speed must be between 0 and 50."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
+    rows = [
+        row
+        for row in model.get("animations", [])
+        if not (
+            isinstance(row, dict)
+            and str(row.get("leaf", "") or "") == leaf
+        )
+    ]
+    rows.append({
+        "leaf": leaf,
+        "enabled": enabled,
+        "speed": float(speed),
+        "bezier": curve,
+        "style": style,
+    })
+    model["animations"] = rows
+
+    def verified(observed: dict[str, Any]) -> bool:
+        if not _motion_collection_has_animation(observed, leaf, require_overlay=True):
+            return False
+        live, _ = hypr_json(["animations", "-j"])
+        if not isinstance(live, list) or not live or not isinstance(live[0], list):
+            return False
+        for row in live[0]:
+            if not isinstance(row, dict) or str(row.get("name", "") or "") != leaf:
+                continue
+            return (
+                bool(row.get("enabled", False)) == enabled
+                and abs(float(row.get("speed", 0.0) or 0.0) - float(speed)) < 0.001
+                and str(row.get("bezier", "") or "default") == curve
+                and str(row.get("style", "") or "") == style
+            )
+        return False
+
+    ok, _, apply_error = _apply_managed_hypr_model(model, verify=verified)
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Animation override updated.",
+        "state": snapshot_motion(),
+    }
+
+
+def motion_animation_reset(leaf: str) -> dict[str, Any]:
+    leaf = leaf.strip()
+    if not leaf:
+        return {"ok": False, "error": "Animation leaf is required."}
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
+    model["animations"] = [
+        row
+        for row in model.get("animations", [])
+        if not (isinstance(row, dict) and str(row.get("leaf", "") or "") == leaf)
+    ]
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: not _motion_collection_has_animation(
+            observed, leaf, require_overlay=True
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Animation restored to the system default.",
+        "state": snapshot_motion(),
+    }
+
+
+def _motion_collection_has_curve(
+    collection: dict[str, Any],
+    name: str,
+    *,
+    require_overlay: bool = False,
+) -> bool:
+    writer = hypr_config_writer.status()
+    for raw in collection.get("curves", []):
+        if not isinstance(raw, dict) or str(raw.get("name", "") or "") != name:
+            continue
+        if require_overlay and not _writer_source_is_overlay(
+            str(raw.get("source_file", "") or ""), writer
+        ):
+            continue
+        return True
+    return False
+
+
+def motion_curve_upsert(
+    name: str,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+) -> dict[str, Any]:
+    name = name.strip()
+    if not name or name == "default":
+        return {"ok": False, "error": "Choose a non-default curve name."}
+    points = [float(x0), float(y0), float(x1), float(y1)]
+    if any(not math.isfinite(value) for value in points):
+        return {"ok": False, "error": "Curve coordinates must be finite numbers."}
+
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
+    rows = [
+        row
+        for row in model.get("curves", [])
+        if not (isinstance(row, dict) and str(row.get("name", "") or "") == name)
+    ]
+    rows.append({"name": name, "points": [[x0, y0], [x1, y1]]})
+    model["curves"] = rows
+
+    def verified(observed: dict[str, Any]) -> bool:
+        if not _motion_collection_has_curve(observed, name, require_overlay=True):
+            return False
+        live, _ = hypr_json(["animations", "-j"])
+        if not isinstance(live, list) or len(live) < 2 or not isinstance(live[1], list):
+            return False
+        for row in live[1]:
+            if not isinstance(row, dict) or str(row.get("name", "") or "") != name:
+                continue
+            return all(
+                abs(float(row.get(key, 0.0) or 0.0) - expected) < 0.001
+                for key, expected in (
+                    ("X0", x0), ("Y0", y0), ("X1", x1), ("Y1", y1)
+                )
+            )
+        return False
+
+    ok, _, apply_error = _apply_managed_hypr_model(model, verify=verified)
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Animation curve updated.",
+        "state": snapshot_motion(),
+    }
+
+
+def motion_curve_reset(name: str) -> dict[str, Any]:
+    name = name.strip()
+    if not name or name == "default":
+        return {"ok": False, "error": "Choose a non-default managed curve."}
+    model, model_error = _managed_hypr_model()
+    if not isinstance(model, dict):
+        return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
+    model["curves"] = [
+        row
+        for row in model.get("curves", [])
+        if not (isinstance(row, dict) and str(row.get("name", "") or "") == name)
+    ]
+    ok, _, apply_error = _apply_managed_hypr_model(
+        model,
+        verify=lambda observed: not _motion_collection_has_curve(
+            observed, name, require_overlay=True
+        ),
+    )
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Animation curve restored to the system default.",
+        "state": snapshot_motion(),
+    }
+
+
+def configuration_reset() -> dict[str, Any]:
+    empty = {"version": hypr_config_writer.MODEL_VERSION}
+    ok, _, apply_error = _apply_managed_hypr_model(empty)
+    if not ok:
+        return {"ok": False, "error": apply_error}
+    return {
+        "ok": True,
+        "message": "Managed Hyprland overrides were reset.",
+        "state": snapshot_configuration(),
+    }
+
+def snapshot_rules() -> dict[str, Any]:
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict):
+        return {
+            "available": False,
+            "windowRules": [],
+            "workspaceRules": [],
+            "layerRules": [],
+            "mutationAvailable": False,
+            "readOnly": True,
+            "error": collection_error or "Rule configuration is unavailable.",
+        }
+
+    writer = hypr_config_writer.status()
+    prefix, _ = hypr_prefix()
+    mutation_available = (
+        bool(writer.get("mutationAvailable"))
+        and prefix is not None
+        and not bool(collection_error)
+    )
+
+    model = writer.get("model", {}) if isinstance(writer.get("model"), dict) else {}
+
+    def rule_signature(name: str, match: dict[str, Any], effects: dict[str, Any]) -> str:
+        return json.dumps(
+            {"name": name, "match": match, "effects": effects},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    managed_rule_ids: dict[tuple[str, str], str] = {}
+    for kind, key in (("window", "windowRules"), ("layer", "layerRules")):
+        for row in model.get(key, []):
+            if not isinstance(row, dict):
+                continue
+            signature = rule_signature(
+                str(row.get("name", "") or ""),
+                row.get("match", {}) if isinstance(row.get("match"), dict) else {},
+                row.get("effects", {}) if isinstance(row.get("effects"), dict) else {},
+            )
+            managed_rule_ids[(kind, signature)] = str(row.get("id", "") or "")
+
+    def normalized_rule(raw: dict[str, Any], kind: str, index: int) -> dict[str, Any]:
+        source_file = str(raw.get("source_file", "") or "")
+        source_line = int(raw.get("source_line", 0) or 0)
+        user_owned = _writer_source_is_overlay(source_file, writer)
+        name = str(raw.get("name", "") or "")
+        match = raw.get("match", {}) if isinstance(raw.get("match"), dict) else {}
+        effects = raw.get("effects", {}) if isinstance(raw.get("effects"), dict) else {}
+        managed_id = managed_rule_ids.get(
+            (kind, rule_signature(name, match, effects)),
+            "",
+        )
+        return {
+            "id": managed_id or str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"maho-{kind}-rule:{source_file}:{source_line}:{name}:{index}",
+            )),
+            "name": name or f"{kind.capitalize()} rule",
+            "match": match,
+            "effects": effects,
+            "sourceFile": source_file,
+            "sourceLine": source_line,
+            "userOwned": user_owned,
+            "canEdit": mutation_available and user_owned and bool(managed_id),
+            "canDelete": mutation_available and user_owned and bool(managed_id),
+        }
+
+    window_rules = [
+        normalized_rule(raw, "window", index)
+        for index, raw in enumerate(collection.get("window_rules", []))
+        if isinstance(raw, dict)
+    ]
+    layer_rules = [
+        normalized_rule(raw, "layer", index)
+        for index, raw in enumerate(collection.get("layer_rules", []))
+        if isinstance(raw, dict)
+    ]
+
+    workspace_rules = []
+    for index, raw in enumerate(collection.get("workspace_rules", [])):
+        if not isinstance(raw, dict):
+            continue
+        source_file = str(raw.get("source_file", "") or "")
+        source_line = int(raw.get("source_line", 0) or 0)
+        fields = raw.get("fields", {}) if isinstance(raw.get("fields"), dict) else {}
+        workspace_rules.append({
+            "id": str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"maho-workspace-rule:{source_file}:{source_line}:{index}",
+            )),
+            "name": str(raw.get("name", "") or fields.get("workspace", "") or "Workspace rule"),
+            "fields": fields,
+            "sourceFile": source_file,
+            "sourceLine": source_line,
+            "userOwned": _writer_source_is_overlay(source_file, writer),
+            "canEdit": mutation_available and _writer_source_is_overlay(source_file, writer),
+            "canDelete": mutation_available and _writer_source_is_overlay(source_file, writer),
+        })
+
+    return {
+        "available": not bool(collection_error),
+        "windowRules": window_rules,
+        "workspaceRules": workspace_rules,
+        "layerRules": layer_rules,
+        "mutationAvailable": mutation_available,
+        "canAddWindowRule": mutation_available,
+        "canAddWorkspaceRule": mutation_available,
+        "canAddLayerRule": mutation_available,
+        "readOnly": not mutation_available,
+        "error": collection_error,
+    }
+
+
+def snapshot_session() -> dict[str, Any]:
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict):
+        return {
+            "available": False,
+            "startup": [],
+            "variables": [],
+            "environment": [],
+            "mutationAvailable": False,
+            "readOnly": True,
+            "error": collection_error or "Session configuration is unavailable.",
+        }
+
+    writer = hypr_config_writer.status()
+    prefix, _ = hypr_prefix()
+    mutation_available = (
+        bool(writer.get("mutationAvailable"))
+        and prefix is not None
+        and not bool(collection_error)
+    )
+    model = writer.get("model", {}) if isinstance(writer.get("model"), dict) else {}
+    managed_startup_ids: dict[tuple[str, str, str], str] = {}
+    for row in model.get("startup", []):
+        if not isinstance(row, dict):
+            continue
+        identity = (
+            str(row.get("command", "") or ""),
+            str(row.get("when", "") or ""),
+            str(row.get("workspace", "") or ""),
+        )
+        managed_startup_ids[identity] = str(row.get("id", "") or "")
+
+    startup = []
+    for index, raw in enumerate(collection.get("startup", [])):
+        if not isinstance(raw, dict):
+            continue
+        source_file = str(raw.get("source_file", "") or "")
+        source_line = int(raw.get("source_line", 0) or 0)
+        user_owned = _writer_source_is_overlay(source_file, writer)
+        command = str(raw.get("command", "") or "")
+        when = str(raw.get("when", "") or "reload")
+        workspace = str(raw.get("workspace", "") or "")
+        managed_id = managed_startup_ids.get((command, when, workspace), "")
+        startup.append({
+            "id": managed_id or str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"maho-startup:{source_file}:{source_line}:{index}",
+            )),
+            "command": command,
+            "when": when,
+            "workspace": workspace,
+            "sourceFile": source_file,
+            "sourceLine": source_line,
+            "userOwned": user_owned,
+            "canEdit": mutation_available and user_owned and bool(managed_id),
+            "canDelete": mutation_available and user_owned and bool(managed_id),
+        })
+
+    variables = [
+        row
+        for row in collection.get("variables", [])
+        if isinstance(row, dict)
+    ]
+    environment = [
+        row
+        for row in collection.get("env", [])
+        if isinstance(row, dict)
+    ]
+    return {
+        "available": not bool(collection_error),
+        "startup": startup,
+        "variables": variables,
+        "environment": environment,
+        "mutationAvailable": mutation_available,
+        "canAddStartup": mutation_available,
+        "readOnly": not mutation_available,
+        "error": collection_error,
+    }
 
 
 def _hypr_config_errors() -> tuple[list[str], str]:
@@ -1889,7 +3220,9 @@ def snapshot_providers() -> dict[str, Any]:
         "applications": snapshot_applications,
         "region": snapshot_region,
         "shortcuts": snapshot_shortcuts,
+        "rules": snapshot_rules,
         "motion": snapshot_motion,
+        "session": snapshot_session,
         "configuration": snapshot_configuration,
         "diagnostics": snapshot_diagnostics,
         "system": snapshot_about,
@@ -2108,6 +3441,107 @@ def action(name: str, payload: dict[str, Any]) -> dict[str, Any]:
         )
     if name == "power.profile":
         return power_profile(str(payload.get("profile", "")))
+    if name == "shortcuts.upsert":
+        replace_existing = payload.get("replaceExisting", False)
+        if not isinstance(replace_existing, bool):
+            return {"ok": False, "error": "Shortcut override flag must be boolean."}
+        description = payload.get("description", "")
+        if not isinstance(description, str):
+            return {"ok": False, "error": "Shortcut description must be text."}
+        return shortcut_upsert(
+            str(payload.get("chord", "")),
+            str(payload.get("command", "")),
+            description,
+            submap=str(payload.get("submap", "")),
+            original_chord=str(payload.get("originalChord", "")),
+            original_submap=str(payload.get("originalSubmap", "")),
+            replace_existing=replace_existing,
+        )
+    if name == "shortcuts.disable":
+        return shortcut_disable(
+            str(payload.get("chord", "")),
+            str(payload.get("submap", "")),
+        )
+    if name == "shortcuts.reset":
+        return shortcut_reset(
+            str(payload.get("chord", "")),
+            str(payload.get("submap", "")),
+        )
+    if name == "rules.upsert":
+        match = payload.get("match")
+        effects = payload.get("effects")
+        if not isinstance(match, dict) or not isinstance(effects, dict):
+            return {"ok": False, "error": "Rule match and effects must be objects."}
+        return rule_upsert(
+            str(payload.get("kind", "")),
+            str(payload.get("name", "")),
+            match,
+            effects,
+            rule_id=str(payload.get("id", "")),
+        )
+    if name == "rules.delete":
+        return rule_delete(
+            str(payload.get("kind", "")),
+            str(payload.get("id", "")),
+        )
+    if name == "rules.workspaceUpsert":
+        fields = payload.get("fields")
+        original_fields = payload.get("originalFields")
+        if not isinstance(fields, dict):
+            return {"ok": False, "error": "Workspace rule fields must be an object."}
+        if original_fields is not None and not isinstance(original_fields, dict):
+            return {"ok": False, "error": "Original workspace rule fields must be an object."}
+        return workspace_rule_upsert(fields, original_fields=original_fields)
+    if name == "rules.workspaceDelete":
+        fields = payload.get("fields")
+        if not isinstance(fields, dict):
+            return {"ok": False, "error": "Workspace rule fields must be an object."}
+        return workspace_rule_delete(fields)
+    if name == "session.startupUpsert":
+        return session_startup_upsert(
+            str(payload.get("command", "")),
+            str(payload.get("when", "")),
+            str(payload.get("workspace", "")),
+            startup_id=str(payload.get("id", "")),
+        )
+    if name == "session.startupDelete":
+        return session_startup_delete(str(payload.get("id", "")))
+    if name == "motion.animationUpsert":
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            return {"ok": False, "error": "Animation enabled state must be boolean."}
+        try:
+            speed = float(payload.get("speed"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Animation speed must be numeric."}
+        return motion_animation_upsert(
+            str(payload.get("leaf", "")),
+            enabled,
+            speed,
+            str(payload.get("curve", "")),
+            str(payload.get("style", "")),
+        )
+    if name == "motion.animationReset":
+        return motion_animation_reset(str(payload.get("leaf", "")))
+    if name == "motion.curveUpsert":
+        try:
+            x0 = float(payload.get("x0"))
+            y0 = float(payload.get("y0"))
+            x1 = float(payload.get("x1"))
+            y1 = float(payload.get("y1"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Curve coordinates must be numeric."}
+        return motion_curve_upsert(
+            str(payload.get("name", "")),
+            x0,
+            y0,
+            x1,
+            y1,
+        )
+    if name == "motion.curveReset":
+        return motion_curve_reset(str(payload.get("name", "")))
+    if name == "configuration.reset":
+        return configuration_reset()
     return {"ok": False, "error": "Unsupported settings action."}
 
 

@@ -32,10 +32,12 @@ qt_add_qml_module(maho-settings
         qml/components/MahoComboBox.qml
         qml/components/MahoIcon.qml
         qml/components/MahoInsetRow.qml
+        qml/components/ManagedListRow.qml
         qml/components/MahoSectionLabel.qml
         qml/components/MahoScrollBar.qml
         qml/components/MahoSettingsTheme.qml
         qml/components/MahoSidebarItem.qml
+        qml/components/MahoTextArea.qml
         qml/components/MahoTextField.qml
         qml/components/MahoSlider.qml
         qml/components/MahoSwitch.qml
@@ -55,7 +57,9 @@ qt_add_qml_module(maho-settings
         qml/pages/PowerPage.qml
         qml/pages/RegionPage.qml
         qml/pages/ShortcutsPage.qml
+        qml/pages/RulesPage.qml
         qml/pages/MotionPage.qml
+        qml/pages/SessionPage.qml
         qml/pages/SoundPage.qml
 )
 
