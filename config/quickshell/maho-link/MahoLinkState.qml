@@ -24,6 +24,10 @@ Scope {
     property bool statusReady: false
     property bool networksReady: false
     property bool snapshotReady: false
+    property string scanState: "unknown"
+    property string scanSource: "none"
+    property real lastObservationAtMs: 0
+    property bool refreshPending: false
     property bool scanning: false
     property bool startupScanAttempted: false
     property string activeAction: ""
@@ -39,34 +43,21 @@ Scope {
         return Quickshell.shellPath("wifi.py")
     }
 
-    function mergeStatusCurrent(candidate) {
-        if (!candidate)
-            return null
-        if (state.currentNetwork
-                && String(state.currentNetwork.ssid || "") === String(candidate.ssid || "")
-                && Number(state.currentNetwork.signal) >= 0) {
-            const merged = Object.assign({}, state.currentNetwork)
-            merged.state = String(candidate.state || merged.state || "Connected")
-            merged.ipv4 = String(candidate.ipv4 || merged.ipv4 || "")
-            merged.gateway = String(candidate.gateway || merged.gateway || "")
-            return merged
-        }
-        return candidate
-    }
-
     function refreshStatus() {
-        if (!statusProcess.running)
-            statusProcess.exec(["python", backendPath(), "status"])
+        refresh()
     }
 
     function refreshNetworks() {
-        if (!networkProcess.running)
-            networkProcess.exec(["python", backendPath(), "networks"])
+        refresh()
     }
 
     function refresh() {
-        refreshStatus()
-        refreshNetworks()
+        if (snapshotProcess.running) {
+            state.refreshPending = true
+            return
+        }
+        state.refreshPending = false
+        snapshotProcess.exec(["python", backendPath(), "snapshot"])
     }
 
     function maybeStartupScan() {
@@ -74,7 +65,7 @@ Scope {
                 || !networksReady
                 || !available
                 || !wifiEnabled
-                || networks.length !== 0
+                || scanState !== "warming"
                 || startupScanAttempted
                 || scanning)
             return
@@ -169,15 +160,34 @@ Scope {
     }
 
     Process {
-        id: statusProcess
+        id: snapshotProcess
+
+        onRunningChanged: {
+            if (!running && state.refreshPending)
+                Qt.callLater(state.refresh)
+        }
+
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
                     const payload = JSON.parse(this.text)
+                    const observedAt = Number(payload.observedAtMs || 0)
+                    if (observedAt > 0 && state.lastObservationAtMs > 0
+                            && observedAt < state.lastObservationAtMs) {
+                        state.refreshPending = true
+                        return
+                    }
+                    if (observedAt > 0)
+                        state.lastObservationAtMs = observedAt
+
                     state.available = Boolean(payload.available)
                     state.wifiEnabled = Boolean(payload.enabled)
                     state.device = String(payload.device || "")
-                    state.currentNetwork = state.mergeStatusCurrent(payload.current || null)
+                    state.currentNetwork = payload.current || null
+                    state.networks = payload.networks || []
+                    state.savedNetworks = payload.saved || []
+                    state.scanState = String(payload.scanState || "unknown")
+                    state.scanSource = String(payload.scanSource || "none")
                     state.ethernet = payload.ethernet || ({
                         "available": false, "connected": false, "device": "", "state": "Unavailable",
                         "profile": "", "uuid": "", "ipv4": "", "gateway": ""
@@ -191,54 +201,28 @@ Scope {
                         state.currentNetwork = null
                         state.networks = []
                         state.savedNetworks = []
-                        state.networksReady = true
+                        state.scanState = "unavailable"
                     }
                 } catch (error) {
                     state.available = false
                     state.currentNetwork = null
                     state.networks = []
                     state.savedNetworks = []
+                    state.scanState = "unavailable"
+                    state.scanSource = "none"
                     state.errorText = "Wi-Fi status could not be read."
-                    console.log("maho-link status parse:", error)
+                    console.log("maho-link snapshot parse:", error)
                 }
-                // This is the authoritative gate for showing the Wi-Fi surface.
-                // Nearby-network discovery is deliberately not part of it.
-                state.statusReady = true
-                state.snapshotReady = true
-                state.maybeStartupScan()
-            }
-        }
-    }
 
-    Process {
-        id: networkProcess
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    const payload = JSON.parse(this.text)
-                    state.networks = payload.networks || []
-                    state.savedNetworks = payload.saved || []
-                    if (payload.current)
-                        state.currentNetwork = payload.current
-                    else if (!Boolean(payload.enabled))
-                        state.currentNetwork = null
-                    state.networksReady = true
-                    state.snapshotReady = state.statusReady
-                    if (state.errorText === "")
-                        state.errorText = String(payload.error || "")
-                    // NetworkManager can return an empty cached list immediately
-                    // after boot/resume. Whichever fast query finishes second
-                    // gets to trigger one bounded real scan.
-                    state.maybeStartupScan()
-                } catch (error) {
-                    state.networks = []
-                    state.savedNetworks = []
-                    state.networksReady = true
-                    state.errorText = "Wi-Fi networks could not be read."
-                    console.log("maho-link network parse:", error)
-                }
+                // One NetworkManager observation owns all Wi-Fi UI truth.
+                // Nearby scan cache may still be warming, but the authoritative
+                // current connection is rendered immediately from the same payload.
+                state.statusReady = true
+                state.networksReady = true
+                state.snapshotReady = true
                 if (state.scanning)
                     state.scanning = false
+                state.maybeStartupScan()
             }
         }
     }

@@ -37,6 +37,7 @@ ADAPTER_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+$")
 DEVICE_PATH_RE = re.compile(r"^/org/bluez/hci[0-9]+/dev_[0-9A-Fa-f_]+$")
 AUTOCONNECT_BACKOFF_SECONDS = (5, 15, 45, 120)
 MAX_AUTOCONNECT_ATTEMPTS = len(AUTOCONNECT_BACKOFF_SECONDS)
+RFKILL_CLASS = Path("/sys/class/rfkill")
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -168,12 +169,95 @@ def property_value(props: dict[str, Any], name: str, default: Any = None) -> Any
     return unwrap(value)
 
 
+def _read_rfkill_value(path: Path, fallback: str = "") -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return fallback
+
+
+def rfkill_devices(root: Path = RFKILL_CLASS) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        candidates = sorted(
+            root.glob("rfkill*"),
+            key=lambda item: int(item.name.removeprefix("rfkill"))
+            if item.name.removeprefix("rfkill").isdigit() else 1_000_000,
+        )
+    except OSError:
+        return rows
+
+    for path in candidates:
+        kind = _read_rfkill_value(path / "type").lower()
+        if not kind:
+            continue
+        raw_id = path.name.removeprefix("rfkill")
+        try:
+            rfkill_id = int(raw_id)
+        except ValueError:
+            continue
+        rows.append({
+            "id": rfkill_id,
+            "type": kind,
+            "name": _read_rfkill_value(path / "name"),
+            "softBlocked": _read_rfkill_value(path / "soft", "0") == "1",
+            "hardBlocked": _read_rfkill_value(path / "hard", "0") == "1",
+        })
+    return rows
+
+
+def rfkill_type_signature(kind: str, root: Path = RFKILL_CLASS) -> tuple[tuple[Any, ...], ...]:
+    normalized = str(kind or "").strip().lower()
+    return tuple(
+        (row["id"], row["name"], row["softBlocked"], row["hardBlocked"])
+        for row in rfkill_devices(root)
+        if row["type"] == normalized
+    )
+
+
+def bluetooth_rfkill_state(root: Path = RFKILL_CLASS) -> dict[str, Any]:
+    devices = [row for row in rfkill_devices(root) if row["type"] == "bluetooth"]
+    if not devices:
+        return {
+            "available": False,
+            "state": "unavailable",
+            "softBlocked": False,
+            "hardBlocked": False,
+            "devices": [],
+        }
+
+    hard_blocked = any(bool(row["hardBlocked"]) for row in devices)
+    soft_blocked = any(bool(row["softBlocked"]) for row in devices)
+    state = "hard-blocked" if hard_blocked else "soft-blocked" if soft_blocked else "unblocked"
+    return {
+        "available": True,
+        "state": state,
+        "softBlocked": soft_blocked,
+        "hardBlocked": hard_blocked,
+        "devices": devices,
+    }
+
+
+def bluetooth_power_state(enabled: bool, rfkill: dict[str, Any]) -> str:
+    if rfkill.get("hardBlocked"):
+        return "hard-blocked"
+    if rfkill.get("softBlocked"):
+        return "soft-blocked"
+    return "powered" if enabled else "powered-off"
+
+
 def unavailable_snapshot(error: str) -> dict[str, Any]:
     return {
         "available": False,
         "enabled": False,
         "discovering": False,
         "adapterPath": "",
+        "powerState": "unavailable",
+        "powerActionable": False,
+        "rfkillState": "unavailable",
+        "softBlocked": False,
+        "hardBlocked": False,
+        "rfkillDevices": [],
         "paired": [],
         "availableDevices": [],
         "connected": [],
@@ -232,6 +316,8 @@ def snapshot_payload() -> dict[str, Any]:
     adapter_path, adapter_props = adapters[0]
     enabled = bool(property_value(adapter_props, "Powered", False))
     discovering = bool(property_value(adapter_props, "Discovering", False))
+    rfkill = bluetooth_rfkill_state()
+    power_state = bluetooth_power_state(enabled, rfkill)
 
     device_rows: list[dict[str, Any]] = []
     auto_connect_eligible: list[str] = []
@@ -320,6 +406,12 @@ def snapshot_payload() -> dict[str, Any]:
         "enabled": enabled,
         "discovering": discovering,
         "adapterPath": adapter_path,
+        "powerState": power_state,
+        "powerActionable": not bool(rfkill.get("hardBlocked")),
+        "rfkillState": str(rfkill.get("state") or "unavailable"),
+        "softBlocked": bool(rfkill.get("softBlocked")),
+        "hardBlocked": bool(rfkill.get("hardBlocked")),
+        "rfkillDevices": rfkill.get("devices", []),
         "paired": paired,
         "availableDevices": nearby,
         "connected": connected,
@@ -1003,6 +1095,172 @@ def auto_connect() -> int:
         return auto_connect_locked()
 
 
+def wait_for_adapter_power(adapter_path: str, expected: bool, timeout: float = 4.0) -> tuple[bool, dict[str, Any]]:
+    deadline = time.monotonic() + timeout
+    last = snapshot_payload()
+    while True:
+        if not last.get("available") or last.get("adapterPath") != adapter_path:
+            return False, last
+        if bool(last.get("enabled")) is expected:
+            return True, last
+        if time.monotonic() >= deadline:
+            return False, last
+        time.sleep(0.15)
+        last = snapshot_payload()
+
+
+def wait_for_bluetooth_unblocked(timeout: float = 2.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    last = bluetooth_rfkill_state()
+    while last.get("softBlocked") and not last.get("hardBlocked"):
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.10)
+        last = bluetooth_rfkill_state()
+    return last
+
+
+def power_state_message(payload: dict[str, Any], fallback: str) -> str:
+    state = str(payload.get("powerState") or "")
+    if state == "hard-blocked":
+        return "Bluetooth is blocked by a hardware switch or firmware."
+    if state == "soft-blocked":
+        return "Bluetooth remains software-blocked."
+    if state == "unavailable":
+        return str(payload.get("error") or "Bluetooth adapter is unavailable.")
+    return fallback
+
+
+def set_adapter_power(adapter_path: str, enabled: bool) -> int:
+    if not valid_adapter(adapter_path):
+        emit({"ok": False, "message": "Bluetooth adapter path is invalid.", "powerState": "unavailable"})
+        return 2
+
+    before = snapshot_payload()
+    if not before.get("available") or before.get("adapterPath") != adapter_path:
+        emit({
+            "ok": False,
+            "message": str(before.get("error") or "Bluetooth adapter is unavailable."),
+            "powerState": str(before.get("powerState") or "unavailable"),
+        })
+        return 1
+
+    if enabled and bool(before.get("hardBlocked")):
+        emit({
+            "ok": False,
+            "message": "Bluetooth is blocked by a hardware switch or firmware.",
+            "powerState": "hard-blocked",
+            "rfkillState": str(before.get("rfkillState") or "hard-blocked"),
+        })
+        return 1
+
+    if bool(before.get("enabled")) is enabled and not (enabled and bool(before.get("softBlocked"))):
+        emit({
+            "ok": True,
+            "message": "Bluetooth enabled." if enabled else "Bluetooth disabled.",
+            "powerState": str(before.get("powerState") or ("powered" if enabled else "powered-off")),
+            "rfkillState": str(before.get("rfkillState") or "unavailable"),
+        })
+        return 0
+
+    if enabled and bool(before.get("softBlocked")):
+        if not shutil.which("rfkill"):
+            emit({
+                "ok": False,
+                "message": "Bluetooth is software-blocked and rfkill is unavailable.",
+                "powerState": "soft-blocked",
+                "rfkillState": "soft-blocked",
+            })
+            return 1
+
+        wifi_before = rfkill_type_signature("wlan")
+        code, out, err = run(["rfkill", "unblock", "bluetooth"], timeout=5.0)
+        after_rfkill = (
+            wait_for_bluetooth_unblocked()
+            if code == 0 else bluetooth_rfkill_state()
+        )
+        wifi_after = rfkill_type_signature("wlan")
+
+        if wifi_after != wifi_before:
+            emit({
+                "ok": False,
+                "message": "Bluetooth unblock did not preserve Wi-Fi rfkill state.",
+                "powerState": bluetooth_power_state(False, after_rfkill),
+                "rfkillState": str(after_rfkill.get("state") or "unavailable"),
+            })
+            return 1
+        if code != 0:
+            emit({
+                "ok": False,
+                "message": friendly_error(err or out, "Couldn’t clear the Bluetooth software block."),
+                "powerState": bluetooth_power_state(False, after_rfkill),
+                "rfkillState": str(after_rfkill.get("state") or "unavailable"),
+            })
+            return 1
+        if after_rfkill.get("hardBlocked"):
+            emit({
+                "ok": False,
+                "message": "Bluetooth is blocked by a hardware switch or firmware.",
+                "powerState": "hard-blocked",
+                "rfkillState": "hard-blocked",
+            })
+            return 1
+        if after_rfkill.get("softBlocked"):
+            emit({
+                "ok": False,
+                "message": "Bluetooth remains software-blocked.",
+                "powerState": "soft-blocked",
+                "rfkillState": "soft-blocked",
+            })
+            return 1
+
+    code, out, err = run(
+        [
+            "busctl",
+            "--system",
+            "set-property",
+            BLUEZ,
+            adapter_path,
+            ADAPTER,
+            "Powered",
+            "b",
+            "true" if enabled else "false",
+        ],
+        timeout=8.0,
+    )
+    if code != 0:
+        observed = snapshot_payload()
+        emit({
+            "ok": False,
+            "message": power_state_message(observed, friendly_error(
+                err or out, "Couldn’t change Bluetooth state.")),
+            "powerState": str(observed.get("powerState") or "unavailable"),
+            "rfkillState": str(observed.get("rfkillState") or "unavailable"),
+        })
+        return 1
+
+    confirmed, observed = wait_for_adapter_power(adapter_path, enabled)
+    if not confirmed:
+        emit({
+            "ok": False,
+            "message": power_state_message(
+                observed,
+                "BlueZ did not confirm the Bluetooth power state.",
+            ),
+            "powerState": str(observed.get("powerState") or "unavailable"),
+            "rfkillState": str(observed.get("rfkillState") or "unavailable"),
+        })
+        return 1
+
+    emit({
+        "ok": True,
+        "message": "Bluetooth enabled." if enabled else "Bluetooth disabled.",
+        "powerState": str(observed.get("powerState") or ("powered" if enabled else "powered-off")),
+        "rfkillState": str(observed.get("rfkillState") or "unavailable"),
+    })
+    return 0
+
+
 def reconnect_device(device_path: str) -> int:
     if not valid_device(device_path):
         emit({"ok": False, "message": "Bluetooth device path is invalid."})
@@ -1049,31 +1307,7 @@ def action(argv: list[str]) -> int:
             return reconnect_device(argv[1])
 
     if command == "toggle" and len(argv) == 3 and argv[2] in ("on", "off"):
-        adapter_path = argv[1]
-        if not valid_adapter(adapter_path):
-            emit({"ok": False, "message": "Bluetooth adapter path is invalid."})
-            return 2
-        code, out, err = run(
-            [
-                "busctl",
-                "--system",
-                "set-property",
-                BLUEZ,
-                adapter_path,
-                ADAPTER,
-                "Powered",
-                "b",
-                "true" if argv[2] == "on" else "false",
-            ],
-            timeout=8.0,
-        )
-        ok = code == 0
-        emit({
-            "ok": ok,
-            "message": ("Bluetooth enabled." if argv[2] == "on" else "Bluetooth disabled.")
-            if ok else friendly_error(err or out, "Couldn’t change Bluetooth state."),
-        })
-        return 0 if ok else 1
+        return set_adapter_power(argv[1], argv[2] == "on")
 
     if command in ("scan-start", "scan-stop") and len(argv) == 2:
         adapter_path = argv[1]

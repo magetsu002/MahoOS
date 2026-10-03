@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from typing import Iterable
 
@@ -360,13 +361,13 @@ def scan_networks(enabled: bool, *, rescan="auto", saved_profiles=None):
         if in_use.strip() == "*":
             current = entry.copy()
 
+    # Keep every live scan row here, including the row NetworkManager marks
+    # IN-USE. The authoritative active-connection query below decides what is
+    # actually connected; a stale scan marker must never manufacture or erase
+    # connection truth.
     networks = sorted(strongest.values(), key=lambda row: (-row["signal"], row["ssid"].lower()))
-    if current:
-        networks = [row for row in networks if row["ssid"] != current["ssid"]]
 
     present_ssids = {row["ssid"] for row in networks}
-    if current:
-        present_ssids.add(str(current.get("ssid") or ""))
     for profile in profiles:
         ssid = str(profile.get("ssid") or "")
         if not ssid or ssid in present_ssids or profile.get("active"):
@@ -499,9 +500,105 @@ def unavailable_payload():
     }
 
 
+def merge_active_scan(
+    active: dict | None,
+    scan_current: dict | None,
+    networks: list[dict],
+) -> tuple[list[dict], dict | None, bool]:
+    """Bind cached scan metadata to authoritative active-connection truth."""
+    if active is None:
+        # IN-USE in the scan cache is observational metadata only. If
+        # NetworkManager no longer reports an active connection, stale cache
+        # cannot keep a disconnected SSID visually connected.
+        return networks, None, False
+
+    active_ssid = str(active.get("ssid") or "")
+    scan_match = None
+    if scan_current and str(scan_current.get("ssid") or "") == active_ssid:
+        scan_match = scan_current
+    if scan_match is None:
+        for row in networks:
+            if str(row.get("ssid") or "") == active_ssid and bool(row.get("available")):
+                scan_match = row
+                break
+
+    current = dict(active)
+    if scan_match is not None:
+        for field in (
+            "signal", "quality", "frequency", "band", "available",
+            "security", "secured", "enterprise",
+        ):
+            if field in scan_match:
+                current[field] = scan_match[field]
+        # Active profile identity remains authoritative even if a cached scan
+        # row was associated with a different saved profile.
+        current["saved"] = True
+        current["profileUuid"] = str(active.get("profileUuid") or active.get("uuid") or "")
+        current["profileName"] = str(active.get("profileName") or active.get("profile") or "")
+
+    filtered = [
+        row for row in networks
+        if str(row.get("ssid") or "") != active_ssid
+    ]
+    return filtered, current, scan_match is not None
+
+
+def coherent_wifi_observation(*, include_system: bool) -> dict:
+    observed_at_ms = int(time.time() * 1000)
+    if not shutil.which("nmcli"):
+        payload = unavailable_payload()
+        payload["observedAtMs"] = observed_at_ms
+        payload["scanState"] = "unavailable"
+        payload["scanSource"] = "none"
+        return payload
+
+    enabled = wifi_enabled()
+    device = wifi_device()
+    profiles = saved_wifi_profiles()
+    active = active_connection(device) if enabled else None
+    networks, scan_current = scan_networks(
+        enabled, rescan="no", saved_profiles=profiles
+    )
+    networks, current, scan_has_current = merge_active_scan(
+        active, scan_current, networks
+    )
+
+    live_rows = [row for row in networks if bool(row.get("available"))]
+    if not enabled:
+        scan_state = "disabled"
+    elif scan_has_current or live_rows:
+        scan_state = "cached"
+    else:
+        # Empty NetworkManager scan cache is not proof that no networks exist.
+        # Render the authoritative current connection immediately and let the
+        # asynchronous scan path converge nearby-network metadata.
+        scan_state = "warming"
+
+    payload = {
+        "available": True,
+        "enabled": enabled,
+        "device": device,
+        "current": current,
+        "networks": networks,
+        "saved": profiles,
+        "observedAtMs": observed_at_ms,
+        "scanState": scan_state,
+        "scanSource": "networkmanager-cache",
+        "error": "" if device or not enabled else "No Wi-Fi adapter is available.",
+    }
+    if include_system:
+        payload["ethernet"] = ethernet_snapshot()
+        payload["connectivity"] = connectivity_snapshot()
+    return payload
+
+
 def status_snapshot():
     if not shutil.which("nmcli"):
-        emit(unavailable_payload())
+        payload = unavailable_payload()
+        payload["observedAtMs"] = int(time.time() * 1000)
+        payload["scanState"] = "unavailable"
+        payload["scanSource"] = "none"
+        emit(payload)
         return 0
 
     enabled = wifi_enabled()
@@ -512,6 +609,9 @@ def status_snapshot():
         "enabled": enabled,
         "device": device,
         "current": current,
+        "observedAtMs": int(time.time() * 1000),
+        "scanState": "status-only",
+        "scanSource": "none",
         "ethernet": ethernet_snapshot(),
         "connectivity": connectivity_snapshot(),
         "error": "" if device or not enabled else "No Wi-Fi adapter is available.",
@@ -520,56 +620,41 @@ def status_snapshot():
 
 
 def networks_snapshot():
-    if not shutil.which("nmcli"):
-        emit(unavailable_payload())
-        return 0
-
-    enabled = wifi_enabled()
-    device = wifi_device()
-    profiles = saved_wifi_profiles()
-    networks, current = scan_networks(enabled, rescan="no", saved_profiles=profiles)
-    if current:
-        current.update(ip_details(device))
-        current["state"] = "Connected"
-    elif enabled:
-        current = active_connection(device)
-    emit({
-        "available": True,
-        "enabled": enabled,
-        "device": device,
-        "current": current,
-        "networks": networks,
-        "saved": profiles,
-        "error": "" if device or not enabled else "No Wi-Fi adapter is available.",
-    })
+    emit(coherent_wifi_observation(include_system=False))
     return 0
 
 
 def snapshot():
-    if not shutil.which("nmcli"):
-        emit(unavailable_payload())
-        return 0
+    emit(coherent_wifi_observation(include_system=True))
+    return 0
 
-    enabled = wifi_enabled()
+
+def rescan_and_converge() -> int:
     device = wifi_device()
-    profiles = saved_wifi_profiles()
-    networks, current = scan_networks(enabled, saved_profiles=profiles)
-    if current:
-        current.update(ip_details(device))
-        current["state"] = "Connected"
-    elif enabled:
-        current = active_connection(device)
-    emit({
-        "available": True,
-        "enabled": enabled,
-        "device": device,
-        "current": current,
-        "networks": networks,
-        "saved": profiles,
-        "ethernet": ethernet_snapshot(),
-        "connectivity": connectivity_snapshot(),
-        "error": "" if device or not enabled else "No Wi-Fi adapter is available.",
-    })
+    if not device:
+        emit({"ok": False, "message": "No Wi-Fi adapter is available."})
+        return 1
+
+    code, _, err = run(["nmcli", "device", "wifi", "rescan"], timeout=8.0)
+    if code != 0:
+        emit({
+            "ok": False,
+            "message": friendly_wifi_error(err, "Wi-Fi scan failed."),
+        })
+        return 1
+
+    # The request is asynchronous inside NetworkManager. Keep this helper
+    # asynchronous from QML too, and wait only for a bounded cache convergence
+    # window. A genuinely empty RF environment may remain "warming"; that is
+    # truthful and does not erase the current active connection.
+    deadline = time.monotonic() + 2.2
+    while time.monotonic() < deadline:
+        time.sleep(0.18)
+        observation = coherent_wifi_observation(include_system=False)
+        if observation.get("scanState") != "warming":
+            break
+
+    emit({"ok": True, "message": "Scan refreshed."})
     return 0
 
 
@@ -985,9 +1070,7 @@ def action(argv):
         return 0 if code == 0 else 1
 
     if command == "rescan":
-        code, _, err = run(["nmcli", "device", "wifi", "rescan"], timeout=8.0)
-        emit({"ok": code == 0, "message": "Scan refreshed." if code == 0 else friendly_wifi_error(err, "Wi-Fi scan failed.")})
-        return 0 if code == 0 else 1
+        return rescan_and_converge()
 
     if command == "disconnect":
         device = argv[1] if len(argv) > 1 else wifi_device()

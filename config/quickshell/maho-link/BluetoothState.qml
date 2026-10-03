@@ -7,6 +7,11 @@ Scope {
 
     property bool available: false
     property bool bluetoothEnabled: false
+    property string powerState: "unavailable"
+    property bool powerActionable: false
+    property string rfkillState: "unavailable"
+    property bool softBlocked: false
+    property bool hardBlocked: false
     property bool discovering: false
     property string adapterPath: ""
     property var pairedDevices: []
@@ -61,6 +66,8 @@ Scope {
 
     function setBluetoothEnabled(enabled) {
         if (adapterPath === "")
+            return false
+        if (enabled && !powerActionable)
             return false
         if (!enabled && discoverySession.running)
             stopDiscovery()
@@ -205,6 +212,11 @@ Scope {
                     const payload = JSON.parse(this.text)
                     state.available = Boolean(payload.available)
                     state.bluetoothEnabled = Boolean(payload.enabled)
+                    state.powerState = String(payload.powerState || (state.available ? "powered-off" : "unavailable"))
+                    state.powerActionable = Boolean(payload.powerActionable)
+                    state.rfkillState = String(payload.rfkillState || "unavailable")
+                    state.softBlocked = Boolean(payload.softBlocked)
+                    state.hardBlocked = Boolean(payload.hardBlocked)
                     // Keep opening motion truthful while BlueZ's Discovering
                     // property catches up with the just-started owned session.
                     state.discovering = Boolean(payload.discovering) || discoverySession.running
@@ -218,7 +230,21 @@ Scope {
                     if (!state.available)
                         state.clearPairingPrompt()
                 } catch (error) {
+                    state.available = false
+                    state.bluetoothEnabled = false
+                    state.powerState = "unavailable"
+                    state.powerActionable = false
+                    state.rfkillState = "unavailable"
+                    state.softBlocked = false
+                    state.hardBlocked = false
+                    state.adapterPath = ""
+                    state.pairedDevices = []
+                    state.availableDevices = []
+                    state.connectedDevices = []
+                    state.autoConnectEligible = []
                     state.errorText = "Bluetooth status could not be read."
+                    state.snapshotReady = true
+                    state.clearPairingPrompt()
                     console.log("maho-link bluetooth snapshot parse:", error)
                 }
             }

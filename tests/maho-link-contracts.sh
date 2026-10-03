@@ -173,7 +173,8 @@ echo "PASS"
 echo "=== backend syntax ==="
 python -m py_compile "$BACKEND" "$BT_BACKEND"
 bash -n "$ROOT/bin/maho-link"
-require_text "$BACKEND" '"--rescan", "auto"' "snapshot no longer permits NetworkManager to refresh stale discovery"
+require_text "$BACKEND" 'rescan="no"' "cached Wi-Fi observation no longer avoids a blocking first-frame scan"
+require_text "$BACKEND" 'def rescan_and_converge()' "asynchronous Wi-Fi scan convergence helper is missing"
 echo "PASS"
 
 echo "=== secure enterprise secret dependency ==="
@@ -208,7 +209,26 @@ case "$*" in
   "-t -e yes -f DEVICE,TYPE,STATE device status")
     echo "wlan0:wifi:connected"
     ;;
-  "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan auto")
+  "-t -e yes -f NAME,UUID,TYPE,TIMESTAMP,AUTOCONNECT,ACTIVE,DEVICE connection show")
+    echo "MahoTestWiFi:11111111-2222-3333-4444-555555555555:802-11-wireless:123:yes:yes:wlan0"
+    ;;
+  "-t -e yes -f connection.id,connection.uuid,connection.autoconnect,802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-1x.eap connection show uuid 11111111-2222-3333-4444-555555555555")
+    cat <<'PROPS'
+connection.id:MahoTestWiFi
+connection.uuid:11111111-2222-3333-4444-555555555555
+connection.autoconnect:yes
+802-11-wireless.ssid:MahoTestWiFi
+802-11-wireless-security.key-mgmt:wpa-psk
+802-1x.eap:
+PROPS
+    ;;
+  "-t -e yes -f NAME,UUID,TYPE,DEVICE connection show --active")
+    echo "MahoTestWiFi:11111111-2222-3333-4444-555555555555:802-11-wireless:wlan0"
+    ;;
+  "-t -g 802-11-wireless.ssid connection show uuid 11111111-2222-3333-4444-555555555555")
+    echo "MahoTestWiFi"
+    ;;
+  "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan no")
     cat <<'SCAN'
 *:MahoTestWiFi:91:WPA2:5180
 :Guest\:Lab:61:WPA2:2412
@@ -216,6 +236,13 @@ case "$*" in
 :CorpNet:80:WPA2 802.1X:5180
 :MahoTestWiFi:52:WPA2:2412
 SCAN
+    ;;
+  "-t -e yes -f DEVICE,TYPE,STATE,CONNECTION device status")
+    echo "wlan0:wifi:connected:MahoTestWiFi"
+    echo "enp3s0:ethernet:unavailable:--"
+    ;;
+  "-t -f CONNECTIVITY general")
+    echo "full"
     ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
     cat <<'IP'

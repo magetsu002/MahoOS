@@ -157,6 +157,8 @@ Item {
                 }
                 Text {
                     text: !root.bluetooth.available ? "Adapter unavailable"
+                        : root.bluetooth.powerState === "hard-blocked" ? "Hardware blocked"
+                        : root.bluetooth.powerState === "soft-blocked" ? "Software blocked"
                         : root.bluetooth.bluetoothEnabled ? "On" : "Off"
                     color: chrome.theme.alpha(chrome.textSecondary, 0.68)
                     font.family: "Inter"
@@ -173,7 +175,7 @@ Item {
                 height: 27
                 radius: 14
                 antialiasing: true
-                opacity: root.bluetooth.available && !root.bluetooth.busy ? 1 : 0.48
+                opacity: root.bluetooth.available && root.bluetooth.powerActionable && !root.bluetooth.busy ? 1 : 0.48
                 color: root.bluetooth.bluetoothEnabled
                     ? chrome.theme.alpha(chrome.accent,
                         (toggleHover.containsMouse || toggleHover.activeFocus) ? 0.77 : 0.67)
@@ -225,7 +227,7 @@ Item {
                 MouseArea {
                     id: toggleHover
                     anchors.fill: parent
-                    enabled: root.bluetooth.available && !root.bluetooth.busy
+                    enabled: root.bluetooth.available && root.bluetooth.powerActionable && !root.bluetooth.busy
                     hoverEnabled: true
                     activeFocusOnTab: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
@@ -540,6 +542,8 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: !root.bluetooth.available ? "Bluetooth unavailable"
+                        : root.bluetooth.powerState === "hard-blocked" ? "Bluetooth is hardware blocked"
+                        : root.bluetooth.powerState === "soft-blocked" ? "Bluetooth is software blocked"
                         : !root.bluetooth.bluetoothEnabled ? "Bluetooth is Off"
                         : !root.bluetooth.snapshotReady ? "Reading devices…"
                         : "No Paired Devices"
@@ -552,9 +556,13 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
-                    text: !root.bluetooth.bluetoothEnabled
-                        ? "Turn on Bluetooth to connect accessories and nearby devices."
-                        : "Nearby devices will appear below while Bluetooth is discovering."
+                    text: root.bluetooth.powerState === "hard-blocked"
+                        ? "Use the laptop hardware or firmware control to unblock Bluetooth."
+                        : root.bluetooth.powerState === "soft-blocked"
+                            ? "Turn on Bluetooth to clear the software block and power the adapter."
+                            : !root.bluetooth.bluetoothEnabled
+                                ? "Turn on Bluetooth to connect accessories and nearby devices."
+                                : "Nearby devices will appear below while Bluetooth is discovering."
                     color: chrome.theme.alpha(chrome.textSecondary, 0.62)
                     font.family: "Inter"
                     font.pixelSize: 10

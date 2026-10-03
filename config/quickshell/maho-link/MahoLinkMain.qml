@@ -467,7 +467,8 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         text: !root.wifi.available ? "NetworkManager unavailable"
                             : !root.wifi.wifiEnabled ? "Wi-Fi is turned off"
-                            : !root.wifi.snapshotReady ? "Scanning…"
+                            : !root.wifi.snapshotReady ? "Reading Wi-Fi…"
+                            : root.wifi.scanState === "warming" ? "Refreshing nearby networks…"
                             : root.wifi.currentNetwork ? "No other networks found" : "No networks found"
                         color: chrome.theme.alpha(chrome.textPrimary, 0.88)
                         font.family: "Inter"
@@ -480,9 +481,13 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                         visible: root.wifi.available && root.wifi.wifiEnabled && root.wifi.snapshotReady
-                        text: root.wifi.currentNetwork
-                            ? "You’re connected. Refresh to scan for nearby networks again."
-                            : "Refresh the scan or move closer to a wireless network."
+                        text: root.wifi.scanState === "warming" && root.wifi.currentNetwork
+                            ? "Your current connection is confirmed while NetworkManager refreshes nearby networks."
+                            : root.wifi.scanState === "warming"
+                                ? "NetworkManager is refreshing nearby networks."
+                                : root.wifi.currentNetwork
+                                    ? "You’re connected. Refresh to scan for nearby networks again."
+                                    : "Refresh the scan or move closer to a wireless network."
                         color: chrome.theme.alpha(chrome.textSecondary, 0.60)
                         font.family: "Inter"
                         font.pixelSize: 9
