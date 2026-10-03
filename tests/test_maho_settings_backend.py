@@ -1231,6 +1231,69 @@ class AdvancedHyprMutationContracts(unittest.TestCase):
         self.assertFalse(result["ok"])
         apply.assert_not_called()
 
+    def test_motion_curve_refuses_new_runtime_only_name(self) -> None:
+        with (
+            mock.patch.object(settings, "_collect_hypr_config", return_value=({"curves": []}, "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model") as apply,
+        ):
+            result = settings.motion_curve_upsert(
+                "brandNewCurve", 0.25, 0.1, 0.25, 1.0
+            )
+        self.assertFalse(result["ok"])
+        self.assertIn("does not remove", result["error"])
+        apply.assert_not_called()
+
+    def test_motion_curve_reset_verifies_underlying_live_points(self) -> None:
+        overlay = "/tmp/maho-user-settings.lua"
+        system = "/tmp/animations.lua"
+        collection = {
+            "curves": [
+                {
+                    "name": "wind",
+                    "fields": {"points": [[0.05, 0.9], [0.1, 1.05]]},
+                    "source_file": system,
+                },
+                {
+                    "name": "wind",
+                    "fields": {"points": [[0.2, 0.2], [0.8, 0.8]]},
+                    "source_file": overlay,
+                },
+            ]
+        }
+        model = self.empty_model()
+        model["curves"] = [{"name": "wind", "points": [[0.2, 0.2], [0.8, 0.8]]}]
+
+        def apply_and_verify(updated, verify=None):
+            observed = {
+                "curves": [
+                    {
+                        "name": "wind",
+                        "fields": {"points": [[0.05, 0.9], [0.1, 1.05]]},
+                        "source_file": system,
+                    }
+                ]
+            }
+            self.assertTrue(verify(observed))
+            return True, observed, ""
+
+        live = [[], [{
+            "name": "wind", "X0": 0.05, "Y0": 0.9, "X1": 0.1, "Y1": 1.05
+        }]]
+        with (
+            mock.patch.object(settings, "_collect_hypr_config", return_value=(collection, "")),
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(model, "")),
+            mock.patch.object(
+                settings.hypr_config_writer,
+                "status",
+                return_value={"path": overlay},
+            ),
+            mock.patch.object(settings, "_apply_managed_hypr_model", side_effect=apply_and_verify),
+            mock.patch.object(settings, "hypr_json", return_value=(live, "")),
+            mock.patch.object(settings, "snapshot_motion", return_value={"available": True}),
+        ):
+            result = settings.motion_curve_reset("wind")
+        self.assertTrue(result["ok"])
+
     def test_configuration_reset_writes_empty_managed_model(self) -> None:
         with (
             mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,

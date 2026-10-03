@@ -37,16 +37,6 @@ Item {
             + ")  (" + Number(row.x1).toFixed(2) + ", " + Number(row.y1).toFixed(2) + ")"
     }
 
-    function openNewAnimation() {
-        root.editorType = "animation"
-        animationLeaf.text = ""
-        animationSpeed.text = "1"
-        animationCurve.text = "default"
-        animationStyle.text = ""
-        root.animationEnabled = true
-        root.editorOpen = true
-    }
-
     function openAnimation(row) {
         root.editorType = "animation"
         animationLeaf.text = String(row.name || "")
@@ -54,16 +44,6 @@ Item {
         animationCurve.text = String(row.curve || "default")
         animationStyle.text = String(row.style || "")
         root.animationEnabled = !!row.enabled
-        root.editorOpen = true
-    }
-
-    function openNewCurve() {
-        root.editorType = "curve"
-        curveName.text = ""
-        curveX0.text = "0.25"
-        curveY0.text = "0.10"
-        curveX1.text = "0.25"
-        curveY1.text = "1.00"
         root.editorOpen = true
     }
 
@@ -167,7 +147,8 @@ Item {
                     MahoTextField {
                         id: animationLeaf
                         Layout.fillWidth: true
-                        placeholderText: "Animation leaf, e.g. windows"
+                        readOnly: true
+                        placeholderText: "Animation leaf"
                         surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
@@ -232,6 +213,7 @@ Item {
                     MahoTextField {
                         id: curveName
                         Layout.fillWidth: true
+                        readOnly: true
                         placeholderText: "Curve name"
                         surface: theme.controlFill
                         foreground: theme.textPrimary
@@ -316,23 +298,11 @@ Item {
             SettingCard {
                 visible: !!root.pageState.available
                 title: "Animations"
-                description: "Live overridden animation leaves. System entries can be safely shadowed by Maho."
+                description: "Configured animation leaves can be safely overridden by Maho and restored exactly."
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
-
-                ChoicePill {
-                    text: "Add override"
-                    selected: true
-                    visible: !!root.pageState.mutationAvailable
-                    enabled: !root.bridge.actionBusy
-                    accent: theme.accent
-                    surface: theme.controlFill
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.openNewAnimation()
-                }
 
                 Repeater {
                     model: root.pageState.animations || []
@@ -379,23 +349,11 @@ Item {
             SettingCard {
                 visible: !!root.pageState.available
                 title: "Bézier curves"
-                description: "Live curve definitions and Maho-owned curve overrides."
+                description: "Configured Bézier curves can be overridden without creating runtime-only curve names that Hyprland cannot remove on reload."
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
-
-                ChoicePill {
-                    text: "Add curve"
-                    selected: true
-                    visible: !!root.pageState.mutationAvailable
-                    enabled: !root.bridge.actionBusy
-                    accent: theme.accent
-                    surface: theme.controlFill
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.openNewCurve()
-                }
 
                 Repeater {
                     model: root.pageState.curves || []

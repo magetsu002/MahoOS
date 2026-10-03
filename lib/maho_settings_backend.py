@@ -2276,6 +2276,10 @@ def snapshot_motion() -> dict[str, Any]:
             continue
         name = str(raw.get("name", ""))
         source_file, source_line, user_owned = source_meta(animation_sources.get(name))
+        has_underlying = (
+            isinstance(collection, dict)
+            and _motion_underlying_animation(collection, name) is not None
+        )
         animations.append({
             "name": name,
             "enabled": bool(raw.get("enabled", False)),
@@ -2285,8 +2289,8 @@ def snapshot_motion() -> dict[str, Any]:
             "sourceFile": source_file,
             "sourceLine": source_line,
             "userOwned": user_owned,
-            "canOverride": mutation_available,
-            "canDelete": mutation_available and user_owned,
+            "canOverride": mutation_available and has_underlying,
+            "canDelete": mutation_available and user_owned and has_underlying,
         })
     curves = []
     for raw in raw_curves:
@@ -2294,6 +2298,10 @@ def snapshot_motion() -> dict[str, Any]:
             continue
         name = str(raw.get("name", ""))
         source_file, source_line, user_owned = source_meta(curve_sources.get(name))
+        has_underlying = (
+            isinstance(collection, dict)
+            and _motion_underlying_curve(collection, name) is not None
+        )
         curves.append({
             "name": name,
             "x0": float(raw.get("X0", 0.0) or 0.0),
@@ -2303,8 +2311,8 @@ def snapshot_motion() -> dict[str, Any]:
             "sourceFile": source_file,
             "sourceLine": source_line,
             "userOwned": user_owned,
-            "canOverride": mutation_available and name != "default",
-            "canDelete": mutation_available and user_owned,
+            "canOverride": mutation_available and name != "default" and has_underlying,
+            "canDelete": mutation_available and user_owned and has_underlying,
         })
     animations.sort(key=lambda row: row["name"].lower())
     curves.sort(key=lambda row: row["name"].lower())
@@ -2704,6 +2712,16 @@ def motion_animation_upsert(
     if not math.isfinite(speed) or speed < 0 or speed > 50:
         return {"ok": False, "error": "Animation speed must be between 0 and 50."}
 
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict):
+        return {"ok": False, "error": collection_error or "Motion configuration cannot be verified."}
+    underlying = _motion_underlying_animation(collection, leaf)
+    if underlying is None:
+        return {
+            "ok": False,
+            "error": "Only animations defined by the underlying Maho configuration can be overridden safely.",
+        }
+
     model, model_error = _managed_hypr_model()
     if not isinstance(model, dict):
         return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
@@ -2755,6 +2773,17 @@ def motion_animation_reset(leaf: str) -> dict[str, Any]:
     leaf = leaf.strip()
     if not leaf:
         return {"ok": False, "error": "Animation leaf is required."}
+
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict):
+        return {"ok": False, "error": collection_error or "Motion configuration cannot be verified."}
+    underlying = _motion_underlying_animation(collection, leaf)
+    if underlying is None:
+        return {
+            "ok": False,
+            "error": "The underlying animation definition cannot be proven, so reset was refused.",
+        }
+
     model, model_error = _managed_hypr_model()
     if not isinstance(model, dict):
         return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
@@ -2765,8 +2794,9 @@ def motion_animation_reset(leaf: str) -> dict[str, Any]:
     ]
     ok, _, apply_error = _apply_managed_hypr_model(
         model,
-        verify=lambda observed: not _motion_collection_has_animation(
-            observed, leaf, require_overlay=True
+        verify=lambda observed: (
+            not _motion_collection_has_animation(observed, leaf, require_overlay=True)
+            and _live_animation_matches(leaf, underlying)
         ),
     )
     if not ok:
@@ -2776,6 +2806,98 @@ def motion_animation_reset(leaf: str) -> dict[str, Any]:
         "message": "Animation restored to the system default.",
         "state": snapshot_motion(),
     }
+
+
+def _motion_underlying_animation(
+    collection: dict[str, Any],
+    leaf: str,
+) -> dict[str, Any] | None:
+    """Return the last non-overlay configured animation definition for leaf."""
+    writer = hypr_config_writer.status()
+    found: dict[str, Any] | None = None
+    for raw in collection.get("animations", []):
+        if not isinstance(raw, dict):
+            continue
+        fields = raw.get("fields", {}) if isinstance(raw.get("fields"), dict) else {}
+        observed_leaf = str(fields.get("leaf", "") or raw.get("name", "") or "")
+        if observed_leaf != leaf:
+            continue
+        if _writer_source_is_overlay(str(raw.get("source_file", "") or ""), writer):
+            continue
+        found = fields
+    return dict(found) if isinstance(found, dict) else None
+
+
+def _motion_underlying_curve(
+    collection: dict[str, Any],
+    name: str,
+) -> list[list[float]] | None:
+    """Return the last non-overlay configured Bézier definition for name."""
+    writer = hypr_config_writer.status()
+    found: list[list[float]] | None = None
+    for raw in collection.get("curves", []):
+        if not isinstance(raw, dict) or str(raw.get("name", "") or "") != name:
+            continue
+        if _writer_source_is_overlay(str(raw.get("source_file", "") or ""), writer):
+            continue
+        fields = raw.get("fields", {}) if isinstance(raw.get("fields"), dict) else {}
+        points = fields.get("points")
+        if (
+            isinstance(points, list)
+            and len(points) == 2
+            and all(isinstance(point, list) and len(point) == 2 for point in points)
+        ):
+            try:
+                found = [
+                    [float(points[0][0]), float(points[0][1])],
+                    [float(points[1][0]), float(points[1][1])],
+                ]
+            except (TypeError, ValueError):
+                continue
+    return found
+
+
+def _live_curve_matches(name: str, points: list[list[float]]) -> bool:
+    live, _ = hypr_json(["animations", "-j"])
+    if not isinstance(live, list) or len(live) < 2 or not isinstance(live[1], list):
+        return False
+    expected = (
+        points[0][0], points[0][1], points[1][0], points[1][1]
+    )
+    for row in live[1]:
+        if not isinstance(row, dict) or str(row.get("name", "") or "") != name:
+            continue
+        observed = (
+            float(row.get("X0", 0.0) or 0.0),
+            float(row.get("Y0", 0.0) or 0.0),
+            float(row.get("X1", 0.0) or 0.0),
+            float(row.get("Y1", 0.0) or 0.0),
+        )
+        return all(abs(a - b) < 0.001 for a, b in zip(observed, expected))
+    return False
+
+
+def _live_animation_matches(leaf: str, fields: dict[str, Any]) -> bool:
+    live, _ = hypr_json(["animations", "-j"])
+    if not isinstance(live, list) or not live or not isinstance(live[0], list):
+        return False
+    for row in live[0]:
+        if not isinstance(row, dict) or str(row.get("name", "") or "") != leaf:
+            continue
+        expected_enabled = bool(fields.get("enabled", True))
+        if bool(row.get("enabled", False)) != expected_enabled:
+            return False
+        if not expected_enabled:
+            return True
+        expected_speed = float(fields.get("speed", 0.0) or 0.0)
+        expected_curve = str(fields.get("bezier", "") or "default")
+        expected_style = str(fields.get("style", "") or "")
+        return (
+            abs(float(row.get("speed", 0.0) or 0.0) - expected_speed) < 0.001
+            and str(row.get("bezier", "") or "default") == expected_curve
+            and str(row.get("style", "") or "") == expected_style
+        )
+    return False
 
 
 def _motion_collection_has_curve(
@@ -2809,6 +2931,19 @@ def motion_curve_upsert(
     points = [float(x0), float(y0), float(x1), float(y1)]
     if any(not math.isfinite(value) for value in points):
         return {"ok": False, "error": "Curve coordinates must be finite numbers."}
+
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict):
+        return {"ok": False, "error": collection_error or "Motion configuration cannot be verified."}
+    underlying = _motion_underlying_curve(collection, name)
+    if underlying is None:
+        return {
+            "ok": False,
+            "error": (
+                "New curve names are not supported because Hyprland does not remove "
+                "runtime curve registrations on reload. Override an existing configured curve instead."
+            ),
+        }
 
     model, model_error = _managed_hypr_model()
     if not isinstance(model, dict):
@@ -2852,6 +2987,17 @@ def motion_curve_reset(name: str) -> dict[str, Any]:
     name = name.strip()
     if not name or name == "default":
         return {"ok": False, "error": "Choose a non-default managed curve."}
+
+    collection, collection_error = _collect_hypr_config()
+    if not isinstance(collection, dict):
+        return {"ok": False, "error": collection_error or "Motion configuration cannot be verified."}
+    underlying = _motion_underlying_curve(collection, name)
+    if underlying is None:
+        return {
+            "ok": False,
+            "error": "The underlying curve definition cannot be proven, so reset was refused.",
+        }
+
     model, model_error = _managed_hypr_model()
     if not isinstance(model, dict):
         return {"ok": False, "error": model_error or "Managed motion state is unavailable."}
@@ -2862,8 +3008,9 @@ def motion_curve_reset(name: str) -> dict[str, Any]:
     ]
     ok, _, apply_error = _apply_managed_hypr_model(
         model,
-        verify=lambda observed: not _motion_collection_has_curve(
-            observed, name, require_overlay=True
+        verify=lambda observed: (
+            not _motion_collection_has_curve(observed, name, require_overlay=True)
+            and _live_curve_matches(name, underlying)
         ),
     )
     if not ok:
