@@ -58,8 +58,7 @@ SEARCH_TARGETS = (
     ("input", "Keyboard & Pointer", "Keyboard", "keyboard repeat rate delay keys"),
     ("input", "Keyboard & Pointer", "Mouse", "mouse pointer sensitivity acceleration"),
     ("input", "Keyboard & Pointer", "Touchpad", "touchpad trackpad tap natural scroll typing"),
-    ("power", "Power", "Battery", "battery charge health power energy"),
-    ("power", "Power", "Power Mode", "performance balanced saver profile power"),
+    ("diagnostics", "Diagnostics", "Battery", "battery charge health power energy condition"),
     ("system", "System", "About", "about version kernel hardware session system mahoos"),
     ("network", "Network & Bluetooth", "Advanced Settings", "network wifi ethernet bluetooth connectivity"),
     ("notifications", "Notifications", "Do Not Disturb", "notifications alerts dnd quiet focus"),
@@ -3290,6 +3289,7 @@ def snapshot_diagnostics() -> dict[str, Any]:
         "configErrors": errors,
         "providerError": hypr_error,
         "providers": providers,
+        "batteries": _battery_rows(),
         "error": "",
     }
 

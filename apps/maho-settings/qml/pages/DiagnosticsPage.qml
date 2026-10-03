@@ -50,6 +50,35 @@ Item {
             }
 
             SettingCard {
+                visible: (root.pageState.batteries || []).length > 0
+                title: "Battery"
+                description: "Battery condition and charge are diagnostic information, not a separate control surface."
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+
+                Repeater {
+                    model: root.pageState.batteries || []
+
+                    delegate: MahoInsetRow {
+                        required property var modelData
+                        required property int index
+                        title: modelData.model || modelData.name || "Battery"
+                        description: modelData.health >= 0
+                            ? Number(modelData.health).toFixed(1).replace(".0", "") + "% health"
+                            : ""
+                        trailingText: modelData.capacity >= 0
+                            ? modelData.capacity + "% · " + modelData.status
+                            : modelData.status
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                        dividerVisible: index < (root.pageState.batteries || []).length - 1
+                    }
+                }
+            }
+
+            SettingCard {
                 title: "Settings providers"
                 description: "Availability only. This page does not claim system health or Guardian trust."
                 surface: theme.surfaceElevated

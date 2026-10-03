@@ -33,7 +33,7 @@ require_file "$HYPR_WRITER"
 require_file "$HYPR_WRITER_TEST"
 require_file "$HYPR_COLLECTOR"
 require_file "$HYPR_COLLECTOR_TEST"
-for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/MahoSettingsTheme.qml"     "$QML/components/MahoSidebarItem.qml"     "$QML/components/MahoSegmentedControl.qml"     "$QML/components/MahoScrollBar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
+for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/MahoSettingsTheme.qml"     "$QML/components/MahoSidebarItem.qml"     "$QML/components/MahoSegmentedControl.qml"     "$QML/components/MahoIconButton.qml"     "$QML/components/MahoScrollBar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
     require_file "$file"
 done
 require_text "$APP/src/main.cpp" 'loadFromModule(QStringLiteral("Maho.Settings")' "Settings is not a native Qt/QML module"
@@ -49,8 +49,9 @@ require_text "$QML/Main.qml" 'route: "appearance"' "Appearance navigation route 
 require_text "$QML/Main.qml" 'route: "displays"' "Displays navigation route missing"
 require_text "$QML/Main.qml" 'route: "sound"' "Sound navigation route missing"
 require_text "$QML/Main.qml" 'route: "input"' "input navigation route missing"
-require_text "$QML/Main.qml" 'route: "power"' "Power navigation route missing"
+reject_text "$QML/Main.qml" 'route: "power"' "Power should not occupy a top-level V1 navigation slot"
 require_text "$QML/Main.qml" 'route: "notifications"' "Notifications navigation route missing"
+require_text "$QML/Main.qml" 'return "diagnostics"' "Legacy Power navigation does not converge to Diagnostics"
 require_text "$QML/Main.qml" 'route: "region"' "Region & Time navigation route missing"
 require_text "$QML/Main.qml" 'route: "applications"' "Applications navigation route missing"
 require_text "$QML/Main.qml" 'route: "configuration"' "Configuration navigation route missing"
@@ -142,6 +143,13 @@ require_text "$BACKEND" 'def _apply_managed_hypr_model(' "advanced mutation path
 require_text "$BACKEND" 'def snapshot_rules()' "Rules provider is missing"
 require_text "$BACKEND" 'def snapshot_session()' "Session provider is missing"
 require_text "$BACKEND" 'if name == "configuration.reset":' "managed configuration reset action is missing"
+require_text "$QML/components/MahoIconButton.qml" 'property string iconName:' "shared icon action control is missing"
+require_text "$QML/pages/NotificationsPage.qml" 'iconName: "delete"' "notification history still uses a wordy action chip"
+for page in Shortcuts Rules Motion Session; do
+    reject_text "$QML/pages/${page}Page.qml" 'ChoicePill {' "$page still exposes cheap worded action pills"
+    require_text "$QML/pages/${page}Page.qml" 'MahoIconButton {' "$page does not use restrained icon actions"
+done
+require_text "$QML/pages/InputPage.qml" 'MahoSegmentedControl {' "pointer acceleration still uses separate text pills instead of one mode control"
 echo PASS
 
 echo "=== deterministic search contract ==="
@@ -155,6 +163,7 @@ spec.loader.exec_module(mod)
 expected = {
     "refresh": ("Displays / Refresh Rate", "displays", "displays"),
     "mic": ("Sound / Input", "sound", "sound"),
+    "battery": ("Diagnostics / Battery", "diagnostics", "diagnostics"),
     "recovery": ("System / Recovery", "system", "recovery"),
 }
 for query, want in expected.items():
@@ -169,8 +178,10 @@ echo PASS
 echo "=== backend authority map ==="
 require_text "$BACKEND" 'hypr_json(["monitors", "all", "-j"])' "Displays do not read real Hyprland output state"
 require_text "$BACKEND" 'shutil.which("wpctl")' "Sound does not use WirePlumber wpctl"
-require_text "$BACKEND" 'Path("/sys/class/power_supply")' "Power does not read kernel battery state"
-require_text "$BACKEND" 'shutil.which("powerprofilesctl")' "Power profile hook does not delegate to power-profiles-daemon"
+require_text "$BACKEND" 'Path("/sys/class/power_supply")' "Battery diagnostics do not read kernel power-supply state"
+require_text "$BACKEND" '"batteries": _battery_rows()' "Diagnostics does not surface battery condition"
+require_text "$QML/pages/DiagnosticsPage.qml" 'title: "Battery"' "Battery information was removed instead of being demoted into Diagnostics"
+require_text "$BACKEND" 'shutil.which("powerprofilesctl")' "Dormant power-profile hook no longer delegates to power-profiles-daemon"
 require_text "$BACKEND" 'root_command("maho-theme")' "Appearance does not reuse the Maho theme owner"
 require_text "$BACKEND" 'root_command("maho-wallpaper")' "Appearance does not read the Maho wallpaper owner"
 require_text "$BACKEND" 'primarySupported": False' "Settings invents a primary-display capability"

@@ -49,7 +49,6 @@ ApplicationWindow {
                 { route: "displays", label: "Displays", icon: "video-display" },
                 { route: "sound", label: "Sound", icon: "audio-volume-high" },
                 { route: "input", label: "Input", icon: "input-keyboard" },
-                { route: "power", label: "Power", icon: "battery" },
                 { route: "notifications", label: "Notifications", icon: "preferences-system-notifications" },
                 { route: "applications", label: "Applications", icon: "applications-other" },
                 { route: "region", label: "Region & Time", icon: "preferences-desktop-locale" }
@@ -82,7 +81,11 @@ ApplicationWindow {
     }
 
     function canonicalRoute(route) {
-        return route === "system" ? "about" : route
+        if (route === "system")
+            return "about"
+        if (route === "power")
+            return "diagnostics"
+        return route
     }
 
     function pageSource(route) {
