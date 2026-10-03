@@ -56,7 +56,6 @@ typedef struct {
     gchar *info_text;
     gchar *error_text;
     gint requester_pid;
-    guint requester_watch;
     guint cancel_force_watch;
     guint selected_index;
     guint attempt;
@@ -401,10 +400,6 @@ static void request_cleanup_session(AuthRequest *request) {
 }
 
 static void request_remove_timers(AuthRequest *request) {
-    if (request->requester_watch != 0) {
-        g_source_remove(request->requester_watch);
-        request->requester_watch = 0;
-    }
     if (request->cancel_force_watch != 0) {
         g_source_remove(request->cancel_force_watch);
         request->cancel_force_watch = 0;
@@ -496,19 +491,6 @@ static gboolean cancel_from_cancellable_idle(gpointer data) {
 static void on_cancellable_cancelled(GCancellable *cancellable, gpointer user_data) {
     (void)cancellable;
     g_idle_add(cancel_from_cancellable_idle, user_data);
-}
-
-static gboolean requester_watch_cb(gpointer data) {
-    AuthRequest *request = data;
-    if (!request_is_current(request)) {
-        return G_SOURCE_REMOVE;
-    }
-    if (process_alive(request->requester_pid)) {
-        return G_SOURCE_CONTINUE;
-    }
-    request->requester_watch = 0;
-    request_cancel(request, "The requesting process exited.");
-    return G_SOURCE_REMOVE;
 }
 
 static gboolean retry_session_idle(gpointer data) {
@@ -906,8 +888,8 @@ static void present_request(AuthRequest *request) {
     gtk_label_set_text(self->message_label, request->message);
 
     g_autofree gchar *requester = request->requester_pid > 1
-        ? g_strdup_printf("Requested by: %s · PID %d", request->requester, request->requester_pid)
-        : g_strdup_printf("Requested by: %s", request->requester);
+        ? g_strdup_printf("Request context: %s · PID hint %d", request->requester, request->requester_pid)
+        : g_strdup_printf("Request context: %s", request->requester);
     gtk_label_set_text(self->requester_label, requester);
 
     GtkStringList *model = gtk_string_list_new(NULL);
@@ -1047,9 +1029,6 @@ static void listener_initiate_authentication(
         }
     }
 
-    if (request->requester_pid > 1) {
-        request->requester_watch = g_timeout_add(500, requester_watch_cb, request);
-    }
     present_request(request);
 }
 
