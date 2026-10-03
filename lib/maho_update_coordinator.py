@@ -872,23 +872,17 @@ def _resume_owned(
             })
             return _save(_with_debt(value, now))
         verification = recovery_record.get("post_recovery_verification")
-        recovery = state.get("recovery")
         if (
             recovery_record.get("phase") != "RECOVERED_VERIFIED"
             or recovery_record.get("transaction_state") != UpdateState.RECOVERED.value
             or recovery_record.get("recovery_attempts") != 1
             or not isinstance(verification, Mapping)
-            or not isinstance(recovery, Mapping)
-            or recovery.get("transaction_id") != transaction_id
-            or recovery.get("phase") != UpdateState.RECOVERED.value
-            or recovery.get("recovery_attempts") != 1
+            or current_recovery.get("transaction_id") != transaction_id
             or current_recovery.get("phase") != UpdateState.RECOVERED.value
             or current_recovery.get("recovery_attempts") != 1
             or verification.get("recovery_attempts") != 1
-            or verification.get("recovered_root_uuid") != recovery.get("root_uuid")
-            or verification.get("recovered_system_generation_id") != recovery.get("system_generation_id")
-            or current_recovery.get("root_uuid") != recovery.get("root_uuid")
-            or current_recovery.get("system_generation_id") != recovery.get("system_generation_id")
+            or verification.get("recovered_root_uuid") != current_recovery.get("root_uuid")
+            or verification.get("recovered_system_generation_id") != current_recovery.get("system_generation_id")
         ):
             value = dict(state)
             value.update({
@@ -904,6 +898,7 @@ def _resume_owned(
         value.update({
             "phase": UpdateState.RECOVERED.value,
             "blockers": [],
+            "recovery": current_recovery,
             "last_error": None,
             "last_attempt_at": stamp(now),
             "reboot_required": False,

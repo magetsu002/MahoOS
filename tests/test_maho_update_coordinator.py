@@ -651,6 +651,7 @@ class CoordinatorContracts(unittest.TestCase):
                 "transaction_state": "RECOVERED",
             }
             current = {
+                "transaction_id": TXID,
                 "phase": "RECOVERED", "root_uuid": recovered_root,
                 "system_generation_id": recovered_generation,
                 "recovery_attempts": 1,
@@ -676,16 +677,25 @@ class CoordinatorContracts(unittest.TestCase):
                 read_transaction(transaction_path(root, TXID))["state"], "RECOVERED",
             )
 
+            crashed = dict(retry)
+            crashed["recovery"] = {
+                "transaction_id": TXID,
+                "phase": "RECOVERING",
+                "selected_root_uuid": recovered_root,
+                "selected_system_generation_id": recovered_generation,
+                "recovery_attempts": 1,
+            }
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
                  patch("maho_update_bad_recovery.reverify_recovered_normal", return_value=current), \
                  patch("maho_update_bad_recovery._read_record", return_value=final_record):
                 reconciled = coordinator._resume_owned(
-                    retry, REV, "magetsu", {"source_revision": REV},
+                    crashed, REV, "magetsu", {"source_revision": REV},
                     {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
                     NOW + timedelta(minutes=1),
                 )
             self.assertEqual(reconciled["phase"], "RECOVERED")
             self.assertEqual(reconciled["recovery"]["recovery_attempts"], 1)
+            self.assertEqual(reconciled["recovery"]["root_uuid"], recovered_root)
 
     def test_pending_checkpoint_fresh_verification_failures_require_attention(self):
         failures = (
@@ -806,6 +816,7 @@ class CoordinatorContracts(unittest.TestCase):
                 },
             }
             current = {
+                "transaction_id": TXID,
                 "phase": "RECOVERED",
                 "root_uuid": recovered_root,
                 "system_generation_id": recovered_generation,
