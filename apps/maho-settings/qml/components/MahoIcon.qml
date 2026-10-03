@@ -5,165 +5,158 @@ Item {
 
     property string name: ""
     property color tone: "#f4eeee"
+    property real lineWidth: Math.max(1.2, Math.min(width, height) * 0.075)
 
-    onNameChanged: canvas.requestPaint()
-    onToneChanged: canvas.requestPaint()
-    onWidthChanged: canvas.requestPaint()
-    onHeightChanged: canvas.requestPaint()
+    onNameChanged: glyph.requestPaint()
+    onToneChanged: glyph.requestPaint()
+    onWidthChanged: glyph.requestPaint()
+    onHeightChanged: glyph.requestPaint()
 
     Canvas {
-        id: canvas
+        id: glyph
         anchors.fill: parent
         antialiasing: true
 
-        function line(ctx, x1, y1, x2, y2) {
-            ctx.beginPath()
-            ctx.moveTo(x1, y1)
-            ctx.lineTo(x2, y2)
-            ctx.stroke()
-        }
-
-        function poly(ctx, points, closePath) {
+        function path(points, closePath) {
+            const ctx = getContext("2d")
             if (!points || points.length === 0)
                 return
             ctx.beginPath()
-            ctx.moveTo(points[0][0], points[0][1])
+            ctx.moveTo(points[0][0] * width, points[0][1] * height)
             for (let i = 1; i < points.length; ++i)
-                ctx.lineTo(points[i][0], points[i][1])
+                ctx.lineTo(points[i][0] * width, points[i][1] * height)
             if (closePath)
                 ctx.closePath()
             ctx.stroke()
         }
 
-        function rect(ctx, x, y, w, h) {
-            ctx.strokeRect(x, y, w, h)
+        function circle(x, y, radius) {
+            const ctx = getContext("2d")
+            ctx.beginPath()
+            ctx.arc(x * width, y * height, radius * Math.min(width, height), 0, Math.PI * 2)
+            ctx.stroke()
         }
 
-        function circle(ctx, x, y, r) {
-            ctx.beginPath()
-            ctx.arc(x, y, r, 0, Math.PI * 2)
-            ctx.stroke()
+        function box(x, y, w, h) {
+            const ctx = getContext("2d")
+            ctx.strokeRect(x * width, y * height, w * width, h * height)
         }
 
         onPaint: {
             const ctx = getContext("2d")
             ctx.reset()
-            ctx.scale(width / 16, height / 16)
             ctx.strokeStyle = root.tone
             ctx.fillStyle = root.tone
-            ctx.lineWidth = 0.9
-            ctx.lineCap = "butt"
-            ctx.lineJoin = "miter"
+            ctx.lineWidth = root.lineWidth
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
 
-            const n = root.name.toLowerCase()
-
+            const n = root.name
             if (n.indexOf("search") >= 0) {
-                circle(ctx, 6.6, 6.6, 3.6)
-                line(ctx, 9.3, 9.3, 13.2, 13.2)
-            } else if (n.indexOf("theme") >= 0 || n.indexOf("appearance") >= 0) {
-                circle(ctx, 8, 8, 5.2)
-                line(ctx, 8, 1.6, 8, 3.1)
-                line(ctx, 8, 12.9, 8, 14.4)
-                line(ctx, 1.6, 8, 3.1, 8)
-                line(ctx, 12.9, 8, 14.4, 8)
-                line(ctx, 3.4, 3.4, 4.5, 4.5)
-                line(ctx, 11.5, 11.5, 12.6, 12.6)
-                line(ctx, 11.5, 4.5, 12.6, 3.4)
-                line(ctx, 3.4, 12.6, 4.5, 11.5)
-            } else if (n.indexOf("display") >= 0 || n.indexOf("computer") >= 0) {
-                rect(ctx, 2.1, 2.8, 11.8, 7.7)
-                line(ctx, 8, 10.5, 8, 13.1)
-                line(ctx, 5.2, 13.1, 10.8, 13.1)
-            } else if (n.indexOf("volume") >= 0 || n.indexOf("audio") >= 0) {
-                poly(ctx, [[2.2,6.2],[5.1,6.2],[8.1,3.7],[8.1,12.3],[5.1,9.8],[2.2,9.8]], true)
+                circle(0.43, 0.43, 0.27)
+                path([[0.62, 0.62], [0.86, 0.86]], false)
+            } else if (n.indexOf("add") >= 0 || n.indexOf("plus") >= 0) {
+                path([[0.50,0.18],[0.50,0.82]], false)
+                path([[0.18,0.50],[0.82,0.50]], false)
+            } else if (n.indexOf("edit") >= 0 || n.indexOf("pencil") >= 0) {
+                path([[0.24,0.73],[0.31,0.49],[0.65,0.15],[0.83,0.33],[0.49,0.67],[0.24,0.73]], false)
+                path([[0.31,0.49],[0.49,0.67]], false)
+            } else if (n.indexOf("delete") >= 0 || n.indexOf("trash") >= 0) {
+                path([[0.25,0.30],[0.75,0.30]], false)
+                path([[0.36,0.22],[0.64,0.22]], false)
+                path([[0.31,0.31],[0.35,0.80],[0.65,0.80],[0.69,0.31]], false)
+                path([[0.43,0.40],[0.43,0.70]], false)
+                path([[0.57,0.40],[0.57,0.70]], false)
+            } else if (n.indexOf("reset") >= 0 || n.indexOf("restore") >= 0) {
                 ctx.beginPath()
-                ctx.arc(8.0, 8.0, 3.0, -0.75, 0.75)
+                ctx.arc(0.50*width,0.52*height,0.29*Math.min(width,height),-0.55,4.10)
                 ctx.stroke()
-            } else if (n.indexOf("microphone") >= 0) {
-                rect(ctx, 6, 2.1, 4, 7.2)
+                path([[0.20,0.28],[0.20,0.49],[0.39,0.39]], false)
+            } else if (n.indexOf("disable") >= 0 || n.indexOf("ban") >= 0) {
+                circle(0.50,0.50,0.33)
+                path([[0.27,0.27],[0.73,0.73]], false)
+            } else if (n.indexOf("focus") >= 0 || n.indexOf("target") >= 0) {
+                circle(0.50,0.50,0.18)
+                path([[0.50,0.08],[0.50,0.27]], false)
+                path([[0.50,0.73],[0.50,0.92]], false)
+                path([[0.08,0.50],[0.27,0.50]], false)
+                path([[0.73,0.50],[0.92,0.50]], false)
+            } else if (n.indexOf("preview") >= 0 || n.indexOf("eye") >= 0) {
                 ctx.beginPath()
-                ctx.arc(8, 9.1, 4.2, 0, Math.PI)
+                ctx.moveTo(0.10*width,0.50*height)
+                ctx.quadraticCurveTo(0.50*width,0.14*height,0.90*width,0.50*height)
+                ctx.quadraticCurveTo(0.50*width,0.86*height,0.10*width,0.50*height)
                 ctx.stroke()
-                line(ctx, 8, 13.3, 8, 15)
-                line(ctx, 5.6, 15, 10.4, 15)
+                circle(0.50,0.50,0.11)
+            } else if (n.indexOf("check") >= 0 || n.indexOf("save") >= 0) {
+                path([[0.18,0.52],[0.40,0.73],[0.82,0.28]], false)
+            } else if (n.indexOf("close") >= 0 || n.indexOf("cancel") >= 0) {
+                path([[0.24,0.24],[0.76,0.76]], false)
+                path([[0.76,0.24],[0.24,0.76]], false)
+            } else if (n.indexOf("display") >= 0 || n.indexOf("video") >= 0) {
+                box(0.10, 0.16, 0.80, 0.56)
+                path([[0.50,0.72],[0.50,0.86],[0.35,0.86],[0.65,0.86]], false)
+            } else if (n.indexOf("audio") >= 0 || n.indexOf("volume") >= 0) {
+                path([[0.12,0.42],[0.31,0.42],[0.52,0.24],[0.52,0.76],[0.31,0.58],[0.12,0.58]], true)
+                ctx.beginPath(); ctx.arc(0.52*width,0.50*height,0.22*Math.min(width,height),-0.78,0.78); ctx.stroke()
+                ctx.beginPath(); ctx.arc(0.52*width,0.50*height,0.34*Math.min(width,height),-0.66,0.66); ctx.stroke()
             } else if (n.indexOf("keyboard") >= 0) {
-                rect(ctx, 1.5, 3.8, 13, 8.4)
-                for (let r = 0; r < 2; ++r)
-                    for (let c = 0; c < 5; ++c)
-                        rect(ctx, 3 + c * 2.1, 5.4 + r * 2.0, 1.0, 0.8)
-                rect(ctx, 4.2, 9.5, 7.6, 0.8)
-            } else if (n.indexOf("mouse") >= 0) {
-                rect(ctx, 4.5, 1.8, 7, 12.4)
-                line(ctx, 8, 1.8, 8, 6.2)
-                line(ctx, 4.5, 6.2, 11.5, 6.2)
-            } else if (n.indexOf("touchpad") >= 0) {
-                rect(ctx, 2, 2.5, 12, 11)
-                line(ctx, 2, 10.5, 14, 10.5)
-            } else if (n.indexOf("notification") >= 0) {
-                poly(ctx, [[3.3,11.1],[4.2,9.8],[4.2,6.4],[4.6,4.3],[6.3,3.0],[8,2.6],[9.7,3.0],[11.4,4.3],[11.8,6.4],[11.8,9.8],[12.7,11.1]], false)
-                line(ctx, 3.3, 11.1, 12.7, 11.1)
-                ctx.beginPath()
-                ctx.arc(8, 11.1, 1.6, 0, Math.PI)
-                ctx.stroke()
-                if (n.indexOf("disabled") >= 0)
-                    line(ctx, 3, 3, 13, 13)
-            } else if (n.indexOf("applications") >= 0) {
-                for (let r = 0; r < 3; ++r)
-                    for (let c = 0; c < 3; ++c)
-                        rect(ctx, 2.3 + c * 4.3, 2.3 + r * 4.3, 1.8, 1.8)
-            } else if (n.indexOf("internet") >= 0 || n.indexOf("locale") >= 0) {
-                circle(ctx, 8, 8, 5.6)
-                ctx.beginPath()
-                ctx.ellipse(8, 8, 2.5, 5.6, 0, 0, Math.PI * 2)
-                ctx.stroke()
-                line(ctx, 2.4, 8, 13.6, 8)
-            } else if (n.indexOf("time") >= 0 || n.indexOf("appointment") >= 0 || n.indexOf("history") >= 0) {
-                circle(ctx, 8, 8, 5.4)
-                line(ctx, 8, 4.6, 8, 8.2)
-                line(ctx, 8, 8.2, 10.7, 9.8)
-            } else if (n.indexOf("shortcut") >= 0) {
-                rect(ctx, 1.7, 4, 12.6, 8)
-                line(ctx, 4, 6.1, 5.4, 6.1)
-                line(ctx, 6.4, 6.1, 7.8, 6.1)
-                line(ctx, 8.8, 6.1, 10.2, 6.1)
-                line(ctx, 4, 8.3, 5.4, 8.3)
-                line(ctx, 6.4, 8.3, 10.2, 8.3)
-                line(ctx, 5.4, 10.4, 10.6, 10.4)
-            } else if (n.indexOf("windows") >= 0) {
-                rect(ctx, 2.2, 2.5, 8.2, 7.4)
-                rect(ctx, 5.6, 6.1, 8.2, 7.4)
-            } else if (n.indexOf("effects") >= 0) {
-                poly(ctx, [[2.2,10.3],[4.7,6.8],[6.9,9.2],[9.2,5.5],[13.8,5.5]], false)
-            } else if (n.indexOf("run") >= 0) {
-                poly(ctx, [[5,2.5],[12.3,8],[5,13.5]], true)
-            } else if (n.indexOf("preferences-system") >= 0 && n.indexOf("notifications") < 0 && n.indexOf("windows") < 0) {
-                circle(ctx, 8, 8, 2.5)
-                for (let i = 0; i < 8; ++i) {
-                    const a = i * Math.PI / 4
-                    line(ctx, 8 + Math.cos(a) * 4.0, 8 + Math.sin(a) * 4.0,
-                              8 + Math.cos(a) * 5.8, 8 + Math.sin(a) * 5.8)
+                box(0.08,0.23,0.84,0.56)
+                for (let row=0; row<2; ++row) for (let col=0; col<5; ++col) {
+                    ctx.beginPath(); ctx.arc((0.20+col*0.15)*width,(0.39+row*0.15)*height,root.lineWidth*0.52,0,Math.PI*2); ctx.fill()
                 }
-            } else if (n.indexOf("monitor") >= 0) {
-                rect(ctx, 2, 2.2, 12, 11.6)
-                poly(ctx, [[3.8,9.3],[5.5,9.3],[6.7,5.5],[8.3,11.0],[9.6,7.4],[12.2,7.4]], false)
+                path([[0.28,0.69],[0.72,0.69]], false)
+            } else if (n.indexOf("battery") >= 0 || n.indexOf("power") >= 0) {
+                box(0.11,0.29,0.68,0.42)
+                path([[0.84,0.41],[0.84,0.59]], false)
+                path([[0.43,0.35],[0.35,0.52],[0.49,0.52],[0.42,0.66]], false)
+            } else if (n.indexOf("notification") >= 0 || n.indexOf("bell") >= 0) {
+                ctx.beginPath()
+                ctx.moveTo(0.22*width,0.69*height)
+                ctx.quadraticCurveTo(0.31*width,0.60*height,0.31*width,0.39*height)
+                ctx.quadraticCurveTo(0.31*width,0.18*height,0.50*width,0.18*height)
+                ctx.quadraticCurveTo(0.69*width,0.18*height,0.69*width,0.39*height)
+                ctx.quadraticCurveTo(0.69*width,0.60*height,0.78*width,0.69*height)
+                ctx.closePath(); ctx.stroke()
+                ctx.beginPath(); ctx.arc(0.50*width,0.72*height,0.09*Math.min(width,height),0,Math.PI); ctx.stroke()
+            } else if (n.indexOf("applications") >= 0 || n.indexOf("grid") >= 0) {
+                for (let row=0; row<3; ++row) for (let col=0; col<3; ++col) {
+                    ctx.beginPath(); ctx.arc((0.25+col*0.25)*width,(0.25+row*0.25)*height,0.04*Math.min(width,height),0,Math.PI*2); ctx.fill()
+                }
+            } else if (n.indexOf("locale") >= 0 || n.indexOf("region") >= 0 || n.indexOf("globe") >= 0) {
+                circle(0.50,0.50,0.37)
+                ctx.beginPath(); ctx.ellipse(0.50*width,0.50*height,0.18*width,0.37*height,0,0,Math.PI*2); ctx.stroke()
+                path([[0.15,0.50],[0.85,0.50]], false)
+            } else if (n.indexOf("theme") >= 0 || n.indexOf("appearance") >= 0) {
+                circle(0.47,0.48,0.33)
+                const dots=[[0.29,0.38],[0.43,0.28],[0.61,0.34]]
+                for (const d of dots) { ctx.beginPath(); ctx.arc(d[0]*width,d[1]*height,0.035*Math.min(width,height),0,Math.PI*2); ctx.fill() }
+            } else if (n.indexOf("windows") >= 0 || n.indexOf("rules") >= 0) {
+                box(0.12,0.16,0.62,0.52)
+                box(0.29,0.31,0.59,0.53)
+            } else if (n.indexOf("effects") >= 0 || n.indexOf("motion") >= 0) {
+                ctx.beginPath()
+                ctx.moveTo(0.08*width,0.59*height)
+                ctx.bezierCurveTo(0.25*width,0.12*height,0.37*width,0.87*height,0.51*width,0.43*height)
+                ctx.bezierCurveTo(0.67*width,0.00*height,0.75*width,0.82*height,0.92*width,0.36*height)
+                ctx.stroke()
+            } else if (n.indexOf("run") >= 0 || n.indexOf("session") >= 0) {
+                path([[0.27,0.17],[0.78,0.50],[0.27,0.83]], true)
+            } else if (n.indexOf("monitor") >= 0 || n.indexOf("diagnostic") >= 0) {
+                box(0.12,0.12,0.76,0.76)
+                path([[0.20,0.57],[0.34,0.57],[0.43,0.35],[0.55,0.68],[0.63,0.48],[0.80,0.48]], false)
             } else if (n.indexOf("about") >= 0 || n.indexOf("help") >= 0) {
-                circle(ctx, 8, 8, 5.5)
-                line(ctx, 8, 7, 8, 11.2)
-                rect(ctx, 7.55, 4.2, 0.9, 0.9)
-            } else if (n.indexOf("file-manager") >= 0) {
-                poly(ctx, [[1.7,4.1],[6.3,4.1],[7.5,5.2],[14.3,5.2],[13.4,12.6],[2.6,12.6]], true)
-            } else if (n.indexOf("image") >= 0) {
-                rect(ctx, 2, 2.5, 12, 11)
-                poly(ctx, [[3.7,11.2],[6.7,7.8],[8.7,9.8],[10.4,7.8],[12.4,11.2]], false)
-                circle(ctx, 10.8, 5.3, 1.0)
-            } else if (n.indexOf("battery") >= 0) {
-                rect(ctx, 2.2, 5, 10.8, 6)
-                line(ctx, 13.1, 6.6, 14.2, 6.6)
-                line(ctx, 13.1, 9.4, 14.2, 9.4)
-                if (n.indexOf("missing") >= 0)
-                    line(ctx, 3.4, 4, 12.6, 12)
+                circle(0.50,0.50,0.37)
+                path([[0.50,0.46],[0.50,0.70]], false)
+                ctx.beginPath(); ctx.arc(0.50*width,0.31*height,0.04*Math.min(width,height),0,Math.PI*2); ctx.fill()
+            } else if (n.indexOf("system") >= 0 || n.indexOf("config") >= 0) {
+                circle(0.50,0.50,0.19)
+                for (let i=0; i<8; ++i) {
+                    const a=i*Math.PI/4
+                    path([[0.50+Math.cos(a)*0.27,0.50+Math.sin(a)*0.27],[0.50+Math.cos(a)*0.39,0.50+Math.sin(a)*0.39]], false)
+                }
             } else {
-                rect(ctx, 3.2, 3.2, 9.6, 9.6)
+                circle(0.50,0.50,0.31)
             }
         }
     }

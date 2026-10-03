@@ -51,9 +51,12 @@ Item {
                 line(ctx, 8, 3.5, 8, 12.5)
                 line(ctx, 3.5, 8, 12.5, 8)
             } else if (n.indexOf("edit") >= 0 || n.indexOf("pencil") >= 0) {
-                polyline(ctx, [[3,11.8],[4,8.7],[10.4,2.3],[13.5,5.4],[7.1,11.8],[3,11.8]], true)
-                line(ctx, 4.2, 8.5, 7.3, 11.6)
-                line(ctx, 2.7, 13.3, 8.2, 13.3)
+                // Thin open pencil: clearly an edit action without a bulky
+                // filled-looking outline at 14px.
+                line(ctx, 4.0, 11.8, 10.9, 4.9)
+                line(ctx, 5.4, 13.2, 12.3, 6.3)
+                line(ctx, 10.9, 4.9, 12.3, 6.3)
+                polyline(ctx, [[4.0,11.8],[3.2,13.8],[5.4,13.2]], false)
             } else if (n.indexOf("delete") >= 0 || n.indexOf("trash") >= 0) {
                 line(ctx, 3, 4.5, 13, 4.5)
                 line(ctx, 6, 2.6, 10, 2.6)
@@ -66,10 +69,12 @@ Item {
                 ctx.stroke()
                 polyline(ctx, [[3.2,4.3],[3.2,8],[6.8,8]], false)
             } else if (n.indexOf("disable") >= 0 || n.indexOf("ban") >= 0) {
+                // Distinct from Edit: compact disabled/minus symbol rather
+                // than another dominant diagonal stroke.
                 ctx.beginPath()
-                ctx.arc(8, 8, 5.2, 0, Math.PI * 2)
+                ctx.arc(8, 8, 4.4, 0, Math.PI * 2)
                 ctx.stroke()
-                line(ctx, 4.3, 4.3, 11.7, 11.7)
+                line(ctx, 5.2, 8, 10.8, 8)
             } else if (n.indexOf("focus") >= 0 || n.indexOf("target") >= 0) {
                 ctx.beginPath()
                 ctx.rect(3.5, 3.5, 9, 9)
