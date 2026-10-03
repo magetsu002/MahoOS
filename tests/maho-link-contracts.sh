@@ -36,9 +36,12 @@ for file in \
     MahoLinkSignal.qml \
     MahoLinkButton.qml \
     MahoLinkPassword.qml \
+    MahoLinkEnterprise.qml \
+    MahoLinkEnterpriseField.qml \
     MahoLinkManual.qml \
     MahoLinkDetails.qml \
     BluetoothState.qml \
+    BluetoothGlyph.qml \
     BluetoothMain.qml \
     BluetoothDeviceRow.qml \
     BluetoothPairing.qml \
@@ -79,7 +82,19 @@ require_text "$LINK/MahoLinkMain.qml" 'root.height - 157' "empty/list height no 
 require_text "$LINK/MahoLinkDetails.qml" 'readonly property color glassRaised:' "Wi-Fi details did not inherit glass material"
 require_text "$LINK/MahoLinkPassword.qml" 'readonly property color glassInteractive:' "Wi-Fi password flow did not inherit glass material"
 require_text "$LINK/MahoLinkManual.qml" 'readonly property color glassInteractive:' "manual Wi-Fi flow did not inherit glass material"
+require_text "$LINK/MahoLinkEnterprise.qml" 'readonly property color glassInteractive:' "enterprise Wi-Fi flow did not inherit glass material"
+require_text "$LINK/MahoLinkEnterprise.qml" 'connectEnterprise' "enterprise Wi-Fi flow is not wired to NetworkManager"
+require_text "$LINK/MahoLinkEnterprise.qml" 'model: ["peap", "ttls", "tls"]' "EAP-TLS authoring option missing"
+require_text "$LINK/MahoLinkEnterprise.qml" '"privateKeyPassword"' "EAP-TLS private-key password transport missing"
+require_text "$LINK/MahoLinkEnterpriseField.qml" 'echoMode: root.secret ? TextInput.Password : TextInput.Normal' "enterprise secret fields are not masked"
 require_text "$LINK/MahoLinkState.qml" 'id: statusClearTimer' "transient success feedback timer missing"
+require_text "$LINK/MahoLinkState.qml" 'command: ["nmcli", "monitor"]' "external NetworkManager changes are not observed live"
+require_text "$LINK/MahoLinkState.qml" 'function connectSaved(profileUuid)' "saved NetworkManager profiles cannot reconnect"
+require_text "$LINK/MahoLinkState.qml" 'function forgetSaved(profileUuid)' "saved NetworkManager profiles cannot be forgotten"
+require_text "$LINK/MahoLinkState.qml" 'function openCaptivePortal()' "captive portal login path missing"
+require_text "$LINK/MahoLinkMain.qml" 'Ethernet · ' "truthful Ethernet state is not surfaced"
+require_text "$LINK/MahoLinkMain.qml" 'root.wifi.ethernet.relevant' "idle no-carrier Ethernet is still permanent UI noise"
+require_text "$BACKEND" 'def ethernet_carrier' "Ethernet carrier truth is not observed"
 require_text "$LINK/MahoLinkState.qml" 'interval: 1500' "success feedback no longer clears promptly"
 require_text "$LINK/MahoLinkTheme.qml" '/.cache/maho/theme/active.json' "Maho Link does not use authoritative Maho palette"
 require_text "$LINK/MahoLinkTheme.qml" 'watchChanges: true' "Maho Link palette is not reactive"
@@ -98,6 +113,12 @@ require_text "$BT_BACKEND" 'org.bluez.Device1' "Bluetooth device interface missi
 require_text "$BT_BACKEND" 'org.bluez.Battery1' "BlueZ Battery1 support missing"
 require_text "$BT_BACKEND" 'StartDiscovery' "BlueZ discovery action missing"
 require_text "$BT_BACKEND" 'RemoveDevice' "BlueZ forget action missing"
+require_text "$BT_BACKEND" 'org.bluez.Agent1' "BlueZ interactive pairing agent missing"
+require_text "$BT_BACKEND" 'RequestPinCode' "BlueZ PIN pairing support missing"
+require_text "$BT_BACKEND" 'RequestPasskey' "BlueZ passkey pairing support missing"
+require_text "$BT_BACKEND" 'RequestConfirmation' "BlueZ numeric confirmation support missing"
+require_text "$BT_BACKEND" 'RequestAuthorization' "BlueZ pairing authorization support missing"
+require_text "$LINK/BluetoothState.qml" '"pair-session"' "Bluetooth pairing does not use the interactive agent session"
 require_text "$LINK/BluetoothState.qml" 'org.bluez.Device1", "CancelPairing"' "BlueZ pairing cancellation missing"
 require_text "$LINK/BluetoothState.qml" 'busctl", "--system", "monitor", "org.bluez"' "Bluetooth state is not driven by BlueZ signals"
 if grep -RnsF 'bluetoothctl' "$LINK" --include='*.qml'; then
@@ -155,7 +176,20 @@ echo "PASS"
 echo "=== backend syntax ==="
 python -m py_compile "$BACKEND" "$BT_BACKEND"
 bash -n "$ROOT/bin/maho-link"
-require_text "$BACKEND" '"--rescan", "auto"' "snapshot no longer permits NetworkManager to refresh stale discovery"
+require_text "$BACKEND" 'rescan="no"' "cached Wi-Fi observation no longer avoids a blocking first-frame scan"
+require_text "$BACKEND" 'def rescan_and_converge()' "asynchronous Wi-Fi scan convergence helper is missing"
+echo "PASS"
+
+echo "=== secure enterprise secret dependency ==="
+require_text "$ROOT/packaging/arch/PKGBUILD.in" "'python-gobject'" "clean-install package lacks PyGObject required for libnm secret persistence"
+python3 - "$BACKEND" <<'PY_ENTERPRISE_SECRET'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("def connect_enterprise(")
+end = source.index("\ndef open_captive_portal(", start)
+assert '"--ask"' not in source[start:end], "enterprise secrets still depend on blind nmcli prompt ordering"
+PY_ENTERPRISE_SECRET
 require_text "$ROOT/bin/maho-link" 'wifi|bluetooth' "Maho Link launcher does not constrain focused modes"
 require_text "$ROOT/bin/maho-link" 'MODE="${1:-wifi}"' "Maho Link no-argument Wi-Fi default is broken"
 require_text "$ROOT/bin/maho-link" '[ "$#" -le 1 ]' "Maho Link rejects its no-argument Wi-Fi default"
@@ -178,7 +212,26 @@ case "$*" in
   "-t -e yes -f DEVICE,TYPE,STATE device status")
     echo "wlan0:wifi:connected"
     ;;
-  "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan auto")
+  "-t -e yes -f NAME,UUID,TYPE,TIMESTAMP,AUTOCONNECT,ACTIVE,DEVICE connection show")
+    echo "MahoTestWiFi:11111111-2222-3333-4444-555555555555:802-11-wireless:123:yes:yes:wlan0"
+    ;;
+  "-t -e yes -f connection.id,connection.uuid,connection.autoconnect,802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-1x.eap connection show uuid 11111111-2222-3333-4444-555555555555")
+    cat <<'PROPS'
+connection.id:MahoTestWiFi
+connection.uuid:11111111-2222-3333-4444-555555555555
+connection.autoconnect:yes
+802-11-wireless.ssid:MahoTestWiFi
+802-11-wireless-security.key-mgmt:wpa-psk
+802-1x.eap:
+PROPS
+    ;;
+  "-t -e yes -f NAME,UUID,TYPE,DEVICE connection show --active")
+    echo "MahoTestWiFi:11111111-2222-3333-4444-555555555555:802-11-wireless:wlan0"
+    ;;
+  "-t -g 802-11-wireless.ssid connection show uuid 11111111-2222-3333-4444-555555555555")
+    echo "MahoTestWiFi"
+    ;;
+  "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan no")
     cat <<'SCAN'
 *:MahoTestWiFi:91:WPA2:5180
 :Guest\:Lab:61:WPA2:2412
@@ -186,6 +239,13 @@ case "$*" in
 :CorpNet:80:WPA2 802.1X:5180
 :MahoTestWiFi:52:WPA2:2412
 SCAN
+    ;;
+  "-t -e yes -f DEVICE,TYPE,STATE,CONNECTION device status")
+    echo "wlan0:wifi:connected:MahoTestWiFi"
+    echo "enp3s0:ethernet:unavailable:--"
+    ;;
+  "-t -f CONNECTIVITY general")
+    echo "full"
     ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
     cat <<'IP'
@@ -313,13 +373,17 @@ echo "PASS"
 echo "=== BlueZ actions use object paths, not device names ==="
 PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action toggle /org/bluez/hci0 on >"$TMP/bt-toggle.json"
 PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action scan-start /org/bluez/hci0 >"$TMP/bt-scan.json"
-PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action pair /org/bluez/hci0/dev_AA_BB_CC_DD_EE_02 >"$TMP/bt-pair.json"
+PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action pair /org/bluez/hci0/dev_AA_BB_CC_DD_EE_02 >"$TMP/bt-pair.json" || true
 PATH="$TMP/bin:$PATH" python "$BT_BACKEND" action forget /org/bluez/hci0 /org/bluez/hci0/dev_AA_BB_CC_DD_EE_01 >"$TMP/bt-forget.json"
 python - "$TMP/bt-toggle.json" "$TMP/bt-scan.json" "$TMP/bt-pair.json" "$TMP/bt-forget.json" <<'PY'
 import json, sys
-for path in sys.argv[1:]:
+for path in (sys.argv[1], sys.argv[2], sys.argv[4]):
     with open(path, encoding="utf-8") as handle:
         assert json.load(handle)["ok"] is True
+with open(sys.argv[3], encoding="utf-8") as handle:
+    pair = json.load(handle)
+assert pair["ok"] is False
+assert "confirm" in pair["message"].lower() or "paired state" in pair["message"].lower()
 PY
 if grep -Fq 'Studio Headset' "$FAKE_BUSCTL_LOG"; then
     fail "Bluetooth device name leaked into busctl argv"

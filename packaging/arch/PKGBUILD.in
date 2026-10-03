@@ -9,6 +9,7 @@ depends=(
   'bash'
   'python'
   'python-cryptography'
+  'python-gobject'
   'systemd'
   'util-linux'
   'cryptsetup'

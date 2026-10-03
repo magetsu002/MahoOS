@@ -7,6 +7,11 @@ Scope {
 
     property bool available: false
     property bool bluetoothEnabled: false
+    property string powerState: "unavailable"
+    property bool powerActionable: false
+    property string rfkillState: "unavailable"
+    property bool softBlocked: false
+    property bool hardBlocked: false
     property bool discovering: false
     property string adapterPath: ""
     property var pairedDevices: []
@@ -17,12 +22,23 @@ Scope {
     property string actionMessage: ""
     property string activeAction: ""
     property string activeDevicePath: ""
+    property string pairingPromptKind: ""
+    property string pairingPromptValue: ""
+    property int pairingPromptRequestId: 0
+    property string pairingServiceUuid: ""
+    property string pairingInputError: ""
+    property bool pairingResultSeen: false
+    property bool pairingResultOk: false
+    property string pairingResultMessage: ""
+    property bool pairingCancelRequested: false
     property bool snapshotReady: false
     property bool discoveryStopping: false
     property real discoveryStartedAt: 0
     readonly property string discoveryClientBinary: "blue" + "toothctl"
     readonly property bool discoveryOwned: discoverySession.running
-    readonly property bool busy: actionProcess.running || cancelProcess.running
+    readonly property bool pairingActive: pairingProcess.running
+    readonly property bool busy:
+        actionProcess.running || cancelProcess.running || pairingProcess.running
 
     signal actionSucceeded(string action, string devicePath)
     signal actionFailed(string action, string devicePath)
@@ -37,7 +53,7 @@ Scope {
     }
 
     function runAction(args, actionName, devicePath) {
-        if (actionProcess.running || autoConnectProcess.running)
+        if (actionProcess.running || pairingProcess.running)
             return false
         clearStatus.stop()
         state.errorText = ""
@@ -50,6 +66,8 @@ Scope {
 
     function setBluetoothEnabled(enabled) {
         if (adapterPath === "")
+            return false
+        if (enabled && !powerActionable)
             return false
         if (!enabled && discoverySession.running)
             stopDiscovery()
@@ -108,15 +126,6 @@ Scope {
         return runAction(["connect", String(device.path)], "connect", String(device.path))
     }
 
-    function maybeAutoConnect() {
-        if (actionProcess.running || cancelProcess.running || autoConnectProcess.running)
-            return false
-        if (!state.bluetoothEnabled || !state.autoConnectEligible
-                || state.autoConnectEligible.length === 0)
-            return false
-        autoConnectProcess.exec(["python", backendPath(), "auto-connect"])
-        return true
-    }
 
     function disconnectDevice(device) {
         if (!device || !device.path)
@@ -130,17 +139,58 @@ Scope {
         return runAction(["reconnect", String(device.path)], "reconnect", String(device.path))
     }
 
+    function clearPairingPrompt() {
+        state.pairingPromptKind = ""
+        state.pairingPromptValue = ""
+        state.pairingPromptRequestId = 0
+        state.pairingServiceUuid = ""
+        state.pairingInputError = ""
+    }
+
     function pairDevice(device) {
-        if (!device || !device.path)
+        if (!device || !device.path || actionProcess.running
+                || pairingProcess.running)
             return false
-        return runAction(["pair", String(device.path)], "pair", String(device.path))
+        clearStatus.stop()
+        state.errorText = ""
+        state.actionMessage = "Waiting for pairing…"
+        state.activeAction = "pair"
+        state.activeDevicePath = String(device.path)
+        state.pairingResultSeen = false
+        state.pairingResultOk = false
+        state.pairingResultMessage = ""
+        state.pairingCancelRequested = false
+        state.clearPairingPrompt()
+        pairingProcess.exec([
+            "python", backendPath(), "pair-session", String(device.path)
+        ])
+        return true
+    }
+
+    function respondPairing(accepted, value) {
+        if (!pairingProcess.running || state.pairingPromptRequestId <= 0)
+            return false
+        pairingProcess.write(JSON.stringify({
+            "action": accepted ? "accept" : "reject",
+            "requestId": state.pairingPromptRequestId,
+            "value": value || ""
+        }) + "\n")
+        return true
     }
 
     function cancelPairing(device) {
         if (!device || !device.path || cancelProcess.running)
             return false
+        state.clearPairingPrompt()
+        state.pairingCancelRequested = true
+        if (pairingProcess.running) {
+            pairingProcess.write(JSON.stringify({"action": "cancel-session"}) + "\n")
+            pairingCancelFallback.restart()
+            return true
+        }
         // Device paths originate from BlueZ ObjectManager state, not user text.
-        // Pass them as a distinct argv item; never interpolate device names.
+        // This is only a bounded fallback if the interactive agent has already
+        // exited before the UI's cancellation reaches it.
         cancelProcess.exec([
             "busctl", "--system", "call", "org.bluez", String(device.path),
             "org.bluez.Device1", "CancelPairing"
@@ -162,6 +212,11 @@ Scope {
                     const payload = JSON.parse(this.text)
                     state.available = Boolean(payload.available)
                     state.bluetoothEnabled = Boolean(payload.enabled)
+                    state.powerState = String(payload.powerState || (state.available ? "powered-off" : "unavailable"))
+                    state.powerActionable = Boolean(payload.powerActionable)
+                    state.rfkillState = String(payload.rfkillState || "unavailable")
+                    state.softBlocked = Boolean(payload.softBlocked)
+                    state.hardBlocked = Boolean(payload.hardBlocked)
                     // Keep opening motion truthful while BlueZ's Discovering
                     // property catches up with the just-started owned session.
                     state.discovering = Boolean(payload.discovering) || discoverySession.running
@@ -172,10 +227,24 @@ Scope {
                     state.autoConnectEligible = payload.autoConnectEligible || []
                     state.errorText = String(payload.error || "")
                     state.snapshotReady = true
-                    if (state.autoConnectEligible.length > 0)
-                        autoConnectDelay.restart()
+                    if (!state.available)
+                        state.clearPairingPrompt()
                 } catch (error) {
+                    state.available = false
+                    state.bluetoothEnabled = false
+                    state.powerState = "unavailable"
+                    state.powerActionable = false
+                    state.rfkillState = "unavailable"
+                    state.softBlocked = false
+                    state.hardBlocked = false
+                    state.adapterPath = ""
+                    state.pairedDevices = []
+                    state.availableDevices = []
+                    state.connectedDevices = []
+                    state.autoConnectEligible = []
                     state.errorText = "Bluetooth status could not be read."
+                    state.snapshotReady = true
+                    state.clearPairingPrompt()
                     console.log("maho-link bluetooth snapshot parse:", error)
                 }
             }
@@ -218,27 +287,110 @@ Scope {
     }
 
     Process {
-        id: autoConnectProcess
+        id: pairingProcess
+        stdinEnabled: true
 
-        stdout: StdioCollector {
-            onStreamFinished: {
+        stdout: SplitParser {
+            onRead: function(line) {
+                let payload
                 try {
-                    const payload = JSON.parse(this.text)
-                    if (String(payload.status || "") === "connected") {
-                        state.actionMessage = String(payload.message || "Connected.")
-                        clearStatus.restart()
-                        refreshSoon.restart()
-                    } else if (String(payload.status || "") === "backoff") {
-                        const retrySeconds = Math.max(1, Number(payload.retryAfter || 5))
-                        autoConnectRetry.interval = Math.min(120000, retrySeconds * 1000)
-                        autoConnectRetry.restart()
-                    }
+                    payload = JSON.parse(line)
                 } catch (error) {
-                    console.log("maho-link bluetooth auto-connect parse:", error)
+                    state.pairingInputError = "Pairing helper returned an invalid response."
+                    return
+                }
+
+                const type = String(payload.type || "")
+                if (type === "ready") {
+                    state.actionMessage = "Waiting for pairing…"
+                    return
+                }
+                if (type === "prompt") {
+                    state.pairingPromptKind = String(payload.kind || "")
+                    state.pairingPromptValue = String(payload.value || "")
+                    state.pairingPromptRequestId = Number(payload.requestId || 0)
+                    state.pairingServiceUuid = String(payload.serviceUuid || "")
+                    state.pairingInputError = ""
+                    state.actionMessage = ""
+                    return
+                }
+                if (type === "display") {
+                    state.pairingPromptKind = "display-" + String(payload.kind || "")
+                    state.pairingPromptValue = String(payload.value || "")
+                    state.pairingPromptRequestId = 0
+                    state.pairingServiceUuid = ""
+                    state.pairingInputError = ""
+                    return
+                }
+                if (type === "accepted") {
+                    state.clearPairingPrompt()
+                    state.actionMessage = "Waiting for BlueZ…"
+                    return
+                }
+                if (type === "input-error") {
+                    state.pairingInputError = String(payload.message || "Pairing input was invalid.")
+                    return
+                }
+                if (type === "cancelled") {
+                    state.clearPairingPrompt()
+                    state.actionMessage = String(payload.message || "Pairing was cancelled.")
+                    return
+                }
+                if (type === "status") {
+                    state.actionMessage = String(payload.message || "")
+                    return
+                }
+                if (type === "result") {
+                    state.pairingResultSeen = true
+                    state.pairingResultOk = Boolean(payload.ok)
+                    state.pairingResultMessage = String(payload.message || "")
+                    state.clearPairingPrompt()
                 }
             }
         }
+
+        onRunningChanged: {
+            if (running || state.activeAction !== "pair")
+                return
+
+            pairingCancelFallback.stop()
+            const devicePath = state.activeDevicePath
+            const ok = state.pairingResultSeen && state.pairingResultOk
+            const cancelled = state.pairingCancelRequested
+            const message = state.pairingResultSeen
+                ? state.pairingResultMessage
+                : cancelled
+                    ? "Pairing was cancelled."
+                    : "Bluetooth pairing helper stopped unexpectedly."
+
+            state.clearPairingPrompt()
+            state.activeAction = ""
+            state.activeDevicePath = ""
+            state.pairingResultSeen = false
+            state.pairingResultOk = false
+            state.pairingResultMessage = ""
+            state.pairingCancelRequested = false
+
+            if (ok) {
+                state.errorText = ""
+                state.actionMessage = message || "Paired."
+                clearStatus.restart()
+                state.actionSucceeded("pair", devicePath)
+            } else if (cancelled) {
+                state.errorText = ""
+                state.actionMessage = message || "Pairing was cancelled."
+                clearStatus.restart()
+                state.actionFailed("pair", devicePath)
+            } else {
+                clearStatus.stop()
+                state.actionMessage = ""
+                state.errorText = message || "Pairing failed."
+                state.actionFailed("pair", devicePath)
+            }
+            refreshSoon.restart()
+        }
     }
+
 
     Process {
         id: cancelProcess
@@ -310,16 +462,25 @@ Scope {
         onTriggered: state.refresh()
     }
 
-    Timer {
-        id: autoConnectDelay
-        interval: 180
-        onTriggered: state.maybeAutoConnect()
-    }
 
     Timer {
-        id: autoConnectRetry
-        interval: 5000
-        onTriggered: state.maybeAutoConnect()
+        id: pairingCancelFallback
+        interval: 900
+        onTriggered: {
+            if (!pairingProcess.running)
+                return
+            const devicePath = state.activeDevicePath
+            if (devicePath !== "" && !cancelProcess.running) {
+                cancelProcess.exec([
+                    "busctl", "--system", "call", "org.bluez", devicePath,
+                    "org.bluez.Device1", "CancelPairing"
+                ])
+            }
+            state.pairingResultSeen = true
+            state.pairingResultOk = false
+            state.pairingResultMessage = "Pairing was cancelled."
+            pairingProcess.running = false
+        }
     }
 
     Timer {

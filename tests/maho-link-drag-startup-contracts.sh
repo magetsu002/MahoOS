@@ -66,20 +66,25 @@ require_text "$LINK/MahoLink.qml" 'duration: root.shown ? 265 : 110' "Link foreg
 require_text "$SHELL" 'interval: 120' "Link close lifecycle no longer covers its short exit motion"
 echo "PASS"
 
-echo "=== two-phase Wi-Fi UI contract ==="
-require_text "$STATE" 'property bool statusReady: false' "fast authoritative status readiness is missing"
-require_text "$STATE" 'property bool networksReady: false' "network discovery readiness is not independent"
-require_text "$STATE" '["python", backendPath(), "status"]' "QML does not request fast NetworkManager status"
-require_text "$STATE" '["python", backendPath(), "networks"]' "QML does not request cached network discovery independently"
-require_text "$STATE" 'readonly property bool busy: actionProcess.running || scanning' "background startup discovery still presents itself as an active scan"
+echo "=== coherent Wi-Fi observation contract ==="
+require_text "$STATE" 'property bool statusReady: false' "authoritative snapshot readiness is missing"
+require_text "$STATE" 'property bool networksReady: false' "network observation readiness is missing"
+require_text "$STATE" 'id: snapshotProcess' "QML lacks a single NetworkManager observation owner"
+require_text "$STATE" 'snapshotProcess.exec(["python", backendPath(), "snapshot"])' "QML does not request coherent NetworkManager snapshots"
+if grep -Fq 'id: statusProcess' "$STATE" || grep -Fq 'id: networkProcess' "$STATE"; then
+    fail "Wi-Fi still has competing status/network state owners"
+fi
+require_text "$STATE" 'state.refreshPending = true' "NetworkManager changes during observation can be lost"
+require_text "$STATE" 'observedAt < state.lastObservationAtMs' "older Wi-Fi observations can override newer state"
+require_text "$STATE" 'readonly property bool busy: actionProcess.running || scanning' "background observation presents itself as a blocking action"
 require_text "$STATE" 'property bool startupScanAttempted: false' "empty startup cache has no bounded scan guard"
-require_text "$STATE" 'function maybeStartupScan()' "empty startup cache cannot self-heal"
-require_text "$STATE" 'Qt.callLater(state.rescan)' "empty startup cache does not schedule a non-blocking scan"
-require_text "$SHELL" '!wifi.statusReady' "Wi-Fi surface can paint placeholder state before authoritative status"
-require_text "$SHELL" 'wifi.refresh()' "Wi-Fi status/discovery does not start when opened"
-require_text "$BACKEND" 'scan_networks(enabled, rescan="no")' "fast startup cache query no longer avoids blocking rescan"
-require_text "$BACKEND" 'if sys.argv[1] == "status"' "fast status backend mode missing"
-require_text "$BACKEND" 'if sys.argv[1] == "networks"' "cached networks backend mode missing"
+require_text "$STATE" 'scanState !== "warming"' "startup scan guard is not driven by explicit cache freshness"
+require_text "$STATE" 'Qt.callLater(state.rescan)' "warming startup cache does not schedule a non-blocking scan"
+require_text "$SHELL" '!wifi.statusReady' "Wi-Fi surface can paint placeholder state before authoritative observation"
+require_text "$SHELL" 'wifi.refresh()' "Wi-Fi observation does not start when opened"
+require_text "$BACKEND" 'rescan="no"' "fast startup observation no longer avoids blocking rescan"
+require_text "$BACKEND" 'def coherent_wifi_observation' "shared Wi-Fi observation model is missing"
+require_text "$BACKEND" 'def rescan_and_converge()' "background scan convergence helper is missing"
 echo "PASS"
 
 echo "=== responsive BlueZ discovery contract ==="
@@ -115,9 +120,26 @@ case "$*" in
   "-t -g 802-11-wireless.ssid connection show uuid 11111111-2222-3333-4444-555555555555")
     echo "MahoTestWiFi"
     ;;
+  "-t -e yes -f connection.id,connection.uuid,connection.autoconnect,802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-1x.eap connection show uuid 11111111-2222-3333-4444-555555555555")
+    echo "connection.id:Home Profile"
+    echo "connection.uuid:11111111-2222-3333-4444-555555555555"
+    echo "connection.autoconnect:yes"
+    echo "802-11-wireless.ssid:MahoTestWiFi"
+    echo "802-11-wireless-security.key-mgmt:wpa-psk"
+    ;;
+  "-t -e yes -f NAME,UUID,TYPE,TIMESTAMP,AUTOCONNECT,ACTIVE,DEVICE connection show")
+    echo "Home Profile:11111111-2222-3333-4444-555555555555:802-11-wireless:1234:yes:yes:wlan0"
+    ;;
   "-t -e yes -f IP4.ADDRESS,IP4.GATEWAY device show wlan0")
     echo "IP4.ADDRESS[1]:192.168.1.50/24"
     echo "IP4.GATEWAY:192.168.1.1"
+    ;;
+  "-t -e yes -f DEVICE,TYPE,STATE,CONNECTION device status")
+    echo "wlan0:wifi:connected:Home Profile"
+    echo "enp0s31f6:ethernet:disconnected:--"
+    ;;
+  "-t -f CONNECTIVITY general")
+    echo "full"
     ;;
   "-t -e yes -f IN-USE,SSID,SIGNAL,SECURITY,FREQ device wifi list --rescan no")
     echo "*:MahoTestWiFi:91:WPA2:5180"
