@@ -152,11 +152,24 @@ with mock.patch.object(
     WIFI,
     "run",
     return_value=(0, "enp3s0:ethernet:unavailable:--", ""),
-):
+), mock.patch.object(WIFI, "ethernet_carrier", return_value=False):
     wired_unavailable = WIFI.ethernet_snapshot()
 assert wired_unavailable["available"] is True
+assert wired_unavailable["relevant"] is False
+assert wired_unavailable["carrier"] is False
 assert wired_unavailable["connected"] is False
-assert wired_unavailable["state"] == "Unavailable"
+assert wired_unavailable["state"] == "Cable unplugged"
+
+with mock.patch.object(
+    WIFI,
+    "run",
+    return_value=(0, "enp3s0:ethernet:disconnected:--", ""),
+), mock.patch.object(WIFI, "ethernet_carrier", return_value=True):
+    wired_carrier = WIFI.ethernet_snapshot()
+assert wired_carrier["available"] is True
+assert wired_carrier["relevant"] is True
+assert wired_carrier["carrier"] is True
+assert wired_carrier["state"] == "Disconnected"
 
 
 # Enterprise profile creation carries only non-secret fields on argv.

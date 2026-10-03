@@ -194,7 +194,8 @@ Scope {
                     state.scanState = String(payload.scanState || "unknown")
                     state.scanSource = String(payload.scanSource || "none")
                     state.ethernet = payload.ethernet || ({
-                        "available": false, "connected": false, "device": "", "state": "Unavailable",
+                        "available": false, "relevant": false, "carrier": null,
+                        "connected": false, "device": "", "state": "Unavailable",
                         "profile": "", "uuid": "", "ipv4": "", "gateway": ""
                     })
                     state.connectivity = payload.connectivity || ({

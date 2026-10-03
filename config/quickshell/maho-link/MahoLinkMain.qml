@@ -182,7 +182,7 @@ Item {
 
                 Text {
                     width: parent.width
-                    visible: Boolean(root.wifi.ethernet && root.wifi.ethernet.available)
+                    visible: Boolean(root.wifi.ethernet && root.wifi.ethernet.relevant)
                     text: "Ethernet · " + String(root.wifi.ethernet.state || "Disconnected")
                         + (root.wifi.ethernet.connected && root.wifi.ethernet.ipv4
                             ? " · " + String(root.wifi.ethernet.ipv4) : "")

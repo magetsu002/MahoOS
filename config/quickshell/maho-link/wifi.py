@@ -390,13 +390,31 @@ def scan_networks(enabled: bool, *, rescan="auto", saved_profiles=None):
     return networks, current
 
 
+def ethernet_carrier(device: str) -> bool | None:
+    """Return kernel carrier truth for a physical Ethernet interface."""
+    name = str(device or "").strip()
+    if not name or "/" in name or name in (".", ".."):
+        return None
+    path = Path("/sys/class/net") / name / "carrier"
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+    if raw == "1":
+        return True
+    if raw == "0":
+        return False
+    return None
+
+
 def ethernet_snapshot():
     code, out, _ = run([
         "nmcli", "-t", "-e", "yes", "-f",
         "DEVICE,TYPE,STATE,CONNECTION", "device", "status",
     ])
     if code != 0:
-        return {"available": False, "connected": False, "device": "", "state": "Unavailable",
+        return {"available": False, "relevant": False, "carrier": None,
+                "connected": False, "device": "", "state": "Unavailable",
                 "profile": "", "uuid": "", "ipv4": "", "gateway": ""}
 
     candidates = []
@@ -410,7 +428,8 @@ def ethernet_snapshot():
             "profile": "" if fields[3] == "--" else fields[3],
         })
     if not candidates:
-        return {"available": False, "connected": False, "device": "", "state": "Unavailable",
+        return {"available": False, "relevant": False, "carrier": None,
+                "connected": False, "device": "", "state": "Unavailable",
                 "profile": "", "uuid": "", "ipv4": "", "gateway": ""}
 
     state_priority = {
@@ -429,14 +448,22 @@ def ethernet_snapshot():
     chosen = candidates[0]
     raw_state = chosen["stateRaw"]
     connected = raw_state == "connected"
+    connecting = raw_state in ("connecting", "prepare", "config", "ip-config", "ip-check", "secondaries")
+    carrier = ethernet_carrier(chosen["device"])
+    # A physical NIC with no cable is real hardware, but it is not useful
+    # status noise for the Wi-Fi surface. Keep the backend truth and expose
+    # whether Ethernet is currently relevant to the user.
+    relevant = connected or connecting or carrier is True or (
+        carrier is None and raw_state == "disconnected"
+    )
     if connected:
         state_label = "Connected"
-    elif raw_state in ("connecting", "prepare", "config", "ip-config", "ip-check", "secondaries"):
+    elif connecting:
         state_label = "Connecting"
     elif raw_state == "disconnected":
-        state_label = "Disconnected"
+        state_label = "Disconnected" if carrier is not False else "Cable unplugged"
     elif raw_state == "unavailable":
-        state_label = "Unavailable"
+        state_label = "Cable unplugged" if carrier is False else "Unavailable"
     elif raw_state == "unmanaged":
         state_label = "Unmanaged"
     else:
@@ -457,6 +484,8 @@ def ethernet_snapshot():
                     break
     return {
         "available": True,
+        "relevant": relevant,
+        "carrier": carrier,
         "connected": connected,
         "device": chosen["device"],
         "state": state_label,
@@ -489,7 +518,8 @@ def unavailable_payload():
         "networks": [],
         "saved": [],
         "ethernet": {
-            "available": False, "connected": False, "device": "", "state": "Unavailable",
+            "available": False, "relevant": False, "carrier": None,
+            "connected": False, "device": "", "state": "Unavailable",
             "profile": "", "uuid": "", "ipv4": "", "gateway": "",
         },
         "connectivity": {

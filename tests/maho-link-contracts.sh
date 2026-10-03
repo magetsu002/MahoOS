@@ -92,6 +92,8 @@ require_text "$LINK/MahoLinkState.qml" 'function connectSaved(profileUuid)' "sav
 require_text "$LINK/MahoLinkState.qml" 'function forgetSaved(profileUuid)' "saved NetworkManager profiles cannot be forgotten"
 require_text "$LINK/MahoLinkState.qml" 'function openCaptivePortal()' "captive portal login path missing"
 require_text "$LINK/MahoLinkMain.qml" 'Ethernet · ' "truthful Ethernet state is not surfaced"
+require_text "$LINK/MahoLinkMain.qml" 'root.wifi.ethernet.relevant' "idle no-carrier Ethernet is still permanent UI noise"
+require_text "$BACKEND" 'def ethernet_carrier' "Ethernet carrier truth is not observed"
 require_text "$LINK/MahoLinkState.qml" 'interval: 1500' "success feedback no longer clears promptly"
 require_text "$LINK/MahoLinkTheme.qml" '/.cache/maho/theme/active.json' "Maho Link does not use authoritative Maho palette"
 require_text "$LINK/MahoLinkTheme.qml" 'watchChanges: true' "Maho Link palette is not reactive"
