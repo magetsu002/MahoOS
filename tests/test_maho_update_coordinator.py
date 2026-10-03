@@ -634,10 +634,11 @@ class CoordinatorContracts(unittest.TestCase):
                     {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
                     NOW,
                 )
-            self.assertEqual(interrupted["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(interrupted["phase"], "RECOVERING")
             self.assertEqual(
                 interrupted["blockers"], ["recovery_terminal_commit_retry_required"],
             )
+            self.assertNotEqual(interrupted["phase"], "ATTENTION_REQUIRED")
             self.assertEqual(
                 read_transaction(transaction_path(root, TXID))["state"], "RECOVERED",
             )

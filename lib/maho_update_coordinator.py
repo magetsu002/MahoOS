@@ -1114,10 +1114,7 @@ def _resume_owned(
                 verification = checkpoint["post_recovery_verification"]
                 value = dict(state)
                 value.update({
-                    "phase": (
-                        UpdateState.ATTENTION_REQUIRED.value
-                        if terminal else UpdateState.RECOVERING.value
-                    ),
+                    "phase": UpdateState.RECOVERING.value,
                     "blockers": ["recovery_terminal_commit_retry_required"],
                     "last_error": str(exc)[:4000],
                     "last_attempt_at": stamp(now),
