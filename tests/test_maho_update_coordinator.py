@@ -16,6 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
+import maho_update_bad_recovery as bad_recovery  # noqa: E402
 import maho_update_coordinator as coordinator  # noqa: E402
 from maho_update_discovery import IsolatedPacmanDiscovery  # noqa: E402
 from maho_update_maintenance import MaintenanceContext, evaluate_maintenance  # noqa: E402
@@ -304,6 +305,580 @@ class CoordinatorContracts(unittest.TestCase):
             self.assertFalse(result["reboot_required"])
             self.assertTrue(result["reboot_performed"])
             self.assertEqual(result["user_status"], "Update verified after restart.")
+
+    def test_postboot_failure_enters_exact_recovery_instead_of_false_healthy(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            pending = transition_transaction(
+                transition_transaction(
+                    transition_transaction(
+                        prepared_tx(), UpdateState.MAINTENANCE_READY, now=NOW,
+                    ),
+                    UpdateState.INSTALLING, now=NOW,
+                ),
+                UpdateState.INSTALLED_PENDING_ACTIVATION, now=NOW,
+            )
+            publish_transaction(root, pending)
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": pending["package_generation"]["id"],
+                "lane": "normal", "phase": "READY_TO_RESTART",
+            }
+            record = {
+                "phase": "ACTIVATION_ARMED",
+                "activation_handoff": {"handoff_id": "art-" + "a" * 64},
+                "candidate_generation": {"system_generation_id": "gen-" + "b" * 64},
+            }
+            recovery_result = {
+                "phase": "RECOVERING",
+                "reboot_required": True,
+                "reboot_performed": False,
+                "failed_candidate_uuid": "22222222-2222-2222-2222-222222222222",
+                "selected_root_uuid": "11111111-1111-1111-1111-111111111111",
+                "filesystem_uuid": "33333333-3333-3333-3333-333333333333",
+            }
+            selected_state = root / "selected-state"
+            selected_state.mkdir()
+
+            class SelectedRootOps:
+                closed = False
+
+                def __init__(self, transaction_id):
+                    self.transaction_id = transaction_id
+
+                def selected_state_root_for_recovery(self, **kwargs):
+                    type(self).assertions = kwargs
+                    return selected_state
+
+                def close(self):
+                    assert (selected_state / "coordinator.json").is_file()
+                    type(self).closed = True
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
+                 patch("maho_update_automatic_execution.verify_activated_normal", side_effect=RuntimeError("controlled failure")), \
+                 patch("maho_update_bad_recovery.begin_bad_update_recovery", return_value=recovery_result) as begin, \
+                 patch.object(coordinator, "NativeBtrfsOps", SelectedRootOps):
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "RECOVERING")
+            self.assertTrue(result["reboot_required"])
+            self.assertFalse(result["reboot_performed"])
+            self.assertTrue((selected_state / "coordinator.json").is_file())
+            self.assertEqual(
+                SelectedRootOps.assertions,
+                {
+                    "expected_failed_uuid": "22222222-2222-2222-2222-222222222222",
+                    "expected_previous_uuid": "11111111-1111-1111-1111-111111111111",
+                    "expected_filesystem_uuid": "33333333-3333-3333-3333-333333333333",
+                },
+            )
+            self.assertTrue(SelectedRootOps.closed)
+            self.assertNotEqual(result["phase"], "HEALTHY")
+            begin.assert_called_once()
+
+    def test_postboot_recovery_interruption_resumes_before_attention(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            pending = transition_transaction(
+                transition_transaction(
+                    transition_transaction(
+                        prepared_tx(), UpdateState.MAINTENANCE_READY, now=NOW,
+                    ),
+                    UpdateState.INSTALLING, now=NOW,
+                ),
+                UpdateState.INSTALLED_PENDING_ACTIVATION, now=NOW,
+            )
+            publish_transaction(root, pending)
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": pending["package_generation"]["id"],
+                "lane": "normal", "phase": "READY_TO_RESTART",
+            }
+            record = {
+                "phase": "ACTIVATION_ARMED",
+                "activation_handoff": {"handoff_id": "art-" + "a" * 64},
+                "candidate_generation": {"system_generation_id": "gen-" + "b" * 64},
+            }
+
+            def interrupted_begin(*_args, **_kwargs):
+                durable = read_transaction(transaction_path(root, TXID))
+                durable = transition_transaction(
+                    durable, UpdateState.ACTIVE_VERIFYING, now=NOW,
+                )
+                durable = transition_transaction(
+                    durable, UpdateState.RECOVERING, now=NOW,
+                )
+                publish_transaction(root, durable)
+                raise RuntimeError("interrupted after root exchange")
+
+            resumed = {
+                "phase": "RECOVERING", "reboot_required": True,
+                "reboot_performed": False, "recovery_attempts": 1,
+                "reconciled_after_interruption": True,
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
+                 patch("maho_update_automatic_execution.verify_activated_normal", side_effect=RuntimeError("controlled failure")), \
+                 patch("maho_update_bad_recovery.begin_bad_update_recovery", side_effect=interrupted_begin), \
+                 patch("maho_update_bad_recovery.resume_bad_update_recovery", return_value=resumed) as resume, \
+                 patch("maho_update_bad_recovery.attention_after_recovery_failure") as attention:
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "RECOVERING")
+            self.assertTrue(result["reboot_required"])
+            self.assertFalse(result["reboot_performed"])
+            resume.assert_called_once()
+            attention.assert_not_called()
+
+    def test_postboot_recovery_start_failure_converges_to_attention(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            pending = transition_transaction(
+                transition_transaction(
+                    transition_transaction(
+                        prepared_tx(), UpdateState.MAINTENANCE_READY, now=NOW,
+                    ),
+                    UpdateState.INSTALLING, now=NOW,
+                ),
+                UpdateState.INSTALLED_PENDING_ACTIVATION, now=NOW,
+            )
+            publish_transaction(root, pending)
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": pending["package_generation"]["id"],
+                "lane": "normal", "phase": "READY_TO_RESTART",
+            }
+            record = {
+                "phase": "ACTIVATION_ARMED",
+                "activation_handoff": {"handoff_id": "art-" + "a" * 64},
+                "candidate_generation": {"system_generation_id": "gen-" + "b" * 64},
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_automatic_execution.finalize_pending_normal", return_value=record), \
+                 patch("maho_update_automatic_execution.verify_activated_normal", side_effect=RuntimeError("package query failed")), \
+                 patch("maho_update_bad_recovery.begin_bad_update_recovery", side_effect=RuntimeError("recovery evidence invalid")), \
+                 patch("maho_update_bad_recovery.attention_after_recovery_failure", return_value={"phase": "ATTENTION_REQUIRED"}) as attention:
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(result["blockers"], ["bad_update_recovery_evidence_invalid"])
+            self.assertEqual(result["last_error"], "recovery evidence invalid")
+            self.assertFalse(result["reboot_required"])
+            self.assertTrue(result["reboot_performed"])
+            attention.assert_called_once()
+
+    def test_recovering_transaction_verifies_once_and_converges_recovered(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            transaction = transition_transaction(
+                transition_transaction(
+                    transition_transaction(
+                        transition_transaction(
+                            prepared_tx(), UpdateState.MAINTENANCE_READY, now=NOW,
+                        ),
+                        UpdateState.INSTALLING, now=NOW,
+                    ),
+                    UpdateState.INSTALLED_PENDING_ACTIVATION, now=NOW,
+                ),
+                UpdateState.ACTIVE_VERIFYING, now=NOW,
+            )
+            transaction = transition_transaction(transaction, UpdateState.RECOVERING, now=NOW)
+            publish_transaction(root, transaction)
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "package_generation_id": transaction["package_generation"]["id"],
+                "lane": "normal", "phase": "RECOVERING",
+            }
+            recovered = {
+                "phase": "RECOVERED", "reboot_required": False,
+                "reboot_performed": True, "recovery_attempts": 1,
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_bad_recovery._read_record", return_value={"phase": "RECOVERY_ARMED"}), \
+                 patch("maho_update_bad_recovery.verify_recovered_normal", return_value=recovered) as verify:
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "RECOVERED")
+            self.assertFalse(result["reboot_required"])
+            self.assertTrue(result["reboot_performed"])
+            verify.assert_called_once()
+
+    def test_pending_terminal_verification_survives_preterminal_coordinator_error(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            transaction = prepared_tx()
+            for phase in (
+                UpdateState.MAINTENANCE_READY,
+                UpdateState.INSTALLING,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                UpdateState.ACTIVE_VERIFYING,
+                UpdateState.RECOVERING,
+            ):
+                transaction = transition_transaction(transaction, phase, now=NOW)
+            publish_transaction(root, transaction)
+            verification = {
+                "failed_candidate_uuid": "2" * 8 + "-2222-2222-2222-" + "2" * 12,
+                "failed_system_generation_id": "gen-" + "3" * 64,
+                "recovered_root_uuid": "1" * 8 + "-1111-1111-1111-" + "1" * 12,
+                "recovered_system_generation_id": "gen-" + "4" * 64,
+                "kernel_generation_id": "kgen-" + "5" * 64,
+                "package_versions": {"demo": "1"},
+                "recovery_attempts": 1,
+            }
+            pending = {
+                "phase": "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+                "transaction_state": "RECOVERING",
+                "recovery_attempts": 1,
+                "post_recovery_verification": verification,
+            }
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "lane": "normal", "phase": "RECOVERING",
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_bad_recovery._read_record", return_value=pending), \
+                 patch(
+                     "maho_update_bad_recovery.verify_recovered_normal",
+                     side_effect=bad_recovery.RecoveryTerminalCommitError(
+                         "injected transaction publication interruption",
+                     ),
+                 ), \
+                 patch("maho_update_bad_recovery.resume_bad_update_recovery") as resume, \
+                 patch("maho_update_bad_recovery.attention_after_recovery_failure") as attention:
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(result["phase"], "RECOVERING")
+            self.assertEqual(result["blockers"], ["recovery_terminal_commit_retry_required"])
+            self.assertEqual(
+                read_transaction(transaction_path(root, TXID))["state"], "RECOVERING",
+            )
+            resume.assert_not_called()
+            attention.assert_not_called()
+
+    def test_pending_terminal_verification_reconciles_after_postterminal_coordinator_error(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            transaction = prepared_tx()
+            for phase in (
+                UpdateState.MAINTENANCE_READY,
+                UpdateState.INSTALLING,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                UpdateState.ACTIVE_VERIFYING,
+                UpdateState.RECOVERING,
+            ):
+                transaction = transition_transaction(transaction, phase, now=NOW)
+            publish_transaction(root, transaction)
+            recovered_root = "1" * 8 + "-1111-1111-1111-" + "1" * 12
+            recovered_generation = "gen-" + "4" * 64
+            verification = {
+                "failed_candidate_uuid": "2" * 8 + "-2222-2222-2222-" + "2" * 12,
+                "failed_system_generation_id": "gen-" + "3" * 64,
+                "recovered_root_uuid": recovered_root,
+                "recovered_system_generation_id": recovered_generation,
+                "kernel_generation_id": "kgen-" + "5" * 64,
+                "package_versions": {"demo": "1"},
+                "recovery_attempts": 1,
+            }
+            armed = {"phase": "RECOVERY_ARMED", "recovery_attempts": 1}
+            pending = {
+                "phase": "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+                "transaction_state": "RECOVERING",
+                "recovery_attempts": 1,
+                "post_recovery_verification": verification,
+            }
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "lane": "normal", "phase": "RECOVERING",
+            }
+
+            def interrupt_after_terminal(*_args, **_kwargs):
+                durable = read_transaction(transaction_path(root, TXID))
+                durable = transition_transaction(
+                    durable, UpdateState.RECOVERED, evidence=verification, now=NOW,
+                )
+                publish_transaction(root, durable)
+                raise bad_recovery.RecoveryTerminalCommitError(
+                    "injected final record interruption",
+                )
+
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_bad_recovery._read_record", side_effect=(armed, pending)), \
+                 patch(
+                     "maho_update_bad_recovery.verify_recovered_normal",
+                     side_effect=interrupt_after_terminal,
+                 ), \
+                 patch("maho_update_bad_recovery.attention_after_recovery_failure") as attention:
+                interrupted = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW,
+                )
+            self.assertEqual(interrupted["phase"], "RECOVERING")
+            self.assertEqual(
+                interrupted["blockers"], ["recovery_terminal_commit_retry_required"],
+            )
+            self.assertNotEqual(interrupted["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(
+                read_transaction(transaction_path(root, TXID))["state"], "RECOVERED",
+            )
+            self.assertEqual(interrupted["recovery"]["root_uuid"], recovered_root)
+            attention.assert_not_called()
+
+            final_record = {
+                **pending,
+                "phase": "RECOVERED_VERIFIED",
+                "transaction_state": "RECOVERED",
+            }
+            current = {
+                "transaction_id": TXID,
+                "phase": "RECOVERED", "root_uuid": recovered_root,
+                "system_generation_id": recovered_generation,
+                "recovery_attempts": 1,
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch(
+                     "maho_update_bad_recovery.reverify_recovered_normal",
+                     side_effect=bad_recovery.RecoveryTerminalCommitError(
+                         "injected reconciliation record write interruption",
+                     ),
+                 ):
+                retry = coordinator._resume_owned(
+                    interrupted, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(seconds=30),
+                )
+            self.assertEqual(retry["phase"], "RECOVERING")
+            self.assertEqual(
+                retry["blockers"], ["recovery_terminal_commit_retry_required"],
+            )
+            self.assertNotEqual(retry["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(
+                read_transaction(transaction_path(root, TXID))["state"], "RECOVERED",
+            )
+
+            crashed = dict(retry)
+            crashed["recovery"] = {
+                "transaction_id": TXID,
+                "phase": "RECOVERING",
+                "selected_root_uuid": recovered_root,
+                "selected_system_generation_id": recovered_generation,
+                "recovery_attempts": 1,
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_bad_recovery.reverify_recovered_normal", return_value=current), \
+                 patch("maho_update_bad_recovery._read_record", return_value=final_record):
+                reconciled = coordinator._resume_owned(
+                    crashed, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=1),
+                )
+            self.assertEqual(reconciled["phase"], "RECOVERED")
+            self.assertEqual(reconciled["recovery"]["recovery_attempts"], 1)
+            self.assertEqual(reconciled["recovery"]["root_uuid"], recovered_root)
+
+    def test_pending_checkpoint_fresh_verification_failures_require_attention(self):
+        failures = (
+            ("package-generation query failure", OSError("package generation query failed")),
+            ("wrong current root drift", RuntimeError("recovered live root identity mismatch")),
+            ("topology drift", RuntimeError("recovered recovery topology mismatch")),
+            ("boot-artifact drift", RuntimeError("post-recovery boot identity drifted")),
+            ("KernelGeneration drift", RuntimeError("recovered KernelGeneration binding mismatch")),
+            ("SystemGeneration drift", RuntimeError("recovered SystemGeneration binding mismatch")),
+        )
+        for name, failure in failures:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as state_tmp:
+                root = Path(state_tmp)
+                transaction = prepared_tx()
+                for phase in (
+                    UpdateState.MAINTENANCE_READY,
+                    UpdateState.INSTALLING,
+                    UpdateState.INSTALLED_PENDING_ACTIVATION,
+                    UpdateState.ACTIVE_VERIFYING,
+                    UpdateState.RECOVERING,
+                ):
+                    transaction = transition_transaction(transaction, phase, now=NOW)
+                publish_transaction(root, transaction)
+                verification = {
+                    "failed_candidate_uuid": "2" * 8 + "-2222-2222-2222-" + "2" * 12,
+                    "failed_system_generation_id": "gen-" + "3" * 64,
+                    "recovered_root_uuid": "1" * 8 + "-1111-1111-1111-" + "1" * 12,
+                    "recovered_system_generation_id": "gen-" + "4" * 64,
+                    "kernel_generation_id": "kgen-" + "5" * 64,
+                    "package_versions": {"demo": "1"},
+                    "recovery_attempts": 1,
+                }
+                pending = {
+                    "phase": "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+                    "transaction_state": UpdateState.RECOVERING.value,
+                    "recovery_attempts": 1,
+                    "post_recovery_verification": verification,
+                }
+                bad_recovery._atomic_json(
+                    bad_recovery.recovery_record_path(root, TXID), pending,
+                )
+                state = {
+                    **coordinator._base_state(NOW, REV),
+                    "active_transaction_id": TXID,
+                    "lane": "normal",
+                    "phase": UpdateState.RECOVERING.value,
+                }
+                with patch.dict(
+                    os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False,
+                ), patch(
+                    "maho_update_bad_recovery.verify_recovered_normal",
+                    side_effect=failure,
+                ), patch(
+                    "maho_update_bad_recovery.resume_bad_update_recovery",
+                ) as resume:
+                    result = coordinator._resume_owned(
+                        state, REV, "magetsu", {"source_revision": REV},
+                        {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                        NOW,
+                    )
+                self.assertEqual(result["phase"], UpdateState.ATTENTION_REQUIRED.value)
+                self.assertEqual(
+                    result["blockers"], ["recovered_generation_verification_failed"],
+                )
+                self.assertNotIn("Recovered state is current", result["user_status"])
+                durable = read_transaction(transaction_path(root, TXID))
+                self.assertEqual(durable["state"], UpdateState.ATTENTION_REQUIRED.value)
+                recovery_record = bad_recovery._read_record(root, TXID)
+                self.assertEqual(
+                    recovery_record["phase"], UpdateState.ATTENTION_REQUIRED.value,
+                )
+                self.assertEqual(
+                    recovery_record["recovery_blocker"],
+                    "recovered_generation_verification_failed",
+                )
+                self.assertEqual(recovery_record["recovery_attempts"], 1)
+                resume.assert_not_called()
+
+    def test_recovered_transaction_is_terminal_only_with_exact_current_verified_evidence(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            transaction = prepared_tx()
+            for phase in (
+                UpdateState.MAINTENANCE_READY,
+                UpdateState.INSTALLING,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                UpdateState.ACTIVE_VERIFYING,
+                UpdateState.RECOVERING,
+                UpdateState.RECOVERED,
+            ):
+                transaction = transition_transaction(transaction, phase, now=NOW)
+            publish_transaction(root, transaction)
+            recovered_root = "1" * 8 + "-1111-1111-1111-" + "1" * 12
+            recovered_generation = "gen-" + "2" * 64
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "lane": "normal",
+                "phase": "RECOVERED",
+                "reboot_required": False,
+                "reboot_performed": True,
+                "recovery": {
+                    "transaction_id": TXID,
+                    "phase": "RECOVERED",
+                    "root_uuid": recovered_root,
+                    "system_generation_id": recovered_generation,
+                    "recovery_attempts": 1,
+                },
+            }
+            record = {
+                "phase": "RECOVERED_VERIFIED",
+                "transaction_state": "RECOVERED",
+                "recovery_attempts": 1,
+                "post_recovery_verification": {
+                    "recovered_root_uuid": recovered_root,
+                    "recovered_system_generation_id": recovered_generation,
+                    "recovery_attempts": 1,
+                },
+            }
+            current = {
+                "transaction_id": TXID,
+                "phase": "RECOVERED",
+                "root_uuid": recovered_root,
+                "system_generation_id": recovered_generation,
+                "recovery_attempts": 1,
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch("maho_update_bad_recovery._read_record", return_value=record), \
+                 patch("maho_update_bad_recovery.reverify_recovered_normal", return_value=current) as reverify:
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=1),
+                )
+            self.assertEqual(result["phase"], "RECOVERED")
+            self.assertEqual(result["active_transaction_id"], TXID)
+            self.assertFalse(result["reboot_required"])
+            self.assertTrue(result["reboot_performed"])
+            reverify.assert_called_once()
+
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch(
+                     "maho_update_bad_recovery.reverify_recovered_normal",
+                     side_effect=RuntimeError("live recovered root identity drifted"),
+                 ):
+                drifted = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=2),
+                )
+            self.assertEqual(drifted["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(drifted["blockers"], ["recovered_state_evidence_invalid"])
+            self.assertIn("identity drifted", drifted["last_error"])
+
+    def test_historical_recovered_transaction_is_not_treated_as_current(self):
+        with tempfile.TemporaryDirectory() as state_tmp:
+            root = Path(state_tmp)
+            recovered = prepared_tx()
+            for phase in (
+                UpdateState.MAINTENANCE_READY,
+                UpdateState.INSTALLING,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                UpdateState.ACTIVE_VERIFYING,
+                UpdateState.RECOVERING,
+                UpdateState.RECOVERED,
+            ):
+                recovered = transition_transaction(recovered, phase, now=NOW)
+            publish_transaction(root, recovered)
+            newer_id = "upd-20260927T080000Z-bbbbbbbbbbbb"
+            publish_transaction(root, prepared_tx(txid=newer_id))
+            state = {
+                **coordinator._base_state(NOW, REV),
+                "active_transaction_id": TXID,
+                "lane": "normal",
+                "phase": "RECOVERED",
+            }
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False):
+                result = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=1),
+                )
+            self.assertIsNone(result)
 
     def test_discovery_uses_isolated_database_not_live_pacman_database(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -830,6 +830,112 @@ def _resume_owned(
     phase = transaction["state"]
     _, _, cache = _work_for(transaction_id)
 
+    if state.get("lane") == "normal" and phase == UpdateState.RECOVERED.value:
+        current = _current_transaction(root)
+        if current is None or current.get("transaction_id") != transaction_id:
+            return None
+        from maho_update_bad_recovery import (
+            RecoveryTerminalCommitError,
+            _read_record as read_bad_update_record,
+            reverify_recovered_normal,
+        )
+        try:
+            current_recovery = reverify_recovered_normal(
+                transaction_id, state_root=root,
+                generation_root=Path("/var/lib/maho/generations"),
+            )
+            recovery_record = read_bad_update_record(root, transaction_id)
+        except RecoveryTerminalCommitError as exc:
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.RECOVERING.value,
+                "blockers": ["recovery_terminal_commit_retry_required"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+                "user_status": (
+                    "Recovered verification completed, but its terminal "
+                    "evidence commit must be reconciled."
+                ),
+            })
+            return _save(_with_debt(value, now))
+        except (OSError, RuntimeError, ValueError) as exc:
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.ATTENTION_REQUIRED.value,
+                "blockers": ["recovered_state_evidence_invalid"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+            })
+            return _save(_with_debt(value, now))
+        verification = recovery_record.get("post_recovery_verification")
+        if (
+            recovery_record.get("phase") != "RECOVERED_VERIFIED"
+            or recovery_record.get("transaction_state") != UpdateState.RECOVERED.value
+            or recovery_record.get("recovery_attempts") != 1
+            or not isinstance(verification, Mapping)
+            or current_recovery.get("transaction_id") != transaction_id
+            or current_recovery.get("phase") != UpdateState.RECOVERED.value
+            or current_recovery.get("recovery_attempts") != 1
+            or verification.get("recovery_attempts") != 1
+            or verification.get("recovered_root_uuid") != current_recovery.get("root_uuid")
+            or verification.get("recovered_system_generation_id") != current_recovery.get("system_generation_id")
+        ):
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.ATTENTION_REQUIRED.value,
+                "blockers": ["recovered_state_evidence_invalid"],
+                "last_error": "exact recovered-state evidence binding is invalid",
+                "last_attempt_at": stamp(now),
+                "reboot_required": False,
+                "reboot_performed": True,
+            })
+            return _save(_with_debt(value, now))
+        value = dict(state)
+        value.update({
+            "phase": UpdateState.RECOVERED.value,
+            "blockers": [],
+            "recovery": current_recovery,
+            "last_error": None,
+            "last_attempt_at": stamp(now),
+            "reboot_required": False,
+            "reboot_performed": True,
+            "user_status": "Previous known-good system recovered and verified.",
+        })
+        return _save(_with_debt(value, now))
+
+    def _resume_started_recovery() -> dict[str, Any] | None:
+        durable = read_transaction(transaction_path(root, transaction_id))
+        if durable["state"] != UpdateState.RECOVERING.value:
+            return None
+        from maho_update_bad_recovery import resume_bad_update_recovery
+        return resume_bad_update_recovery(
+            transaction_id, state_root=root,
+            campaign_root=campaign_root(), now=now,
+        )
+
+    def _save_after_recovery(
+        value: Mapping[str, Any], result: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        failed = result.get("failed_candidate_uuid")
+        selected = result.get("selected_root_uuid")
+        filesystem = result.get("filesystem_uuid")
+        if not all(isinstance(item, str) and item for item in (failed, selected, filesystem)):
+            return _save(value)
+        ops = NativeBtrfsOps(transaction_id)
+        try:
+            selected_state_root = ops.selected_state_root_for_recovery(
+                expected_failed_uuid=failed,
+                expected_previous_uuid=selected,
+                expected_filesystem_uuid=filesystem,
+            )
+            return _save(value, selected_state_root)
+        finally:
+            ops.close()
+
     if state.get("lane") == "normal" and phase == UpdateState.INSTALLING.value:
         from maho_update_automatic_execution import recover_interrupted_normal_execution
         result = recover_interrupted_normal_execution(
@@ -847,6 +953,7 @@ def _resume_owned(
 
     if state.get("lane") == "normal" and phase == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
         from maho_update_automatic_execution import (
+            HealthyPublicationError,
             finalize_pending_normal,
             read_execution_record,
             verify_activated_normal,
@@ -856,9 +963,14 @@ def _resume_owned(
                 transaction_id, state_root=root, now=now,
             )
         except (OSError, RuntimeError, ValueError) as exc:
+            from maho_update_bad_recovery import attention_after_recovery_failure
+            attention = attention_after_recovery_failure(
+                transaction_id, state_root=root, detail=str(exc),
+                blocker="normal_activation_handoff_unavailable", now=now,
+            )
             value = dict(state)
             value.update({
-                "phase": "ATTENTION_REQUIRED",
+                "phase": attention["phase"],
                 "blockers": ["normal_activation_handoff_unavailable"],
                 "last_error": str(exc)[:4000],
                 "last_attempt_at": stamp(now),
@@ -873,16 +985,70 @@ def _resume_owned(
                 postboot = verify_activated_normal(
                     transaction_id, state_root=root, now=now,
                 )
-            except (OSError, RuntimeError, ValueError) as exc:
+            except HealthyPublicationError as exc:
                 value.update({
-                    "phase": "ATTENTION_REQUIRED",
-                    "blockers": ["normal_postboot_verification_failed"],
+                    "phase": UpdateState.ACTIVE_VERIFYING.value,
+                    "blockers": ["healthy_publication_retry_required"],
                     "last_error": str(exc)[:4000],
                     "last_attempt_at": stamp(now),
-                    "reboot_required": False,
-                    "reboot_performed": True,
+                    "reboot_required": False, "reboot_performed": True,
+                    "user_status": "Update verified; final status publication will retry automatically.",
                 })
                 return _save(_with_debt(value, now))
+            except (OSError, RuntimeError, ValueError) as exc:
+                from maho_update_bad_recovery import (
+                    attention_after_recovery_failure,
+                    begin_bad_update_recovery,
+                )
+                try:
+                    recovery = begin_bad_update_recovery(
+                        transaction_id,
+                        failure_code="normal_postboot_verification_failed",
+                        failure_detail=str(exc), state_root=root,
+                        generation_root=Path("/var/lib/maho/generations"),
+                        campaign_root=campaign_root(), now=now,
+                    )
+                    value.update({
+                        "phase": recovery["phase"], "blockers": [],
+                        "recovery": recovery, "last_error": str(exc)[:4000],
+                        "last_attempt_at": stamp(now),
+                        "reboot_required": recovery["reboot_required"],
+                        "reboot_performed": recovery["reboot_performed"],
+                        "user_status": "Update verification failed. Exact previous system selected; restart to recover.",
+                    })
+                except (OSError, RuntimeError, ValueError) as recovery_exc:
+                    try:
+                        resumed = _resume_started_recovery()
+                    except (OSError, RuntimeError, ValueError) as resume_exc:
+                        recovery_exc = resume_exc
+                        resumed = None
+                    if resumed is not None:
+                        value.update({
+                            "phase": UpdateState.RECOVERING.value, "blockers": [],
+                            "recovery": resumed, "last_error": str(exc)[:4000],
+                            "last_attempt_at": stamp(now),
+                            "reboot_required": bool(resumed.get("reboot_required")),
+                            "reboot_performed": bool(resumed.get("reboot_performed")),
+                            "user_status": "Exact previous system selected; restart to recover.",
+                        })
+                        return _save_after_recovery(
+                            _with_debt(value, now), resumed,
+                        )
+                    attention = attention_after_recovery_failure(
+                        transaction_id, state_root=root, detail=str(recovery_exc),
+                        blocker="bad_update_recovery_evidence_invalid", now=now,
+                    )
+                    value.update({
+                        "phase": attention["phase"],
+                        "blockers": ["bad_update_recovery_evidence_invalid"],
+                        "last_error": str(recovery_exc)[:4000],
+                        "last_attempt_at": stamp(now),
+                        "reboot_required": False, "reboot_performed": True,
+                    })
+                    return _save(_with_debt(value, now))
+                return _save_after_recovery(
+                    _with_debt(value, now), recovery,
+                )
             record = read_execution_record(root, transaction_id) or record
         value.update({
             "phase": UpdateState.HEALTHY.value if postboot else "READY_TO_RESTART",
@@ -904,15 +1070,226 @@ def _resume_owned(
         })
         return _save(_with_debt(value, now))
 
+    if state.get("lane") == "normal" and phase == UpdateState.RECOVERING.value:
+        from maho_update_bad_recovery import (
+            RecoveryTerminalCommitError,
+            _read_record as read_bad_update_record,
+            attention_after_recovery_failure,
+            resume_bad_update_recovery,
+            verify_recovered_normal,
+        )
+        try:
+            recovery_record = read_bad_update_record(root, transaction_id)
+            if recovery_record.get("phase") not in {
+                "RECOVERY_ARMED", "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+            }:
+                resumed = resume_bad_update_recovery(
+                    transaction_id, state_root=root,
+                    campaign_root=campaign_root(), now=now,
+                )
+                if resumed.get("reboot_performed") is not True:
+                    value = dict(state)
+                    value.update({
+                        "phase": UpdateState.RECOVERING.value, "blockers": [],
+                        "recovery": resumed, "last_success_at": stamp(now),
+                        "reboot_required": True, "reboot_performed": False,
+                        "user_status": "Exact previous system selected; restart to recover.",
+                    })
+                    return _save_after_recovery(
+                        _with_debt(value, now), resumed,
+                    )
+            recovered = verify_recovered_normal(
+                transaction_id, state_root=root,
+                generation_root=Path("/var/lib/maho/generations"), now=now,
+            )
+        except RecoveryTerminalCommitError as exc:
+            try:
+                durable = read_transaction(transaction_path(root, transaction_id))
+                checkpoint = read_bad_update_record(root, transaction_id)
+            except (OSError, RuntimeError, ValueError):
+                durable = None
+                checkpoint = None
+
+            pending = (
+                isinstance(durable, Mapping)
+                and isinstance(checkpoint, Mapping)
+                and durable.get("state") in {
+                    UpdateState.RECOVERING.value, UpdateState.RECOVERED.value,
+                }
+                and checkpoint.get("phase") == "RECOVERED_VERIFIED_PENDING_TRANSACTION"
+                and checkpoint.get("recovery_attempts") == 1
+                and isinstance(checkpoint.get("post_recovery_verification"), Mapping)
+            )
+            if pending:
+                terminal = durable["state"] == UpdateState.RECOVERED.value
+                verification = checkpoint["post_recovery_verification"]
+                value = dict(state)
+                value.update({
+                    "phase": UpdateState.RECOVERING.value,
+                    "blockers": ["recovery_terminal_commit_retry_required"],
+                    "last_error": str(exc)[:4000],
+                    "last_attempt_at": stamp(now),
+                    "reboot_required": False,
+                    "reboot_performed": True,
+                    "user_status": (
+                        "Recovered verification completed, but its terminal "
+                        "evidence commit must be reconciled."
+                    ),
+                })
+                if terminal:
+                    value["recovery"] = {
+                        "transaction_id": transaction_id,
+                        "phase": UpdateState.RECOVERED.value,
+                        "failed_candidate_uuid": verification.get("failed_candidate_uuid"),
+                        "failed_system_generation_id": verification.get("failed_system_generation_id"),
+                        "root_uuid": verification.get("recovered_root_uuid"),
+                        "system_generation_id": verification.get("recovered_system_generation_id"),
+                        "kernel_generation_id": verification.get("kernel_generation_id"),
+                        "package_versions": verification.get("package_versions"),
+                        "recovery_attempts": 1,
+                        "reboot_required": False,
+                        "reboot_performed": True,
+                    }
+                return _save(_with_debt(value, now))
+
+            if (
+                isinstance(durable, Mapping)
+                and durable.get("state") == UpdateState.RECOVERING.value
+            ):
+                value = dict(state)
+                value.update({
+                    "phase": UpdateState.RECOVERING.value,
+                    "blockers": ["recovery_terminal_commit_retry_required"],
+                    "last_error": str(exc)[:4000],
+                    "last_attempt_at": stamp(now),
+                    "reboot_required": False,
+                    "reboot_performed": True,
+                    "user_status": (
+                        "Recovered verification completed, but terminal evidence "
+                        "persistence must be retried."
+                    ),
+                })
+                return _save(_with_debt(value, now))
+
+            attention = attention_after_recovery_failure(
+                transaction_id, state_root=root, detail=str(exc),
+                blocker="recovery_terminal_commit_retry_required", now=now,
+            )
+            value = dict(state)
+            value.update({
+                "phase": attention["phase"],
+                "blockers": ["recovery_terminal_commit_retry_required"],
+                "last_error": str(exc)[:4000], "last_attempt_at": stamp(now),
+                "reboot_required": False, "reboot_performed": True,
+                "user_status": "Recovery terminal evidence could not be reconciled.",
+            })
+            return _save(_with_debt(value, now))
+        except (OSError, RuntimeError, ValueError) as exc:
+            attention = attention_after_recovery_failure(
+                transaction_id, state_root=root, detail=str(exc),
+                blocker="recovered_generation_verification_failed", now=now,
+            )
+            value = dict(state)
+            value.update({
+                "phase": attention["phase"],
+                "blockers": ["recovered_generation_verification_failed"],
+                "last_error": str(exc)[:4000], "last_attempt_at": stamp(now),
+                "reboot_required": False, "reboot_performed": True,
+                "user_status": "Recovery could not be verified; attention is required.",
+            })
+            return _save(_with_debt(value, now))
+        value = dict(state)
+        waiting = recovered["phase"] == UpdateState.RECOVERING.value
+        value.update({
+            "phase": recovered["phase"], "blockers": [],
+            "recovery": recovered, "last_success_at": stamp(now),
+            "reboot_required": bool(recovered.get("reboot_required")),
+            "reboot_performed": bool(recovered.get("reboot_performed")),
+            "user_status": (
+                "Exact previous system selected; restart to recover."
+                if waiting else "Previous known-good system recovered and verified."
+            ),
+        })
+        return _save(_with_debt(value, now))
+
     if state.get("lane") == "normal" and phase in {
         UpdateState.ACTIVE_VERIFYING.value, UpdateState.HEALTHY.value,
     }:
-        from maho_update_automatic_execution import verify_activated_normal
+        from maho_update_automatic_execution import (
+            HealthyPublicationError, verify_activated_normal,
+        )
         try:
             postboot = verify_activated_normal(
                 transaction_id, state_root=root, now=now,
             )
+        except HealthyPublicationError as exc:
+            value = dict(state)
+            value.update({
+                "phase": UpdateState.ACTIVE_VERIFYING.value,
+                "blockers": ["healthy_publication_retry_required"],
+                "last_error": str(exc)[:4000],
+                "last_attempt_at": stamp(now),
+                "reboot_required": False, "reboot_performed": True,
+                "user_status": "Update verified; final status publication will retry automatically.",
+            })
+            return _save(_with_debt(value, now))
         except (OSError, RuntimeError, ValueError) as exc:
+            if phase == UpdateState.ACTIVE_VERIFYING.value:
+                from maho_update_bad_recovery import (
+                    attention_after_recovery_failure,
+                    begin_bad_update_recovery,
+                )
+                try:
+                    recovery = begin_bad_update_recovery(
+                        transaction_id,
+                        failure_code="normal_postboot_verification_failed",
+                        failure_detail=str(exc), state_root=root,
+                        generation_root=Path("/var/lib/maho/generations"),
+                        campaign_root=campaign_root(), now=now,
+                    )
+                    value = dict(state)
+                    value.update({
+                        "phase": recovery["phase"], "blockers": [],
+                        "recovery": recovery, "last_error": str(exc)[:4000],
+                        "last_attempt_at": stamp(now),
+                        "reboot_required": True, "reboot_performed": False,
+                        "user_status": "Update verification failed. Exact previous system selected; restart to recover.",
+                    })
+                    return _save_after_recovery(
+                        _with_debt(value, now), recovery,
+                    )
+                except (OSError, RuntimeError, ValueError) as recovery_exc:
+                    try:
+                        resumed = _resume_started_recovery()
+                    except (OSError, RuntimeError, ValueError) as resume_exc:
+                        recovery_exc = resume_exc
+                        resumed = None
+                    if resumed is not None:
+                        value = dict(state)
+                        value.update({
+                            "phase": UpdateState.RECOVERING.value, "blockers": [],
+                            "recovery": resumed, "last_error": str(exc)[:4000],
+                            "last_attempt_at": stamp(now),
+                            "reboot_required": bool(resumed.get("reboot_required")),
+                            "reboot_performed": bool(resumed.get("reboot_performed")),
+                            "user_status": "Exact previous system selected; restart to recover.",
+                        })
+                        return _save_after_recovery(
+                            _with_debt(value, now), resumed,
+                        )
+                    attention = attention_after_recovery_failure(
+                        transaction_id, state_root=root, detail=str(recovery_exc),
+                        blocker="bad_update_recovery_evidence_invalid", now=now,
+                    )
+                    value = dict(state)
+                    value.update({
+                        "phase": attention["phase"],
+                        "blockers": ["bad_update_recovery_evidence_invalid"],
+                        "last_error": str(recovery_exc)[:4000],
+                        "last_attempt_at": stamp(now),
+                        "reboot_required": False, "reboot_performed": True,
+                    })
+                    return _save(_with_debt(value, now))
             value = dict(state)
             value.update({
                 "phase": "ATTENTION_REQUIRED",

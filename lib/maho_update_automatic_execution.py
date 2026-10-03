@@ -64,6 +64,10 @@ PREPARATION_OVERHEAD_BYTES = 512 * 1024**2
 MAINTENANCE_EVIDENCE_MAX_AGE = timedelta(seconds=90)
 
 
+class HealthyPublicationError(RuntimeError):
+    """The candidate is verified/promoted; only HEALTHY bookkeeping is pending."""
+
+
 EXECUTOR_MODULES = (
     "guardian_admission.py",
     "guardian_native_admission.py",
@@ -1389,8 +1393,9 @@ def verify_activated_normal(
             now=now,
         )
         publish_transaction(state_root, transaction)
-    if transaction["state"] == UpdateState.ACTIVE_VERIFYING.value:
-        transaction = transition_transaction(
+    publish_healthy = transaction["state"] == UpdateState.ACTIVE_VERIFYING.value
+    if publish_healthy:
+        healthy_transaction = transition_transaction(
             transaction,
             UpdateState.HEALTHY,
             reason="normal candidate passed exact postboot verification",
@@ -1403,9 +1408,10 @@ def verify_activated_normal(
             },
             now=now,
         )
-        publish_transaction(state_root, transaction)
+    else:
+        healthy_transaction = transaction
     live = promote_normal_candidate_generation(
-        transaction,
+        healthy_transaction,
         live_root_uuid=handoff.candidate_uuid,
         filesystem_uuid=str(candidate["filesystem_uuid"]),
         running_kernel_abi=observed_kernel,
@@ -1414,6 +1420,19 @@ def verify_activated_normal(
         verifier_identity=verifier_identity,
         root=generation_root,
     )
+    if publish_healthy:
+        try:
+            publish_transaction(state_root, healthy_transaction)
+        except (OSError, ValueError):
+            try:
+                durable = read_transaction(transaction_path(state_root, transaction_id))
+                if durable["state"] != UpdateState.HEALTHY.value:
+                    publish_transaction(state_root, healthy_transaction)
+            except (OSError, ValueError) as retry_error:
+                raise HealthyPublicationError(
+                    "candidate is verified and promoted; HEALTHY publication must be retried"
+                ) from retry_error
+    transaction = healthy_transaction
     verified_record = dict(record)
     verified_record.update({
         "phase": "POSTBOOT_VERIFIED",
@@ -1430,7 +1449,12 @@ def verify_activated_normal(
         },
         "reboot_performed": True,
     })
-    _atomic_json(record_path(state_root, transaction_id), verified_record)
+    try:
+        _atomic_json(record_path(state_root, transaction_id), verified_record)
+    except (OSError, ValueError) as exc:
+        raise HealthyPublicationError(
+            "candidate is verified and HEALTHY; execution receipt publication must retry"
+        ) from exc
     return {
         "transaction_id": transaction_id,
         "phase": UpdateState.HEALTHY.value,

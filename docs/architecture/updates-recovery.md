@@ -86,6 +86,49 @@ A recovery route is eligible only when its required artifacts and identity relat
 
 Historical success can support eligibility history, but historical proof never promotes current trust by itself. Current boot/root/runtime evidence still matters.
 
+### Bad-update SystemGeneration recovery
+
+When an S2.2 candidate reaches activation but fails its independent postboot
+verification, Maho Update publishes the current failure facts for Guardian. The
+facts bind the update transaction, failed candidate root and SystemGeneration,
+retained previous root and SystemGeneration, filesystem, compatible
+KernelGeneration, and intact recovery topology. Guardian may select only that
+provider-bound previous generation; it cannot substitute a historical or
+operator-guessed target.
+
+The recovery lifecycle is:
+
+```text
+identify exact failed candidate
+    → validate exact generation and compatibility artifacts in retained root
+    → Guardian selects exact previous known-good generation
+    → issue short-lived, single-use root-exchange authority
+    → publish RECOVERING evidence into current root
+    → unfreeze only the exact retained target under that authority
+    → durably prepublish RECOVERING evidence into the target root
+    → exchange only the transaction-bound Btrfs root entries
+    → explicit reboot into the selected root
+    → independently verify root, packages, kernel, boot, and compatibility
+    → RECOVERED
+```
+
+The executor may change only the `@` and transaction-bound retained-root
+directory entries plus their read-only properties and recovery receipts. It
+does not invoke a package manager, mutate boot artifacts or firmware, touch
+`/home`, or accept arbitrary paths. The failed candidate remains retained and
+read-only after the exchange.
+
+Recovery authorization is not reusable. Target unfreeze, evidence publication,
+exchange, and failed-root freeze are distinct resumable boundaries. They are
+reconciled only from exact UUID topology under the original authority and
+remain attempt 1.
+Before the exchange, expired authority cannot start recovery. Missing, stale,
+historical, mismatched, replayed, or consumed evidence, an unsafe topology, or
+a recovered generation that fails verification converges to
+`ATTENTION_REQUIRED`. `RECOVERED` is published only after the selected root is
+live and independently verified; the failed candidate is never promoted to
+`HEALTHY`.
+
 ## Retention
 
 Retention is an identity/dependency policy, not a directory-age policy.

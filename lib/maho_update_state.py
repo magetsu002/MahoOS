@@ -484,6 +484,13 @@ def write_transaction(path: str | os.PathLike[str], payload: Mapping[str, Any]) 
             os.close(descriptor)
         os.replace(temporary, destination)
         os.chmod(destination, 0o644)
+        directory_fd = os.open(
+            destination.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             temporary.unlink()
@@ -523,6 +530,13 @@ def publish_transaction(root: str | os.PathLike[str], payload: Mapping[str, Any]
             os.fsync(stream.fileno())
         os.replace(temporary, pointer)
         os.chmod(pointer, 0o644)
+        directory_fd = os.open(
+            pointer.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         try:
             temporary.unlink()
