@@ -370,7 +370,14 @@ class NormalProductionOps:
             base_root=paths["base_root"],
             candidate_root=paths["candidate_root"],
         )
-        result = evaluate_normal_production_candidate(roots, self.transaction)
+        result = evaluate_normal_production_candidate(
+            roots,
+            self.transaction,
+            operational_paths=(
+                f"/var/lib/maho/update/transactions/{plan.transaction_id}.json",
+                "/var/lib/maho/update/current",
+            ),
+        )
         self.admission = result
         self.roots = roots
         return self._guardian_evidence(result)
