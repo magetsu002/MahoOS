@@ -19,6 +19,9 @@ pass "installer has explicit root boundary"
 grep -Fq 'rev-parse --show-toplevel' "$INSTALLER" || fail "linked worktree validation missing"
 grep -Fq 'git_cmd show "$rev:$file"' "$INSTALLER" || fail "exact committed blob install missing"
 grep -Fq 'git_cmd cat-file -e "$EXPECTED_REV:$file"' "$INSTALLER" || fail "exact committed blob preflight missing"
+grep -Fq 'installed restart activation unit does not match campaign revision' "$INSTALLER" || fail "activation sentinel source binding missing"
+grep -Fq 'systemctl start maho-update-activate-on-reboot.service' "$INSTALLER" || fail "activation sentinel is not armed at campaign install"
+grep -Fq 'systemctl is-active --quiet maho-update-activate-on-reboot.service' "$INSTALLER" || fail "activation sentinel active-state proof missing"
 python - "$ROOT" "$INSTALLER" <<'PY_IMPORT_CLOSURE'
 import ast,re,sys
 from pathlib import Path

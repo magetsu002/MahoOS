@@ -16,7 +16,10 @@ from typing import Any, Mapping, Protocol, Sequence
 from maho_update_effects import aggregate_effects, validate_provenance
 from maho_update_normal_authority import authorize_normal_plan, certification_confirmation
 from maho_update_staging import validate_manifest
-from maho_update_state import UpdateState, transition_transaction, validate_transaction
+from maho_update_state import (
+    UpdateState, publish_transaction, transition_transaction, validate_transaction,
+    write_transaction,
+)
 
 
 @dataclass(frozen=True)
@@ -309,6 +312,113 @@ def _validate_execution_binding(transaction: Mapping[str, Any], plan: NormalExec
     if current["source_provenance"]["id"] != plan.source_provenance_id:
         raise ValueError("normal execution provenance generation drifted")
     return current
+
+
+def _validate_ready_execution_binding(
+    transaction: Mapping[str, Any], plan: NormalExecutionPlan,
+) -> dict[str, Any]:
+    current = validate_transaction(transaction)
+    if current["state"] != UpdateState.MAINTENANCE_READY.value:
+        raise ValueError("normal candidate execution requires MAINTENANCE_READY transaction")
+    if (
+        current["transaction_id"] != plan.transaction_id
+        or current["package_generation"]["id"] != plan.package_generation_id
+    ):
+        raise ValueError("normal candidate execution plan does not bind exact transaction")
+    if current["source_provenance"]["id"] != plan.source_provenance_id:
+        raise ValueError("normal candidate execution provenance generation drifted")
+    return current
+
+
+def execute_normal_candidate(
+    transaction: Mapping[str, Any],
+    plan: NormalExecutionPlan,
+    ops: NormalUpdateOps,
+    *,
+    authority: Mapping[str, Any] | None = None,
+    journal_path: str | Path | None = None,
+    candidate_state_root: str | Path | None = None,
+    now=None,
+) -> NormalExecutionResult:
+    """Install and admit one exact normal generation without touching the live root.
+
+    This is the production lifecycle used by S2.2.  Activation and postboot
+    verification are deliberately separate: reaching INSTALLED_PENDING_ACTIVATION
+    means only that the immutable candidate was installed and admitted.
+    """
+    current = _validate_ready_execution_binding(transaction, plan)
+    if plan.execution_environment == "production":
+        if authority is None:
+            raise ValueError("normal candidate execution authority missing")
+        authorize_normal_plan(
+            authority,
+            source_revision=current["source_revision"],
+            effects=plan.effects,
+            activation_requirements=plan.activation_requirements,
+        )
+        if getattr(ops, "production_safe", False) is not True:
+            raise ValueError("normal candidate production executor is not certified production-safe")
+    elif getattr(ops, "fixture_safe", False) is not True:
+        raise ValueError("normal candidate fixture execution requires fixture-safe provider")
+
+    installing = transition_transaction(
+        current,
+        UpdateState.INSTALLING,
+        reason="certified normal offline candidate installation started",
+        evidence={"normal_plan": plan.as_dict(), "live_root_mutation": False},
+        now=now,
+    )
+    if journal_path is not None:
+        write_transaction(journal_path, installing)
+    mutation_started = False
+    try:
+        # From this point package mutation may occur, but only inside the
+        # candidate root owned by NormalProductionOps.
+        mutation_started = True
+        install = _require_ok(ops.install_candidate(plan), "candidate installation")
+        if candidate_state_root is not None:
+            candidate_pending = transition_transaction(
+                installing,
+                UpdateState.INSTALLED_PENDING_ACTIVATION,
+                reason="candidate-local activation state precommitted before Guardian Admission",
+                evidence={
+                    "install": install,
+                    "guardian_admission": {"pending": True},
+                    "live_root_mutation": False,
+                },
+                now=now,
+            )
+            publish_transaction(candidate_state_root, candidate_pending)
+        admission = _require_ok(ops.guardian_admit(plan), "Guardian Admission")
+    except Exception as exc:
+        failed = transition_transaction(
+            installing,
+            UpdateState.FAILED_RECOVERABLE,
+            reason="normal offline candidate execution failed before activation",
+            evidence={
+                "failure_code": "normal_candidate_execution_failed",
+                "error": str(exc),
+                "candidate_mutation_started": mutation_started,
+                "live_root_mutation": False,
+            },
+            now=now,
+        )
+        if journal_path is not None:
+            write_transaction(journal_path, failed)
+        return NormalExecutionResult(failed, plan, mutation_started)
+
+    pending = transition_transaction(
+        installing,
+        UpdateState.INSTALLED_PENDING_ACTIVATION,
+        reason="normal candidate installed and admitted; explicit activation is required",
+        evidence={
+            "install": install,
+            "guardian_admission": admission,
+            "live_root_mutation": False,
+        },
+        now=now,
+    )
+    return NormalExecutionResult(pending, plan, mutation_started)
 
 
 def execute_normal_update(
