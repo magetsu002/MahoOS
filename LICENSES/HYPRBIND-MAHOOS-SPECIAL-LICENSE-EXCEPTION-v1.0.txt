@@ -1,0 +1,160 @@
+HYPRBIND → MAHOOS SPECIAL LICENSE EXCEPTION
+Version 1.0
+
+Effective date: October 3, 2026
+
+LICENSOR
+Mashrur Rahman Rawnok
+GitHub: NullifiedSec
+Hyprbind repository: https://github.com/NullifiedSec/hyprbind
+
+AUTHORIZED PROJECT
+MahoOS
+Repository: https://github.com/magetsu002/MahoOS
+Including the Maho Settings component and successor settings components that remain part of the MahoOS project.
+
+1. Purpose
+
+Hyprbind is ordinarily distributed under the Hyprbind Source License.
+
+This Special License Exception grants the MahoOS project limited additional permission to use Hyprbind as a development foundation for Maho Settings and related settings functionality inside MahoOS.
+
+This exception is intended to permit the use described between the parties: reusing and adapting Hyprbind's general UI structure, reusable UI components, and useful mature backend functionality, while allowing Maho Settings to substantially diverge in visual design, components, pages, wording, architecture, and Maho-specific behavior.
+
+2. Special Permission Granted
+
+Subject to the conditions below, the Licensor grants the MahoOS project and its maintainers, solely when acting for the MahoOS project, a perpetual, worldwide, non-exclusive, royalty-free copyright license to:
+
+a. copy and use portions of Hyprbind;
+
+b. modify, adapt, refactor, translate, replace, remove, or extend those portions;
+
+c. use Hyprbind as a bootstrap, foundation, or reference implementation for Maho Settings;
+
+d. integrate Hyprbind-derived code into MahoOS and Maho Settings;
+
+e. distribute Hyprbind-derived code under the names "MahoOS", "Maho Settings", or other settings-component names used as part of the MahoOS project; and
+
+f. distribute Hyprbind-derived code incorporated into MahoOS or Maho Settings under the GNU General Public License version 3 only ("GPL-3.0-only").
+
+For the authorized MahoOS use described above, this Section is an express exception to any Hyprbind Source License restriction that would otherwise prohibit rebranding, differently named distribution, or redistribution of the resulting Maho-specific derivative work.
+
+3. Scope of Authorized Hyprbind Material
+
+The permission includes, without limitation, adapting Hyprbind material relating to:
+
+- overall settings UI structure and interaction patterns;
+- sidebar and navigation structure;
+- page and settings-row structure;
+- reusable UI components;
+- Hyprland binds and submaps;
+- rules;
+- variables and environment handling;
+- startup handling;
+- backup functionality;
+- configuration parsing and writing;
+- health and diagnostic functionality;
+- logs; and
+- related Hyprland configuration functionality.
+
+The MahoOS project may substantially alter or replace any of this material as Maho Settings evolves.
+
+This list describes the intended scope and does not require MahoOS to use every listed component.
+
+4. Attribution Requirement
+
+MahoOS must preserve clear attribution to Hyprbind and its original author for as long as Hyprbind-derived material remains in MahoOS or Maho Settings.
+
+At minimum, the MahoOS source repository must contain a reasonably prominent notice substantially equivalent to:
+
+    Portions of Maho Settings are derived from Hyprbind.
+    Hyprbind Copyright (c) 2026 Mashrur Rahman Rawnok (NullifiedSec).
+    Original project: https://github.com/NullifiedSec/hyprbind
+    Used under a special license exception granted to MahoOS.
+
+The attribution may appear in a README, NOTICE, third-party notices file, licensing documentation, About/Credits interface, or another location reasonably visible to source recipients.
+
+MahoOS may describe its own modifications and authorship normally. This requirement does not require MahoOS to imply that the Licensor endorses MahoOS or its modifications.
+
+5. GPL-3.0-only Distribution
+
+The Licensor expressly authorizes Hyprbind-derived material incorporated into MahoOS or Maho Settings under this exception to be distributed by the MahoOS project as part of MahoOS under GPL-3.0-only.
+
+Downstream recipients of such MahoOS-distributed GPL-3.0-only material receive the rights granted to them by GPL-3.0-only with respect to that distributed material.
+
+This GPL authorization applies only to Hyprbind-derived material distributed as part of the authorized MahoOS/Maho Settings derivative work.
+
+It does not relicense the standalone Hyprbind project, the upstream Hyprbind repository, later Hyprbind versions, or unrelated copies of Hyprbind under GPL-3.0-only.
+
+A person who wants to use upstream Hyprbind independently must comply with the license applicable to the upstream Hyprbind version they obtain, unless separately authorized by the Licensor.
+
+6. No General Rebranding Permission
+
+This exception is specific to the MahoOS project identified above.
+
+It does not grant the general public a separate right to take upstream Hyprbind, rename it, rebrand it, or distribute it as an independently originated project outside the rights they otherwise possess under the applicable Hyprbind license.
+
+It also does not grant the MahoOS project authority to issue new exceptions on behalf of the Licensor for upstream Hyprbind.
+
+7. Ownership
+
+No copyright ownership is transferred by this agreement.
+
+The Licensor retains copyright in Hyprbind material owned by the Licensor.
+
+MahoOS contributors retain whatever copyright they own in their original MahoOS contributions and modifications, subject to the licenses applicable to those contributions.
+
+Nothing in this exception assigns MahoOS copyright to the Licensor or assigns Hyprbind copyright to MahoOS.
+
+8. No Trademark or Endorsement Grant
+
+This exception does not grant trademark rights in "Hyprbind", "NullifiedSec", the Licensor's personal name, logos, or branding.
+
+MahoOS may make truthful attribution statements required by this exception, but may not state or imply endorsement, sponsorship, certification, or official affiliation by the Licensor unless separately agreed in writing.
+
+9. Warranty and Liability
+
+Hyprbind material is provided "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, including warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+To the maximum extent permitted by applicable law, the Licensor is not liable for claims, damages, or other liability arising from MahoOS's use, modification, integration, or distribution of Hyprbind-derived material.
+
+10. Breach and Termination
+
+If the MahoOS project materially violates this exception, the Licensor may provide written notice describing the violation.
+
+If the violation is not cured within 30 days after receipt of that notice, the special permissions granted by this exception may terminate for future MahoOS distributions.
+
+Termination of this special permission does not retroactively revoke GPL rights already received by downstream recipients for copies that were lawfully distributed to them under GPL-3.0-only before termination.
+
+11. Entire Exception
+
+This document is a project-specific exception to the Hyprbind Source License for the authorized MahoOS use described above.
+
+Except for the permissions expressly granted here, no additional rights in Hyprbind are granted.
+
+If this exception conflicts with the Hyprbind Source License, this exception controls only for the authorized MahoOS use described in this document.
+
+12. Acceptance / Record
+
+This permission may be accepted and recorded electronically.
+
+A copy of this document retained by both parties, including a copy sent from an account reasonably attributable to the Licensor, may serve as evidence of the permission granted.
+
+LICENSOR
+
+Mashrur Rahman Rawnok (NullifiedSec)
+
+Signature / electronic signature: /s/ Mashrur Rahman Rawnok
+
+Date: 02-10-2026
+
+
+ACKNOWLEDGED FOR MAHOOS
+
+Name: Magetsu
+
+GitHub username / project role: magetsu002 / MahoOS maintainer
+
+Signature / electronic signature: /s/ magetsu002
+
+Date: 02-10-2026
