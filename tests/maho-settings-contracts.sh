@@ -8,6 +8,9 @@ BACKEND="$ROOT/lib/maho_settings_backend.py"
 WRAPPER="$ROOT/bin/maho-settings"
 PKGBUILD="$ROOT/packaging/arch/PKGBUILD.in"
 BINDINGS="$ROOT/config/hypr/maho/core/binds.lua"
+HYPR_LOADER="$ROOT/config/hypr/hyprland.lua"
+HYPR_WRITER="$ROOT/lib/maho_hypr_config.py"
+HYPR_WRITER_TEST="$ROOT/tests/test_maho_hypr_config.py"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 require_file() { [ -f "$1" ] || fail "missing $1"; }
@@ -23,6 +26,9 @@ reject_text() {
 }
 
 echo "=== native persistent application structure ==="
+require_file "$HYPR_LOADER"
+require_file "$HYPR_WRITER"
+require_file "$HYPR_WRITER_TEST"
 for file in     "$APP/CMakeLists.txt"     "$APP/src/main.cpp"     "$APP/src/MahoSettingsBridge.cpp"     "$APP/src/MahoSettingsBridge.h"     "$QML/Main.qml"     "$QML/components/SettingsSidebar.qml"     "$QML/components/MahoSettingsTheme.qml"     "$QML/components/MahoSidebarItem.qml"     "$QML/components/MahoSegmentedControl.qml"     "$QML/components/MahoScrollBar.qml"     "$QML/components/StatePanel.qml"     "$QML/pages/AppearancePage.qml"     "$QML/pages/DisplaysPage.qml"     "$QML/pages/SoundPage.qml"     "$QML/pages/InputPage.qml"     "$QML/pages/PowerPage.qml"     "$QML/pages/NotificationsPage.qml"     "$QML/pages/RegionPage.qml"     "$QML/pages/ApplicationsPage.qml"     "$QML/pages/AboutPage.qml"     "$BACKEND"     "$WRAPPER"; do
     require_file "$file"
 done
@@ -87,6 +93,20 @@ require_text "$APP/src/MahoSettingsBridge.cpp" 'void MahoSettingsBridge::openWal
 require_text "$BINDINGS" 'mainMod .. " + CTRL + SHIFT + S"' "SUPER+CTRL+SHIFT+S Settings shortcut is missing"
 require_text "$BINDINGS" '"$HOME/.local/bin/maho-settings" toggle' "Settings shortcut does not toggle the managed Settings wrapper"
 require_text "$WRAPPER" 'toggle_app()' "Settings launcher has no open/close toggle behavior"
+echo PASS
+
+echo "=== single-owner Hyprland configuration writer ==="
+require_text "$HYPR_LOADER" 'package.searchpath("maho.user.settings", package.path)' "Hyprland loader does not discover the user Settings overlay safely"
+require_text "$HYPR_LOADER" 'require("maho.user.settings")' "Hyprland loader never activates the user Settings overlay"
+require_text "$HYPR_WRITER" 'Hyprbind Copyright (c) 2026 Mashrur Rahman Rawnok (NullifiedSec).' "Hyprbind-derived writer attribution is missing"
+require_text "$HYPR_WRITER" 'config=config_home / "hypr" / "maho" / "user" / "settings.lua"' "writer does not own a separate user overlay"
+require_text "$HYPR_WRITER" 'def _atomic_write(' "writer lacks atomic replacement"
+require_text "$HYPR_WRITER" 'def _snapshot_backup(' "writer lacks backup-before-write"
+require_text "$HYPR_WRITER" 'def _writer_lock(' "writer lacks serialized mutation ownership"
+require_text "$HYPR_WRITER" 'if not _loader_installed(paths):' "writer can mutate before the live loader is installed"
+require_text "$HYPR_WRITER" 'observed_errors != baseline_errors' "writer does not verify config health after reload"
+require_text "$BACKEND" 'writer = hypr_config_writer.status()' "Configuration page does not expose writer readiness"
+python3 -m unittest -q tests.test_maho_hypr_config
 echo PASS
 
 echo "=== deterministic search contract ==="

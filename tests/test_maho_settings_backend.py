@@ -1080,6 +1080,53 @@ class DailyDriverMutationContracts(unittest.TestCase):
 
 
 class NewPageTruthContracts(unittest.TestCase):
+    def test_configuration_writer_stays_read_only_without_live_loader(self) -> None:
+        with (
+            mock.patch.object(settings, "_hypr_config_errors", return_value=([], "")),
+            mock.patch.object(settings, "hypr_prefix", return_value=(["/usr/bin/hyprctl"], "")),
+            mock.patch.object(settings.hypr_config_writer, "status", return_value={
+                "available": False,
+                "mutationAvailable": False,
+                "loaderInstalled": False,
+                "loaderPath": "/tmp/hyprland.lua",
+                "path": "/tmp/settings.lua",
+                "modelPath": "/tmp/hypr-managed.json",
+                "exists": False,
+                "backupCount": 0,
+                "lastWrite": {},
+                "model": {"version": 1},
+                "modelError": "",
+            }),
+        ):
+            state = settings.snapshot_configuration()
+        self.assertTrue(state["available"])
+        self.assertFalse(state["mutationAvailable"])
+        self.assertTrue(state["readOnly"])
+        self.assertFalse(state["writer"]["loaderInstalled"])
+
+    def test_configuration_writer_becomes_mutable_only_when_live_ready(self) -> None:
+        with (
+            mock.patch.object(settings, "_hypr_config_errors", return_value=([], "")),
+            mock.patch.object(settings, "hypr_prefix", return_value=(["/usr/bin/hyprctl"], "")),
+            mock.patch.object(settings.hypr_config_writer, "status", return_value={
+                "available": True,
+                "mutationAvailable": True,
+                "loaderInstalled": True,
+                "loaderPath": "/tmp/hyprland.lua",
+                "path": "/tmp/settings.lua",
+                "modelPath": "/tmp/hypr-managed.json",
+                "exists": True,
+                "backupCount": 2,
+                "lastWrite": {"version": 1},
+                "model": {"version": 1},
+                "modelError": "",
+            }),
+        ):
+            state = settings.snapshot_configuration()
+        self.assertTrue(state["mutationAvailable"])
+        self.assertFalse(state["readOnly"])
+        self.assertEqual(state["writer"]["backupCount"], 2)
+
     def test_notify_missing_backend_is_unavailable(self) -> None:
         with mock.patch.object(settings, "root_command", return_value=None):
             state = settings.snapshot_notifications()

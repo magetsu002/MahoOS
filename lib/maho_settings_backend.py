@@ -21,6 +21,11 @@ import time
 import uuid
 from typing import Any, Iterable
 
+LIB_DIR = Path(__file__).resolve().parent
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+import maho_hypr_config as hypr_config_writer
+
 ROOT = Path(os.environ.get("MAHO_ROOT", Path(__file__).resolve().parents[1])).resolve()
 CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
 STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
@@ -1754,20 +1759,41 @@ def _hypr_config_errors() -> tuple[list[str], str]:
 
 def snapshot_configuration() -> dict[str, Any]:
     errors, error = _hypr_config_errors()
+    prefix, session_error = hypr_prefix()
+    writer = hypr_config_writer.status()
     managed = [
         ROOT / "config" / "hypr" / "maho" / "core" / "binds.lua",
         ROOT / "config" / "hypr" / "maho" / "core" / "windowing.lua",
         ROOT / "config" / "hypr" / "maho" / "core" / "session.lua",
         ROOT / "config" / "hypr" / "maho" / "appearance" / "animations.lua",
     ]
+    mutation_available = (
+        bool(writer.get("mutationAvailable"))
+        and prefix is not None
+        and not bool(error)
+        and not bool(errors)
+    )
+    writer_error = str(writer.get("modelError", "") or "")
+    combined_error = error or session_error or writer_error
     return {
-        "available": not bool(error),
-        "healthy": not bool(errors) and not bool(error),
+        "available": not bool(error) and prefix is not None,
+        "healthy": not bool(errors) and not bool(error) and prefix is not None,
         "configErrors": errors,
         "managedFiles": [str(path) for path in managed if path.is_file()],
-        "mutationAvailable": False,
-        "readOnly": True,
-        "error": error,
+        "mutationAvailable": mutation_available,
+        "readOnly": not mutation_available,
+        "writer": {
+            "available": bool(writer.get("available")),
+            "loaderInstalled": bool(writer.get("loaderInstalled")),
+            "loaderPath": str(writer.get("loaderPath", "")),
+            "overlayPath": str(writer.get("path", "")),
+            "modelPath": str(writer.get("modelPath", "")),
+            "overlayExists": bool(writer.get("exists")),
+            "backupCount": int(writer.get("backupCount", 0) or 0),
+            "lastWrite": writer.get("lastWrite", {}),
+            "model": writer.get("model", {"version": 1}),
+        },
+        "error": combined_error,
     }
 
 
