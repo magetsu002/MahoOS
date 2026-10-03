@@ -1079,6 +1079,7 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         property int targetIndex: -1
+        property url targetUrl: ""
         property var details: ({})
         property var applications: []
 
@@ -1087,6 +1088,7 @@ ApplicationWindow {
                 return
             targetIndex = row
             details = directoryModel.openWithDetails(row)
+            targetUrl = details.url || ""
             applications = details.applications || []
             openWithList.currentIndex = applications.length > 0 ? 0 : -1
             open()
@@ -1097,13 +1099,14 @@ ApplicationWindow {
         }
 
         function launch(storageId) {
-            const row = targetIndex
+            const url = targetUrl
             close()
-            directoryModel.openWithApplication(row, storageId)
+            directoryModel.openWithApplicationUrl(url, storageId)
         }
 
         onClosed: {
             targetIndex = -1
+            targetUrl = ""
             details = ({})
             applications = []
         }

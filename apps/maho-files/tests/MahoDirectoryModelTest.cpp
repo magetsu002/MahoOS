@@ -447,6 +447,7 @@ private slots:
 
         const QVariantMap details = model.openWithDetails(findRow(model, QStringLiteral("sample.txt")));
         QCOMPARE(details.value(QStringLiteral("name")).toString(), QStringLiteral("sample.txt"));
+        QCOMPARE(details.value(QStringLiteral("url")).toUrl(), QUrl::fromLocalFile(temp.filePath(QStringLiteral("sample.txt"))));
         QVERIFY(!details.value(QStringLiteral("mimeType")).toString().isEmpty());
         QVERIFY(details.contains(QStringLiteral("applications")));
 

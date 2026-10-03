@@ -240,6 +240,10 @@ require_text "$MODEL_CPP" 'KApplicationTrader::queryByMimeType' \
     'Open With candidates do not come from the KDE/XDG application authority'
 require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(service, this)' \
     'selected Open With applications are not launched through KIO'
+require_text "$MODEL_CPP" 'result.insert(QStringLiteral("url"), item.url())' \
+    'Open With does not capture a stable exact target URL before the popup opens'
+require_text "$QML" 'directoryModel.openWithApplicationUrl(url, storageId)' \
+    'Open With selection is still resolved through mutable model rows'
 require_text "$QML" 'id: openWithPopup' \
     'Open With still lacks a compact Maho-native chooser surface'
 require_text "$QML" 'sequence: "Ctrl+Shift+O"' \

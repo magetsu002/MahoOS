@@ -880,6 +880,7 @@ QVariantMap MahoDirectoryModel::openWithDetails(int row) const
 
     const KFileItem &item = m_items.at(row);
     result.insert(QStringLiteral("name"), item.name());
+    result.insert(QStringLiteral("url"), item.url());
     result.insert(QStringLiteral("mimeType"), item.mimetype());
     result.insert(QStringLiteral("mimeComment"), item.mimeComment());
 
@@ -904,9 +905,9 @@ QVariantMap MahoDirectoryModel::openWithDetails(int row) const
     return result;
 }
 
-void MahoDirectoryModel::openWithApplication(int row, const QString &storageId)
+void MahoDirectoryModel::openWithApplicationUrl(const QUrl &url, const QString &storageId)
 {
-    if (row < 0 || row >= m_items.size() || storageId.trimmed().isEmpty())
+    if (!url.isValid() || url.isEmpty() || storageId.trimmed().isEmpty())
         return;
 
     const KService::Ptr service = KService::serviceByStorageId(storageId);
@@ -916,7 +917,7 @@ void MahoDirectoryModel::openWithApplication(int row, const QString &storageId)
     }
 
     auto *job = new KIO::ApplicationLauncherJob(service, this);
-    job->setUrls({m_items.at(row).url()});
+    job->setUrls({url});
     job->setUiDelegate(KIO::createDefaultJobUiDelegate(
         KJobUiDelegate::AutoHandlingEnabled, nullptr));
     connect(job, &KJob::result, this, [this, job, service]() {

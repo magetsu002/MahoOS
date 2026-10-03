@@ -118,7 +118,7 @@ public:
     Q_INVOKABLE void duplicateRows(const QVariantList &rows);
     Q_INVOKABLE void openWithIndex(int row);
     Q_INVOKABLE QVariantMap openWithDetails(int row) const;
-    Q_INVOKABLE void openWithApplication(int row, const QString &storageId);
+    Q_INVOKABLE void openWithApplicationUrl(const QUrl &url, const QString &storageId);
     Q_INVOKABLE QString propertiesText(int row) const;
     Q_INVOKABLE void requestProperties(int row);
     Q_INVOKABLE void cancelProperties();
