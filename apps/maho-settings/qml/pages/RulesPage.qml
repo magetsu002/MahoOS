@@ -252,22 +252,22 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
 
-                    ChoicePill {
-                        text: "Cancel"
+                    MahoIconButton {
+                        iconName: "close"
+                        label: "Cancel"
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.editorOpen = false
                     }
 
-                    ChoicePill {
-                        text: "Save"
-                        selected: true
+                    MahoIconButton {
+                        iconName: "check"
+                        label: "Save rule"
+                        emphasized: true
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.saveEditor()
@@ -284,13 +284,13 @@ Item {
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                ChoicePill {
-                    text: "Add window rule"
-                    selected: true
+                MahoIconButton {
+                    iconName: "add"
+                    label: "Add window rule"
+                    emphasized: true
                     visible: !!root.pageState.canAddWindowRule
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
-                    surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     onClicked: root.openNew("window")
@@ -310,23 +310,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < (root.pageState.windowRules || []).length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!windowRuleRow.modelData.canEdit
-                            text: "Edit"
+                            iconName: "edit"
+                            label: "Edit window rule"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openEdit("window", windowRuleRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!windowRuleRow.modelData.canDelete
-                            text: "Delete"
+                            iconName: "delete"
+                            label: "Delete window rule"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("rules.delete", {
@@ -347,13 +347,13 @@ Item {
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                ChoicePill {
-                    text: "Add workspace rule"
-                    selected: true
+                MahoIconButton {
+                    iconName: "add"
+                    label: "Add workspace rule"
+                    emphasized: true
                     visible: !!root.pageState.canAddWorkspaceRule
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
-                    surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     onClicked: root.openNew("workspace")
@@ -373,23 +373,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < (root.pageState.workspaceRules || []).length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!workspaceRuleRow.modelData.canEdit
-                            text: "Edit"
+                            iconName: "edit"
+                            label: "Edit workspace rule"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openEdit("workspace", workspaceRuleRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!workspaceRuleRow.modelData.canDelete
-                            text: "Delete"
+                            iconName: "delete"
+                            label: "Delete workspace rule"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("rules.workspaceDelete", {
@@ -409,13 +409,13 @@ Item {
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                ChoicePill {
-                    text: "Add layer rule"
-                    selected: true
+                MahoIconButton {
+                    iconName: "add"
+                    label: "Add layer rule"
+                    emphasized: true
                     visible: !!root.pageState.canAddLayerRule
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
-                    surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     onClicked: root.openNew("layer")
@@ -435,23 +435,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < (root.pageState.layerRules || []).length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!layerRuleRow.modelData.canEdit
-                            text: "Edit"
+                            iconName: "edit"
+                            label: "Edit layer rule"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openEdit("layer", layerRuleRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!layerRuleRow.modelData.canDelete
-                            text: "Delete"
+                            iconName: "delete"
+                            label: "Delete layer rule"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("rules.delete", {

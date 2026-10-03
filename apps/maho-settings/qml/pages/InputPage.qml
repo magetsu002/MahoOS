@@ -192,32 +192,22 @@ Item {
                 iconName: "input-mouse"
                 theme: theme
 
-                ChoicePill {
-                    text: "Adaptive"
-                    selected: root.current.accelProfile === "adaptive"
-                    enabled: true
-                    accent: theme.accent
-                    surface: theme.controlFill
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.bridge.perform("input.set", {
-                        key: "accelProfile",
-                        value: "adaptive"
-                    })
-                }
-
-                ChoicePill {
-                    text: "Flat"
-                    selected: root.current.accelProfile === "flat"
-                    enabled: true
-                    accent: theme.accent
-                    surface: theme.controlFill
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.bridge.perform("input.set", {
-                        key: "accelProfile",
-                        value: "flat"
-                    })
+                MahoSegmentedControl {
+                    theme: theme
+                    busy: root.bridge.actionBusy
+                    options: [
+                        { label: "Adaptive", value: "adaptive" },
+                        { label: "Flat", value: "flat" }
+                    ]
+                    currentValue: root.current.accelProfile === "default"
+                        ? ""
+                        : root.current.accelProfile
+                    onSelected: function(value) {
+                        root.bridge.perform("input.set", {
+                            key: "accelProfile",
+                            value: value
+                        })
+                    }
                 }
             }
 

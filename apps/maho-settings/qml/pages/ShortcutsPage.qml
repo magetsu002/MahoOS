@@ -183,37 +183,45 @@ Item {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    ChoicePill {
-                        text: "Override existing"
-                        selected: root.replaceExisting
+                    Text {
+                        text: "Override existing assignment"
+                        color: theme.textSecondary
+                        font.pixelSize: 11
+                    }
+
+                    MahoSwitch {
+                        checked: root.replaceExisting
                         enabled: !root.bridge.actionBusy
+                        busy: false
+                        reducedMotion: theme.reducedMotion
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
-                        onClicked: root.replaceExisting = !root.replaceExisting
+                        onToggleRequested: function(value) {
+                            root.replaceExisting = value
+                        }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    ChoicePill {
-                        text: "Cancel"
+                    MahoIconButton {
+                        iconName: "close"
+                        label: "Cancel"
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.editorOpen = false
                     }
 
-                    ChoicePill {
-                        text: "Save"
-                        selected: true
+                    MahoIconButton {
+                        iconName: "check"
+                        label: "Save shortcut"
+                        emphasized: true
                         enabled: !root.bridge.actionBusy
                             && chordField.text.trim().length > 0
                             && commandField.text.trim().length > 0
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.saveEditor()
@@ -244,13 +252,13 @@ Item {
                         accent: theme.accent
                     }
 
-                    ChoicePill {
-                        text: "Add"
-                        selected: true
+                    MahoIconButton {
+                        iconName: "add"
+                        label: "Add shortcut"
+                        emphasized: true
                         visible: !!root.pageState.mutationAvailable
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.openNew()
@@ -273,23 +281,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < root.filteredBinds().length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!shortcutRow.modelData.canOverride
-                            text: shortcutRow.modelData.userOwned ? "Edit" : "Override"
+                            iconName: "edit"
+                            label: shortcutRow.modelData.userOwned ? "Edit shortcut" : "Override shortcut"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openEdit(shortcutRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!shortcutRow.modelData.canOverride && !shortcutRow.modelData.userOwned
-                            text: "Disable"
+                            iconName: "disable"
+                            label: "Disable shortcut"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("shortcuts.disable", {
@@ -298,12 +306,12 @@ Item {
                             })
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!shortcutRow.modelData.userOwned
-                            text: "Reset"
+                            iconName: "reset"
+                            label: "Restore inherited shortcut"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("shortcuts.reset", {

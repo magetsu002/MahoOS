@@ -189,23 +189,23 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
 
-                    ChoicePill {
+                    MahoIconButton {
                         visible: root.confirmReset
-                        text: "Cancel"
+                        iconName: "close"
+                        label: "Cancel reset"
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.confirmReset = false
                     }
 
-                    ChoicePill {
-                        text: root.confirmReset ? "Reset" : "Reset managed changes"
-                        selected: root.confirmReset
+                    MahoIconButton {
+                        iconName: "reset"
+                        label: root.confirmReset ? "Confirm reset managed changes" : "Reset managed changes"
+                        emphasized: root.confirmReset
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: {

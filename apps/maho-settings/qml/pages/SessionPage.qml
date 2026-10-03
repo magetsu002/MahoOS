@@ -158,22 +158,22 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
 
-                    ChoicePill {
-                        text: "Cancel"
+                    MahoIconButton {
+                        iconName: "close"
+                        label: "Cancel"
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.editorOpen = false
                     }
 
-                    ChoicePill {
-                        text: "Save"
-                        selected: true
+                    MahoIconButton {
+                        iconName: "check"
+                        label: "Save session command"
+                        emphasized: true
                         enabled: !root.bridge.actionBusy && commandField.text.trim().length > 0
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.saveEditor()
@@ -190,13 +190,13 @@ Item {
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                ChoicePill {
-                    text: "Add command"
-                    selected: true
+                MahoIconButton {
+                    iconName: "add"
+                    label: "Add session command"
+                    emphasized: true
                     visible: !!root.pageState.canAddStartup
                     enabled: !root.bridge.actionBusy
                     accent: theme.accent
-                    surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     onClicked: root.openNew()
@@ -218,23 +218,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < (root.pageState.startup || []).length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!startupRow.modelData.canEdit
-                            text: "Edit"
+                            iconName: "edit"
+                            label: "Edit session command"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openEdit(startupRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!startupRow.modelData.canDelete
-                            text: "Delete"
+                            iconName: "delete"
+                            label: "Delete session command"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("session.startupDelete", {

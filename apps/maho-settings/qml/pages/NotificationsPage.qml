@@ -104,11 +104,11 @@ Item {
                 iconName: "view-history"
                 theme: theme
 
-                ChoicePill {
-                    text: "Clear History"
+                MahoIconButton {
+                    iconName: "delete"
+                    label: "Clear notification history"
                     enabled: !!root.pageState.historyClearSupported && !root.bridge.actionBusy
                     accent: theme.accent
-                    surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     onClicked: root.bridge.perform("notification.clearHistory", {})

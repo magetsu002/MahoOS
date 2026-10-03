@@ -351,23 +351,24 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    ChoicePill {
-                        text: root.output.focused ? "Focused" : "Focus Display"
-                        selected: !!root.output.focused
+                    MahoIconButton {
+                        iconName: "focus"
+                        label: root.output.focused ? "Focused display" : "Focus display"
+                        emphasized: !!root.output.focused
                         enabled: !!root.output.enabled && !root.output.focused
                             && !root.bridge.actionBusy && root.pendingToken.length === 0
                         accent: theme.accent
-                        surface: theme.surfaceElevated
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.bridge.perform("display.focus", { name: root.output.name })
                     }
                     Item { Layout.fillWidth: true }
-                    ChoicePill {
-                        text: "Preview Changes"
+                    MahoIconButton {
+                        iconName: "preview"
+                        label: "Preview display changes"
+                        emphasized: true
                         enabled: !root.bridge.actionBusy && root.pendingToken.length === 0
                         accent: theme.accent
-                        surface: theme.surfaceElevated
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.preview()

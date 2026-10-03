@@ -55,6 +55,44 @@ Item {
             if (n.indexOf("search") >= 0) {
                 circle(0.43, 0.43, 0.27)
                 path([[0.62, 0.62], [0.86, 0.86]], false)
+            } else if (n.indexOf("add") >= 0 || n.indexOf("plus") >= 0) {
+                path([[0.50,0.18],[0.50,0.82]], false)
+                path([[0.18,0.50],[0.82,0.50]], false)
+            } else if (n.indexOf("edit") >= 0 || n.indexOf("pencil") >= 0) {
+                path([[0.24,0.73],[0.31,0.49],[0.65,0.15],[0.83,0.33],[0.49,0.67],[0.24,0.73]], false)
+                path([[0.31,0.49],[0.49,0.67]], false)
+            } else if (n.indexOf("delete") >= 0 || n.indexOf("trash") >= 0) {
+                path([[0.25,0.30],[0.75,0.30]], false)
+                path([[0.36,0.22],[0.64,0.22]], false)
+                path([[0.31,0.31],[0.35,0.80],[0.65,0.80],[0.69,0.31]], false)
+                path([[0.43,0.40],[0.43,0.70]], false)
+                path([[0.57,0.40],[0.57,0.70]], false)
+            } else if (n.indexOf("reset") >= 0 || n.indexOf("restore") >= 0) {
+                ctx.beginPath()
+                ctx.arc(0.50*width,0.52*height,0.29*Math.min(width,height),-0.55,4.10)
+                ctx.stroke()
+                path([[0.20,0.28],[0.20,0.49],[0.39,0.39]], false)
+            } else if (n.indexOf("disable") >= 0 || n.indexOf("ban") >= 0) {
+                circle(0.50,0.50,0.33)
+                path([[0.27,0.27],[0.73,0.73]], false)
+            } else if (n.indexOf("focus") >= 0 || n.indexOf("target") >= 0) {
+                circle(0.50,0.50,0.18)
+                path([[0.50,0.08],[0.50,0.27]], false)
+                path([[0.50,0.73],[0.50,0.92]], false)
+                path([[0.08,0.50],[0.27,0.50]], false)
+                path([[0.73,0.50],[0.92,0.50]], false)
+            } else if (n.indexOf("preview") >= 0 || n.indexOf("eye") >= 0) {
+                ctx.beginPath()
+                ctx.moveTo(0.10*width,0.50*height)
+                ctx.quadraticCurveTo(0.50*width,0.14*height,0.90*width,0.50*height)
+                ctx.quadraticCurveTo(0.50*width,0.86*height,0.10*width,0.50*height)
+                ctx.stroke()
+                circle(0.50,0.50,0.11)
+            } else if (n.indexOf("check") >= 0 || n.indexOf("save") >= 0) {
+                path([[0.18,0.52],[0.40,0.73],[0.82,0.28]], false)
+            } else if (n.indexOf("close") >= 0 || n.indexOf("cancel") >= 0) {
+                path([[0.24,0.24],[0.76,0.76]], false)
+                path([[0.76,0.24],[0.24,0.76]], false)
             } else if (n.indexOf("display") >= 0 || n.indexOf("video") >= 0) {
                 box(0.10, 0.16, 0.80, 0.56)
                 path([[0.50,0.72],[0.50,0.86],[0.35,0.86],[0.65,0.86]], false)

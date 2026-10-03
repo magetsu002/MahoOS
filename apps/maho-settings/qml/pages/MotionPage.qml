@@ -272,22 +272,22 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
 
-                    ChoicePill {
-                        text: "Cancel"
+                    MahoIconButton {
+                        iconName: "close"
+                        label: "Cancel"
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.editorOpen = false
                     }
 
-                    ChoicePill {
-                        text: "Save"
-                        selected: true
+                    MahoIconButton {
+                        iconName: "check"
+                        label: "Save motion override"
+                        emphasized: true
                         enabled: !root.bridge.actionBusy
                         accent: theme.accent
-                        surface: theme.controlFill
                         foreground: theme.textPrimary
                         muted: theme.textSecondary
                         onClicked: root.saveEditor()
@@ -319,23 +319,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < (root.pageState.animations || []).length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!animationRow.modelData.canOverride
-                            text: animationRow.modelData.userOwned ? "Edit" : "Override"
+                            iconName: "edit"
+                            label: animationRow.modelData.userOwned ? "Edit animation override" : "Override animation"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openAnimation(animationRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!animationRow.modelData.canDelete
-                            text: "Reset"
+                            iconName: "reset"
+                            label: "Restore animation"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("motion.animationReset", {
@@ -369,23 +369,23 @@ Item {
                         muted: theme.textSecondary
                         dividerVisible: index < (root.pageState.curves || []).length - 1
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!curveRow.modelData.canOverride
-                            text: curveRow.modelData.userOwned ? "Edit" : "Override"
+                            iconName: "edit"
+                            label: curveRow.modelData.userOwned ? "Edit Bézier override" : "Override Bézier curve"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.openCurve(curveRow.modelData)
                         }
 
-                        ChoicePill {
+                        MahoIconButton {
                             visible: !!curveRow.modelData.canDelete
-                            text: "Reset"
+                            iconName: "reset"
+                            label: "Restore Bézier curve"
                             enabled: !root.bridge.actionBusy
                             accent: theme.accent
-                            surface: theme.controlFill
                             foreground: theme.textPrimary
                             muted: theme.textSecondary
                             onClicked: root.bridge.perform("motion.curveReset", {
