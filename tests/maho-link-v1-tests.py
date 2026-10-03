@@ -374,6 +374,55 @@ assert '"privateKeyPassword"' in enterprise_source
 assert 'echoMode: root.secret ? TextInput.Password : TextInput.Normal' in enterprise_field_source
 assert "activeFocusOnTab: true" in enterprise_source
 
+# Nearby discovery and saved NetworkManager profiles are separate UI concepts.
+main_source = (LINK / "MahoLinkMain.qml").read_text(encoding="utf-8")
+row_source = (LINK / "MahoLinkNetworkRow.qml").read_text(encoding="utf-8")
+assert 'property string networkTab: "nearby"' in main_source
+assert 'text: "Nearby"' in main_source
+assert 'text: "Saved"' in main_source
+assert 'row.available !== false' in main_source
+assert 'root.networkTab === "saved"' in main_source
+assert 'root.savedNetworkRows' in main_source
+assert 'visible: root.networkTab === "nearby"' in main_source
+assert 'id: forgetGlow' in row_source
+assert 'color: forgetHover.containsMouse || forgetHover.activeFocus' not in row_source
+assert '!Boolean(network.active)' in row_source
+
+# Saved profiles carry the same exact-identity fields used by the row/action
+# layer, so the Saved tab never guesses an SSID identity.
+saved = {
+    "profile": "Known",
+    "uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "ssid": "Known",
+    "active": False,
+}
+with mock.patch.object(
+    WIFI,
+    "run",
+    side_effect=[
+        (
+            0,
+            "Known:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:802-11-wireless:123:yes:no:",
+            "",
+        ),
+        (
+            0,
+            "connection.id:Known\n"
+            "connection.uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n"
+            "802-11-wireless.ssid:Known\n"
+            "802-11-wireless-security.key-mgmt:wpa-psk\n"
+            "802-1x.eap:",
+            "",
+        ),
+    ],
+):
+    saved_rows = WIFI.saved_wifi_profiles()
+assert len(saved_rows) == 1
+assert saved_rows[0]["profileUuid"] == saved["uuid"]
+assert saved_rows[0]["profileName"] == saved["profile"]
+assert saved_rows[0]["available"] is False
+assert saved_rows[0]["quality"] == "Saved"
+
 # Authentication errors should become actionable user feedback instead of raw
 # NetworkManager wording.
 assert WIFI.friendly_wifi_error(

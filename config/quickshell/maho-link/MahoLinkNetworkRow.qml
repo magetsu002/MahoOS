@@ -6,7 +6,9 @@ Item {
     required property var network
     property bool interactionEnabled: true
     readonly property bool forgettable:
-        Boolean(network.saved) && String(network.profileUuid || "") !== ""
+        Boolean(network.saved)
+        && !Boolean(network.active)
+        && String(network.profileUuid || "") !== ""
     signal selected()
     signal forgetRequested()
 
@@ -82,11 +84,14 @@ Item {
 
         Text {
             visible: Boolean(root.network.enterprise)
+                || Boolean(root.network.active)
                 || (Boolean(root.network.saved) && root.network.available === false)
             width: parent.width
-            text: Boolean(root.network.enterprise)
-                ? (root.network.available === false ? "Enterprise · Saved" : "Enterprise authentication")
-                : "Saved network"
+            text: Boolean(root.network.active)
+                ? "Current · Saved"
+                : Boolean(root.network.enterprise)
+                    ? (root.network.available === false ? "Enterprise · Saved" : "Enterprise authentication")
+                    : "Saved network"
             color: chrome.theme.alpha(chrome.textSecondary, 0.62)
             elide: Text.ElideRight
             font.family: "Inter"
@@ -135,7 +140,7 @@ Item {
         }
     }
 
-    Rectangle {
+    Item {
         id: forgetButton
         z: 3
         anchors.right: parent.right
@@ -144,19 +149,38 @@ Item {
         visible: root.forgettable
         width: visible ? 54 : 0
         height: 28
-        radius: 10
-        antialiasing: true
-        color: forgetHover.containsMouse || forgetHover.activeFocus
-            ? chrome.theme.alpha(chrome.theme.error, 0.10)
-            : "transparent"
+
+        Text {
+            id: forgetGlow
+            anchors.centerIn: parent
+            text: "Forget"
+            color: chrome.theme.alpha(chrome.theme.error, 0.62)
+            opacity: forgetHover.containsMouse || forgetHover.activeFocus ? 0.48 : 0
+            scale: 1.08
+            font.family: "Inter"
+            font.pixelSize: 9
+            font.weight: Font.Medium
+
+            Behavior on opacity {
+                NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+            }
+        }
 
         Text {
             anchors.centerIn: parent
             text: "Forget"
-            color: chrome.theme.alpha(chrome.theme.error, 0.84)
+            color: chrome.theme.alpha(
+                chrome.theme.error,
+                forgetHover.containsMouse || forgetHover.activeFocus ? 1.0 : 0.84
+            )
             font.family: "Inter"
             font.pixelSize: 9
-            font.weight: Font.Medium
+            font.weight: forgetHover.containsMouse || forgetHover.activeFocus
+                ? Font.DemiBold : Font.Medium
+
+            Behavior on color {
+                ColorAnimation { duration: 110 }
+            }
         }
 
         MouseArea {

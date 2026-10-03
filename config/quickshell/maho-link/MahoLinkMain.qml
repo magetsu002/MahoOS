@@ -9,8 +9,19 @@ Item {
     signal detailsRequested(var network)
     signal manualRequested()
 
-    readonly property int networkCount:
-        root.wifi.wifiEnabled && root.wifi.networks ? root.wifi.networks.length : 0
+    property string networkTab: "nearby"
+    readonly property var nearbyNetworks: {
+        const rows = root.wifi.wifiEnabled && root.wifi.networks
+            ? root.wifi.networks : []
+        return rows.filter(function(row) {
+            return row && row.available !== false
+        })
+    }
+    readonly property var savedNetworkRows:
+        root.wifi.savedNetworks ? root.wifi.savedNetworks : []
+    readonly property var displayNetworks:
+        root.networkTab === "saved" ? root.savedNetworkRows : root.nearbyNetworks
+    readonly property int networkCount: root.displayNetworks.length
     readonly property bool emptyState: networkCount === 0
 
     readonly property color glassLow: chrome.theme.alpha(
@@ -281,14 +292,94 @@ Item {
             width: parent.width
             height: 29
 
-            Text {
+            Row {
+                id: networkTabs
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Wi-Fi Networks"
-                color: chrome.theme.alpha(chrome.textSecondary, 0.78)
-                font.family: "Inter"
-                font.pixelSize: 11
-                font.weight: Font.Medium
+                height: 24
+                spacing: 17
+
+                Item {
+                    width: 43
+                    height: 24
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: -2
+                        text: "Nearby"
+                        color: root.networkTab === "nearby"
+                            ? chrome.theme.alpha(chrome.textPrimary, 0.96)
+                            : chrome.theme.alpha(chrome.textSecondary, 0.62)
+                        font.family: "Inter"
+                        font.pixelSize: 11
+                        font.weight: root.networkTab === "nearby" ? Font.DemiBold : Font.Medium
+                    }
+
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        width: root.networkTab === "nearby" ? 23 : 0
+                        height: 2
+                        radius: 1
+                        color: chrome.theme.alpha(chrome.accent, 0.86)
+
+                        Behavior on width {
+                            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        activeFocusOnTab: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.networkTab = "nearby"
+                        Keys.onReturnPressed: root.networkTab = "nearby"
+                        Keys.onSpacePressed: root.networkTab = "nearby"
+                    }
+                }
+
+                Item {
+                    width: 42
+                    height: 24
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: -2
+                        text: "Saved"
+                        color: root.networkTab === "saved"
+                            ? chrome.theme.alpha(chrome.textPrimary, 0.96)
+                            : chrome.theme.alpha(chrome.textSecondary, 0.62)
+                        font.family: "Inter"
+                        font.pixelSize: 11
+                        font.weight: root.networkTab === "saved" ? Font.DemiBold : Font.Medium
+                    }
+
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        width: root.networkTab === "saved" ? 22 : 0
+                        height: 2
+                        radius: 1
+                        color: chrome.theme.alpha(chrome.accent, 0.86)
+
+                        Behavior on width {
+                            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        activeFocusOnTab: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.networkTab = "saved"
+                        Keys.onReturnPressed: root.networkTab = "saved"
+                        Keys.onSpacePressed: root.networkTab = "saved"
+                    }
+                }
             }
 
             Row {
@@ -296,6 +387,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 height: 18
                 spacing: 7
+                visible: root.networkTab === "nearby"
 
                 Item {
                     id: scanStatusLane
@@ -347,6 +439,18 @@ Item {
                     }
                 }
             }
+
+            Text {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.networkTab === "saved"
+                text: root.savedNetworkRows.length === 1
+                    ? "1 network"
+                    : String(root.savedNetworkRows.length) + " networks"
+                color: chrome.theme.alpha(chrome.textSecondary, 0.50)
+                font.family: "Inter"
+                font.pixelSize: 9
+            }
         }
 
         Rectangle {
@@ -386,9 +490,11 @@ Item {
                 id: networksList
                 anchors.fill: parent
                 anchors.topMargin: 4
-                anchors.bottomMargin: 58
+                anchors.bottomMargin: otherRow.visible ? 58 : 4
                 clip: true
-                model: root.wifi.wifiEnabled ? root.wifi.networks : []
+                model: root.networkTab === "saved"
+                    ? root.savedNetworkRows
+                    : (root.wifi.wifiEnabled ? root.nearbyNetworks : [])
                 boundsBehavior: Flickable.StopAtBounds
 
                 delegate: Item {
@@ -401,7 +507,12 @@ Item {
                         chrome: root.chrome
                         network: modelData
                         interactionEnabled: !root.wifi.busy
-                        onSelected: root.networkSelected(modelData)
+                        onSelected: {
+                            if (Boolean(modelData.active) && root.wifi.currentNetwork)
+                                root.detailsRequested(root.wifi.currentNetwork)
+                            else
+                                root.networkSelected(modelData)
+                        }
                         onForgetRequested:
                             root.wifi.forgetSaved(String(modelData.profileUuid || ""))
                     }
@@ -465,11 +576,14 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: !root.wifi.available ? "NetworkManager unavailable"
-                            : !root.wifi.wifiEnabled ? "Wi-Fi is turned off"
-                            : !root.wifi.snapshotReady ? "Reading Wi-Fi…"
-                            : root.wifi.scanState === "warming" ? "Refreshing nearby networks…"
-                            : root.wifi.currentNetwork ? "No other networks found" : "No networks found"
+                        text: root.networkTab === "saved"
+                            ? (root.wifi.savedNetworks && root.wifi.savedNetworks.length === 0
+                                ? "No Saved Networks" : "")
+                            : !root.wifi.available ? "NetworkManager unavailable"
+                                : !root.wifi.wifiEnabled ? "Wi-Fi is turned off"
+                                : !root.wifi.snapshotReady ? "Reading Wi-Fi…"
+                                : root.wifi.scanState === "warming" ? "Refreshing nearby networks…"
+                                : root.wifi.currentNetwork ? "No other networks found" : "No networks found"
                         color: chrome.theme.alpha(chrome.textPrimary, 0.88)
                         font.family: "Inter"
                         font.pixelSize: 11
@@ -481,13 +595,15 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                         visible: root.wifi.available && root.wifi.wifiEnabled && root.wifi.snapshotReady
-                        text: root.wifi.scanState === "warming" && root.wifi.currentNetwork
-                            ? "Your current connection is confirmed while NetworkManager refreshes nearby networks."
-                            : root.wifi.scanState === "warming"
-                                ? "NetworkManager is refreshing nearby networks."
-                                : root.wifi.currentNetwork
-                                    ? "You’re connected. Refresh to scan for nearby networks again."
-                                    : "Refresh the scan or move closer to a wireless network."
+                        text: root.networkTab === "saved"
+                            ? "Networks you’ve joined before will appear here."
+                            : root.wifi.scanState === "warming" && root.wifi.currentNetwork
+                                ? "Your current connection is confirmed while NetworkManager refreshes nearby networks."
+                                : root.wifi.scanState === "warming"
+                                    ? "NetworkManager is refreshing nearby networks."
+                                    : root.wifi.currentNetwork
+                                        ? "You’re connected. Refresh to scan for nearby networks again."
+                                        : "Refresh the scan or move closer to a wireless network."
                         color: chrome.theme.alpha(chrome.textSecondary, 0.60)
                         font.family: "Inter"
                         font.pixelSize: 9
@@ -503,6 +619,7 @@ Item {
                 anchors.rightMargin: 18
                 anchors.bottom: otherRow.top
                 height: 1
+                visible: otherRow.visible
                 color: root.separator
             }
 
@@ -511,7 +628,8 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                height: 54
+                visible: root.networkTab === "nearby"
+                height: visible ? 54 : 0
 
                 Rectangle {
                     id: otherHoverPlane
