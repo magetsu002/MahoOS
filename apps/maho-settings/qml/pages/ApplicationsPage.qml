@@ -8,8 +8,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     readonly property var pageState: bridge && bridge.state.applications ? bridge.state.applications : ({})
 
     MahoSettingsTheme {
@@ -77,8 +77,9 @@ Item {
                     model: root.pageState.browserCandidates || []
                     textRole: "name"
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.candidateIndex(model, root.pageState.browser || "")
-                    enabled: count > 0 && !root.bridge.actionBusy
+                    enabled: count > 0
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -106,8 +107,9 @@ Item {
                     model: root.pageState.fileManagerCandidates || []
                     textRole: "name"
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.candidateIndex(model, root.pageState.fileManager || "")
-                    enabled: count > 0 && !root.bridge.actionBusy
+                    enabled: count > 0
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -173,8 +175,9 @@ Item {
                                 model: associationRow.modelData.candidates || []
                                 textRole: "name"
                                 backendOwned: true
+                                busy: root.bridge.actionBusy
                                 backendIndex: root.candidateIndex(model, associationRow.modelData.default || "")
-                                enabled: count > 0 && !root.bridge.actionBusy
+                                enabled: count > 0
                                 surface: theme.controlFill
                                 foreground: theme.textPrimary
                                 muted: theme.textSecondary

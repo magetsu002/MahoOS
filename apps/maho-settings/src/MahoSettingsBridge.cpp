@@ -33,9 +33,21 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
             }
             emit stateChanged();
             setError({});
+            if (completedSection == QStringLiteral("all")
+                || completedSection == QStringLiteral("appearance")) {
+                prewarmAppearanceMode();
+            }
         }
 
         finishRefresh();
+    });
+
+    connect(&m_warmupProcess, &QProcess::readyReadStandardOutput,
+            this, &MahoSettingsBridge::consumeWarmupOutput);
+    connect(&m_warmupProcess, &QProcess::finished, this,
+            [this](int, QProcess::ExitStatus) {
+        consumeWarmupOutput();
+        m_warmupBuffer.clear();
     });
 
     connect(&m_searchProcess, &QProcess::finished, this,
@@ -79,10 +91,23 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
         setError({});
         const QString section = sectionForAction(action);
         const QVariant confirmedState = payload.value(QStringLiteral("state"));
+        const QVariant confirmedPatch = payload.value(QStringLiteral("statePatch"));
 
-        if (section != QStringLiteral("all") && confirmedState.canConvert<QVariantMap>()) {
+        if (section != QStringLiteral("all") && confirmedPatch.canConvert<QVariantMap>()) {
+            QVariantMap merged = m_state.value(section).toMap();
+            const QVariantMap patch = confirmedPatch.toMap();
+            for (auto it = patch.constBegin(); it != patch.constEnd(); ++it)
+                merged.insert(it.key(), it.value());
+            m_state.insert(section, merged);
+            emit stateChanged();
+            if (section == QStringLiteral("appearance"))
+                prewarmAppearanceMode();
+            setActionBusy(false);
+        } else if (section != QStringLiteral("all") && confirmedState.canConvert<QVariantMap>()) {
             m_state.insert(section, confirmedState);
             emit stateChanged();
+            if (section == QStringLiteral("appearance"))
+                prewarmAppearanceMode();
             setActionBusy(false);
         } else {
             // Keep the interaction in its optimistic state until the owner's
@@ -96,10 +121,14 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
 
     connect(&m_wallpaperPickerProcess, &QProcess::finished, this,
             [this](int, QProcess::ExitStatus) {
-        // The picker applies the wallpaper in a detached helper just before it
-        // closes. Give that existing owner a short convergence window, then
-        // re-observe Appearance rather than guessing the selected result.
-        QTimer::singleShot(1400, this, [this] {
+        // The picker hands application to its owner asynchronously. Re-observe
+        // quickly for the new wallpaper, then once more after the palette has
+        // had time to converge. Appearance snapshots are now cheap reads of
+        // published owner state, so this does not stall the UI.
+        QTimer::singleShot(180, this, [this] {
+            refreshSection(QStringLiteral("appearance"));
+        });
+        QTimer::singleShot(950, this, [this] {
             refreshSection(QStringLiteral("appearance"));
         });
     });
@@ -110,7 +139,7 @@ MahoSettingsBridge::MahoSettingsBridge(QObject *parent)
             setError(QStringLiteral("Wallpaper picker is unavailable."));
     });
 
-    refresh();
+    startWarmup();
 }
 
 QString MahoSettingsBridge::pythonProgram() const
@@ -163,6 +192,48 @@ void MahoSettingsBridge::startRefresh(const QString &section)
     m_snapshotProcess.start();
 }
 
+void MahoSettingsBridge::startWarmup()
+{
+    if (m_warmupProcess.state() != QProcess::NotRunning)
+        return;
+
+    m_warmupBuffer.clear();
+    m_warmupProcess.setProgram(pythonProgram());
+    m_warmupProcess.setArguments({backendPath(), QStringLiteral("warmup")});
+    m_warmupProcess.start();
+}
+
+void MahoSettingsBridge::consumeWarmupOutput()
+{
+    m_warmupBuffer.append(m_warmupProcess.readAllStandardOutput());
+
+    while (true) {
+        const qsizetype newline = m_warmupBuffer.indexOf('\n');
+        if (newline < 0)
+            break;
+
+        const QByteArray line = m_warmupBuffer.left(newline).trimmed();
+        m_warmupBuffer.remove(0, newline + 1);
+        if (line.isEmpty())
+            continue;
+
+        QString parseError;
+        const QVariantMap payload = parseObject(line, &parseError);
+        if (!parseError.isEmpty() || !payload.value(QStringLiteral("ok")).toBool())
+            continue;
+
+        const QString section = payload.value(QStringLiteral("section")).toString();
+        const QVariant state = payload.value(QStringLiteral("state"));
+        if (section.isEmpty() || !state.canConvert<QVariantMap>() || m_state.contains(section))
+            continue;
+
+        m_state.insert(section, state);
+        emit stateChanged();
+        if (section == QStringLiteral("appearance"))
+            prewarmAppearanceMode();
+    }
+}
+
 void MahoSettingsBridge::finishRefresh()
 {
     if (!m_pendingRefreshSection.isEmpty()) {
@@ -175,6 +246,46 @@ void MahoSettingsBridge::finishRefresh()
     setLoading(false);
     if (m_actionProcess.state() == QProcess::NotRunning)
         setActionBusy(false);
+}
+
+void MahoSettingsBridge::prewarmAppearanceMode()
+{
+    if (m_themePrepareProcess.state() != QProcess::NotRunning)
+        return;
+
+    const QVariantMap appearance = m_state.value(QStringLiteral("appearance")).toMap();
+    const QVariantMap wallpaper = appearance.value(QStringLiteral("wallpaper")).toMap();
+
+    QString path = wallpaper.value(QStringLiteral("path")).toString();
+    if (path.isEmpty())
+        path = wallpaper.value(QStringLiteral("previewPath")).toString();
+    if (!QFileInfo::exists(path))
+        return;
+
+    const QString currentMode = appearance.value(QStringLiteral("mode")).toString();
+    const QString targetMode = currentMode == QStringLiteral("light")
+        ? QStringLiteral("dark")
+        : QStringLiteral("light");
+
+    QString theme;
+    const QString root = qEnvironmentVariable("MAHO_ROOT");
+    if (!root.isEmpty()) {
+        const QString candidate = QDir(root).filePath(QStringLiteral("bin/maho-theme"));
+        if (QFileInfo(candidate).isExecutable())
+            theme = candidate;
+    }
+    if (theme.isEmpty())
+        theme = QStandardPaths::findExecutable(QStringLiteral("maho-theme"));
+    if (theme.isEmpty())
+        return;
+
+    m_themePrepareProcess.setProgram(theme);
+    m_themePrepareProcess.setArguments({
+        QStringLiteral("prepare"),
+        path,
+        targetMode,
+    });
+    m_themePrepareProcess.start();
 }
 
 QString MahoSettingsBridge::sectionForAction(const QString &action)

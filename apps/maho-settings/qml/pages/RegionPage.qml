@@ -6,8 +6,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     readonly property var pageState: bridge && bridge.state.region ? bridge.state.region : ({})
 
     MahoSettingsTheme {
@@ -73,8 +73,9 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.pageState.timezones || []
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.stringIndex(model, root.pageState.timezone || "")
-                    enabled: !!root.pageState.timezoneControlAvailable && !root.bridge.actionBusy
+                    enabled: !!root.pageState.timezoneControlAvailable
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -116,8 +117,9 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.pageState.locales || []
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.stringIndex(model, root.pageState.locale || "")
-                    enabled: !!root.pageState.localeControlAvailable && !root.bridge.actionBusy
+                    enabled: !!root.pageState.localeControlAvailable
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
@@ -140,8 +142,9 @@ Item {
                     Layout.preferredWidth: Math.min(340, Math.max(220, root.width * 0.40))
                     model: root.pageState.keyboardLayouts || []
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.stringIndex(model, root.pageState.keyboardLayout || "")
-                    enabled: !!root.pageState.keyboardLayoutControlAvailable && !root.bridge.actionBusy
+                    enabled: !!root.pageState.keyboardLayoutControlAvailable
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary

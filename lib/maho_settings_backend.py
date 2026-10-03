@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import platform
 import re
@@ -274,6 +274,15 @@ def hypr_option(name: str, fallback: Any = None) -> Any:
 
 
 def wallpaper_state() -> dict[str, Any]:
+    # The wallpaper owner publishes its last confirmed state here. Reading that
+    # state is both authoritative and dramatically faster than re-querying the
+    # live provider for every Settings refresh.
+    published = read_json(STATE_HOME / "maho" / "wallpaper" / "current.json")
+    if isinstance(published, dict):
+        path = published.get("path")
+        if isinstance(path, str) and Path(path).is_file():
+            return published
+
     command = root_command("maho-wallpaper")
     if not command:
         return {}
@@ -317,16 +326,34 @@ def snapshot_appearance() -> dict[str, Any]:
 def set_appearance_mode(mode: str) -> dict[str, Any]:
     if mode not in {"dark", "light"}:
         return {"ok": False, "error": "Automatic appearance is not supported by the current theme backend."}
+
     wall = wallpaper_state()
     path = wall.get("path")
+    if not isinstance(path, str) or not Path(path).is_file():
+        palette = read_json(CACHE_HOME / "maho" / "theme" / "active.json")
+        source = palette.get("source", {}) if isinstance(palette, dict) else {}
+        candidate = source.get("path") if isinstance(source, dict) else None
+        if isinstance(candidate, str) and Path(candidate).is_file():
+            path = candidate
+
     theme = root_command("maho-theme")
     if not theme or not isinstance(path, str) or not Path(path).is_file():
         return {"ok": False, "error": "The current wallpaper/theme backend is unavailable."}
+
     code, out, err = run([theme, "apply", path, mode], timeout=25.0)
     if code != 0:
         return {"ok": False, "error": err or out or "Theme application failed."}
+
     intent_set("appearance.theme.mode", mode)
-    return {"ok": True, "message": f"Appearance changed to {mode}.", "mode": mode}
+    active = read_json(CACHE_HOME / "maho" / "theme" / "active.json")
+    if not isinstance(active, dict) or active.get("mode") != mode:
+        return {"ok": False, "error": "Appearance owner did not confirm the requested mode."}
+    return {
+        "ok": True,
+        "message": f"Appearance changed to {mode}.",
+        "mode": mode,
+        "statePatch": {"mode": mode},
+    }
 
 
 def set_reduced_motion(enabled: bool) -> dict[str, Any]:
@@ -334,7 +361,11 @@ def set_reduced_motion(enabled: bool) -> dict[str, Any]:
     if not ok:
         return {"ok": False, "error": error or "Hyprland rejected the motion preference."}
     intent_set("appearance.reduced_motion", enabled)
-    return {"ok": True, "message": "Motion preference applied."}
+    return {
+        "ok": True,
+        "message": "Motion preference applied.",
+        "statePatch": {"reducedMotion": enabled},
+    }
 
 
 def set_reduced_transparency(enabled: bool) -> dict[str, Any]:
@@ -342,7 +373,11 @@ def set_reduced_transparency(enabled: bool) -> dict[str, Any]:
     if not ok:
         return {"ok": False, "error": error or "Hyprland rejected the transparency preference."}
     intent_set("appearance.reduced_transparency", enabled)
-    return {"ok": True, "message": "Transparency preference applied."}
+    return {
+        "ok": True,
+        "message": "Transparency preference applied.",
+        "statePatch": {"reducedTransparency": enabled},
+    }
 
 
 _MODE_RE = re.compile(r"^(?P<w>\d+)x(?P<h>\d+)@(?P<r>\d+(?:\.\d+)?)Hz$")
@@ -1817,8 +1852,8 @@ def search(query: str) -> list[dict[str, Any]]:
     return results[:12]
 
 
-def snapshot(section: str = "all") -> dict[str, Any]:
-    providers = {
+def snapshot_providers() -> dict[str, Any]:
+    return {
         "appearance": snapshot_appearance,
         "displays": snapshot_displays,
         "sound": snapshot_sound,
@@ -1833,6 +1868,10 @@ def snapshot(section: str = "all") -> dict[str, Any]:
         "diagnostics": snapshot_diagnostics,
         "system": snapshot_about,
     }
+
+
+def snapshot(section: str = "all") -> dict[str, Any]:
+    providers = snapshot_providers()
     if section != "all":
         provider = providers.get(section)
         if provider is None:
@@ -1840,8 +1879,8 @@ def snapshot(section: str = "all") -> dict[str, Any]:
         return {"ok": True, section: provider()}
 
     # These providers are independent read-only observations. Running them
-    # concurrently keeps the first Settings frame from waiting on the sum of
-    # every system adapter while preserving deterministic result ordering.
+    # concurrently keeps the total observation bounded while preserving
+    # deterministic result ordering for callers that need one complete map.
     items = list(providers.items())
     with ThreadPoolExecutor(max_workers=min(6, len(items)), thread_name_prefix="maho-settings") as executor:
         futures = [executor.submit(provider) for _, provider in items]
@@ -1850,6 +1889,32 @@ def snapshot(section: str = "all") -> dict[str, Any]:
             for (name, _), future in zip(items, futures, strict=True)
         }
     return {"ok": True, **values}
+
+
+def warmup_stream() -> None:
+    """Emit independent Settings sections as soon as each provider finishes."""
+    providers = snapshot_providers()
+    items = list(providers.items())
+    with ThreadPoolExecutor(max_workers=min(6, len(items)), thread_name_prefix="maho-settings-warmup") as executor:
+        pending = {
+            executor.submit(provider): name
+            for name, provider in items
+        }
+        for future in as_completed(pending):
+            name = pending[future]
+            try:
+                state = future.result()
+                payload = {"ok": True, "section": name, "state": state}
+            except Exception as exc:
+                payload = {
+                    "ok": False,
+                    "section": name,
+                    "error": f"Settings provider failure: {exc}",
+                }
+            print(
+                json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                flush=True,
+            )
 
 
 def _apply_persisted_input() -> list[str]:
@@ -2021,7 +2086,7 @@ def action(name: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def usage() -> int:
-    print("Usage: maho-settings-backend snapshot [all|SECTION] | search QUERY | action NAME JSON | apply-session", file=sys.stderr)
+    print("Usage: maho-settings-backend snapshot [all|SECTION] | warmup | search QUERY | action NAME JSON | apply-session", file=sys.stderr)
     return 2
 
 
@@ -2032,6 +2097,9 @@ def main(argv: list[str]) -> int:
         command = argv[0]
         if command == "snapshot":
             emit(snapshot(argv[1] if len(argv) > 1 else "all"))
+            return 0
+        if command == "warmup" and len(argv) == 1:
+            warmup_stream()
             return 0
         if command == "search" and len(argv) == 2:
             emit({"ok": True, "results": search(argv[1])})

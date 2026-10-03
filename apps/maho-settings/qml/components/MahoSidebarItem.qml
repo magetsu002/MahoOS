@@ -51,10 +51,7 @@ Rectangle {
     HoverHandler { id: hover }
     TapHandler {
         id: tap
+        gesturePolicy: TapHandler.ReleaseWithinBounds
         onTapped: root.activated(root.route)
-    }
-
-    Behavior on color {
-        ColorAnimation { duration: root.theme.reducedMotion ? 0 : 110 }
     }
 }

@@ -8,8 +8,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     property string targetRoute: "system"
     readonly property var pageState: bridge && bridge.state.system ? bridge.state.system : ({})
 

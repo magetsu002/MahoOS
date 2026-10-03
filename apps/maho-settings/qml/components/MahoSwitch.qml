@@ -73,15 +73,15 @@ Switch {
             color: root.visualChecked ? root.accent : root.muted
 
             Behavior on x {
-                NumberAnimation { duration: root.reducedMotion ? 0 : 120 }
+                NumberAnimation { duration: root.reducedMotion ? 0 : 90 }
             }
             Behavior on color {
-                ColorAnimation { duration: root.reducedMotion ? 0 : 100 }
+                ColorAnimation { duration: root.reducedMotion ? 0 : 75 }
             }
         }
 
         Behavior on color {
-            ColorAnimation { duration: root.reducedMotion ? 0 : 100 }
+            ColorAnimation { duration: root.reducedMotion ? 0 : 75 }
         }
     }
 

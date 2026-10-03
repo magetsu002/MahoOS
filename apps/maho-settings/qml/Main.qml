@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import QtQuick.Window
 import "components"
 
@@ -13,17 +12,29 @@ ApplicationWindow {
     height: 840
     minimumWidth: 700
     minimumHeight: 440
-    visible: true
+
+    // These two objects are intentionally supplied by the native C++ context.
+    // Qualify all use through root afterwards so qmllint can reason about the
+    // rest of this file without treating every access as implicit scope.
+    // qmllint disable unqualified
+    readonly property var bridge: settingsBridge
+    readonly property var paletteObject: mahoPalette
+    // qmllint enable unqualified
+
+    // Do not map a half-initialized shell. The streamed warmup normally
+    // publishes Appearance in ~one frame budget, then the complete window is
+    // mapped once with real palette/state and compositor placement.
+    visible: !!root.bridge.state.appearance
     title: "Maho Settings"
     color: "transparent"
     flags: Qt.Window | Qt.FramelessWindowHint
 
     readonly property bool reducedTransparency: {
-        const appearance = settingsBridge.state.appearance
+        const appearance = root.bridge.state.appearance
         return appearance ? !!appearance.reducedTransparency : false
     }
     readonly property bool reducedMotion: {
-        const appearance = settingsBridge.state.appearance
+        const appearance = root.bridge.state.appearance
         return appearance ? !!appearance.reducedMotion : false
     }
     readonly property real sidebarWidth: width < 980 ? 232 : 272
@@ -65,7 +76,7 @@ ApplicationWindow {
 
     MahoSettingsTheme {
         id: theme
-        palette: mahoPalette
+        palette: root.paletteObject
         reducedTransparency: root.reducedTransparency
         reducedMotion: root.reducedMotion
     }
@@ -93,18 +104,47 @@ ApplicationWindow {
         }
     }
 
-    function selectRoute(route, target) {
-        const canonical = canonicalRoute(route)
-        currentRoute = canonical
-        currentTarget = target || canonical
-
-        // Loader does not reload when selecting another target on the same page.
-        // Keep in-page navigation truthful and deterministic instead of leaving a
-        // stale search target behind.
-        if (pageLoader.item && pageLoader.item.hasOwnProperty("targetRoute"))
-            pageLoader.item.targetRoute = currentTarget
+    function pageProperties(route, target) {
+        const properties = {
+            bridge: root.bridge,
+            themePalette: root.paletteObject
+        }
+        if (route === "about" || route === "rules" || route === "session")
+            properties.targetRoute = target || route
+        return properties
     }
 
+    function loadPage(route, target) {
+        pageLoader.setSource(
+            root.pageSource(route),
+            root.pageProperties(route, target)
+        )
+    }
+
+    function selectRoute(route, target) {
+        const canonical = canonicalRoute(route)
+        const nextTarget = target || canonical
+        const sameComponent = root.pageSource(canonical) === root.pageSource(root.currentRoute)
+
+        currentTarget = nextTarget
+
+        // Rules and Session intentionally share one deferred component, and
+        // search can target a subsection of About. Do not destroy/recreate the
+        // page when only that in-page target changed.
+        if (sameComponent && pageLoader.item) {
+            currentRoute = canonical
+            if (pageLoader.item.hasOwnProperty("targetRoute"))
+                pageLoader.item.targetRoute = nextTarget
+            return
+        }
+
+        // Initial properties are applied before the new QML item is exposed.
+        // This avoids one-frame empty/default page state during navigation.
+        root.loadPage(canonical, nextTarget)
+        currentRoute = canonical
+    }
+
+    Component.onCompleted: root.loadPage(root.currentRoute, root.currentTarget)
 
     Rectangle {
         id: shell
@@ -156,9 +196,9 @@ ApplicationWindow {
             sections: root.sections
             currentRoute: root.currentRoute
             theme: theme
-            searchResults: settingsBridge.searchResults
+            searchResults: root.bridge.searchResults
             onRouteSelected: function(route) { root.selectRoute(route) }
-            onSearchRequested: function(query) { settingsBridge.search(query) }
+            onSearchRequested: function(query) { root.bridge.search(query) }
             onSearchResultSelected: function(route, target) { root.selectRoute(route, target) }
         }
 
@@ -186,22 +226,13 @@ ApplicationWindow {
                 anchors.rightMargin: root.width < 980 ? 28 : 38
                 anchors.topMargin: root.height < 700 ? 26 : 36
                 anchors.bottomMargin: 28
-                source: root.pageSource(root.currentRoute)
-
-                onLoaded: {
-                    if (!item)
-                        return
-                    item.bridge = settingsBridge
-                    item.themePalette = mahoPalette
-                    if (item.hasOwnProperty("targetRoute"))
-                        item.targetRoute = root.currentTarget
-                }
+                asynchronous: false
             }
         }
 
         Rectangle {
             id: errorToast
-            visible: settingsBridge.error.length > 0 && !settingsBridge.loading
+            visible: root.bridge.error.length > 0 && !root.bridge.loading
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: 22
@@ -213,7 +244,7 @@ ApplicationWindow {
                 ? theme.surfaceElevated
                 : theme.alpha(theme.surfaceElevated, 0.94)
             border.width: 1
-            border.color: theme.alpha(mahoPalette.accent, 0.22)
+            border.color: theme.alpha(root.paletteObject.accent, 0.22)
             z: 50
 
             Text {
@@ -223,7 +254,7 @@ ApplicationWindow {
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
-                text: settingsBridge.error
+                text: root.bridge.error
                 color: theme.textBody
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap

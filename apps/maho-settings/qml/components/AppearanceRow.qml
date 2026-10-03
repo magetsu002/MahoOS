@@ -35,10 +35,6 @@ Rectangle {
         onTapped: root.activated()
     }
 
-    Behavior on color {
-        ColorAnimation { duration: root.theme.reducedMotion ? 0 : 90 }
-    }
-
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 18

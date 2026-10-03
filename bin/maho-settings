@@ -19,6 +19,7 @@ Commands:
   configure      Configure the isolated source-build directory.
   build          Build Maho Settings from source.
   run            Run the verified native Maho Settings application.
+  toggle         Open Settings, or close the existing Settings window.
   apply-session  Reapply only previously confirmed user preferences.
   clean          Remove only the isolated Settings build directory.
 EOF
@@ -109,6 +110,38 @@ run_app() {
     exec "$binary"
 }
 
+settings_client_pids() {
+    command -v hyprctl >/dev/null 2>&1 || return 1
+    hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+for row in rows:
+    if row.get("class") != "io.maho.Settings":
+        continue
+    pid = row.get("pid")
+    if isinstance(pid, int) and pid > 1:
+        print(pid)
+'
+}
+
+toggle_app() {
+    local pids pid
+    pids="$(settings_client_pids 2>/dev/null || true)"
+    if [ -n "$pids" ]; then
+        while IFS= read -r pid; do
+            case "$pid" in
+                ''|*[!0-9]*) continue ;;
+            esac
+            kill -TERM "$pid" 2>/dev/null || true
+        done <<<"$pids"
+        return 0
+    fi
+    run_app
+}
+
 apply_session() {
     export MAHO_ROOT="$ROOT"
     exec python3 "$BACKEND" apply-session
@@ -131,6 +164,7 @@ case "${1:-run}" in
     configure) configure ;;
     build) build ;;
     run) run_app ;;
+    toggle) toggle_app ;;
     apply-session) apply_session ;;
     clean) clean ;;
     -h|--help|help) usage ;;

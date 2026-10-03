@@ -6,8 +6,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     readonly property var pageState: bridge && bridge.state.input ? bridge.state.input : ({})
     readonly property var current: pageState.current || ({})
     property int selectedTouchpadIndex: 0
@@ -92,6 +92,7 @@ Item {
                 MahoTextField {
                     Layout.preferredWidth: 112
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendText: Number(root.current.repeatRate || 25).toString()
                     validator: IntValidator { bottom: 1; top: 100 }
                     surface: theme.surfaceElevated
@@ -118,6 +119,7 @@ Item {
                 MahoTextField {
                     Layout.preferredWidth: 112
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendText: Number(root.current.repeatDelay || 600).toString()
                     validator: IntValidator { bottom: 100; top: 2000 }
                     surface: theme.surfaceElevated
@@ -159,6 +161,7 @@ Item {
                     to: 1
                     stepSize: 0.05
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendValue: Number(root.current.sensitivity || 0)
                     enabled: true
                     accent: theme.accent
@@ -306,6 +309,7 @@ Item {
                     to: 1
                     stepSize: 0.05
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendValue: root.touchpadSpeed()
                     enabled: true
                     accent: theme.accent

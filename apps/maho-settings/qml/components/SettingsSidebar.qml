@@ -11,6 +11,7 @@ Rectangle {
     property string currentRoute: "appearance"
     property var theme
     property var searchResults: []
+    property bool searchPending: false
     signal routeSelected(string route)
     signal searchRequested(string query)
     signal searchResultSelected(string route, string target)
@@ -82,9 +83,14 @@ Rectangle {
                 opacity: 0.78
             }
 
-            onTextChanged: searchDelay.restart()
+            onTextChanged: {
+                searchPopup.close()
+                searchDelay.restart()
+            }
             onActiveFocusChanged: {
-                if (activeFocus && text.trim().length > 0)
+                if (!activeFocus)
+                    searchPopup.close()
+                else if (!root.searchPending && text.trim().length > 0 && root.searchResults.length > 0)
                     searchPopup.open()
             }
             Keys.onEscapePressed: {
@@ -172,11 +178,26 @@ Rectangle {
             repeat: false
             onTriggered: {
                 const query = searchField.text.trim()
+                root.searchPending = query.length > 0
                 root.searchRequested(query)
-                if (query.length > 0)
-                    searchPopup.open()
-                else
+                if (query.length === 0)
                     searchPopup.close()
+            }
+        }
+
+        Connections {
+            target: root
+            function onSearchResultsChanged() {
+                if (!root.searchPending)
+                    return
+                root.searchPending = false
+                if (searchField.activeFocus
+                        && searchField.text.trim().length > 0
+                        && root.searchResults.length > 0) {
+                    searchPopup.open()
+                } else {
+                    searchPopup.close()
+                }
             }
         }
 

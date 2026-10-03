@@ -8,8 +8,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     readonly property var pageState: bridge && bridge.state.power ? bridge.state.power : ({})
 
     MahoSettingsTheme {

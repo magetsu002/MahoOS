@@ -6,8 +6,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     readonly property var pageState: bridge && bridge.state.sound ? bridge.state.sound : ({})
 
     MahoSettingsTheme {
@@ -76,12 +76,13 @@ Item {
                     model: root.pageState.outputs || []
                     textRole: "name"
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.defaultIndex(root.pageState.outputs)
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    enabled: count > 0 && !root.bridge.actionBusy
+                    enabled: count > 0
                     onIndexRequested: function(index) {
                         const row = root.pageState.outputs[index]
                         if (row)
@@ -104,6 +105,7 @@ Item {
                     from: 0
                     to: 100
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendValue: root.pageState.output && root.pageState.output.available ? root.pageState.output.volume : 0
                     enabled: !!(root.pageState.output && root.pageState.output.available)
                     accent: theme.accent
@@ -161,12 +163,13 @@ Item {
                     model: root.pageState.inputs || []
                     textRole: "name"
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendIndex: root.defaultIndex(root.pageState.inputs)
                     surface: theme.controlFill
                     foreground: theme.textPrimary
                     muted: theme.textSecondary
                     accent: theme.accent
-                    enabled: count > 0 && !root.bridge.actionBusy
+                    enabled: count > 0
                     onIndexRequested: function(index) {
                         const row = root.pageState.inputs[index]
                         if (row)
@@ -189,6 +192,7 @@ Item {
                     from: 0
                     to: 100
                     backendOwned: true
+                    busy: root.bridge.actionBusy
                     backendValue: root.pageState.input && root.pageState.input.available ? root.pageState.input.volume : 0
                     enabled: !!(root.pageState.input && root.pageState.input.available)
                     accent: theme.accent

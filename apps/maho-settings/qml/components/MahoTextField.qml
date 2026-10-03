@@ -10,22 +10,69 @@ TextField {
     property color accent: "#d8aaaa"
     property bool backendOwned: false
     property string backendText: ""
+    property bool busy: false
+    property bool optimisticActive: false
+    property string optimisticText: ""
     signal textRequested(string text)
 
     function syncBackendText() {
         if (!root.backendOwned || root.activeFocus)
             return
+        if (root.optimisticActive) {
+            if (root.backendText === root.optimisticText) {
+                root.optimisticActive = false
+                optimisticFallback.stop()
+            } else {
+                return
+            }
+        }
+        root.text = root.backendText
+    }
+
+    function rollbackOptimisticText() {
+        root.optimisticActive = false
+        optimisticFallback.stop()
         root.text = root.backendText
     }
 
     Component.onCompleted: root.syncBackendText()
     onBackendTextChanged: root.syncBackendText()
+    onBusyChanged: {
+        if (!root.busy && root.optimisticActive) {
+            Qt.callLater(function() {
+                if (!root.optimisticActive)
+                    return
+                if (root.backendText === root.optimisticText) {
+                    root.optimisticActive = false
+                    optimisticFallback.stop()
+                } else {
+                    root.rollbackOptimisticText()
+                }
+            })
+        }
+    }
+
     onEditingFinished: {
         if (!root.backendOwned)
             return
         const candidate = root.text
-        root.text = root.backendText
+        if (candidate === root.backendText)
+            return
+        if (root.busy) {
+            root.rollbackOptimisticText()
+            return
+        }
+        root.optimisticText = candidate
+        root.optimisticActive = true
+        optimisticFallback.restart()
         root.textRequested(candidate)
+    }
+
+    Timer {
+        id: optimisticFallback
+        interval: 3000
+        repeat: false
+        onTriggered: root.rollbackOptimisticText()
     }
 
     implicitHeight: 38

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QObject>
 #include <QProcess>
 #include <QVariantList>
@@ -41,7 +42,10 @@ private:
     QString backendPath() const;
     void refreshSection(const QString &section);
     void startRefresh(const QString &section);
+    void startWarmup();
+    void consumeWarmupOutput();
     void finishRefresh();
+    void prewarmAppearanceMode();
     static QString sectionForAction(const QString &action);
     void setLoading(bool value);
     void setActionBusy(bool value);
@@ -58,7 +62,10 @@ private:
     QString m_pendingRefreshSection;
 
     QProcess m_snapshotProcess;
+    QProcess m_warmupProcess;
+    QByteArray m_warmupBuffer;
     QProcess m_searchProcess;
     QProcess m_actionProcess;
     QProcess m_wallpaperPickerProcess;
+    QProcess m_themePrepareProcess;
 };

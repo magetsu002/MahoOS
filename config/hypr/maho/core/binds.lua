@@ -36,7 +36,7 @@ hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("firefox"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd([["$HOME/.local/bin/maho-files" run "$HOME"]]))
 hl.bind(
     mainMod .. " + CTRL + SHIFT + S",
-    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-settings" run]])
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-settings" toggle]])
 )
 hl.bind(
     mainMod .. " + SPACE",

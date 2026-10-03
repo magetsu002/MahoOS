@@ -6,8 +6,8 @@ import "../components"
 Item {
     id: root
 
-    property var bridge
-    property var themePalette
+    required property var bridge
+    required property var themePalette
     readonly property var pageState: bridge && bridge.state.appearance ? bridge.state.appearance : ({})
     readonly property bool reducedTransparency: !!root.pageState.reducedTransparency
 

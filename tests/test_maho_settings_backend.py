@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
+from contextlib import redirect_stdout
 from threading import Event
+import time
 import unittest
 from unittest import mock
 
@@ -104,6 +107,28 @@ class SnapshotAggregationContracts(unittest.TestCase):
                 "system",
             ],
         )
+
+    def test_warmup_stream_emits_fast_sections_before_slow_ones(self) -> None:
+        def slow() -> dict[str, str]:
+            time.sleep(0.04)
+            return {"provider": "slow"}
+
+        def fast() -> dict[str, str]:
+            return {"provider": "fast"}
+
+        output = io.StringIO()
+        with (
+            mock.patch.object(settings, "snapshot_providers", return_value={
+                "slow": slow,
+                "fast": fast,
+            }),
+            redirect_stdout(output),
+        ):
+            settings.warmup_stream()
+
+        rows = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([row["section"] for row in rows], ["fast", "slow"])
+        self.assertTrue(all(row["ok"] for row in rows))
 
 
 class AdapterTruthContracts(unittest.TestCase):
@@ -207,6 +232,28 @@ Video
             ):
                 snapshot = settings.snapshot_appearance()
         self.assertEqual(snapshot["wallpaper"]["previewPath"], str(preview))
+
+    def test_wallpaper_state_prefers_published_owner_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_home = Path(directory)
+            wallpaper = state_home / "wall.jpg"
+            wallpaper.write_bytes(b"image")
+            current = state_home / "maho" / "wallpaper" / "current.json"
+            current.parent.mkdir(parents=True)
+            current.write_text(json.dumps({
+                "version": 1,
+                "provider": "awww",
+                "kind": "image",
+                "path": str(wallpaper),
+            }))
+            with (
+                mock.patch.object(settings, "STATE_HOME", state_home),
+                mock.patch.object(settings, "run") as runner,
+            ):
+                snapshot = settings.wallpaper_state()
+        self.assertEqual(snapshot["path"], str(wallpaper))
+        self.assertEqual(snapshot["provider"], "awww")
+        runner.assert_not_called()
 
     def test_display_candidate_requires_advertised_mode(self) -> None:
         current = {
@@ -859,6 +906,30 @@ class DailyDriverMutationContracts(unittest.TestCase):
         expression = evaluator.call_args.args[0]
         self.assertIn("hl.dispatch(hl.dsp.focus", expression)
         self.assertIn('monitor = "DP-1"', expression)
+
+    def test_appearance_mode_returns_confirmed_owner_state_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "cache"
+            wallpaper = Path(directory) / "wall.jpg"
+            wallpaper.write_bytes(b"image")
+            active = cache / "maho" / "theme" / "active.json"
+            active.parent.mkdir(parents=True)
+            active.write_text(json.dumps({"mode": "light"}))
+            with (
+                mock.patch.object(settings, "CACHE_HOME", cache),
+                mock.patch.object(settings, "wallpaper_state", return_value={"path": str(wallpaper)}),
+                mock.patch.object(settings, "root_command", return_value="/bin/maho-theme"),
+                mock.patch.object(settings, "run", return_value=(0, "PASS", "")) as runner,
+                mock.patch.object(settings, "intent_set") as persist,
+            ):
+                result = settings.set_appearance_mode("light")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statePatch"], {"mode": "light"})
+        runner.assert_called_once_with(
+            ["/bin/maho-theme", "apply", str(wallpaper), "light"],
+            timeout=25.0,
+        )
+        persist.assert_called_once_with("appearance.theme.mode", "light")
 
     def test_reduced_motion_uses_lua_config_before_persisting(self) -> None:
         with (
