@@ -41,6 +41,7 @@ for file in \
     MahoLinkManual.qml \
     MahoLinkDetails.qml \
     BluetoothState.qml \
+    BluetoothGlyph.qml \
     BluetoothMain.qml \
     BluetoothDeviceRow.qml \
     BluetoothPairing.qml \

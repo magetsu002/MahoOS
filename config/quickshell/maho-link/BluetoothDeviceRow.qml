@@ -84,16 +84,13 @@ Item {
             }
         }
 
-        Text {
-            anchors.centerIn: parent
-            anchors.verticalCenterOffset: -1
-            text: root.glyph(device.kind)
-            color: device.connected ? chrome.accent : chrome.theme.alpha(chrome.textSecondary, 0.88)
-            font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 18
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            renderType: Text.NativeRendering
+        BluetoothGlyph {
+            anchors.fill: parent
+            symbol: root.glyph(device.kind)
+            glyphColor: device.connected
+                ? chrome.accent
+                : chrome.theme.alpha(chrome.textSecondary, 0.88)
+            pixelSize: 18
         }
     }
 

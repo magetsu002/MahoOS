@@ -125,12 +125,11 @@ Item {
                 border.width: 1
                 border.color: chrome.theme.alpha(chrome.theme.outline, 0.09)
 
-                Text {
-                    anchors.centerIn: parent
-                    text: "󰂯"
-                    color: chrome.textPrimary
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 30
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: "󰂯"
+                    glyphColor: chrome.textPrimary
+                    pixelSize: 30
                 }
             }
         }

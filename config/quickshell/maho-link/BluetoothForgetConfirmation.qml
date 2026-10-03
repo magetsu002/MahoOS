@@ -24,12 +24,11 @@ Item {
             border.width: 1
             border.color: chrome.theme.alpha(chrome.theme.error, 0.12)
 
-            Text {
-                anchors.centerIn: parent
-                text: "󰆴"
-                color: chrome.theme.error
-                font.family: "JetBrainsMono Nerd Font"
-                font.pixelSize: 30
+            BluetoothGlyph {
+                anchors.fill: parent
+                symbol: "󰆴"
+                glyphColor: chrome.theme.error
+                pixelSize: 30
             }
         }
 

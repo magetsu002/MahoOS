@@ -108,16 +108,11 @@ Item {
                     }
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -1
-                    text: root.glyph(device ? device.kind : "generic")
-                    color: chrome.theme.alpha(chrome.textPrimary, 0.96)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 37
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    renderType: Text.NativeRendering
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: root.glyph(device ? device.kind : "generic")
+                    glyphColor: chrome.theme.alpha(chrome.textPrimary, 0.96)
+                    pixelSize: 37
                 }
             }
 
@@ -398,16 +393,11 @@ Item {
                         border.width: 1
                         border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: device && device.connected ? "󰑐" : "󰂱"
-                            color: chrome.theme.alpha(chrome.textSecondary, 0.84)
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 15
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: device && device.connected ? "󰑐" : "󰂱"
+                            glyphColor: chrome.theme.alpha(chrome.textSecondary, 0.84)
+                            pixelSize: 15
                         }
                     }
 
@@ -492,16 +482,11 @@ Item {
                         border.width: 1
                         border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: "󰂲"
-                            color: chrome.theme.alpha(chrome.textSecondary, 0.84)
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 15
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: "󰂲"
+                            glyphColor: chrome.theme.alpha(chrome.textSecondary, 0.84)
+                            pixelSize: 15
                         }
                     }
 
@@ -576,16 +561,11 @@ Item {
                         border.width: 1
                         border.color: chrome.theme.alpha(chrome.theme.error, 0.070)
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: "󰆴"
-                            color: chrome.theme.error
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 14
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: "󰆴"
+                            glyphColor: chrome.theme.error
+                            pixelSize: 14
                         }
                     }
 

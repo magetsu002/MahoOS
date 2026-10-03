@@ -435,6 +435,30 @@ assert WIFI.friendly_wifi_error(
     "Error: No network with SSID 'Gone' found.", "fallback"
 ) == "This Wi-Fi network is no longer in range."
 
+# Bluetooth logos share one exact geometric centering contract.
+bt_glyph_source = (LINK / "BluetoothGlyph.qml").read_text(encoding="utf-8")
+assert "anchors.fill: parent" in bt_glyph_source
+assert "horizontalAlignment: Text.AlignHCenter" in bt_glyph_source
+assert "verticalAlignment: Text.AlignVCenter" in bt_glyph_source
+assert "anchors.verticalCenterOffset" not in bt_glyph_source
+for relative in (
+    "BluetoothMain.qml",
+    "BluetoothDeviceRow.qml",
+    "BluetoothDetails.qml",
+    "BluetoothPairing.qml",
+    "BluetoothForgetConfirmation.qml",
+):
+    source = (LINK / relative).read_text(encoding="utf-8")
+    assert "BluetoothGlyph {" in source, relative
+
+# Device/logo surfaces must not reintroduce manual glyph baseline nudges.
+for relative in (
+    "BluetoothDeviceRow.qml",
+    "BluetoothDetails.qml",
+):
+    source = (LINK / relative).read_text(encoding="utf-8")
+    assert "anchors.verticalCenterOffset: -1\n            text: root.glyph" not in source, relative
+
 # Keyboard operation is a V1 input contract, not just text-entry support.
 for relative in (
     "MahoLinkButton.qml",

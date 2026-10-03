@@ -131,14 +131,13 @@ Item {
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.060)
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    text: "󰂯"
-                    color: root.bluetooth.bluetoothEnabled
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: "󰂯"
+                    glyphColor: root.bluetooth.bluetoothEnabled
                         ? chrome.accent
                         : chrome.theme.alpha(chrome.textSecondary, 0.86)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 19
+                    pixelSize: 19
                 }
             }
 
@@ -340,12 +339,11 @@ Item {
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.075)
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    text: root.glyph(root.primaryDevice ? root.primaryDevice.kind : "generic")
-                    color: chrome.theme.alpha(chrome.textPrimary, 0.96)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 34
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: root.glyph(root.primaryDevice ? root.primaryDevice.kind : "generic")
+                    glyphColor: chrome.theme.alpha(chrome.textPrimary, 0.96)
+                    pixelSize: 34
                 }
             }
 
@@ -739,15 +737,14 @@ Item {
                             }
                         }
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: "󰂯"
-                            color: chrome.theme.alpha(
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: "󰂯"
+                            glyphColor: chrome.theme.alpha(
                                 root.bluetooth.discovering ? chrome.accent : chrome.textSecondary,
                                 root.bluetooth.discovering ? 0.84 : 0.58
                             )
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 17
+                            pixelSize: 17
                         }
                     }
 
