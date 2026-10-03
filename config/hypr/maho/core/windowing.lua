@@ -40,3 +40,17 @@ hl.window_rule({
     no_blur = true,
 })
 
+-- Authentication must remain visible and focused even if the request arrives
+-- while the user is on another workspace.
+hl.window_rule({
+    name = "maho-polkit-agent",
+    match = {
+        class = "^io[.]maho[.]PolkitAgent$",
+    },
+
+    float = true,
+    center = true,
+    pin = true,
+    stay_focused = true,
+})
+
