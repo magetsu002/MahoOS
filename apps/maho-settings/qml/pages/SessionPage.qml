@@ -189,18 +189,11 @@ Item {
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
-
-                MahoIconButton {
-                    iconName: "add"
-                    label: "Add session command"
-                    emphasized: true
-                    visible: !!root.pageState.canAddStartup
-                    enabled: !root.bridge.actionBusy
-                    accent: theme.accent
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.openNew()
-                }
+                accent: theme.accent
+                headerActionIcon: root.pageState.canAddStartup ? "add" : ""
+                headerActionLabel: "Add session command"
+                headerActionEnabled: !root.bridge.actionBusy
+                onHeaderActionTriggered: root.openNew()
 
                 Repeater {
                     model: root.pageState.startup || []

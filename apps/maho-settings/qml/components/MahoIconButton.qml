@@ -11,35 +11,33 @@ Button {
     property color muted: "#aaa3af"
     property bool emphasized: false
 
-    implicitWidth: 32
-    implicitHeight: 32
+    implicitWidth: 28
+    implicitHeight: 28
     padding: 0
     hoverEnabled: true
 
-    contentItem: MahoIcon {
-        width: 16
-        height: 16
+    contentItem: MahoActionGlyph {
+        width: 14
+        height: 14
         anchors.centerIn: parent
         name: root.iconName
-        tone: root.enabled
-            ? (root.hovered || root.emphasized ? root.foreground : root.muted)
-            : Qt.rgba(root.muted.r, root.muted.g, root.muted.b, 0.48)
-        opacity: root.enabled ? 1 : 0.68
+        tone: !root.enabled
+            ? Qt.rgba(root.muted.r, root.muted.g, root.muted.b, 0.42)
+            : root.emphasized
+                ? root.accent
+                : root.hovered
+                    ? root.foreground
+                    : root.muted
+        opacity: root.enabled ? 1 : 0.62
     }
 
     background: Rectangle {
-        radius: 10
+        radius: 7
         color: root.down
-            ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
+            ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.09)
             : root.hovered
-                ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.065)
-                : root.emphasized
-                    ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.10)
-                    : "transparent"
-        border.width: root.emphasized ? 1 : 0
-        border.color: root.emphasized
-            ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.24)
-            : "transparent"
+                ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.055)
+                : "transparent"
     }
 
     ToolTip {
@@ -52,20 +50,20 @@ Button {
             text: root.label
             color: root.foreground
             font.pixelSize: 11
-            leftPadding: 3
-            rightPadding: 3
+            leftPadding: 4
+            rightPadding: 4
         }
 
         background: Rectangle {
-            radius: 8
+            radius: 7
             color: Qt.rgba(
-                root.muted.r * 0.18,
-                root.muted.g * 0.18,
-                root.muted.b * 0.18,
-                0.96
+                root.muted.r * 0.17,
+                root.muted.g * 0.17,
+                root.muted.b * 0.17,
+                0.97
             )
             border.width: 1
-            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
+            border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
         }
     }
 }

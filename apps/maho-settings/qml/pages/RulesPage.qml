@@ -278,23 +278,17 @@ Item {
             SettingCard {
                 visible: !!root.pageState.available
                 title: "Window rules"
+                accent: theme.accent
+                headerActionIcon: root.pageState.canAddWindowRule ? "add" : ""
+                headerActionLabel: "Add window rule"
+                headerActionEnabled: !root.bridge.actionBusy
+                onHeaderActionTriggered: root.openNew("window")
                 description: "Rules applied to application windows."
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                MahoIconButton {
-                    iconName: "add"
-                    label: "Add window rule"
-                    emphasized: true
-                    visible: !!root.pageState.canAddWindowRule
-                    enabled: !root.bridge.actionBusy
-                    accent: theme.accent
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.openNew("window")
-                }
 
                 Repeater {
                     model: root.pageState.windowRules || []
@@ -341,23 +335,17 @@ Item {
             SettingCard {
                 visible: !!root.pageState.available
                 title: "Workspace rules"
+                accent: theme.accent
+                headerActionIcon: root.pageState.canAddWorkspaceRule ? "add" : ""
+                headerActionLabel: "Add workspace rule"
+                headerActionEnabled: !root.bridge.actionBusy
+                onHeaderActionTriggered: root.openNew("workspace")
                 description: "Workspace placement and workspace-scoped configuration."
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                MahoIconButton {
-                    iconName: "add"
-                    label: "Add workspace rule"
-                    emphasized: true
-                    visible: !!root.pageState.canAddWorkspaceRule
-                    enabled: !root.bridge.actionBusy
-                    accent: theme.accent
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.openNew("workspace")
-                }
 
                 Repeater {
                     model: root.pageState.workspaceRules || []
@@ -403,23 +391,17 @@ Item {
             SettingCard {
                 visible: !!root.pageState.available
                 title: "Layer rules"
+                accent: theme.accent
+                headerActionIcon: root.pageState.canAddLayerRule ? "add" : ""
+                headerActionLabel: "Add layer rule"
+                headerActionEnabled: !root.bridge.actionBusy
+                onHeaderActionTriggered: root.openNew("layer")
                 description: "Rules applied to shell and layer surfaces."
                 surface: theme.surfaceElevated
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
 
-                MahoIconButton {
-                    iconName: "add"
-                    label: "Add layer rule"
-                    emphasized: true
-                    visible: !!root.pageState.canAddLayerRule
-                    enabled: !root.bridge.actionBusy
-                    accent: theme.accent
-                    foreground: theme.textPrimary
-                    muted: theme.textSecondary
-                    onClicked: root.openNew("layer")
-                }
 
                 Repeater {
                     model: root.pageState.layerRules || []

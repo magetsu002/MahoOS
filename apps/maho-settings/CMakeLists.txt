@@ -30,6 +30,7 @@ qt_add_qml_module(maho-settings
         qml/components/AppearanceRow.qml
         qml/components/MahoSegmentedControl.qml
         qml/components/MahoComboBox.qml
+        qml/components/MahoActionGlyph.qml
         qml/components/MahoIcon.qml
         qml/components/MahoIconButton.qml
         qml/components/MahoInsetRow.qml

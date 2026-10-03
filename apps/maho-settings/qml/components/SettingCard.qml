@@ -3,12 +3,21 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
+
     property color surface: "#211f26"
     property color borderColor: "#3d3942"
     property color foreground: "#f3eef8"
     property color muted: "#aaa3af"
+    property color accent: "#d0bcff"
     property string title: ""
     property string description: ""
+
+    property string headerActionIcon: ""
+    property string headerActionLabel: ""
+    property bool headerActionEnabled: true
+    property bool headerActionEmphasized: false
+    signal headerActionTriggered()
+
     default property alias content: slot.data
 
     radius: 18
@@ -24,26 +33,47 @@ Rectangle {
         anchors.margins: 16
         spacing: 12
 
-        ColumnLayout {
-            spacing: 3
+        RowLayout {
             Layout.fillWidth: true
-            visible: root.title.length > 0 || root.description.length > 0
+            spacing: 12
+            visible: root.title.length > 0
+                || root.description.length > 0
+                || root.headerActionIcon.length > 0
 
-            Text {
-                text: root.title
-                color: root.foreground
-                font.pixelSize: 15
-                font.weight: Font.DemiBold
+            ColumnLayout {
                 Layout.fillWidth: true
+                spacing: 3
+
+                Text {
+                    text: root.title
+                    color: root.foreground
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                }
+
+                Text {
+                    text: root.description
+                    color: root.muted
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                }
             }
 
-            Text {
-                text: root.description
-                color: root.muted
-                font.pixelSize: 12
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-                visible: text.length > 0
+            MahoIconButton {
+                visible: root.headerActionIcon.length > 0
+                Layout.alignment: Qt.AlignTop | Qt.AlignRight
+                iconName: root.headerActionIcon
+                label: root.headerActionLabel
+                emphasized: root.headerActionEmphasized
+                enabled: root.headerActionEnabled
+                accent: root.accent
+                foreground: root.foreground
+                muted: root.muted
+                onClicked: root.headerActionTriggered()
             }
         }
 

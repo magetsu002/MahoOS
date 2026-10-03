@@ -133,9 +133,8 @@ ApplicationWindow {
 
         currentTarget = nextTarget
 
-        // Rules and Session intentionally share one deferred component, and
-        // search can target a subsection of About. Do not destroy/recreate the
-        // page when only that in-page target changed.
+        // Search can target a subsection of an already-loaded page. Do not
+        // destroy/recreate the page when only that in-page target changed.
         if (sameComponent && pageLoader.item) {
             currentRoute = canonical
             if (pageLoader.item.hasOwnProperty("targetRoute"))

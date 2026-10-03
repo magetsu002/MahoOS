@@ -351,6 +351,8 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    spacing: 4
+                    Item { Layout.fillWidth: true }
                     MahoIconButton {
                         iconName: "focus"
                         label: root.output.focused ? "Focused display" : "Focus display"
@@ -362,7 +364,6 @@ Item {
                         muted: theme.textSecondary
                         onClicked: root.bridge.perform("display.focus", { name: root.output.name })
                     }
-                    Item { Layout.fillWidth: true }
                     MahoIconButton {
                         iconName: "preview"
                         label: "Preview display changes"

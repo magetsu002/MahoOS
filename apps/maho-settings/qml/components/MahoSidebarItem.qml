@@ -30,8 +30,8 @@ Rectangle {
         spacing: 11
 
         MahoIcon {
-            Layout.preferredWidth: 20
-            Layout.preferredHeight: 20
+            Layout.preferredWidth: 18
+            Layout.preferredHeight: 18
             name: root.iconName
             tone: root.theme.textPrimary
             opacity: root.selected ? 0.98 : 0.88

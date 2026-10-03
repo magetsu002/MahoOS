@@ -237,32 +237,20 @@ Item {
                 borderColor: theme.rowRim
                 foreground: theme.textPrimary
                 muted: theme.textSecondary
+                accent: theme.accent
+                headerActionIcon: root.pageState.mutationAvailable ? "add" : ""
+                headerActionLabel: "Add shortcut"
+                headerActionEnabled: !root.bridge.actionBusy
+                onHeaderActionTriggered: root.openNew()
 
-                RowLayout {
+                MahoTextField {
+                    id: filterField
                     Layout.fillWidth: true
-                    spacing: 8
-
-                    MahoTextField {
-                        id: filterField
-                        Layout.fillWidth: true
-                        placeholderText: "Filter shortcuts..."
-                        surface: theme.controlFill
-                        foreground: theme.textPrimary
-                        muted: theme.textSecondary
-                        accent: theme.accent
-                    }
-
-                    MahoIconButton {
-                        iconName: "add"
-                        label: "Add shortcut"
-                        emphasized: true
-                        visible: !!root.pageState.mutationAvailable
-                        enabled: !root.bridge.actionBusy
-                        accent: theme.accent
-                        foreground: theme.textPrimary
-                        muted: theme.textSecondary
-                        onClicked: root.openNew()
-                    }
+                    placeholderText: "Filter shortcuts..."
+                    surface: theme.controlFill
+                    foreground: theme.textPrimary
+                    muted: theme.textSecondary
+                    accent: theme.accent
                 }
 
                 Repeater {
