@@ -834,8 +834,15 @@ def _resume_owned(
         current = _current_transaction(root)
         if current is None or current.get("transaction_id") != transaction_id:
             return None
-        from maho_update_bad_recovery import _read_record as read_bad_update_record
+        from maho_update_bad_recovery import (
+            _read_record as read_bad_update_record,
+            reverify_recovered_normal,
+        )
         try:
+            current_recovery = reverify_recovered_normal(
+                transaction_id, state_root=root,
+                generation_root=Path("/var/lib/maho/generations"),
+            )
             recovery_record = read_bad_update_record(root, transaction_id)
         except (OSError, RuntimeError, ValueError) as exc:
             value = dict(state)
@@ -859,9 +866,13 @@ def _resume_owned(
             or recovery.get("transaction_id") != transaction_id
             or recovery.get("phase") != UpdateState.RECOVERED.value
             or recovery.get("recovery_attempts") != 1
+            or current_recovery.get("phase") != UpdateState.RECOVERED.value
+            or current_recovery.get("recovery_attempts") != 1
             or verification.get("recovery_attempts") != 1
             or verification.get("recovered_root_uuid") != recovery.get("root_uuid")
             or verification.get("recovered_system_generation_id") != recovery.get("system_generation_id")
+            or current_recovery.get("root_uuid") != recovery.get("root_uuid")
+            or current_recovery.get("system_generation_id") != recovery.get("system_generation_id")
         ):
             value = dict(state)
             value.update({

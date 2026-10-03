@@ -412,6 +412,98 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
         record = recovery._read_record(self.recovered, TXID)
         self.assertEqual(record["phase"], "RECOVERED_VERIFIED")
         self.assertEqual(record["recovery_attempts"], 1)
+        FakeBtrfs.live_uuid = FAILED_UUID
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs):
+            with self.assertRaisesRegex(RuntimeError, "not currently active"):
+                recovery.reverify_recovered_normal(
+                    TXID, state_root=self.recovered, generation_root=self.generations,
+                    cmdline_path=cmdline,
+                )
+
+    def test_interrupted_terminal_transaction_publication_resumes_same_verification(self):
+        self._begin()
+        self._compatibility()
+        FakeBtrfs.topology = "RECOVERY_ARMED"
+        FakeBtrfs.live_uuid = PREVIOUS_UUID
+        cmdline = self.base / "cmdline"
+        cmdline.write_text("rootflags=subvol=@ rw\n")
+        package_runner = lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout="demo 1\n", stderr="",
+        )
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(recovery, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(recovery, "publish_transaction", side_effect=OSError("injected terminal publish interruption")):
+            with self.assertRaisesRegex(OSError, "terminal publish interruption"):
+                recovery.verify_recovered_normal(
+                    TXID, state_root=self.recovered, generation_root=self.generations,
+                    now=NOW, cmdline_path=cmdline, package_runner=package_runner,
+                    running_kernel=lambda: "6.1-cachyos",
+                )
+        self.assertEqual(
+            read_transaction(transaction_path(self.recovered, TXID))["state"],
+            "RECOVERING",
+        )
+        self.assertEqual(
+            recovery._read_record(self.recovered, TXID)["phase"],
+            "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+        )
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(recovery, "load_current_verified_generations", return_value=live_context()):
+            result = recovery.verify_recovered_normal(
+                TXID, state_root=self.recovered, generation_root=self.generations,
+                now=NOW, cmdline_path=cmdline, package_runner=package_runner,
+                running_kernel=lambda: "6.1-cachyos",
+            )
+        self.assertEqual(result["phase"], "RECOVERED")
+        self.assertEqual(recovery._read_record(self.recovered, TXID)["phase"], "RECOVERED_VERIFIED")
+
+    def test_interrupted_final_record_publication_is_reconciled_from_current_state(self):
+        self._begin()
+        self._compatibility()
+        FakeBtrfs.topology = "RECOVERY_ARMED"
+        FakeBtrfs.live_uuid = PREVIOUS_UUID
+        cmdline = self.base / "cmdline"
+        cmdline.write_text("rootflags=subvol=@ rw\n")
+        package_runner = lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout="demo 1\n", stderr="",
+        )
+        original_atomic = recovery._atomic_json
+        writes = 0
+
+        def interrupt_final_record(path, value, **kwargs):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError("injected final record interruption")
+            return original_atomic(path, value, **kwargs)
+
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(recovery, "load_current_verified_generations", return_value=live_context()), \
+             patch.object(recovery, "_atomic_json", side_effect=interrupt_final_record):
+            with self.assertRaisesRegex(OSError, "final record interruption"):
+                recovery.verify_recovered_normal(
+                    TXID, state_root=self.recovered, generation_root=self.generations,
+                    now=NOW, cmdline_path=cmdline, package_runner=package_runner,
+                    running_kernel=lambda: "6.1-cachyos",
+                )
+        self.assertEqual(
+            read_transaction(transaction_path(self.recovered, TXID))["state"],
+            "RECOVERED",
+        )
+        self.assertEqual(
+            recovery._read_record(self.recovered, TXID)["phase"],
+            "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+        )
+        with patch.object(recovery, "NativeBtrfsOps", FakeBtrfs), \
+             patch.object(recovery, "load_current_verified_generations", return_value=live_context()):
+            result = recovery.reverify_recovered_normal(
+                TXID, state_root=self.recovered, generation_root=self.generations,
+                cmdline_path=cmdline, package_runner=package_runner,
+                running_kernel=lambda: "6.1-cachyos",
+            )
+        self.assertEqual(result["phase"], "RECOVERED")
+        self.assertEqual(recovery._read_record(self.recovered, TXID)["phase"], "RECOVERED_VERIFIED")
+        self.assertEqual(FakeBtrfs.arm_calls, 1)
 
     def test_tampered_candidate_and_previous_root_are_rejected_before_mutation(self):
         for key, value in (

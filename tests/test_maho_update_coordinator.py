@@ -559,8 +559,15 @@ class CoordinatorContracts(unittest.TestCase):
                     "recovery_attempts": 1,
                 },
             }
+            current = {
+                "phase": "RECOVERED",
+                "root_uuid": recovered_root,
+                "system_generation_id": recovered_generation,
+                "recovery_attempts": 1,
+            }
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
-                 patch("maho_update_bad_recovery._read_record", return_value=record):
+                 patch("maho_update_bad_recovery._read_record", return_value=record), \
+                 patch("maho_update_bad_recovery.reverify_recovered_normal", return_value=current) as reverify:
                 result = coordinator._resume_owned(
                     state, REV, "magetsu", {"source_revision": REV},
                     {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
@@ -570,6 +577,21 @@ class CoordinatorContracts(unittest.TestCase):
             self.assertEqual(result["active_transaction_id"], TXID)
             self.assertFalse(result["reboot_required"])
             self.assertTrue(result["reboot_performed"])
+            reverify.assert_called_once()
+
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": state_tmp}, clear=False), \
+                 patch(
+                     "maho_update_bad_recovery.reverify_recovered_normal",
+                     side_effect=RuntimeError("live recovered root identity drifted"),
+                 ):
+                drifted = coordinator._resume_owned(
+                    state, REV, "magetsu", {"source_revision": REV},
+                    {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]},
+                    NOW + timedelta(minutes=2),
+                )
+            self.assertEqual(drifted["phase"], "ATTENTION_REQUIRED")
+            self.assertEqual(drifted["blockers"], ["recovered_state_evidence_invalid"])
+            self.assertIn("identity drifted", drifted["last_error"])
 
     def test_historical_recovered_transaction_is_not_treated_as_current(self):
         with tempfile.TemporaryDirectory() as state_tmp:

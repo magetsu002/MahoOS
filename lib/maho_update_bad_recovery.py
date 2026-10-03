@@ -1030,20 +1030,29 @@ def resume_bad_update_recovery(
         btrfs.close()
 
 
-def verify_recovered_normal(
+def _observe_recovered_normal(
     transaction_id: str, *, state_root: Path, generation_root: Path,
-    now: datetime | None = None,
     package_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     running_kernel: Callable[[], str] = lambda: os.uname().release,
     cmdline_path: Path = Path("/proc/cmdline"),
-) -> dict[str, Any]:
-    """Independently verify the previous generation after the recovery reboot."""
-    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+) -> tuple[dict[str, Any], dict[str, Any], BadUpdateRecoveryAuthority] | dict[str, Any]:
+    """Observe the exact selected generation from current live state.
+
+    The durable recovery record is historical input only.  Root, generation,
+    kernel, package, and boot identities are read again on every invocation.
+    """
     transaction = read_transaction(transaction_path(state_root, transaction_id))
-    if transaction["state"] != UpdateState.RECOVERING.value:
-        raise ValueError("post-recovery verification requires RECOVERING transaction")
+    if transaction["state"] not in {
+        UpdateState.RECOVERING.value, UpdateState.RECOVERED.value,
+    }:
+        raise ValueError("recovered generation observation requires recovery transaction")
     record = _read_record(state_root, transaction_id)
-    if record.get("phase") != "RECOVERY_ARMED" or record.get("recovery_attempts") != 1:
+    allowed_record_phases = (
+        {"RECOVERY_ARMED", "RECOVERED_VERIFIED_PENDING_TRANSACTION"}
+        if transaction["state"] == UpdateState.RECOVERING.value
+        else {"RECOVERED_VERIFIED_PENDING_TRANSACTION", "RECOVERED_VERIFIED"}
+    )
+    if record.get("phase") not in allowed_record_phases or record.get("recovery_attempts") != 1:
         raise ValueError("current recovery evidence is unavailable")
     authority_value = record.get("recovery_authority")
     receipt = record.get("recovery_authority_consumption")
@@ -1112,32 +1121,68 @@ def verify_recovered_normal(
     ):
         raise RuntimeError("recovered SystemGeneration or KernelGeneration binding mismatch")
     packages = _package_versions(transaction, runner=package_runner)
-    transaction = transition_transaction(
-        transaction, UpdateState.RECOVERED,
-        reason="exact previous known-good SystemGeneration passed independent verification",
-        evidence={
-            "authority_id": authority.authority_id,
-            "failed_candidate_uuid": authority.failed_candidate_uuid,
-            "failed_system_generation_id": authority.failed_system_generation_id,
-            "recovered_root_uuid": authority.previous_root_uuid,
-            "recovered_system_generation_id": authority.previous_system_generation_id,
-            "kernel_generation_id": authority.kernel_generation_id,
-            "package_versions": packages,
-            "boot_sha256": observed_boot,
-            "compatibility_currently_observed": True,
-            "recovery_attempts": 1,
-            "home_mutated": False,
-        }, now=current,
+    verification = {
+        "authority_id": authority.authority_id,
+        "failed_candidate_uuid": authority.failed_candidate_uuid,
+        "failed_system_generation_id": authority.failed_system_generation_id,
+        "recovered_root_uuid": authority.previous_root_uuid,
+        "recovered_system_generation_id": authority.previous_system_generation_id,
+        "kernel_generation_id": authority.kernel_generation_id,
+        "package_versions": packages,
+        "boot_sha256": observed_boot,
+        "compatibility_currently_observed": True,
+        "recovery_attempts": 1,
+        "home_mutated": False,
+    }
+    return verification, record, authority
+
+
+def verify_recovered_normal(
+    transaction_id: str, *, state_root: Path, generation_root: Path,
+    now: datetime | None = None,
+    package_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    running_kernel: Callable[[], str] = lambda: os.uname().release,
+    cmdline_path: Path = Path("/proc/cmdline"),
+) -> dict[str, Any]:
+    """Independently verify and restart-safely commit recovered state."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    transaction = read_transaction(transaction_path(state_root, transaction_id))
+    if transaction["state"] != UpdateState.RECOVERING.value:
+        raise ValueError("post-recovery verification requires RECOVERING transaction")
+    observed = _observe_recovered_normal(
+        transaction_id, state_root=state_root, generation_root=generation_root,
+        package_runner=package_runner, running_kernel=running_kernel,
+        cmdline_path=cmdline_path,
     )
-    publish_transaction(state_root, transaction)
-    record.update({
-        "phase": "RECOVERED_VERIFIED",
-        "transaction_state": UpdateState.RECOVERED.value,
-        "post_recovery_verification": transaction["history"][-1]["evidence"],
+    if isinstance(observed, dict):
+        return observed
+    verification, record, authority = observed
+
+    # Publish a reconcilable receipt before the irreversible terminal
+    # transaction.  A crash before or after either write can resume the same
+    # exact observation without inventing another recovery attempt.
+    pending_record = dict(record)
+    pending_record.update({
+        "phase": "RECOVERED_VERIFIED_PENDING_TRANSACTION",
+        "transaction_state": UpdateState.RECOVERING.value,
+        "post_recovery_verification": verification,
         "reboot_required": False,
         "reboot_performed": True,
     })
-    _atomic_json(recovery_record_path(state_root, transaction_id), record)
+    _atomic_json(recovery_record_path(state_root, transaction_id), pending_record)
+    transaction = transition_transaction(
+        transaction, UpdateState.RECOVERED,
+        reason="exact previous known-good SystemGeneration passed independent verification",
+        evidence=verification, now=current,
+    )
+    publish_transaction(state_root, transaction)
+    pending_record.update({
+        "phase": "RECOVERED_VERIFIED",
+        "transaction_state": UpdateState.RECOVERED.value,
+        "reboot_required": False,
+        "reboot_performed": True,
+    })
+    _atomic_json(recovery_record_path(state_root, transaction_id), pending_record)
     return {
         "transaction_id": transaction_id,
         "phase": UpdateState.RECOVERED.value,
@@ -1146,7 +1191,55 @@ def verify_recovered_normal(
         "root_uuid": authority.previous_root_uuid,
         "system_generation_id": authority.previous_system_generation_id,
         "kernel_generation_id": authority.kernel_generation_id,
-        "package_versions": packages,
+        "package_versions": verification["package_versions"],
+        "recovery_attempts": 1,
+        "reboot_required": False,
+        "reboot_performed": True,
+    }
+
+
+def reverify_recovered_normal(
+    transaction_id: str, *, state_root: Path, generation_root: Path,
+    package_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    running_kernel: Callable[[], str] = lambda: os.uname().release,
+    cmdline_path: Path = Path("/proc/cmdline"),
+) -> dict[str, Any]:
+    """Re-observe a terminal recovery and reconcile its final record."""
+    transaction = read_transaction(transaction_path(state_root, transaction_id))
+    if transaction["state"] != UpdateState.RECOVERED.value:
+        raise ValueError("terminal recovery revalidation requires RECOVERED transaction")
+    observed = _observe_recovered_normal(
+        transaction_id, state_root=state_root, generation_root=generation_root,
+        package_runner=package_runner, running_kernel=running_kernel,
+        cmdline_path=cmdline_path,
+    )
+    if isinstance(observed, dict):
+        raise RuntimeError("terminal recovered root is not currently active")
+    verification, record, authority = observed
+    terminal = transaction["history"][-1].get("evidence")
+    recorded = record.get("post_recovery_verification")
+    if not isinstance(terminal, Mapping) or dict(terminal) != verification:
+        raise ValueError("terminal transaction recovery evidence is not current")
+    if not isinstance(recorded, Mapping) or dict(recorded) != verification:
+        raise ValueError("terminal recovery record evidence is not current")
+    if record.get("phase") == "RECOVERED_VERIFIED_PENDING_TRANSACTION":
+        reconciled = dict(record)
+        reconciled.update({
+            "phase": "RECOVERED_VERIFIED",
+            "transaction_state": UpdateState.RECOVERED.value,
+            "reboot_required": False,
+            "reboot_performed": True,
+        })
+        _atomic_json(recovery_record_path(state_root, transaction_id), reconciled)
+    return {
+        "transaction_id": transaction_id,
+        "phase": UpdateState.RECOVERED.value,
+        "failed_candidate_uuid": authority.failed_candidate_uuid,
+        "failed_system_generation_id": authority.failed_system_generation_id,
+        "root_uuid": authority.previous_root_uuid,
+        "system_generation_id": authority.previous_system_generation_id,
+        "kernel_generation_id": authority.kernel_generation_id,
+        "package_versions": verification["package_versions"],
         "recovery_attempts": 1,
         "reboot_required": False,
         "reboot_performed": True,
