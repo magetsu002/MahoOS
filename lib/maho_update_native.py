@@ -167,6 +167,65 @@ class NativeBtrfsOps:
             device = f"/dev/disk/by-uuid/{fs_uuid}"
         return RootIdentity(fs_uuid, fsroot, source, device, subvol_uuid)
 
+    def recovery_root_identity(
+        self,
+        *,
+        expected_failed_uuid: str,
+        expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
+    ) -> RootIdentity:
+        """Read only the exact live root identities reachable during recovery.
+
+        A rename-exchange can leave the still-running failed root mounted under
+        this transaction's backup fsroot until the bounded recovery reboot.
+        Recovery may therefore observe only the canonical /@ fsroot or that
+        exact backup fsroot.  The observed subvolume UUID must also match the
+        identity permitted for the observed fsroot; no path or UUID guessing is
+        accepted here.
+        """
+        self.require_root()
+        for value in (
+            expected_failed_uuid, expected_previous_uuid, expected_filesystem_uuid,
+        ):
+            if _UUID.fullmatch(value) is None:
+                raise ValueError("normal recovery root identity is invalid")
+        result = self._run((
+            "findmnt", "--json", "--target", "/",
+            "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID",
+        ), check=True)
+        try:
+            rows = json.loads(result.stdout).get("filesystems", [])
+            row = rows[0] if len(rows) == 1 else None
+        except (json.JSONDecodeError, AttributeError, IndexError):
+            row = None
+        if not isinstance(row, Mapping) or row.get("fstype") != "btrfs":
+            raise RuntimeError("normal recovery requires a Btrfs root")
+        fsroot = row.get("fsroot")
+        fs_uuid = row.get("uuid")
+        source = row.get("source")
+        if not all(isinstance(item, str) and item for item in (fsroot, fs_uuid, source)):
+            raise RuntimeError("normal recovery root mount identity is incomplete")
+        if fs_uuid.lower() != expected_filesystem_uuid.lower():
+            raise RuntimeError("normal recovery filesystem identity drifted")
+        exact_backup_fsroot = f"/{self.backup}"
+        if fsroot not in {"/@", exact_backup_fsroot}:
+            raise RuntimeError("normal recovery observed unrelated root fsroot")
+        if "maho.recovery_snapshot=1" in Path("/proc/cmdline").read_text(encoding="utf-8"):
+            raise RuntimeError("normal recovery cannot run from recovery boot")
+        shown = self._run(("btrfs", "subvolume", "show", "/"), check=True)
+        subvol_uuid = _subvolume_field(shown.stdout, "UUID")
+        if not subvol_uuid or _UUID.fullmatch(subvol_uuid) is None:
+            raise RuntimeError("normal recovery live root subvolume UUID is unavailable")
+        if fsroot == exact_backup_fsroot:
+            if subvol_uuid != expected_failed_uuid:
+                raise RuntimeError("normal recovery backup fsroot UUID mismatch")
+        elif subvol_uuid not in {expected_failed_uuid, expected_previous_uuid}:
+            raise RuntimeError("normal recovery canonical fsroot UUID mismatch")
+        device = source.split("[", 1)[0]
+        if not device.startswith("/dev/"):
+            device = f"/dev/disk/by-uuid/{fs_uuid}"
+        return RootIdentity(fs_uuid, fsroot, source, device, subvol_uuid)
+
     def _mount_top(self, identity: RootIdentity, *, read_only: bool = False) -> None:
         self.run_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.top.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -741,10 +800,15 @@ class NativeBtrfsOps:
         *,
         expected_failed_uuid: str,
         expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
     ) -> str:
         """Classify only the exact transaction-bound root recovery topology."""
         self.require_root()
-        identity = self.root_identity()
+        identity = self.recovery_root_identity(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
+        )
         self._mount_top(identity)
         current = self.top / "@"
         previous = self.top / self.backup
@@ -771,10 +835,12 @@ class NativeBtrfsOps:
         *,
         expected_failed_uuid: str,
         expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
     ) -> Path:
         if self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         ) != "RECOVERY_ARMED":
             raise RuntimeError("normal recovery is not durably armed")
         return self._bounded_state_root(self.top / "@")
@@ -784,11 +850,13 @@ class NativeBtrfsOps:
         *,
         expected_failed_uuid: str,
         expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
     ) -> Path:
         """Return state on the exact retained target before root exchange."""
         topology = self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         )
         if topology not in {"ARMED", "TARGET_MUTABLE"}:
             raise RuntimeError("previous recovery target is not exactly retained")
@@ -799,11 +867,13 @@ class NativeBtrfsOps:
         *,
         expected_failed_uuid: str,
         expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
     ) -> Path:
         """Return the generation store inside the exact retained target."""
         topology = self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         )
         if topology not in {"ARMED", "TARGET_MUTABLE"}:
             raise RuntimeError("previous recovery target is not exactly retained")
@@ -818,7 +888,11 @@ class NativeBtrfsOps:
     ) -> Path:
         """Unfreeze only the exact selected target so evidence can be prepublished."""
         self.require_root()
-        identity = self.root_identity()
+        identity = self.recovery_root_identity(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
+        )
         if (
             identity.subvolume_uuid != expected_failed_uuid
             or identity.filesystem_uuid.lower() != expected_filesystem_uuid.lower()
@@ -828,6 +902,7 @@ class NativeBtrfsOps:
         topology = self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         )
         previous = self.top / self.backup
         if topology == "ARMED":
@@ -836,6 +911,7 @@ class NativeBtrfsOps:
         if self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         ) != "TARGET_MUTABLE":
             raise RuntimeError("previous known-good root could not become writable")
         return self._bounded_state_root(previous)
@@ -845,11 +921,13 @@ class NativeBtrfsOps:
         *,
         expected_failed_uuid: str,
         expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
     ) -> Path:
         """Return selected-root state after exchange, including pending freeze."""
         topology = self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         )
         if topology not in {"RECOVERY_EXCHANGED_PENDING_FREEZE", "RECOVERY_ARMED"}:
             raise RuntimeError("selected recovery root is not exchanged")
@@ -860,11 +938,13 @@ class NativeBtrfsOps:
         *,
         expected_failed_uuid: str,
         expected_previous_uuid: str,
+        expected_filesystem_uuid: str,
     ) -> Path:
         """Return selected-root generation evidence after exchange."""
         topology = self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         )
         if topology not in {"RECOVERY_EXCHANGED_PENDING_FREEZE", "RECOVERY_ARMED"}:
             raise RuntimeError("selected recovery root is not exchanged")
@@ -883,15 +963,18 @@ class NativeBtrfsOps:
         for value in (expected_failed_uuid, expected_previous_uuid, expected_filesystem_uuid):
             if _UUID.fullmatch(value) is None:
                 raise ValueError("normal recovery root identity is invalid")
-        identity = self.root_identity()
-        if identity.filesystem_uuid.lower() != expected_filesystem_uuid.lower():
-            raise RuntimeError("running recovery filesystem identity drifted")
+        identity = self.recovery_root_identity(
+            expected_failed_uuid=expected_failed_uuid,
+            expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
+        )
         self._mount_top(identity)
         current = self.top / "@"
         previous = self.top / self.backup
         topology = self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         )
         if topology in {"ARMED", "TARGET_MUTABLE"}:
             if identity.subvolume_uuid != expected_failed_uuid:
@@ -925,6 +1008,7 @@ class NativeBtrfsOps:
         if topology != "RECOVERY_ARMED" or self.normal_recovery_topology(
             expected_failed_uuid=expected_failed_uuid,
             expected_previous_uuid=expected_previous_uuid,
+            expected_filesystem_uuid=expected_filesystem_uuid,
         ) != "RECOVERY_ARMED":
             raise RuntimeError("normal recovery did not converge to exact topology")
         boot_after = self.live_boot_hashes()

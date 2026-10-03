@@ -719,8 +719,13 @@ def begin_bad_update_recovery(
         topology = btrfs.normal_recovery_topology(
             expected_failed_uuid=handoff.candidate_uuid,
             expected_previous_uuid=handoff.previous_root_uuid,
+            expected_filesystem_uuid=str(candidate.get("filesystem_uuid", "")),
         )
-        identity = btrfs.root_identity()
+        identity = btrfs.recovery_root_identity(
+            expected_failed_uuid=handoff.candidate_uuid,
+            expected_previous_uuid=handoff.previous_root_uuid,
+            expected_filesystem_uuid=str(candidate.get("filesystem_uuid", "")),
+        )
         if (
             topology != "ARMED" or identity.subvolume_uuid != handoff.candidate_uuid
             or identity.filesystem_uuid.lower() != str(candidate.get("filesystem_uuid", "")).lower()
@@ -729,6 +734,7 @@ def begin_bad_update_recovery(
         target_generation_root = btrfs.previous_generation_root_for_recovery(
             expected_failed_uuid=handoff.candidate_uuid,
             expected_previous_uuid=handoff.previous_root_uuid,
+            expected_filesystem_uuid=str(candidate["filesystem_uuid"]),
         )
         _validate_target_recovery_artifacts(
             target_generation_root,
@@ -821,6 +827,7 @@ def begin_bad_update_recovery(
         recovered_state_root = btrfs.recovered_state_root(
             expected_failed_uuid=verified.failed_candidate_uuid,
             expected_previous_uuid=verified.previous_root_uuid,
+            expected_filesystem_uuid=verified.filesystem_uuid,
         )
         receipt = consume_recovery_authority(
             recovered_state_root, verified, execution, now=current,
@@ -900,6 +907,7 @@ def resume_bad_update_recovery(
         topology = btrfs.normal_recovery_topology(
             expected_failed_uuid=authority.failed_candidate_uuid,
             expected_previous_uuid=authority.previous_root_uuid,
+            expected_filesystem_uuid=authority.filesystem_uuid,
         )
         if topology not in {
             "ARMED", "TARGET_MUTABLE", "RECOVERY_EXCHANGED_PENDING_FREEZE",
@@ -910,11 +918,13 @@ def resume_bad_update_recovery(
             target_generation_root = btrfs.previous_generation_root_for_recovery(
                 expected_failed_uuid=authority.failed_candidate_uuid,
                 expected_previous_uuid=authority.previous_root_uuid,
+                expected_filesystem_uuid=authority.filesystem_uuid,
             )
         else:
             target_generation_root = btrfs.selected_generation_root_for_recovery(
                 expected_failed_uuid=authority.failed_candidate_uuid,
                 expected_previous_uuid=authority.previous_root_uuid,
+                expected_filesystem_uuid=authority.filesystem_uuid,
             )
         _validate_target_recovery_artifacts(
             target_generation_root,
@@ -928,11 +938,13 @@ def resume_bad_update_recovery(
             target_state_root = btrfs.previous_state_root_for_recovery(
                 expected_failed_uuid=authority.failed_candidate_uuid,
                 expected_previous_uuid=authority.previous_root_uuid,
+                expected_filesystem_uuid=authority.filesystem_uuid,
             )
         else:
             target_state_root = btrfs.selected_state_root_for_recovery(
                 expected_failed_uuid=authority.failed_candidate_uuid,
                 expected_previous_uuid=authority.previous_root_uuid,
+                expected_filesystem_uuid=authority.filesystem_uuid,
             )
         consumed = _evidence_exists(
             consumption_path(target_state_root, authority.authority_id),
@@ -951,7 +963,11 @@ def resume_bad_update_recovery(
                 expected_filesystem_uuid=authority.filesystem_uuid,
             )
             topology = "TARGET_MUTABLE"
-        identity = btrfs.root_identity()
+        identity = btrfs.recovery_root_identity(
+            expected_failed_uuid=authority.failed_candidate_uuid,
+            expected_previous_uuid=authority.previous_root_uuid,
+            expected_filesystem_uuid=authority.filesystem_uuid,
+        )
         if topology == "TARGET_MUTABLE":
             _publish_recovery_seed(
                 target_state_root, transaction_id, transaction, record, verified,
@@ -971,6 +987,7 @@ def resume_bad_update_recovery(
         target_state_root = btrfs.recovered_state_root(
             expected_failed_uuid=verified.failed_candidate_uuid,
             expected_previous_uuid=verified.previous_root_uuid,
+            expected_filesystem_uuid=verified.filesystem_uuid,
         )
         consumed = _evidence_exists(
             consumption_path(target_state_root, verified.authority_id),
@@ -1040,8 +1057,13 @@ def verify_recovered_normal(
         topology = btrfs.normal_recovery_topology(
             expected_failed_uuid=authority.failed_candidate_uuid,
             expected_previous_uuid=authority.previous_root_uuid,
+            expected_filesystem_uuid=authority.filesystem_uuid,
         )
-        identity = btrfs.root_identity()
+        identity = btrfs.recovery_root_identity(
+            expected_failed_uuid=authority.failed_candidate_uuid,
+            expected_previous_uuid=authority.previous_root_uuid,
+            expected_filesystem_uuid=authority.filesystem_uuid,
+        )
         if (
             topology == "RECOVERY_ARMED"
             and identity.subvolume_uuid == authority.failed_candidate_uuid

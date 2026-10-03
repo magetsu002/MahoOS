@@ -139,6 +139,9 @@ class FakeBtrfs:
             fsroot="/@",
         )
 
+    def recovery_root_identity(self, **_kwargs):
+        return self.root_identity()
+
     def live_boot_hashes(self):
         return dict(BOOT)
 
@@ -565,6 +568,109 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
                 {**baseline, "arbitrary_path_mutated": True}, now=NOW,
             )
 
+    def test_recovery_identity_accepts_exact_transaction_backup_after_exchange(self):
+        ops = NativeBtrfsOps(TXID, run_root=self.base / "run-identity", boot_root=self.base / "boot")
+        backup_fsroot = f"/{ops.backup}"
+
+        def fake_run(command, **_kwargs):
+            if command[0] == "findmnt":
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({"filesystems": [{
+                        "target": "/", "source": f"/dev/mapper/root[{backup_fsroot}]",
+                        "fstype": "btrfs", "fsroot": backup_fsroot,
+                        "uuid": FILESYSTEM_UUID,
+                    }]}),
+                    stderr="",
+                )
+            if tuple(command[:3]) == ("btrfs", "subvolume", "show"):
+                return SimpleNamespace(
+                    returncode=0, stdout=f"UUID: {FAILED_UUID}\n", stderr="",
+                )
+            raise AssertionError(command)
+
+        with patch.object(ops, "require_root"), \
+             patch.object(ops, "_run", side_effect=fake_run), \
+             patch("maho_update_native.Path.read_text", return_value="rootflags=subvol=@ rw\n"):
+            identity = ops.recovery_root_identity(
+                expected_failed_uuid=FAILED_UUID,
+                expected_previous_uuid=PREVIOUS_UUID,
+                expected_filesystem_uuid=FILESYSTEM_UUID,
+            )
+        self.assertEqual(identity.fsroot, backup_fsroot)
+        self.assertEqual(identity.subvolume_uuid, FAILED_UUID)
+        self.assertEqual(identity.filesystem_uuid, FILESYSTEM_UUID)
+
+    def test_recovery_identity_rejects_unrelated_fsroot_and_wrong_uuid(self):
+        ops = NativeBtrfsOps(TXID, run_root=self.base / "run-identity-reject", boot_root=self.base / "boot")
+        wrong_uuid = "44444444-4444-4444-4444-444444444444"
+        wrong_filesystem_uuid = "55555555-5555-5555-5555-555555555555"
+        cases = (
+            (f"/{ops.backup}-guessed", FAILED_UUID, FILESYSTEM_UUID, "unrelated root fsroot"),
+            (f"/{ops.backup}", PREVIOUS_UUID, FILESYSTEM_UUID, "backup fsroot UUID mismatch"),
+            ("/@", wrong_uuid, FILESYSTEM_UUID, "canonical fsroot UUID mismatch"),
+            (f"/{ops.backup}", FAILED_UUID, wrong_filesystem_uuid, "filesystem identity drifted"),
+        )
+        for fsroot, subvolume_uuid, filesystem_uuid, error in cases:
+            with self.subTest(fsroot=fsroot, subvolume_uuid=subvolume_uuid, filesystem_uuid=filesystem_uuid):
+                def fake_run(command, **_kwargs):
+                    if command[0] == "findmnt":
+                        return SimpleNamespace(
+                            returncode=0,
+                            stdout=json.dumps({"filesystems": [{
+                                "target": "/", "source": f"/dev/mapper/root[{fsroot}]",
+                                "fstype": "btrfs", "fsroot": fsroot,
+                                "uuid": filesystem_uuid,
+                            }]}),
+                            stderr="",
+                        )
+                    if tuple(command[:3]) == ("btrfs", "subvolume", "show"):
+                        return SimpleNamespace(
+                            returncode=0, stdout=f"UUID: {subvolume_uuid}\n", stderr="",
+                        )
+                    raise AssertionError(command)
+
+                with patch.object(ops, "require_root"), \
+                     patch.object(ops, "_run", side_effect=fake_run), \
+                     patch("maho_update_native.Path.read_text", return_value="rootflags=subvol=@ rw\n"):
+                    with self.assertRaisesRegex(RuntimeError, error):
+                        ops.recovery_root_identity(
+                            expected_failed_uuid=FAILED_UUID,
+                            expected_previous_uuid=PREVIOUS_UUID,
+                            expected_filesystem_uuid=FILESYSTEM_UUID,
+                        )
+
+    def test_post_exchange_topology_accepts_only_exact_failed_backup_mount(self):
+        ops = NativeBtrfsOps(TXID, run_root=self.base / "run-topology", boot_root=self.base / "boot")
+        ops.top.mkdir(parents=True)
+        (ops.top / "@").mkdir()
+        (ops.top / ops.backup).mkdir()
+        identity = SimpleNamespace(
+            subvolume_uuid=FAILED_UUID,
+            filesystem_uuid=FILESYSTEM_UUID,
+            fsroot=f"/{ops.backup}",
+            device="/dev/mapper/root",
+        )
+        with patch.object(ops, "require_root"), \
+             patch.object(ops, "recovery_root_identity", return_value=identity) as read_identity, \
+             patch.object(ops, "_mount_top"), \
+             patch.object(
+                 ops, "_show_uuid",
+                 side_effect=lambda path: PREVIOUS_UUID if path.name == "@" else FAILED_UUID,
+             ), \
+             patch.object(ops, "_read_only", return_value=False):
+            topology = ops.normal_recovery_topology(
+                expected_failed_uuid=FAILED_UUID,
+                expected_previous_uuid=PREVIOUS_UUID,
+                expected_filesystem_uuid=FILESYSTEM_UUID,
+            )
+        self.assertEqual(topology, "RECOVERY_EXCHANGED_PENDING_FREEZE")
+        read_identity.assert_called_once_with(
+            expected_failed_uuid=FAILED_UUID,
+            expected_previous_uuid=PREVIOUS_UUID,
+            expected_filesystem_uuid=FILESYSTEM_UUID,
+        )
+
     def test_interrupted_post_exchange_recovery_only_freezes_exact_failed_root(self):
         ops = NativeBtrfsOps(TXID, run_root=self.base / "run", boot_root=self.base / "boot")
         identity = SimpleNamespace(
@@ -572,7 +678,7 @@ class BadUpdateRecoveryContracts(unittest.TestCase):
         )
         topologies = iter(("RECOVERY_EXCHANGED_PENDING_FREEZE", "RECOVERY_ARMED"))
         with patch.object(ops, "require_root"), \
-             patch.object(ops, "root_identity", return_value=identity), \
+             patch.object(ops, "recovery_root_identity", return_value=identity), \
              patch.object(ops, "_mount_top"), \
              patch.object(ops, "normal_recovery_topology", side_effect=lambda **kwargs: next(topologies)), \
              patch.object(ops, "live_boot_hashes", return_value=dict(BOOT)), \
