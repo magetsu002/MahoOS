@@ -69,6 +69,24 @@ artifact must receive a separate compliance review. At minimum that gate must:
 Do not copy a release binary into the MahoOS repository or installer payload
 until this gate is complete.
 
+## Observation policy strategy
+
+Maho owns its Tetragon policy configuration.
+
+The tracked `config/guardian/tetragon-baseline.yaml` is deliberately small:
+it observes write-access activity only under high-value system prefixes such as
+`/etc`, `/boot`, `/usr`, `/opt`, `/var/lib/maho`, and `/sys/fs/bpf`.
+It does not globally trace home-directory writes and does not enable baseline
+network tracing.
+
+Deeper tracing is generated on demand by `guardian_tetragon_policy.py` for an
+exact PID family or an explicitly named binary family. On-demand policies add
+bounded file write-access and TCP connect-attempt observations.
+
+Both tracked and generated policies are monitor-only and contain no Tetragon
+`matchActions` enforcement primitive. Prevention remains Maho's protected
+mutation boundary.
+
 ## Authority rule
 
 A normalized Guardian sensor event always carries:
