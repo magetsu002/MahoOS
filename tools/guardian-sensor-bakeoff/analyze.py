@@ -43,7 +43,13 @@ def load_json_events(path: Path) -> list[dict[str, Any]]:
 
 def event_type(candidate: str, row: dict[str, Any]) -> str:
     if candidate == "tracee":
-        return str(row.get("name") or row.get("id") or "unknown")
+        return str(
+            row.get("eventName")
+            or row.get("name")
+            or row.get("eventId")
+            or row.get("id")
+            or "unknown"
+        )
     if candidate == "tetragon":
         for key in row:
             if key.startswith("process_"):
@@ -52,6 +58,31 @@ def event_type(candidate: str, row: dict[str, Any]) -> str:
 
 def serialized(row: dict[str, Any]) -> str:
     return json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def event_pids(candidate: str, row: dict[str, Any]) -> set[int]:
+    found: set[int] = set()
+    if candidate == "tracee":
+        for key in (
+            "processId",
+            "hostProcessId",
+            "threadId",
+            "hostThreadId",
+            "parentProcessId",
+            "hostParentProcessId",
+        ):
+            value = row.get(key)
+            if isinstance(value, int):
+                found.add(value)
+    elif candidate == "tetragon":
+        for key, value in row.items():
+            if not key.startswith("process_") or not isinstance(value, dict):
+                continue
+            for object_key in ("process", "parent"):
+                process = value.get(object_key)
+                if isinstance(process, dict) and isinstance(process.get("pid"), int):
+                    found.add(process["pid"])
+    return found
 
 
 def has_stable_identity(candidate: str, row: dict[str, Any]) -> bool:
@@ -63,6 +94,10 @@ def has_stable_identity(candidate: str, row: dict[str, Any]) -> bool:
             if isinstance(process, dict) and process.get("exec_id"):
                 return True
     if candidate == "tracee":
+        # Tracee 0.24.x JSON uses processEntityId/threadStartTime. Newer
+        # v1beta1 output nests a stable thread identity under workload.process.
+        if row.get("processEntityId") or row.get("threadStartTime"):
+            return True
         workload = row.get("workload")
         process = workload.get("process") if isinstance(workload, dict) else None
         thread = process.get("thread") if isinstance(process, dict) else None
@@ -81,6 +116,8 @@ def has_parentage(candidate: str, row: dict[str, Any]) -> bool:
             if isinstance(value.get("parent"), dict):
                 return True
     if candidate == "tracee":
+        if row.get("parentEntityId") or row.get("hostParentProcessId") or row.get("parentProcessId"):
+            return True
         workload = row.get("workload")
         process = workload.get("process") if isinstance(workload, dict) else None
         ancestors = process.get("ancestors") if isinstance(process, dict) else None
@@ -103,10 +140,21 @@ def main() -> int:
     events = load_json_events(args.events)
     hist = collections.Counter(event_type(args.candidate, row) for row in events)
 
+    tracked_pids = {
+        value
+        for key in ("child_pid", "grandchild_pid")
+        if isinstance((value := manifest.get(key)), int)
+    }
+
     relevant = []
     for row in events:
         blob = serialized(row)
-        if token in blob or marker in blob or root in blob:
+        if (
+            token in blob
+            or marker in blob
+            or root in blob
+            or bool(event_pids(args.candidate, row) & tracked_pids)
+        ):
             relevant.append(row)
 
     relevant_types = collections.Counter(event_type(args.candidate, row) for row in relevant)

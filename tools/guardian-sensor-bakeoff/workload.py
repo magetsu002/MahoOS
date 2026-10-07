@@ -27,10 +27,13 @@ def child(token: str, root: Path) -> int:
     alpha.rename(beta)
     link.symlink_to(beta.name)
 
-    subprocess.run(
+    grandchild = subprocess.Popen(
         ["/bin/sh", "-c", f"printf '%s\\n' '{marker}_GRANDCHILD' >> '{beta}'"],
-        check=True,
     )
+    grandchild_pid = grandchild.pid
+    if grandchild.wait(timeout=5) != 0:
+        raise RuntimeError("grandchild write failed")
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", 0))
@@ -52,6 +55,7 @@ def child(token: str, root: Path) -> int:
 
     print(json.dumps({
         "child_pid": os.getpid(),
+        "grandchild_pid": grandchild_pid,
         "loopback_port": port,
         "marker": marker,
     }, sort_keys=True))
@@ -78,6 +82,7 @@ def run() -> int:
         "root": str(root),
         "parent_pid": os.getpid(),
         "child_pid": child_pid,
+        "grandchild_pid": child_result["grandchild_pid"],
         "loopback_port": child_result["loopback_port"],
         "expected": {
             "process_exec": [sys.executable, "/bin/sh"],

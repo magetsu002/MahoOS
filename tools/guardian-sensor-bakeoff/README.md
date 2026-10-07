@@ -38,8 +38,38 @@ Do not run a candidate's privileged sensor through this harness until its exact 
 
 ## Quick start
 
+Stage and build candidates without privilege:
+
 ```bash
 ./tools/guardian-sensor-bakeoff/prepare.sh
+```
+
+Build the Falco modern-BPF examples before the live comparison:
+
+```bash
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/maho/guardian-sensor-bakeoff"
+cmake -S "$cache/candidates/falco-libs-0.26.0" \
+  -B "$cache/build/falco-libs-0.26.0" \
+  -DUSE_BUNDLED_DEPS=ON \
+  -DBUILD_LIBSCAP_MODERN_BPF=ON \
+  -DCREATE_TEST_TARGETS=OFF \
+  -DBUILD_DRIVER=OFF \
+  -DMODERN_BPFTOOL_EXE="$cache/candidates/tetragon-1.7.1/usr/local/lib/tetragon/bpftool" \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build "$cache/build/falco-libs-0.26.0" --target scap-open sinsp-example -j8
+```
+
+Then run all privileged live captures behind **one** authorization boundary:
+
+```bash
+pkexec ./tools/guardian-sensor-bakeoff/run-live-bakeoff-root.sh
+```
+
+Do not wrap individual candidate commands in separate `pkexec` calls. The root runner exists specifically so one bake-off does not spam authentication prompts.
+
+For manual non-privileged workload testing:
+
+```bash
 python tools/guardian-sensor-bakeoff/workload.py > /tmp/guardian-workload.json
 ```
 
