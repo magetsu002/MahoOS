@@ -75,7 +75,7 @@ class GuardianEventLedger:
                 provider_id TEXT NOT NULL,
                 source TEXT NOT NULL,
                 source_event_type TEXT NOT NULL,
-                source_record_digest TEXT NOT NULL,
+                observation_digest TEXT NOT NULL,
                 authority_boundary TEXT NOT NULL CHECK(authority_boundary = 'observation-only'),
                 process_id TEXT,
                 pid INTEGER,
@@ -137,7 +137,7 @@ class GuardianEventLedger:
             event.provider_id,
             event.source,
             event.source_event_type,
-            event.source_record_digest,
+            event.observation_digest,
             event.authority_boundary,
             process.process_id if process else None,
             process.pid if process else None,
@@ -161,7 +161,7 @@ class GuardianEventLedger:
                 INSERT OR IGNORE INTO events(
                     event_id, event_type, observed_at, observed_us, boot_id,
                     provider_id, source, source_event_type,
-                    source_record_digest, authority_boundary, process_id, pid,
+                    observation_digest, authority_boundary, process_id, pid,
                     uid, binary, parent_process_id, target_kind, target_json,
                     event_json
                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)

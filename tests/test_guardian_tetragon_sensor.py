@@ -100,7 +100,7 @@ def main() -> None:
     changed_event = normalize_tetragon_event(changed_secret, boot_id=BOOT_ID)[0]
     check("event identity does not fingerprint discarded secrets",
           changed_event.event_id == event.event_id
-          and changed_event.source_record_digest == event.source_record_digest)
+          and changed_event.observation_digest == event.observation_digest)
 
     exit_event = normalize_tetragon_event(process_event("process_exit"), boot_id=BOOT_ID)[0]
     check("process exit kind is normalized", exit_event.event_type is GuardianEventKind.PROCESS_EXIT)

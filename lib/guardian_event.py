@@ -72,7 +72,7 @@ class GuardianEvent:
     provider_id: str
     source: str
     source_event_type: str
-    source_record_digest: str
+    observation_digest: str
     authority_boundary: str
     process: GuardianProcessRef | None
     target_kind: str | None
@@ -94,8 +94,8 @@ class GuardianEvent:
             raise ValueError("Guardian event provider identity is invalid")
         if not self.source or not self.source_event_type:
             raise ValueError("Guardian event provenance is incomplete")
-        if not re.fullmatch(r"[0-9a-f]{64}", self.source_record_digest):
-            raise ValueError("source record digest is invalid")
+        if not re.fullmatch(r"[0-9a-f]{64}", self.observation_digest):
+            raise ValueError("observation digest is invalid")
         if self.authority_boundary != "observation-only":
             raise ValueError("Guardian sensor events must remain observation-only")
         if (self.target_kind is None) != (not self.target):
@@ -116,7 +116,7 @@ class GuardianEvent:
             "provider_id": self.provider_id,
             "source": self.source,
             "source_event_type": self.source_event_type,
-            "source_record_digest": self.source_record_digest,
+            "observation_digest": self.observation_digest,
             "authority_boundary": self.authority_boundary,
             "process": self.process.as_dict() if self.process else None,
             "target_kind": self.target_kind,
@@ -145,14 +145,14 @@ def socket_identity(*, boot_id: str, source_identity: str) -> str:
     return "gsock-" + hashlib.sha256(material).hexdigest()[:32]
 
 
-def event_identity(*, provider_id: str, boot_id: str, source_record_digest: str,
+def event_identity(*, provider_id: str, boot_id: str, observation_digest: str,
                    event_type: GuardianEventKind) -> str:
     if _PROVIDER_ID.fullmatch(provider_id) is None:
         raise ValueError("provider identity is invalid")
     UUID(boot_id)
-    if not re.fullmatch(r"[0-9a-f]{64}", source_record_digest):
-        raise ValueError("source record digest is invalid")
-    material = "\0".join((provider_id, boot_id, source_record_digest, event_type.value)).encode("utf-8")
+    if not re.fullmatch(r"[0-9a-f]{64}", observation_digest):
+        raise ValueError("observation digest is invalid")
+    material = "\0".join((provider_id, boot_id, observation_digest, event_type.value)).encode("utf-8")
     return "gev-" + hashlib.sha256(material).hexdigest()[:32]
 
 
@@ -170,7 +170,7 @@ def parse_guardian_event(payload: Mapping[str, Any]) -> GuardianEvent:
         "provider_id",
         "source",
         "source_event_type",
-        "source_record_digest",
+        "observation_digest",
         "authority_boundary",
         "process",
         "target_kind",
@@ -224,7 +224,7 @@ def parse_guardian_event(payload: Mapping[str, Any]) -> GuardianEvent:
         provider_id=payload.get("provider_id"),
         source=payload.get("source"),
         source_event_type=payload.get("source_event_type"),
-        source_record_digest=payload.get("source_record_digest"),
+        observation_digest=payload.get("observation_digest"),
         authority_boundary=payload.get("authority_boundary"),
         process=process,
         target_kind=payload.get("target_kind"),

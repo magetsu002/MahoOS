@@ -127,7 +127,7 @@ def _event(
         event_id=event_identity(
             provider_id=PROVIDER_ID,
             boot_id=boot_id,
-            source_record_digest=digest,
+            observation_digest=digest,
             event_type=event_type,
         ),
         event_type=event_type,
@@ -136,7 +136,7 @@ def _event(
         provider_id=PROVIDER_ID,
         source=SOURCE,
         source_event_type=source_event_type,
-        source_record_digest=digest,
+        observation_digest=digest,
         authority_boundary=AUTHORITY_BOUNDARY,
         process=process,
         target_kind=target_kind,
