@@ -1,0 +1,36 @@
+# MahoOS-owned Guardian observation policy.
+#
+# This file is authored for MahoOS against Tetragon's documented tracing-policy
+# interface. It contains no Tetragon source code and no enforcement actions.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: maho-guardian-baseline
+spec:
+  kprobes:
+    - call: security_file_permission
+      syscall: false
+      message: Maho Guardian bounded system write-access observation
+      args:
+        - index: 0
+          type: file
+        - index: 1
+          type: int
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: Prefix
+              values:
+                - /etc
+                - /boot
+                - /usr
+                - /opt
+                - /var/lib/maho
+                - /sys/fs/bpf
+            - index: 1
+              operator: Equal
+              values:
+                - "2"
+      tags:
+        - maho.guardian
+        - maho.observation.filesystem

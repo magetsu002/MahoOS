@@ -25,6 +25,7 @@ GUARDIAN_UPDATE="$ROOT/lib/guardian_update.py"
 GUARDIAN_LIVE="$ROOT/lib/guardian_live_cli.py"
 GUARDIAN_RESPONSE="$ROOT/lib/guardian_live_response.py"
 GUARDIAN_RECOVERY="$ROOT/lib/guardian_live_recovery.py"
+GUARDIAN_TRACE="$ROOT/lib/guardian_trace.py"
 UPDATE_STATE="${MAHO_UPDATE_STATE_ROOT:-/var/lib/maho/update}"
 AUR_BUILD="$ROOT/bin/maho-aur-build"
 INTENT="$ROOT/lib/intent.sh"
@@ -298,6 +299,17 @@ PY
         "$@"
 }
 
+trace_command() {
+    local event_id="${1:-}"
+    [ -n "$event_id" ] || { echo "usage: maho-guard trace EVENT_ID [--before-seconds N] [--after-seconds N] [--max-window-events N]" >&2; return 2; }
+    shift
+    [ -r "$GUARDIAN_TRACE" ] || { echo "maho-guard: Guardian trace engine unavailable" >&2; return 1; }
+    python "$GUARDIAN_TRACE" \
+        --state-root "$SEC_STATE" \
+        --event-id "$event_id" \
+        "$@"
+}
+
 why_command() {
     local explainer="$ROOT/lib/guardian_explain.py" wanted="" verbose=0 arg
     [ -r "$explainer" ] || { echo "maho-guard: Guardian explainer unavailable" >&2; return 1; }
@@ -376,6 +388,7 @@ doctor_command() {
     parse_python "$GUARDIAN_LIVE" && echo "PASS  Guardian live world-state projection" || echo "FAIL  Guardian live world-state projection"
     parse_python "$GUARDIAN_RESPONSE" && echo "PASS  Guardian live response coordinator" || echo "FAIL  Guardian live response coordinator"
     parse_python "$GUARDIAN_RECOVERY" && echo "PASS  Guardian live runtime recovery coordinator" || echo "FAIL  Guardian live runtime recovery coordinator"
+    parse_python "$GUARDIAN_TRACE" && echo "PASS  Guardian historical trace reconstruction" || echo "FAIL  Guardian historical trace reconstruction"
     [ -r "$AUR_BUILD" ] && echo "PASS  isolated AUR build frontend" || echo "UNAVAILABLE isolated AUR build frontend"
     command -v bwrap >/dev/null 2>&1 && echo "AVAILABLE  bubblewrap isolation backend" || echo "UNAVAILABLE bubblewrap isolation backend"
     echo "INFO  prevention mode: $(prevention_mode)"
@@ -399,6 +412,7 @@ case "${1:-}" in
     world-status) guardian_world_status_command "${2:-}" ;;
     response) shift; response_command "$@" ;;
     recovery) shift; recovery_command "$@" ;;
+    trace) shift; trace_command "$@" ;;
     why) shift; why_command "$@" ;;
     incident) incident_command "${2:-}" ;;
     pkgbuild) pkgbuild_command "${2:-}" ;;
@@ -416,6 +430,7 @@ Usage:
   maho-guard world-status [--json]
   maho-guard response {reconcile,status,plan,authorize,execute,authorize-release,release} ...
   maho-guard recovery {status,plan,authorize,execute} ...
+  maho-guard trace EVENT_ID [--before-seconds N] [--after-seconds N] [--max-window-events N]
   maho-guard why [INCIDENT_ID] [--verbose]
   maho-guard incident INCIDENT_ID
   maho-guard pkgbuild /path/to/PKGBUILD
