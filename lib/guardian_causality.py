@@ -29,6 +29,9 @@ _PROVEN_PROOFS = {
     "verified-socket-owner",
     "kernel-device-cause",
     "verified-recovery-receipt",
+    "kernel-observed-process-parentage",
+    "kernel-observed-file-write-access",
+    "kernel-observed-network-connect-attempt",
 }
 _CORRELATED_PROOFS = {
     "explicit-incident-subject",
