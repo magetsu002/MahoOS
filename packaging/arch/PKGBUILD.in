@@ -80,6 +80,12 @@ build() {
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release
   cmake --build "$srcdir/build-maho-files" --parallel 2
+  cmake \
+    -S "$source_root/apps/maho-settings" \
+    -B "$srcdir/build-maho-settings" \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$srcdir/build-maho-settings" --parallel 2
   mkdir -p "$srcdir/build-prevention"
   clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
     -fdebug-prefix-map="$srcdir"=/usr/src/debug/maho-os \
@@ -107,6 +113,8 @@ package() {
 
   install -Dm755 "$srcdir/build-maho-files/maho-files" \
     "$pkgdir/usr/lib/maho/apps/maho-files/prebuilt/maho-files"
+  install -Dm755 "$srcdir/build-maho-settings/maho-settings" \
+    "$pkgdir/usr/lib/maho/apps/maho-settings/prebuilt/maho-settings"
   install -Dm644 "$srcdir/release.json" \
     "$pkgdir/usr/lib/maho/share/maho/release.json"
   install -Dm755 "$source_root/packaging/arch/maho-install" \
@@ -120,6 +128,17 @@ package() {
     "$source_root/apps/maho-files/io.maho.Files.desktop" \
     > "$pkgdir/usr/share/applications/io.maho.Files.desktop"
   chmod 0644 "$pkgdir/usr/share/applications/io.maho.Files.desktop"
+  install -Dm755 "$source_root/packaging/arch/maho-settings-wrapper" \
+    "$pkgdir/usr/bin/maho-settings"
+  sed 's#^Exec=.*#Exec=/usr/bin/maho-settings run#' \
+    "$source_root/apps/maho-settings/io.maho.Settings.desktop" \
+    > "$pkgdir/usr/share/applications/io.maho.Settings.desktop"
+  chmod 0644 "$pkgdir/usr/share/applications/io.maho.Settings.desktop"
+  install -d "$pkgdir/etc/xdg/autostart"
+  sed 's#^Exec=.*#Exec=/usr/bin/maho-settings apply-session#' \
+    "$source_root/apps/maho-settings/io.maho.Settings.Session.desktop" \
+    > "$pkgdir/etc/xdg/autostart/io.maho.Settings.Session.desktop"
+  chmod 0644 "$pkgdir/etc/xdg/autostart/io.maho.Settings.Session.desktop"
   install -Dm755 "$source_root/packaging/arch/maho-platform-wrapper" \
     "$pkgdir/usr/bin/maho-platform"
   install -Dm755 "$source_root/packaging/arch/maho-recovery-wrapper" \

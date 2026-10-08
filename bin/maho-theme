@@ -127,18 +127,17 @@ resolve_backend() {
     esac
 }
 
-generate() {
+validate_mode_request() {
     local wallpaper="${1:-}"
     local mode="${2:-dark}"
 
     [ -n "$wallpaper" ] || {
-        die "usage: maho-theme generate WALLPAPER [dark|light]"
+        die "wallpaper path is required"
         return 1
     }
 
     case "$mode" in
-        dark|light)
-            ;;
+        dark|light) ;;
         *)
             die "mode must be dark or light"
             return 1
@@ -149,32 +148,72 @@ generate() {
         die "wallpaper does not exist: $wallpaper"
         return 1
     }
+}
 
-    local backend
+mode_cache_dir() {
+    local wallpaper="${1:-}"
+    local mode="${2:-dark}"
+    local backend wall stat_key identity
+
+    validate_mode_request "$wallpaper" "$mode" >/dev/null || return 1
     backend="$(resolve_backend)" || return 1
-
-    local wall
     wall="$(realpath "$wallpaper")" || return 1
+    stat_key="$(stat -Lc '%s:%y' "$wall")" || return 1
 
-    local txn_root txn raw canonical
-    txn_root="$CACHE/transactions"
-    txn="$txn_root/$(date +%Y%m%d-%H%M%S)-$$"
+    identity="$(
+        {
+            printf 'wall=%s\nmode=%s\nstat=%s\nbackend=%s\n' \
+                "$wall" "$mode" "$stat_key" "$backend"
+            for component in \
+                "$backend" \
+                "$ROOT/theme/palette_v2.py" \
+                "$ROOT/bin/maho-terminal-theme" \
+                "$ROOT/lib/maho_terminal_theme.py"
+            do
+                [ -f "$component" ] && sha256sum "$component"
+            done
+        } | sha256sum | awk '{print $1}'
+    )" || return 1
 
-    mkdir -p "$txn"
+    printf '%s/mode-cache/%s\n' "$CACHE" "$identity"
+}
 
+render_mode_artifacts() {
+    local wallpaper="${1:-}"
+    local mode="${2:-dark}"
+    local output_palette="${3:-}"
+    local output_kitty="${4:-}"
+    local quiet="${5:-0}"
+
+    validate_mode_request "$wallpaper" "$mode" || return 1
+    [ -n "$output_palette" ] && [ -n "$output_kitty" ] || {
+        die "render targets are required"
+        return 1
+    }
+
+    local backend wall txn raw canonical
+    backend="$(resolve_backend)" || return 1
+    wall="$(realpath "$wallpaper")" || return 1
+    txn="$CACHE/transactions/$(date +%Y%m%d-%H%M%S)-$$-$RANDOM"
     raw="$txn/raw.json"
     canonical="$txn/palette.json"
+    mkdir -p "$txn"
 
-    echo "Generating candidate palette..."
-    echo "Source:  $wall"
-    echo "Mode:    $mode"
-    echo "Backend: $(basename "$(dirname "$backend")")"
+    if [ "$quiet" != "1" ]; then
+        echo "Generating candidate palette..."
+        echo "Source:  $wall"
+        echo "Mode:    $mode"
+        echo "Backend: $(basename "$(dirname "$backend")")"
+    fi
 
-    if ! "$backend" "$wall" "$mode" "$raw"         >"$txn/backend.stdout"         2>"$txn/backend.stderr"
+    if ! "$backend" "$wall" "$mode" "$raw" \
+        >"$txn/backend.stdout" 2>"$txn/backend.stderr"
     then
-        echo
-        echo "Palette backend failed:"
-        tail -30 "$txn/backend.stderr"
+        [ "$quiet" = "1" ] || {
+            echo
+            echo "Palette backend failed:"
+            tail -30 "$txn/backend.stderr"
+        }
         return 1
     fi
 
@@ -183,29 +222,77 @@ generate() {
         return 1
     }
 
-    python "$ROOT/theme/palette_v2.py" canonicalize \
+    if ! python "$ROOT/theme/palette_v2.py" canonicalize \
         "$raw" "$canonical" "$wall" "$mode"
-
-    if [ $? -ne 0 ]; then
-        echo "Canonical palette validation failed."
+    then
+        [ "$quiet" = "1" ] || echo "Canonical palette validation failed."
         return 1
     fi
 
-    if ! MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-theme" render "$canonical" "$txn/kitty.conf"; then
-        echo "Terminal palette generation failed."
+    if ! MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-terminal-theme" \
+        render "$canonical" "$txn/kitty.conf" >/dev/null
+    then
+        [ "$quiet" = "1" ] || echo "Terminal palette generation failed."
         return 1
     fi
+
+    mkdir -p "$(dirname "$output_palette")" "$(dirname "$output_kitty")"
+    cp "$canonical" "$output_palette.tmp.$$"
+    mv "$output_palette.tmp.$$" "$output_palette"
+    cp "$txn/kitty.conf" "$output_kitty.tmp.$$"
+    mv "$output_kitty.tmp.$$" "$output_kitty"
+}
+
+cache_mode_artifacts() {
+    local wallpaper="$1" mode="$2" palette="$3" kitty="$4"
+    local dir
+    dir="$(mode_cache_dir "$wallpaper" "$mode")" || return 1
+    mkdir -p "$dir"
+
+    cp "$palette" "$dir/.palette.json.$$"
+    mv "$dir/.palette.json.$$" "$dir/palette.json"
+    cp "$kitty" "$dir/.kitty.conf.$$"
+    mv "$dir/.kitty.conf.$$" "$dir/kitty.conf"
+}
+
+restore_cached_candidate() {
+    local wallpaper="$1" mode="$2" dir
+    dir="$(mode_cache_dir "$wallpaper" "$mode")" || return 1
+    [ -s "$dir/palette.json" ] && [ -s "$dir/kitty.conf" ] || return 1
 
     mkdir -p "$CACHE"
-
-    local candidate_tmp
-    candidate_tmp="$CACHE/.candidate.json.$$"
-
-    cp "$canonical" "$candidate_tmp"
-    mv "$candidate_tmp" "$CACHE/candidate.json"
-
-    cp "$txn/kitty.conf" "$CACHE/.candidate-kitty.conf.$$"
+    cp "$dir/palette.json" "$CACHE/.candidate.json.$$"
+    mv "$CACHE/.candidate.json.$$" "$CACHE/candidate.json"
+    cp "$dir/kitty.conf" "$CACHE/.candidate-kitty.conf.$$"
     mv "$CACHE/.candidate-kitty.conf.$$" "$CACHE/candidate-kitty.conf"
+}
+
+generate() {
+    local wallpaper="${1:-}"
+    local mode="${2:-dark}"
+    local palette kitty
+
+    validate_mode_request "$wallpaper" "$mode" || {
+        die "usage: maho-theme generate WALLPAPER [dark|light]"
+        return 1
+    }
+
+    mkdir -p "$CACHE"
+    palette="$CACHE/.generated-palette.$$"
+    kitty="$CACHE/.generated-kitty.$$"
+
+    if ! render_mode_artifacts "$wallpaper" "$mode" "$palette" "$kitty" 0; then
+        rm -f -- "$palette" "$kitty"
+        return 1
+    fi
+
+    cp "$palette" "$CACHE/.candidate.json.$$"
+    mv "$CACHE/.candidate.json.$$" "$CACHE/candidate.json"
+    cp "$kitty" "$CACHE/.candidate-kitty.conf.$$"
+    mv "$CACHE/.candidate-kitty.conf.$$" "$CACHE/candidate-kitty.conf"
+
+    cache_mode_artifacts "$wallpaper" "$mode" "$palette" "$kitty"
+    rm -f -- "$palette" "$kitty"
 
     echo
     echo "PASS"
@@ -213,6 +300,41 @@ generate() {
     echo "$CACHE/candidate.json"
     echo
     sha256sum "$CACHE/candidate.json"
+}
+
+prepare_mode() {
+    local wallpaper="${1:-}"
+    local mode="${2:-dark}"
+    local dir palette kitty
+
+    validate_mode_request "$wallpaper" "$mode" || return 1
+    dir="$(mode_cache_dir "$wallpaper" "$mode")" || return 1
+    if [ -s "$dir/palette.json" ] && [ -s "$dir/kitty.conf" ]; then
+        return 0
+    fi
+
+    mkdir -p "$CACHE"
+    palette="$CACHE/.prepare-palette.$$"
+    kitty="$CACHE/.prepare-kitty.$$"
+
+    if ! render_mode_artifacts "$wallpaper" "$mode" "$palette" "$kitty" 1; then
+        rm -f -- "$palette" "$kitty"
+        return 1
+    fi
+
+    if ! cache_mode_artifacts "$wallpaper" "$mode" "$palette" "$kitty"; then
+        rm -f -- "$palette" "$kitty"
+        return 1
+    fi
+    rm -f -- "$palette" "$kitty"
+}
+
+load_mode_candidate() {
+    local wallpaper="$1" mode="$2"
+    if restore_cached_candidate "$wallpaper" "$mode"; then
+        return 0
+    fi
+    generate "$wallpaper" "$mode"
 }
 
 hypr_gradient_to_rgba() {
@@ -372,8 +494,8 @@ for key in ("foreground", "primary"):
         return 1
     fi
 
-    sleep 0.1
-
+    # Hyprland's Lua config dispatch is synchronous. Read back immediately;
+    # an artificial 100 ms sleep made every theme switch feel visibly laggy.
     local actual_active actual_inactive
 
     actual_active="$(
@@ -450,9 +572,24 @@ restore_hypr_active() {
 apply_wallpaper() {
     local wallpaper="${1:-}"
     local mode="${2:-dark}"
+    local opposite
 
-    generate "$wallpaper" "$mode" || return 1
-    apply_hypr_candidate
+    validate_mode_request "$wallpaper" "$mode" || return 1
+    load_mode_candidate "$wallpaper" "$mode" || return 1
+    apply_hypr_candidate || return 1
+
+    if [ "$mode" = "dark" ]; then
+        opposite="light"
+    else
+        opposite="dark"
+    fi
+
+    # Precompute the other appearance mode out of band so the next user
+    # switch can reuse a verified palette instead of regenerating it.
+    (
+        MAHO_ROOT="$ROOT" bash "$ROOT/bin/maho-theme" prepare "$wallpaper" "$opposite" \
+            >/dev/null 2>&1 || true
+    ) &
 }
 
 show_candidate() {
@@ -486,6 +623,10 @@ case "${1:-}" in
         generate "${2:-}" "${3:-dark}"
         ;;
 
+    prepare)
+        prepare_mode "${2:-}" "${3:-dark}"
+        ;;
+
     show)
         show_candidate
         ;;
@@ -513,6 +654,7 @@ Maho OS theme engine
 Usage:
   maho-theme doctor
   maho-theme generate WALLPAPER [dark|light]
+  maho-theme prepare WALLPAPER [dark|light]
   maho-theme show
   maho-theme hash
   maho-theme apply WALLPAPER [dark|light]

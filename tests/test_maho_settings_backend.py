@@ -1,0 +1,1342 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+from pathlib import Path
+import tempfile
+from contextlib import redirect_stdout
+from threading import Event
+import time
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "lib" / "maho_settings_backend.py"
+SPEC = importlib.util.spec_from_file_location("maho_settings_backend_under_test", MODULE_PATH)
+assert SPEC and SPEC.loader
+settings = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(settings)
+
+
+class SearchContracts(unittest.TestCase):
+    def test_required_search_mappings_are_deterministic(self) -> None:
+        cases = {
+            "refresh": ("Displays / Refresh Rate", "displays", "displays"),
+            "mic": ("Sound / Input", "sound", "sound"),
+            "recovery": ("System / Recovery", "system", "recovery"),
+            "shortcut": ("Shortcuts / Keyboard Shortcuts", "shortcuts", "shortcuts"),
+            "animation": ("Motion / Animations", "motion", "motion"),
+        }
+        for query, expected in cases.items():
+            with self.subTest(query=query):
+                result = settings.search(query)
+                self.assertTrue(result)
+                self.assertEqual(
+                    (result[0]["label"], result[0]["route"], result[0]["target"]),
+                    expected,
+                )
+
+    def test_search_contains_no_generated_or_remote_dependency(self) -> None:
+        first = settings.search("refresh rate")
+        second = settings.search("refresh rate")
+        self.assertEqual(first, second)
+
+
+class SnapshotAggregationContracts(unittest.TestCase):
+    def test_snapshot_all_observes_independent_providers_concurrently(self) -> None:
+        appearance_started = Event()
+        displays_started = Event()
+        overlap: list[bool] = []
+
+        def appearance() -> dict[str, str]:
+            appearance_started.set()
+            overlap.append(displays_started.wait(0.4))
+            return {"provider": "appearance"}
+
+        def displays() -> dict[str, str]:
+            displays_started.set()
+            overlap.append(appearance_started.wait(0.4))
+            return {"provider": "displays"}
+
+        def provider(name: str):
+            return lambda: {"provider": name}
+
+        replacements = {
+            "snapshot_appearance": appearance,
+            "snapshot_displays": displays,
+            "snapshot_sound": provider("sound"),
+            "snapshot_input": provider("input"),
+            "snapshot_power": provider("power"),
+            "snapshot_notifications": provider("notifications"),
+            "snapshot_applications": provider("applications"),
+            "snapshot_region": provider("region"),
+            "snapshot_shortcuts": provider("shortcuts"),
+            "snapshot_rules": provider("rules"),
+            "snapshot_motion": provider("motion"),
+            "snapshot_session": provider("session"),
+            "snapshot_configuration": provider("configuration"),
+            "snapshot_diagnostics": provider("diagnostics"),
+            "snapshot_about": provider("system"),
+        }
+        patchers = [mock.patch.object(settings, name, value) for name, value in replacements.items()]
+        for patcher in patchers:
+            patcher.start()
+        try:
+            result = settings.snapshot("all")
+        finally:
+            for patcher in reversed(patchers):
+                patcher.stop()
+
+        self.assertTrue(all(overlap), "snapshot providers did not overlap")
+        self.assertEqual(
+            list(result),
+            [
+                "ok",
+                "appearance",
+                "displays",
+                "sound",
+                "input",
+                "power",
+                "notifications",
+                "applications",
+                "region",
+                "shortcuts",
+                "rules",
+                "motion",
+                "session",
+                "configuration",
+                "diagnostics",
+                "system",
+            ],
+        )
+
+    def test_warmup_stream_emits_fast_sections_before_slow_ones(self) -> None:
+        def slow() -> dict[str, str]:
+            time.sleep(0.04)
+            return {"provider": "slow"}
+
+        def fast() -> dict[str, str]:
+            return {"provider": "fast"}
+
+        output = io.StringIO()
+        with (
+            mock.patch.object(settings, "snapshot_providers", return_value={
+                "slow": slow,
+                "fast": fast,
+            }),
+            redirect_stdout(output),
+        ):
+            settings.warmup_stream()
+
+        rows = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([row["section"] for row in rows], ["fast", "slow"])
+        self.assertTrue(all(row["ok"] for row in rows))
+
+
+class AdapterTruthContracts(unittest.TestCase):
+    def test_sound_unavailable_is_reported_not_invented(self) -> None:
+        with mock.patch.object(settings.shutil, "which", return_value=None):
+            snapshot = settings.snapshot_sound()
+        self.assertFalse(snapshot["available"])
+        self.assertEqual(snapshot["outputs"], [])
+        self.assertEqual(snapshot["inputs"], [])
+        self.assertIn("unavailable", snapshot["error"].lower())
+
+    def test_display_unavailable_is_reported_not_healthy(self) -> None:
+        with mock.patch.object(settings, "hypr_json", return_value=(None, "no compositor")):
+            snapshot = settings.snapshot_displays()
+        self.assertFalse(snapshot["available"])
+        self.assertEqual(snapshot["outputs"], [])
+        self.assertEqual(snapshot["error"], "no compositor")
+
+    def test_touchpad_classification_uses_compositor_device_identity(self) -> None:
+        payload = {
+            "keyboards": [{"name": "kbd"}],
+            "mice": [{"name": "usb-mouse"}, {"name": "ELAN Touchpad"}],
+        }
+        with (
+            mock.patch.object(settings, "hypr_json", return_value=(payload, "")),
+            mock.patch.object(settings, "_input_current", return_value={}),
+        ):
+            snapshot = settings.snapshot_input()
+        self.assertEqual(snapshot["mice"], ["usb-mouse"])
+        self.assertEqual(snapshot["touchpads"], ["ELAN Touchpad"])
+
+    def test_audio_parser_uses_real_wpctl_rows(self) -> None:
+        fixture = """Audio
+ ├─ Devices:
+ │      12. Audio Card [alsa]
+ ├─ Sinks:
+ │  *   42. Built-in Audio Analog Stereo [vol: 0.50]
+ │      77. USB Headset [vol: 0.20]
+ ├─ Sources:
+ │      55. USB Microphone [vol: 0.75]
+ ├─ Filters:
+ │  *   88. Bluetooth Headset [Audio/Source]
+ │      99. capture-internal [Stream/Input/Audio/Internal]
+ └─ Streams:
+       104. Firefox
+Video
+ ├─ Sources:
+ │  *   86. Webcam
+"""
+        outputs, inputs = settings._audio_rows(fixture)
+        self.assertEqual(outputs[0], {"id": 42, "name": "Built-in Audio Analog Stereo", "default": True})
+        self.assertEqual(outputs[1]["id"], 77)
+        self.assertEqual(inputs[0], {"id": 55, "name": "USB Microphone", "default": False})
+        self.assertEqual(inputs[1], {"id": 88, "name": "Bluetooth Headset", "default": True})
+        self.assertNotIn(99, [row["id"] for row in inputs])
+        self.assertNotIn(104, [row["id"] for row in inputs])
+        self.assertNotIn(86, [row["id"] for row in inputs])
+
+    def test_shortcuts_snapshot_formats_live_modifier_chord(self) -> None:
+        payload = [{
+            "modmask": 64 | 4,
+            "key": "RETURN",
+            "dispatcher": "__lua",
+            "description": "",
+            "repeat": False,
+            "mouse": False,
+            "locked": False,
+            "submap": "",
+        }]
+        with (
+            mock.patch.object(settings, "hypr_json", return_value=(payload, "")),
+            mock.patch.object(settings, "_collect_hypr_config", return_value=({"binds": []}, "")),
+            mock.patch.object(
+                settings.hypr_config_writer,
+                "status",
+                return_value={"mutationAvailable": False, "path": ""},
+            ),
+        ):
+            snapshot = settings.snapshot_shortcuts()
+        self.assertTrue(snapshot["available"])
+        self.assertEqual(snapshot["binds"][0]["chord"], "Super + Ctrl + RETURN")
+        self.assertEqual(snapshot["binds"][0]["description"], "Managed Maho action")
+        self.assertTrue(snapshot["readOnly"])
+
+    def test_motion_snapshot_exposes_only_configured_animation_leaves(self) -> None:
+        payload = [[
+            {"name": "windows", "overridden": True, "bezier": "wind", "enabled": True, "speed": 5.0, "style": "slide"},
+            {"name": "layers", "overridden": False, "bezier": "", "enabled": True, "speed": 0.0, "style": ""},
+        ], [{"name": "wind", "X0": 0.1, "Y0": 0.2, "X1": 0.3, "Y1": 1.0}]]
+        with (
+            mock.patch.object(settings, "hypr_json", return_value=(payload, "")),
+            mock.patch.object(settings, "_collect_hypr_config", return_value=({"animations": [], "curves": []}, "")),
+            mock.patch.object(
+                settings.hypr_config_writer,
+                "status",
+                return_value={"mutationAvailable": False, "path": ""},
+            ),
+        ):
+            snapshot = settings.snapshot_motion()
+        self.assertEqual([row["name"] for row in snapshot["animations"]], ["windows"])
+        self.assertEqual(snapshot["curves"][0]["name"], "wind")
+        self.assertTrue(snapshot["readOnly"])
+
+    def test_video_wallpaper_uses_palette_frame_for_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            preview = cache / "video-frame.jpg"
+            preview.write_bytes(b"jpeg")
+            palette = {"source": {"path": str(preview)}}
+            with (
+                mock.patch.object(settings, "CACHE_HOME", cache),
+                mock.patch.object(settings, "read_json", return_value=palette),
+                mock.patch.object(settings, "wallpaper_state", return_value={"kind": "video", "path": "/tmp/live.mp4"}),
+                mock.patch.object(settings, "hypr_prefix", return_value=(("hyprctl",), "")),
+                mock.patch.object(settings, "root_command", return_value="/bin/true"),
+                mock.patch.object(settings, "intent_get", side_effect=lambda key, default=None: default),
+            ):
+                snapshot = settings.snapshot_appearance()
+        self.assertEqual(snapshot["wallpaper"]["previewPath"], str(preview))
+
+    def test_wallpaper_state_prefers_published_owner_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_home = Path(directory)
+            wallpaper = state_home / "wall.jpg"
+            wallpaper.write_bytes(b"image")
+            current = state_home / "maho" / "wallpaper" / "current.json"
+            current.parent.mkdir(parents=True)
+            current.write_text(json.dumps({
+                "version": 1,
+                "provider": "awww",
+                "kind": "image",
+                "path": str(wallpaper),
+            }))
+            with (
+                mock.patch.object(settings, "STATE_HOME", state_home),
+                mock.patch.object(settings, "run") as runner,
+            ):
+                snapshot = settings.wallpaper_state()
+        self.assertEqual(snapshot["path"], str(wallpaper))
+        self.assertEqual(snapshot["provider"], "awww")
+        runner.assert_not_called()
+
+    def test_display_candidate_requires_advertised_mode(self) -> None:
+        current = {
+            "name": "DP-1",
+            "modes": [
+                {"resolution": "2560x1440", "refresh": 144.0},
+                {"resolution": "1920x1080", "refresh": 60.0},
+            ],
+        }
+        candidate, error = settings._validate_display_candidate(
+            {
+                "name": "DP-1",
+                "resolution": "3840x2160",
+                "refresh": 240.0,
+                "scale": 1.0,
+                "x": 0,
+                "y": 0,
+                "transform": 0,
+            },
+            current,
+        )
+        self.assertIsNone(candidate)
+        self.assertIn("not advertised", error)
+
+
+class PersistenceContracts(unittest.TestCase):
+    def test_input_setting_persists_only_after_live_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            with (
+                mock.patch.object(settings, "INPUT_CONFIG", path),
+                mock.patch.object(settings, "_hypr_set_input_option", return_value=(True, "")),
+                mock.patch.object(settings, "hypr_option", return_value=True),
+            ):
+                result = settings.input_set("disableWhileTyping", True)
+            self.assertTrue(result["ok"])
+            payload = json.loads(path.read_text())
+            self.assertTrue(payload["values"]["disableWhileTyping"])
+
+    def test_invalid_boolean_does_not_cross_action_boundary(self) -> None:
+        with mock.patch.object(settings, "set_reduced_motion") as setter:
+            result = settings.action("appearance.reducedMotion", {"enabled": "false"})
+        self.assertFalse(result["ok"])
+        setter.assert_not_called()
+
+
+class DisplayRollbackContracts(unittest.TestCase):
+    def test_revert_uses_exact_saved_baseline(self) -> None:
+        token = "a" * 32
+        baseline = [
+            {
+                "name": "eDP-1",
+                "resolution": "2560x1600",
+                "refresh": 240.0,
+                "scale": 1.6,
+                "x": 0,
+                "y": 0,
+                "transform": 0,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            tx_dir = Path(directory)
+            transaction = {
+                "version": 1,
+                "token": token,
+                "createdAt": 1.0,
+                "baseline": baseline,
+                "candidate": baseline[0],
+                "status": "preview",
+            }
+            (tx_dir / f"{token}.json").write_text(json.dumps(transaction))
+            with (
+                mock.patch.object(settings, "TX_DIR", tx_dir),
+                mock.patch.object(settings, "_apply_display_rows", return_value=(True, "")) as apply_rows,
+            ):
+                result = settings.display_revert(token)
+            self.assertTrue(result["ok"])
+            apply_rows.assert_called_once_with(baseline)
+            self.assertTrue((tx_dir / f"{token}.revert").is_file())
+            self.assertFalse((tx_dir / f"{token}.json").exists())
+
+    def test_failed_revert_does_not_publish_success_marker(self) -> None:
+        token = "b" * 32
+        baseline = [{
+            "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0,
+        }]
+        with tempfile.TemporaryDirectory() as directory:
+            tx_dir = Path(directory)
+            (tx_dir / f"{token}.json").write_text(json.dumps({
+                "version": 1, "token": token, "createdAt": 1.0,
+                "baseline": baseline, "candidate": baseline[0], "status": "preview",
+            }))
+            with (
+                mock.patch.object(settings, "TX_DIR", tx_dir),
+                mock.patch.object(settings, "_apply_display_rows", return_value=(False, "rejected")),
+            ):
+                result = settings.display_revert(token)
+            self.assertFalse(result["ok"])
+            self.assertFalse((tx_dir / f"{token}.revert").exists())
+            self.assertTrue((tx_dir / f"{token}.json").exists())
+
+    def test_watchdog_reverts_when_ui_never_confirms(self) -> None:
+        token = "c" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            tx_dir = Path(directory)
+            with (
+                mock.patch.object(settings, "TX_DIR", tx_dir),
+                mock.patch.object(settings.time, "sleep"),
+                mock.patch.object(settings, "display_revert", return_value={"ok": True}) as revert,
+            ):
+                rc = settings.display_watch(token)
+            self.assertEqual(rc, 0)
+            revert.assert_called_once_with(token, automatic=True)
+
+    def test_session_display_apply_fails_back_to_preexisting_layout(self) -> None:
+        persisted = [{
+            "name": "eDP-1", "resolution": "1920x1200", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0,
+        }]
+        current = [{
+            "name": "eDP-1", "resolution": "2560x1600", "refresh": 240.0,
+            "scale": 1.6, "x": 0, "y": 0, "transform": 0,
+        }]
+        with (
+            mock.patch.object(settings, "hypr_prefix", return_value=(["hyprctl"], "")),
+            mock.patch.object(settings, "hypr", return_value=(0, "ok", "")),
+            mock.patch.object(settings, "_apply_persisted_input", return_value=[]),
+            mock.patch.object(settings, "_persisted_display_rows", return_value=persisted),
+            mock.patch.object(settings, "_display_snapshot_rows", return_value=current),
+            mock.patch.object(settings, "_apply_display_rows", side_effect=[(False, "bad mode"), (True, "")]) as apply_rows,
+        ):
+            result = settings.apply_session()
+        self.assertIn("displays-apply-failed-rolled-back", result["skipped"])
+        self.assertEqual(apply_rows.call_args_list[0].args[0], persisted)
+        self.assertEqual(apply_rows.call_args_list[1].args[0], current)
+
+    def test_topology_change_skips_persisted_arrangement(self) -> None:
+        persisted = [{
+            "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0,
+        }]
+        current = [{
+            "name": "HDMI-A-1", "resolution": "1920x1080", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0,
+        }]
+        with (
+            mock.patch.object(settings, "hypr_prefix", return_value=(["hyprctl"], "")),
+            mock.patch.object(settings, "hypr", return_value=(0, "ok", "")),
+            mock.patch.object(settings, "_apply_persisted_input", return_value=[]),
+            mock.patch.object(settings, "_persisted_display_rows", return_value=persisted),
+            mock.patch.object(settings, "_display_snapshot_rows", return_value=current),
+            mock.patch.object(settings, "_apply_display_rows") as apply_rows,
+        ):
+            result = settings.apply_session()
+        self.assertIn("displays-topology-changed", result["skipped"])
+        apply_rows.assert_not_called()
+
+
+class DailyDriverMutationContracts(unittest.TestCase):
+    def test_hypr_bool_option_is_truthful(self) -> None:
+        with mock.patch.object(settings, "hypr_json", return_value=({"bool": True}, "")):
+            self.assertIs(settings.hypr_option("input:left_handed", False), True)
+
+    def test_last_active_display_cannot_be_disabled(self) -> None:
+        snapshot = {
+            "available": True,
+            "enabledCount": 1,
+            "outputs": [{
+                "name": "eDP-1", "resolution": "2560x1600", "refresh": 240.0,
+                "scale": 1.6, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                "modes": [{"resolution": "2560x1600", "refresh": 240.0}],
+            }],
+        }
+        with (
+            mock.patch.object(settings, "snapshot_displays", return_value=snapshot),
+            mock.patch.object(settings.subprocess, "Popen") as popen,
+        ):
+            result = settings.display_preview({
+                "name": "eDP-1", "resolution": "2560x1600", "refresh": 240,
+                "scale": 1.6, "x": 0, "y": 0, "transform": 0, "enabled": False,
+            })
+        self.assertFalse(result["ok"])
+        self.assertIn("last active", result["error"])
+        popen.assert_not_called()
+
+    def test_display_preview_watchdog_is_process_independent(self) -> None:
+        snapshot = {
+            "available": True,
+            "enabledCount": 2,
+            "outputs": [
+                {
+                    "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+                    "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                    "modes": [{"resolution": "1920x1080", "refresh": 60.0}],
+                },
+                {
+                    "name": "DP-2", "resolution": "1920x1080", "refresh": 60.0,
+                    "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "enabled": True,
+                    "modes": [{"resolution": "1920x1080", "refresh": 60.0}],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch.object(settings, "TX_DIR", Path(directory)),
+                mock.patch.object(settings, "snapshot_displays", return_value=snapshot),
+                mock.patch.object(settings, "_apply_display_rows", return_value=(True, "")),
+                mock.patch.object(settings.subprocess, "Popen") as popen,
+            ):
+                result = settings.display_preview({
+                    "name": "DP-1", "resolution": "1920x1080", "refresh": 60,
+                    "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                })
+        self.assertTrue(result["ok"])
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertIs(popen.call_args.kwargs["stdin"], settings.subprocess.DEVNULL)
+
+    def test_display_commit_rejects_topology_change_without_persisting(self) -> None:
+        token = "d" * 32
+        baseline = [{
+            "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+        }]
+        with tempfile.TemporaryDirectory() as directory:
+            tx_dir = Path(directory) / "tx"
+            tx_dir.mkdir()
+            config = Path(directory) / "displays.json"
+            (tx_dir / f"{token}.json").write_text(json.dumps({
+                "version": 1, "token": token, "topology": ["DP-1"],
+                "baseline": baseline, "proposed": baseline, "candidate": baseline[0],
+            }))
+            with (
+                mock.patch.object(settings, "TX_DIR", tx_dir),
+                mock.patch.object(settings, "DISPLAY_CONFIG", config),
+                mock.patch.object(settings, "_display_snapshot_rows", return_value=[{
+                    **baseline[0], "name": "HDMI-A-1",
+                }]),
+            ):
+                result = settings.display_commit(token)
+            self.assertFalse(result["ok"])
+            self.assertIn("topology changed", result["error"])
+            self.assertFalse(config.exists())
+
+    def test_stale_audio_device_is_rejected(self) -> None:
+        with (
+            mock.patch.object(settings, "snapshot_sound", return_value={
+                "available": True, "outputs": [{"id": 1}], "inputs": [],
+            }),
+            mock.patch.object(settings, "run") as runner,
+        ):
+            result = settings.sound_default("output", 99)
+        self.assertFalse(result["ok"])
+        runner.assert_not_called()
+
+    def test_acceleration_profile_rejects_unknown_value(self) -> None:
+        with mock.patch.object(settings, "hypr") as hypr:
+            result = settings.input_set("accelProfile", "magic")
+        self.assertFalse(result["ok"])
+        hypr.assert_not_called()
+
+    def test_notification_dnd_requires_confirmation(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "on", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": True, "dnd": False,
+            }),
+        ):
+            result = settings.notification_dnd(True)
+        self.assertFalse(result["ok"])
+        self.assertIn("confirm", result["error"].lower())
+
+    def test_region_timezone_rejects_unknown_zone_before_mutation(self) -> None:
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/timedatectl"),
+            mock.patch.object(settings, "_command_list", return_value=["Asia/Dubai"]),
+            mock.patch.object(settings, "run") as runner,
+        ):
+            result = settings.region_timezone("Mars/Olympus")
+        self.assertFalse(result["ok"])
+        runner.assert_not_called()
+
+    def test_default_app_rejects_non_candidate_before_mutation(self) -> None:
+        entries = {
+            "browser.desktop": {
+                "id": "browser.desktop", "name": "Browser", "hidden": False,
+                "noDisplay": False, "mimes": ["text/html"], "categories": [],
+            },
+        }
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/xdg-mime"),
+            mock.patch.object(settings, "_application_entries", return_value=entries),
+            mock.patch.object(settings, "run") as runner,
+        ):
+            result = settings.application_default("browser", "fake.desktop")
+        self.assertFalse(result["ok"])
+        runner.assert_not_called()
+
+    def test_power_profile_missing_backend_is_rejected(self) -> None:
+        with mock.patch.object(settings, "_power_profiles", return_value=(False, "", [], "missing")):
+            result = settings.power_profile("balanced")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "missing")
+
+
+    def test_display_failed_preview_restores_exact_baseline(self) -> None:
+        snapshot = {
+            "available": True,
+            "enabledCount": 2,
+            "outputs": [
+                {
+                    "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+                    "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                    "modes": [{"resolution": "1920x1080", "refresh": 60.0}],
+                },
+                {
+                    "name": "DP-2", "resolution": "1920x1080", "refresh": 60.0,
+                    "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "enabled": True,
+                    "modes": [{"resolution": "1920x1080", "refresh": 60.0}],
+                },
+            ],
+        }
+        baseline = settings._rows_from_display_snapshot(snapshot)
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch.object(settings, "TX_DIR", Path(directory)),
+                mock.patch.object(settings, "snapshot_displays", return_value=snapshot),
+                mock.patch.object(
+                    settings, "_apply_display_rows",
+                    side_effect=[(False, "rejected"), (True, "")],
+                ) as apply_rows,
+                mock.patch.object(settings.subprocess, "Popen") as popen,
+            ):
+                result = settings.display_preview({
+                    "name": "DP-1", "resolution": "1920x1080", "refresh": 60,
+                    "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                })
+        self.assertFalse(result["ok"])
+        self.assertEqual(apply_rows.call_args_list[1].args[0], baseline)
+        popen.assert_not_called()
+
+    def test_display_commit_rejects_candidate_drift_without_persisting(self) -> None:
+        token = "e" * 32
+        candidate = {
+            "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            tx_dir = Path(directory) / "tx"
+            tx_dir.mkdir()
+            config = Path(directory) / "displays.json"
+            (tx_dir / f"{token}.json").write_text(json.dumps({
+                "version": 1, "token": token, "topology": ["DP-1"],
+                "baseline": [candidate], "proposed": [candidate], "candidate": candidate,
+            }))
+            drifted = [{**candidate, "refresh": 144.0}]
+            with (
+                mock.patch.object(settings, "TX_DIR", tx_dir),
+                mock.patch.object(settings, "DISPLAY_CONFIG", config),
+                mock.patch.object(settings, "_display_snapshot_rows", return_value=drifted),
+            ):
+                result = settings.display_commit(token)
+        self.assertFalse(result["ok"])
+        self.assertIn("no longer matches", result["error"])
+        self.assertFalse(config.exists())
+
+    def test_sound_default_success_uses_live_device_identity(self) -> None:
+        with (
+            mock.patch.object(settings, "snapshot_sound", side_effect=[
+                {"available": True, "outputs": [{"id": 42, "default": False}], "inputs": []},
+                {"available": True, "outputs": [{"id": 42, "default": True}], "inputs": []},
+            ]),
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/wpctl"),
+            mock.patch.object(settings, "run", return_value=(0, "", "")) as runner,
+        ):
+            result = settings.sound_default("output", 42)
+        self.assertTrue(result["ok"])
+        runner.assert_called_once_with(["/usr/bin/wpctl", "set-default", "42"])
+
+    def test_sound_volume_missing_backend_fails_closed(self) -> None:
+        with mock.patch.object(settings.shutil, "which", return_value=None):
+            result = settings.sound_volume("output", 50)
+        self.assertFalse(result["ok"])
+        self.assertIn("unavailable", result["error"])
+
+    def test_sound_volume_success_requires_readback(self) -> None:
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/wpctl"),
+            mock.patch.object(settings, "_default_audio_state", side_effect=[
+                {"available": True, "volume": 20, "muted": False, "error": ""},
+                {"available": True, "volume": 35, "muted": False, "error": ""},
+            ]),
+            mock.patch.object(settings, "run", return_value=(0, "", "")) as runner,
+        ):
+            result = settings.sound_volume("output", 35)
+        self.assertTrue(result["ok"])
+        runner.assert_called_once_with(
+            ["/usr/bin/wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0.350"]
+        )
+
+    def test_sound_mute_success_requires_readback(self) -> None:
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/wpctl"),
+            mock.patch.object(settings, "_default_audio_state", side_effect=[
+                {"available": True, "volume": 35, "muted": False, "error": ""},
+                {"available": True, "volume": 35, "muted": True, "error": ""},
+            ]),
+            mock.patch.object(settings, "run", return_value=(0, "", "")) as runner,
+        ):
+            result = settings.sound_mute("output", True)
+        self.assertTrue(result["ok"])
+        runner.assert_called_once_with(
+            ["/usr/bin/wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"]
+        )
+
+    def test_sound_volume_failed_readback_does_not_claim_success(self) -> None:
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/wpctl"),
+            mock.patch.object(settings, "_default_audio_state", side_effect=[
+                {"available": True, "volume": 20, "muted": False, "error": ""},
+                {"available": True, "volume": 20, "muted": False, "error": ""},
+            ]),
+            mock.patch.object(settings, "run", return_value=(0, "", "")),
+        ):
+            result = settings.sound_volume("output", 35)
+        self.assertFalse(result["ok"])
+        self.assertIn("confirm", result["error"].lower())
+
+    def test_sound_mute_rejects_invalid_direction_before_command(self) -> None:
+        with mock.patch.object(settings, "run") as runner:
+            result = settings.sound_mute("sideways", True)
+        self.assertFalse(result["ok"])
+        runner.assert_not_called()
+
+    def test_input_rejected_live_apply_does_not_persist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            with (
+                mock.patch.object(settings, "INPUT_CONFIG", path),
+                mock.patch.object(settings, "hypr", return_value=(1, "", "rejected")),
+            ):
+                result = settings.input_set("leftHanded", True)
+        self.assertFalse(result["ok"])
+        self.assertFalse(path.exists())
+
+    def test_acceleration_profile_persists_after_live_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            with (
+                mock.patch.object(settings, "INPUT_CONFIG", path),
+                mock.patch.object(settings, "_hypr_set_input_option", return_value=(True, "")),
+                mock.patch.object(settings, "hypr_option", return_value="flat"),
+            ):
+                result = settings.input_set("accelProfile", "flat")
+            self.assertTrue(result["ok"])
+            self.assertEqual(json.loads(path.read_text())["values"]["accelProfile"], "flat")
+
+    def test_keyboard_layout_persists_after_live_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            with (
+                mock.patch.object(settings, "INPUT_CONFIG", path),
+                mock.patch.object(settings, "_hypr_set_input_option", return_value=(True, "")),
+                mock.patch.object(settings, "hypr_option", return_value="us"),
+            ):
+                result = settings.input_set("keyboardLayout", "us")
+            self.assertTrue(result["ok"])
+            self.assertEqual(json.loads(path.read_text())["values"]["keyboardLayout"], "us")
+
+    def test_notification_enabled_success_requires_owner_round_trip(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": True, "active": True,
+            }),
+        ):
+            result = settings.notification_enabled(True)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["state"]["active"])
+
+    def test_notification_enabled_failed_confirmation_is_not_success(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": True, "active": False,
+            }),
+        ):
+            result = settings.notification_enabled(True)
+        self.assertFalse(result["ok"])
+        self.assertIn("confirm", result["error"].lower())
+
+    def test_notification_dnd_success_requires_owner_round_trip(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "on", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": True, "dnd": True,
+            }),
+        ):
+            result = settings.notification_dnd(True)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["state"]["dnd"])
+
+    def test_notification_clear_history_requires_empty_owner_state(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "cleared", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": True, "historyCount": 3,
+            }),
+        ):
+            result = settings.notification_clear_history()
+        self.assertFalse(result["ok"])
+        self.assertIn("confirm", result["error"].lower())
+
+    def test_notification_clear_history_requires_available_owner_state(self) -> None:
+        with (
+            mock.patch.object(settings, "root_command", return_value="/bin/maho-notify"),
+            mock.patch.object(settings, "run", return_value=(0, "cleared", "")),
+            mock.patch.object(settings, "snapshot_notifications", return_value={
+                "available": False, "historyCount": 0,
+            }),
+        ):
+            result = settings.notification_clear_history()
+        self.assertFalse(result["ok"])
+        self.assertIn("confirm", result["error"].lower())
+
+    def test_region_timezone_success_is_verified(self) -> None:
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/timedatectl"),
+            mock.patch.object(settings, "_command_list", return_value=["Asia/Dubai"]),
+            mock.patch.object(settings, "run", return_value=(0, "", "")),
+            mock.patch.object(settings, "_timedate_state", return_value=({"Timezone": "Asia/Dubai"}, "")),
+        ):
+            result = settings.region_timezone("Asia/Dubai")
+        self.assertTrue(result["ok"])
+
+    def test_region_automatic_time_success_is_verified(self) -> None:
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/timedatectl"),
+            mock.patch.object(settings, "run", return_value=(0, "", "")),
+            mock.patch.object(settings, "_timedate_state", return_value=({"NTP": "yes"}, "")),
+        ):
+            result = settings.region_automatic_time(True)
+        self.assertTrue(result["ok"])
+
+    def test_region_locale_success_is_verified(self) -> None:
+        def which(name: str):
+            return f"/usr/bin/{name}"
+        with (
+            mock.patch.object(settings.shutil, "which", side_effect=which),
+            mock.patch.object(settings, "_command_list", return_value=["en_US.utf8"]),
+            mock.patch.object(settings, "run", return_value=(0, "", "")),
+            mock.patch.object(settings, "_system_locale", return_value=("en_US.utf8", "")),
+        ):
+            result = settings.region_locale("en_US.utf8")
+        self.assertTrue(result["ok"])
+
+    def test_default_app_partial_failure_rolls_back_changed_mime(self) -> None:
+        entries = {
+            "browser.desktop": {
+                "id": "browser.desktop", "name": "Browser", "hidden": False,
+                "noDisplay": False,
+                "mimes": ["x-scheme-handler/http", "x-scheme-handler/https", "text/html"],
+                "categories": [],
+            },
+        }
+        defaults = {
+            "x-scheme-handler/http": "old.desktop",
+            "x-scheme-handler/https": "old.desktop",
+            "text/html": "old.desktop",
+        }
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/xdg-mime"),
+            mock.patch.object(settings, "_application_entries", return_value=entries),
+            mock.patch.object(settings, "_xdg_default", side_effect=lambda mime: defaults[mime]),
+            mock.patch.object(
+                settings, "run",
+                side_effect=[(0, "", ""), (1, "", "rejected"), (0, "", "")],
+            ) as runner,
+        ):
+            result = settings.application_default("browser", "browser.desktop")
+        self.assertFalse(result["ok"])
+        self.assertEqual(runner.call_count, 3)
+        self.assertEqual(
+            runner.call_args_list[-1].args[0],
+            ["/usr/bin/xdg-mime", "default", "old.desktop", "x-scheme-handler/http"],
+        )
+
+    def test_power_profile_success_is_delegated(self) -> None:
+        with (
+            mock.patch.object(settings, "_power_profiles", side_effect=[
+                (True, "balanced", ["balanced", "performance"], ""),
+                (True, "performance", ["balanced", "performance"], ""),
+            ]),
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/powerprofilesctl"),
+            mock.patch.object(settings, "run", return_value=(0, "", "")) as runner,
+        ):
+            result = settings.power_profile("performance")
+        self.assertTrue(result["ok"])
+        runner.assert_called_once_with(
+            ["/usr/bin/powerprofilesctl", "set", "performance"], timeout=5.0
+        )
+
+
+    def test_hypr_input_mutation_uses_lua_config(self) -> None:
+        with mock.patch.object(settings, "hypr_eval", return_value=(True, "")) as evaluator:
+            ok, error = settings._hypr_set_input_option("input:sensitivity", 0.25)
+        self.assertTrue(ok)
+        self.assertEqual(error, "")
+        expression = evaluator.call_args.args[0]
+        self.assertIn("hl.config", expression)
+        self.assertIn("input = { sensitivity = 0.25 }", expression)
+        self.assertNotIn("keyword", expression)
+
+    def test_display_apply_uses_lua_monitor_and_enables_before_disables(self) -> None:
+        rows = [
+            {
+                "name": "DP-OFF", "resolution": "1920x1080", "refresh": 60.0,
+                "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "enabled": False,
+            },
+            {
+                "name": "DP-ON", "resolution": "1920x1080", "refresh": 60.0,
+                "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+            },
+        ]
+        with mock.patch.object(settings, "hypr_eval", return_value=(True, "")) as evaluator:
+            ok, error = settings._apply_display_rows(rows)
+        self.assertTrue(ok)
+        self.assertEqual(error, "")
+        expressions = [call.args[0] for call in evaluator.call_args_list]
+        self.assertIn('output = "DP-ON"', expressions[0])
+        self.assertIn("hl.monitor", expressions[0])
+        self.assertIn('output = "DP-OFF"', expressions[1])
+        self.assertIn("disabled = true", expressions[1])
+
+    def test_display_focus_uses_lua_dispatcher(self) -> None:
+        with (
+            mock.patch.object(settings, "snapshot_displays", side_effect=[
+                {"available": True, "outputs": [{"name": "DP-1", "enabled": True, "focused": False}]},
+                {"available": True, "outputs": [{"name": "DP-1", "enabled": True, "focused": True}]},
+            ]),
+            mock.patch.object(settings, "hypr_eval", return_value=(True, "")) as evaluator,
+        ):
+            result = settings.display_focus("DP-1")
+        self.assertTrue(result["ok"])
+        expression = evaluator.call_args.args[0]
+        self.assertIn("hl.dispatch(hl.dsp.focus", expression)
+        self.assertIn('monitor = "DP-1"', expression)
+
+    def test_appearance_mode_returns_confirmed_owner_state_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "cache"
+            wallpaper = Path(directory) / "wall.jpg"
+            wallpaper.write_bytes(b"image")
+            active = cache / "maho" / "theme" / "active.json"
+            active.parent.mkdir(parents=True)
+            active.write_text(json.dumps({"mode": "light"}))
+            with (
+                mock.patch.object(settings, "CACHE_HOME", cache),
+                mock.patch.object(settings, "wallpaper_state", return_value={"path": str(wallpaper)}),
+                mock.patch.object(settings, "root_command", return_value="/bin/maho-theme"),
+                mock.patch.object(settings, "run", return_value=(0, "PASS", "")) as runner,
+                mock.patch.object(settings, "intent_set") as persist,
+            ):
+                result = settings.set_appearance_mode("light")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["statePatch"], {"mode": "light"})
+        runner.assert_called_once_with(
+            ["/bin/maho-theme", "apply", str(wallpaper), "light"],
+            timeout=25.0,
+        )
+        persist.assert_called_once_with("appearance.theme.mode", "light")
+
+    def test_reduced_motion_uses_lua_config_before_persisting(self) -> None:
+        with (
+            mock.patch.object(settings, "_hypr_config", return_value=(True, "")) as config,
+            mock.patch.object(settings, "intent_set") as persist,
+        ):
+            result = settings.set_reduced_motion(True)
+        self.assertTrue(result["ok"])
+        config.assert_called_once_with(("animations", "enabled"), False)
+        persist.assert_called_once_with("appearance.reduced_motion", True)
+
+    def test_touchpad_speed_rejects_stale_device(self) -> None:
+        with (
+            mock.patch.object(settings, "snapshot_input", return_value={
+                "available": True, "touchpads": ["live-touchpad"],
+            }),
+            mock.patch.object(settings, "_hypr_set_device_input") as setter,
+        ):
+            result = settings.input_set("touchpadSensitivity", 0.2, "gone-touchpad")
+        self.assertFalse(result["ok"])
+        self.assertIn("no longer available", result["error"])
+        setter.assert_not_called()
+
+    def test_touchpad_speed_persists_by_device_after_live_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            with (
+                mock.patch.object(settings, "INPUT_CONFIG", path),
+                mock.patch.object(settings, "snapshot_input", side_effect=[
+                    {"available": True, "touchpads": ["pad-1"], "touchpadSpeeds": {"pad-1": 0.0}},
+                    {"available": True, "touchpads": ["pad-1"], "touchpadSpeeds": {"pad-1": -0.35}},
+                ]),
+                mock.patch.object(settings, "_hypr_set_device_input", return_value=(True, "")),
+            ):
+                result = settings.input_set("touchpadSensitivity", -0.35, "pad-1")
+            self.assertTrue(result["ok"])
+            payload = json.loads(path.read_text())
+            self.assertEqual(payload["devices"]["pad-1"]["sensitivity"], -0.35)
+
+    def test_persisted_touchpad_speed_skips_stale_device(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "values": {},
+                "devices": {"gone-pad": {"sensitivity": 0.4}},
+            }))
+            with (
+                mock.patch.object(settings, "INPUT_CONFIG", path),
+                mock.patch.object(settings, "snapshot_input", return_value={
+                    "available": True, "touchpads": ["live-pad"],
+                }),
+                mock.patch.object(settings, "_hypr_set_device_input") as setter,
+            ):
+                applied = settings._apply_persisted_input()
+        self.assertEqual(applied, [])
+        setter.assert_not_called()
+
+
+    def test_display_preview_readback_failure_restores_baseline_and_spawns_no_watchdog(self) -> None:
+        snapshot = {
+            "available": True,
+            "enabledCount": 2,
+            "outputs": [
+                {
+                    "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+                    "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                    "modes": [{"resolution": "1920x1080", "refresh": 60.0}],
+                },
+                {
+                    "name": "DP-2", "resolution": "1920x1080", "refresh": 60.0,
+                    "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "enabled": True,
+                    "modes": [{"resolution": "1920x1080", "refresh": 60.0}],
+                },
+            ],
+        }
+        baseline = settings._rows_from_display_snapshot(snapshot)
+        mismatched = [{**baseline[0], "refresh": 144.0}, baseline[1]]
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch.object(settings, "TX_DIR", Path(directory)),
+                mock.patch.object(settings, "snapshot_displays", return_value=snapshot),
+                mock.patch.object(settings, "_apply_display_rows", return_value=(True, "")) as apply_rows,
+                mock.patch.object(settings, "_display_snapshot_rows", side_effect=[mismatched, baseline]),
+                mock.patch.object(settings.subprocess, "Popen") as popen,
+            ):
+                result = settings.display_preview({
+                    "name": "DP-1", "resolution": "1920x1080", "refresh": 60,
+                    "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+                })
+        self.assertFalse(result["ok"])
+        self.assertIn("did not apply", result["error"])
+        self.assertGreaterEqual(apply_rows.call_count, 2)
+        self.assertEqual(apply_rows.call_args_list[-1].args[0], baseline)
+        popen.assert_not_called()
+
+    def test_display_revert_readback_failure_does_not_publish_success_marker(self) -> None:
+        token = "f" * 32
+        baseline = [{
+            "name": "DP-1", "resolution": "1920x1080", "refresh": 60.0,
+            "scale": 1.0, "x": 0, "y": 0, "transform": 0, "enabled": True,
+        }]
+        with tempfile.TemporaryDirectory() as directory:
+            tx_dir = Path(directory)
+            (tx_dir / f"{token}.json").write_text(json.dumps({
+                "version": 1, "token": token, "baseline": baseline,
+                "proposed": baseline, "candidate": baseline[0],
+            }))
+            with (
+                mock.patch.object(settings, "TX_DIR", tx_dir),
+                mock.patch.object(settings, "_apply_display_rows", return_value=(True, "")),
+                mock.patch.object(settings, "_display_snapshot_rows", return_value=[{
+                    **baseline[0], "scale": 1.25,
+                }]),
+            ):
+                result = settings.display_revert(token)
+            self.assertFalse(result["ok"])
+            self.assertFalse((tx_dir / f"{token}.revert").exists())
+            self.assertTrue((tx_dir / f"{token}.json").exists())
+
+    def test_mime_default_rejects_unsupported_mime_before_mutation(self) -> None:
+        with mock.patch.object(settings, "run") as runner:
+            result = settings.application_mime_default("application/x-maho-fake", "fake.desktop")
+        self.assertFalse(result["ok"])
+        runner.assert_not_called()
+
+    def test_mime_default_verification_failure_rolls_back_previous_handler(self) -> None:
+        entries = {
+            "new.desktop": {
+                "id": "new.desktop", "name": "New", "hidden": False,
+                "noDisplay": False, "mimes": ["application/pdf"], "categories": [],
+            },
+        }
+        with (
+            mock.patch.object(settings.shutil, "which", return_value="/usr/bin/xdg-mime"),
+            mock.patch.object(settings, "_application_entries", return_value=entries),
+            mock.patch.object(settings, "_xdg_default", side_effect=["old.desktop", "other.desktop"]),
+            mock.patch.object(settings, "run", side_effect=[(0, "", ""), (0, "", "")]) as runner,
+        ):
+            result = settings.application_mime_default("application/pdf", "new.desktop")
+        self.assertFalse(result["ok"])
+        self.assertIn("rolled back", result["error"])
+        self.assertEqual(
+            runner.call_args_list[-1].args[0],
+            ["/usr/bin/xdg-mime", "default", "old.desktop", "application/pdf"],
+        )
+
+
+
+class NewPageTruthContracts(unittest.TestCase):
+    def test_configuration_writer_stays_read_only_without_live_loader(self) -> None:
+        with (
+            mock.patch.object(settings, "_hypr_config_errors", return_value=([], "")),
+            mock.patch.object(settings, "hypr_prefix", return_value=(["/usr/bin/hyprctl"], "")),
+            mock.patch.object(settings.hypr_config_writer, "status", return_value={
+                "available": False,
+                "mutationAvailable": False,
+                "loaderInstalled": False,
+                "loaderPath": "/tmp/hyprland.lua",
+                "path": "/tmp/settings.lua",
+                "modelPath": "/tmp/hypr-managed.json",
+                "exists": False,
+                "backupCount": 0,
+                "lastWrite": {},
+                "model": {"version": 1},
+                "modelError": "",
+            }),
+        ):
+            state = settings.snapshot_configuration()
+        self.assertTrue(state["available"])
+        self.assertFalse(state["mutationAvailable"])
+        self.assertTrue(state["readOnly"])
+        self.assertFalse(state["writer"]["loaderInstalled"])
+
+    def test_configuration_writer_becomes_mutable_only_when_live_ready(self) -> None:
+        with (
+            mock.patch.object(settings, "_hypr_config_errors", return_value=([], "")),
+            mock.patch.object(settings, "hypr_prefix", return_value=(["/usr/bin/hyprctl"], "")),
+            mock.patch.object(settings.hypr_config_writer, "status", return_value={
+                "available": True,
+                "mutationAvailable": True,
+                "loaderInstalled": True,
+                "loaderPath": "/tmp/hyprland.lua",
+                "path": "/tmp/settings.lua",
+                "modelPath": "/tmp/hypr-managed.json",
+                "exists": True,
+                "backupCount": 2,
+                "lastWrite": {"version": 1},
+                "model": {"version": 1},
+                "modelError": "",
+            }),
+        ):
+            state = settings.snapshot_configuration()
+        self.assertTrue(state["mutationAvailable"])
+        self.assertFalse(state["readOnly"])
+        self.assertEqual(state["writer"]["backupCount"], 2)
+
+    def test_root_command_uses_installed_maho_wrapper_outside_component_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            component = base / "component"
+            home = base / "home"
+            installed = home / ".local" / "bin" / "maho-notify"
+            component.mkdir(parents=True)
+            installed.parent.mkdir(parents=True)
+            installed.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            installed.chmod(0o755)
+            with (
+                mock.patch.object(settings, "ROOT", component),
+                mock.patch.object(settings.Path, "home", return_value=home),
+                mock.patch.object(settings.shutil, "which", return_value=None),
+            ):
+                resolved = settings.root_command("maho-notify")
+        self.assertEqual(resolved, str(installed))
+
+    def test_notify_missing_backend_is_unavailable(self) -> None:
+        with mock.patch.object(settings, "root_command", return_value=None):
+            state = settings.snapshot_notifications()
+        self.assertFalse(state["available"])
+        self.assertFalse(state["globalEnableSupported"])
+
+    def test_applications_report_terminal_authority_absent(self) -> None:
+        with (
+            mock.patch.object(settings, "_application_entries", return_value={}),
+            mock.patch.object(settings, "_autostart_entries", return_value=[]),
+            mock.patch.object(settings, "_xdg_default", return_value=""),
+            mock.patch.object(settings.shutil, "which", side_effect=lambda name: "/usr/bin/xdg-mime" if name == "xdg-mime" else None),
+        ):
+            state = settings.snapshot_applications()
+        self.assertTrue(state["available"])
+        self.assertFalse(state["terminalControlAvailable"])
+        self.assertIn("authority", state["terminalError"])
+
+
+
+class AdvancedHyprMutationContracts(unittest.TestCase):
+    def empty_model(self) -> dict:
+        return {
+            "version": 1,
+            "variables": [],
+            "environment": [],
+            "unbinds": [],
+            "binds": [],
+            "submaps": [],
+            "windowRules": [],
+            "workspaceRules": [],
+            "layerRules": [],
+            "curves": [],
+            "animations": [],
+            "startup": [],
+        }
+
+    def test_submap_shortcut_override_is_scoped(self) -> None:
+        collection = {"binds": [{"keys": "N", "submap": "media", "command": "old"}]}
+        with (
+            mock.patch.object(settings, "_collect_hypr_config", return_value=(collection, "")),
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(self.empty_model(), "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,
+            mock.patch.object(settings, "snapshot_shortcuts", return_value={"available": True}),
+        ):
+            result = settings.shortcut_upsert(
+                "N", "playerctl next", "Next", submap="media", replace_existing=True
+            )
+        self.assertTrue(result["ok"])
+        model = apply.call_args.args[0]
+        self.assertEqual(model["binds"][0]["submap"], "media")
+        self.assertEqual(model["unbinds"], [{"keys": "N", "submap": "media"}])
+
+    def test_workspace_rule_edit_only_replaces_owned_model_entry(self) -> None:
+        model = self.empty_model()
+        model["workspaceRules"] = [{"workspace": "1", "monitor": "eDP-1"}]
+        with (
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(model, "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,
+            mock.patch.object(settings, "snapshot_rules", return_value={"available": True}),
+        ):
+            result = settings.workspace_rule_upsert(
+                {"workspace": "1", "monitor": "DP-1"},
+                original_fields={"workspace": "1", "monitor": "eDP-1"},
+            )
+        self.assertTrue(result["ok"])
+        written = apply.call_args.args[0]["workspaceRules"]
+        self.assertEqual(written, [{"workspace": "1", "monitor": "DP-1"}])
+
+    def test_session_writer_rejects_reload_lifecycle(self) -> None:
+        with mock.patch.object(settings, "_apply_managed_hypr_model") as apply:
+            result = settings.session_startup_upsert("echo nope", "reload")
+        self.assertFalse(result["ok"])
+        self.assertIn("login or shutdown", result["error"])
+        apply.assert_not_called()
+
+    def test_motion_animation_rejects_unbounded_speed(self) -> None:
+        with mock.patch.object(settings, "_apply_managed_hypr_model") as apply:
+            result = settings.motion_animation_upsert(
+                "windows", True, 500.0, "default", "slide"
+            )
+        self.assertFalse(result["ok"])
+        apply.assert_not_called()
+
+    def test_motion_curve_refuses_new_runtime_only_name(self) -> None:
+        with (
+            mock.patch.object(settings, "_collect_hypr_config", return_value=({"curves": []}, "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model") as apply,
+        ):
+            result = settings.motion_curve_upsert(
+                "brandNewCurve", 0.25, 0.1, 0.25, 1.0
+            )
+        self.assertFalse(result["ok"])
+        self.assertIn("does not remove", result["error"])
+        apply.assert_not_called()
+
+    def test_motion_curve_reset_verifies_underlying_live_points(self) -> None:
+        overlay = "/tmp/maho-user-settings.lua"
+        system = "/tmp/animations.lua"
+        collection = {
+            "curves": [
+                {
+                    "name": "wind",
+                    "fields": {"points": [[0.05, 0.9], [0.1, 1.05]]},
+                    "source_file": system,
+                },
+                {
+                    "name": "wind",
+                    "fields": {"points": [[0.2, 0.2], [0.8, 0.8]]},
+                    "source_file": overlay,
+                },
+            ]
+        }
+        model = self.empty_model()
+        model["curves"] = [{"name": "wind", "points": [[0.2, 0.2], [0.8, 0.8]]}]
+
+        def apply_and_verify(updated, verify=None):
+            observed = {
+                "curves": [
+                    {
+                        "name": "wind",
+                        "fields": {"points": [[0.05, 0.9], [0.1, 1.05]]},
+                        "source_file": system,
+                    }
+                ]
+            }
+            self.assertTrue(verify(observed))
+            return True, observed, ""
+
+        live = [[], [{
+            "name": "wind", "X0": 0.05, "Y0": 0.9, "X1": 0.1, "Y1": 1.05
+        }]]
+        with (
+            mock.patch.object(settings, "_collect_hypr_config", return_value=(collection, "")),
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(model, "")),
+            mock.patch.object(
+                settings.hypr_config_writer,
+                "status",
+                return_value={"path": overlay},
+            ),
+            mock.patch.object(settings, "_apply_managed_hypr_model", side_effect=apply_and_verify),
+            mock.patch.object(settings, "hypr_json", return_value=(live, "")),
+            mock.patch.object(settings, "snapshot_motion", return_value={"available": True}),
+        ):
+            result = settings.motion_curve_reset("wind")
+        self.assertTrue(result["ok"])
+
+    def test_configuration_reset_writes_empty_managed_model(self) -> None:
+        with (
+            mock.patch.object(settings, "_apply_managed_hypr_model", return_value=(True, {}, "")) as apply,
+            mock.patch.object(settings, "snapshot_configuration", return_value={"healthy": True}),
+        ):
+            result = settings.configuration_reset()
+        self.assertTrue(result["ok"])
+        self.assertEqual(apply.call_args.args[0], {"version": settings.hypr_config_writer.MODEL_VERSION})
+
+    def test_rule_edit_refuses_unknown_managed_id(self) -> None:
+        with (
+            mock.patch.object(settings, "_managed_hypr_model", return_value=(self.empty_model(), "")),
+            mock.patch.object(settings, "_apply_managed_hypr_model") as apply,
+        ):
+            result = settings.rule_upsert(
+                "window",
+                "Float test",
+                {"class": "test"},
+                {"float": True},
+                rule_id="missing-id",
+            )
+        self.assertFalse(result["ok"])
+        self.assertIn("Maho-owned", result["error"])
+        apply.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

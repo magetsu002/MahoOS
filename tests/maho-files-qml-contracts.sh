@@ -246,6 +246,8 @@ require_text "$MODEL_CPP" 'timeline:/recent' "rolling Recent destination is miss
 require_text "$MODEL_CPP" 'QDate::currentDate().addDays(-6)' "Recent is not bounded to a seven-day window"
 require_text "$MODEL_CPP" 'KIO::OpenUrlJob' "regular file opening does not use native KIO launcher"
 require_text "$MODEL_CPP" 'KIO::ApplicationLauncherJob' "Open With does not use native KDE application chooser"
+require_text "$MODEL_CPP" 'XDG MIME association' "Open With does not document the shared XDG association authority"
+reject_text "$MODEL_CPP" 'mimeapps.list' "Maho Files introduced a private/default-association writer instead of using KIO/XDG authority"
 require_text "$MODEL_CPP" 'copyPathIndex' "Copy Path action is missing"
 require_text "$MODEL_CPP" 'duplicateIndex' "Duplicate action is missing"
 require_text "$MODEL_CPP" 'propertiesText' "Properties action is missing"

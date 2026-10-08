@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Maho Settings Session Preferences
+Comment=Apply confirmed user display and input preferences
+Exec=maho-settings apply-session
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

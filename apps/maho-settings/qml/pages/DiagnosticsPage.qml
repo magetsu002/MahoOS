@@ -1,0 +1,104 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import "../components"
+
+Item {
+    id: root
+    required property var bridge
+    required property var themePalette
+    readonly property var pageState: bridge && bridge.state.diagnostics ? bridge.state.diagnostics : ({})
+
+    MahoSettingsTheme {
+        id: theme
+        palette: root.themePalette
+        reducedTransparency: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedTransparency : false
+        reducedMotion: root.bridge && root.bridge.state.appearance
+            ? !!root.bridge.state.appearance.reducedMotion : false
+    }
+
+    ScrollView {
+        anchors.fill: parent
+        clip: true
+        ScrollBar.vertical: MahoScrollBar { foreground: theme.textPrimary; reducedMotion: theme.reducedMotion }
+
+        ColumnLayout {
+            width: Math.max(0, root.width - 12)
+            spacing: 12
+
+            PageHeader {
+                title: "Diagnostics"
+                subtitle: "Configuration health and Settings providers"
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+            }
+
+            Item { Layout.preferredHeight: 6 }
+
+            SettingCard {
+                title: root.pageState.configurationHealthy ? "Configuration healthy" : "Configuration issue detected"
+                description: root.pageState.configurationHealthy
+                    ? "Hyprland reports no active configuration errors."
+                    : ((root.pageState.configErrors || []).join("\n") || root.pageState.providerError || "Configuration health could not be confirmed.")
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+            }
+
+            SettingCard {
+                visible: (root.pageState.batteries || []).length > 0
+                title: "Battery"
+                description: "Battery condition and charge are diagnostic information, not a separate control surface."
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+
+                Repeater {
+                    model: root.pageState.batteries || []
+
+                    delegate: MahoInsetRow {
+                        required property var modelData
+                        required property int index
+                        title: modelData.model || modelData.name || "Battery"
+                        description: modelData.health >= 0
+                            ? Number(modelData.health).toFixed(1).replace(".0", "") + "% health"
+                            : ""
+                        trailingText: modelData.capacity >= 0
+                            ? modelData.capacity + "% · " + modelData.status
+                            : modelData.status
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                        dividerVisible: index < (root.pageState.batteries || []).length - 1
+                    }
+                }
+            }
+
+            SettingCard {
+                title: "Settings providers"
+                description: "Availability only. This page does not claim system health or Guardian trust."
+                surface: theme.surfaceElevated
+                borderColor: theme.rowRim
+                foreground: theme.textPrimary
+                muted: theme.textSecondary
+
+                Repeater {
+                    model: root.pageState.providers || []
+                    delegate: MahoInsetRow {
+                        required property var modelData
+                        title: modelData.name
+                        trailingText: modelData.available ? "Available" : "Unavailable"
+                        foreground: theme.textPrimary
+                        muted: theme.textSecondary
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: 8 }
+        }
+    }
+}
