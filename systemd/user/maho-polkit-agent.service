@@ -1,0 +1,14 @@
+[Unit]
+Description=MahoOS graphical PolicyKit authentication agent
+After=graphical-session.target
+PartOf=maho-hyprland-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/maho-polkit-agent run
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=maho-hyprland-session.target
