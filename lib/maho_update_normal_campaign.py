@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 from typing import Any, Mapping, Sequence
@@ -19,7 +20,7 @@ from maho_update_normal_authority import (
 )
 from maho_update_normal_host import NormalProductionOps
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction
-from maho_update_state import UpdateState, publish_transaction
+from maho_update_state import UpdateState, publish_transaction, read_transaction, transaction_path
 
 STATE_ROOT = Path("/var/lib/maho/update")
 SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
@@ -111,6 +112,20 @@ def _require_positive(value: Mapping[str, Any], stage: str) -> dict[str, Any]:
     return dict(value)
 
 
+def _require_certification_slot(root: Path = STATE_ROOT) -> None:
+    pointer = root / 'current'
+    if not pointer.exists() and not pointer.is_symlink():
+        return
+    if pointer.is_symlink() or not pointer.is_file():
+        raise RuntimeError('normal certification pointer invalid')
+    transaction_id = pointer.read_text().strip()
+    if re.fullmatch(r'upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}', transaction_id) is None:
+        raise RuntimeError('normal certification transaction id invalid')
+    current = read_transaction(transaction_path(root, transaction_id))
+    if current['state'] not in ('HEALTHY', 'RECOVERED'):
+        raise RuntimeError('normal_certification_would_replace_unresolved_update_transaction')
+
+
 def certify_normal_update(
     target_packages: Sequence[str], confirmation: str, *, preflight_only: bool = False,
 ) -> dict[str, Any]:
@@ -129,6 +144,7 @@ def certify_normal_update(
         raise RuntimeError("normal certification power policy is not satisfied")
     if Path("/var/lib/pacman/db.lck").exists():
         raise RuntimeError("live Pacman lock exists")
+    _require_certification_slot()
 
     CACHE_ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
     os.chmod(CACHE_ROOT, 0o755)

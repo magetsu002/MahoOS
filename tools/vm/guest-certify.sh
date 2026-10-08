@@ -353,6 +353,14 @@ case "$PROFILE" in
   fresh-user) fresh_profile;;
   update-freeze) update_profile;;
   autonomy-convergence) autonomy_convergence_profile;;
+  autonomy-authority)
+    isolation
+    for target in normal_authority normal_certification_slot; do
+      name="test_maho_update_${target}.py"
+      echo "RUN changed-boundary $name"
+      PYTHONPATH=/mnt/maho-src/lib python3 "/mnt/maho-src/tests/$name"
+    done
+    ;;
   autonomy-selection)
     isolation
     for target in boot_selection discovery effects staging normal; do
