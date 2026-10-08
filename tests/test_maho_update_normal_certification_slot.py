@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """No manual certification may steal an unresolved automatic update pointer."""
 from pathlib import Path
+import json
 import sys
 import tempfile
 import unittest
@@ -29,8 +30,35 @@ class NormalCertificationOwnership(unittest.TestCase):
                           'BLOCKED'):
                 with self.subTest(state=state), patch.object(campaign, 'read_transaction',
                         return_value={'state': state}):
-                    with self.assertRaisesRegex(RuntimeError, 'replace_unresolved'):
+                    with self.assertRaisesRegex(RuntimeError, 'replace_unresolved|coordinator_evidence_unavailable'):
                         campaign._require_certification_slot(root)
+
+    def test_prepared_coordinator_may_coexist_only_when_nonmutating(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'current').write_text(TXID + '\n')
+            state = {
+                'active_transaction_id': TXID, 'source_revision': 'a' * 40,
+                'phase': 'WAITING_MAINTENANCE', 'lane': 'normal',
+                'live_root_mutation_started': False, 'reboot_required': False,
+            }
+            coordinator = root / 'coordinator.json'
+            with patch.object(campaign, 'read_transaction',
+                              return_value={'state':'PREPARED', 'source_revision':'a'*40}):
+                coordinator.write_text(json.dumps(state))
+                campaign._require_certification_slot(root)
+                for key, invalid in (
+                    ('phase', 'INSTALLING'), ('lane', 'native'),
+                    ('live_root_mutation_started', True),
+                    ('active_transaction_id', 'upd-20261008T121030Z-db28c88520c6'),
+                    ('source_revision', 'b' * 40),
+                    ('reboot_required', True),
+                ):
+                    with self.subTest(key=key):
+                        changed = dict(state, **{key:invalid})
+                        coordinator.write_text(json.dumps(changed))
+                        with self.assertRaisesRegex(RuntimeError, 'replace_unresolved'):
+                            campaign._require_certification_slot(root)
 
     def test_only_verified_terminal_transaction_may_be_replaced(self):
         with tempfile.TemporaryDirectory() as temp:

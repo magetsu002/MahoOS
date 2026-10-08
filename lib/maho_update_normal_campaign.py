@@ -20,7 +20,10 @@ from maho_update_normal_authority import (
 )
 from maho_update_normal_host import NormalProductionOps
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction
-from maho_update_state import UpdateState, publish_transaction, read_transaction, transaction_path
+from maho_update_state import (
+    UpdateState, publish_transaction, read_transaction, transaction_path,
+    write_transaction,
+)
 
 STATE_ROOT = Path("/var/lib/maho/update")
 SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
@@ -122,8 +125,35 @@ def _require_certification_slot(root: Path = STATE_ROOT) -> None:
     if re.fullmatch(r'upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}', transaction_id) is None:
         raise RuntimeError('normal certification transaction id invalid')
     current = read_transaction(transaction_path(root, transaction_id))
-    if current['state'] not in ('HEALTHY', 'RECOVERED'):
-        raise RuntimeError('normal_certification_would_replace_unresolved_update_transaction')
+    if current['state'] in ('HEALTHY', 'RECOVERED'):
+        return
+    if current['state'] == 'PREPARED':
+        try:
+            coordinator = json.loads((root / 'coordinator.json').read_text())
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise RuntimeError('normal_certification_coordinator_evidence_unavailable') from exc
+        if (
+            isinstance(coordinator, dict)
+            and coordinator.get('active_transaction_id') == transaction_id
+            and coordinator.get('source_revision') == current['source_revision']
+            and coordinator.get('phase') == 'WAITING_MAINTENANCE'
+            and coordinator.get('lane') == 'normal'
+            and coordinator.get('live_root_mutation_started') is False
+            and coordinator.get('reboot_required') is not True
+        ):
+            return
+    raise RuntimeError('normal_certification_would_replace_unresolved_update_transaction')
+
+
+def _record_certification_transaction(
+    transaction: Mapping[str, Any], *, preflight_only: bool, work: Path,
+) -> None:
+    if preflight_only:
+        publish_transaction(work / 'state', transaction)
+    else:
+        # The coordinator keeps sole ownership of /var/lib/maho/update/current.
+        # Write the certification's durable journal under its own transaction ID.
+        write_transaction(transaction_path(STATE_ROOT, transaction['transaction_id']), transaction)
 
 
 def certify_normal_update(
@@ -152,9 +182,8 @@ def certify_normal_update(
     work = CACHE_ROOT / f"run-{os.getpid()}-{secrets.token_hex(6)}"
     work.mkdir(mode=0o755, parents=True, exist_ok=False)
     os.chmod(work, 0o755)
-    # A disposable preflight must not publish a PREPARED current transaction.
-    # Otherwise the autonomous coordinator would inherit an orphaned candidate.
-    publication_root = work / "state" if preflight_only else STATE_ROOT
+    # Certification has its own journal; neither preflight nor an explicit
+    # physical certification may replace the coordinator's current pointer.
     txid = None
     btrfs = None
     candidate = None
@@ -166,7 +195,7 @@ def certify_normal_update(
         )
         transaction = result.transaction
         txid = transaction["transaction_id"]
-        publish_transaction(publication_root, transaction)
+        _record_certification_transaction(transaction, preflight_only=preflight_only, work=work)
         cache = work / "staging"
         staging = IsolatedPacmanStaging(Path(result.isolated_db), cache, config_path=config)
         free = shutil.disk_usage("/").free
@@ -178,7 +207,7 @@ def certify_normal_update(
             raise RuntimeError("certification target became boot-critical after exact artifact inspection")
         if effects.get("effects") != ["ordinary-files"] or effects.get("activation_requirements") != []:
             raise RuntimeError("first normal certification is limited to ordinary-files with no activation requirement")
-        publish_transaction(publication_root, staged.transaction)
+        _record_certification_transaction(staged.transaction, preflight_only=preflight_only, work=work)
 
         btrfs = NativeBtrfsOps(txid, run_root=RUN_ROOT)
         btrfs.root_identity()
@@ -195,7 +224,7 @@ def certify_normal_update(
         )
         if prep.transaction["state"] != UpdateState.PREPARED.value:
             raise RuntimeError("normal certification preparation did not reach PREPARED")
-        publish_transaction(publication_root, prep.transaction)
+        _record_certification_transaction(prep.transaction, preflight_only=preflight_only, work=work)
 
         candidate = btrfs.create_candidate()
         ops = NormalProductionOps(
@@ -244,7 +273,7 @@ def certify_normal_update(
         execution = execute_normal_certification(
             prep.transaction, prep.plan, ops, confirmation=confirmation,
         )
-        publish_transaction(STATE_ROOT, execution.transaction)
+        _record_certification_transaction(execution.transaction, preflight_only=False, work=work)
         if execution.transaction["state"] != UpdateState.HEALTHY.value:
             raise RuntimeError("normal certification execution did not reach HEALTHY")
         if ops.admission is None or ops.last_verification is None or not ops.last_verification.get("ok"):
