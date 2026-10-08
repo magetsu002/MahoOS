@@ -47,7 +47,7 @@ TERMINAL_KITTY_CONFIG="$CONFIG_HOME/kitty/kitty.conf"
 COMMANDS=(
   maho mahoctl maho-theme maho-wallpaper maho-wallpaper-session maho-observe
   maho-adapt maho-adaptive maho-provenance maho-security maho-security-monitor maho-guard maho-guardian-watch
-  maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock maho-kbdlight
+  maho-contain maho-shell maho-notify maho-session maho-launcher maho-dock maho-kbdlight maho-polkit-agent
   maho-files maho-link maho-settings maho-lock maho-power maho-update maho-clipboard maho-trust maho-firewall maho-firewall-certify maho-memory-certify
   maho-clipboard-history maho-lock-sddm-install maho-platform-install maho-storage-health maho-generation-gc maho-aur-build maho-guardian-runtime-recovery-certify
   maho-vesktop-guard maho-vesktop-install maho-terminal-dashboard maho-terminal-theme maho-terminal-install maho-setup
@@ -63,6 +63,7 @@ GRAPHICAL_UNITS=(
   maho-notify.service
   maho-clipboard-history.service
   maho-adaptive.service
+  maho-polkit-agent.service
 )
 SESSION_TARGET_UNIT=maho-hyprland-session.target
 UNITS=("${CORE_UNITS[@]}" "${STARTUP_UNITS[@]}" "${GRAPHICAL_UNITS[@]}" "${PASSIVE_UNITS[@]}" "$SESSION_TARGET_UNIT")
@@ -305,7 +306,7 @@ preflight() {
     config/quickshell/maho-launcher/shell.qml config/quickshell/maho-link/shell.qml
     config/quickshell/maho-lock/shell.qml config/quickshell/maho-power/shell.qml
     config/quickshell/maho-clipboard/shell.qml "$FILES_DESKTOP_REL"
-    apps/maho-files/CMakeLists.txt lib/maho_app_model.py lib/maho_launcher_backend.py
+    apps/maho-files/CMakeLists.txt apps/maho-polkit-agent/CMakeLists.txt apps/maho-polkit-agent/src/main.c lib/maho_app_model.py lib/maho_launcher_backend.py
     lib/maho_terminal_theme.py config/kitty/maho.conf config/zshrc/maho-dashboard.zsh config/zshrc/30-maho-dashboard
     config/fastfetch/config.jsonc config/fastfetch/config-narrow.jsonc config/fastfetch/config-tiny.jsonc
   )
@@ -355,7 +356,7 @@ preflight() {
     "$ROOT/adapters/notifications/adaptive-quiet.sh" \
     "$ROOT/adapters/updates/adaptive-maintenance-veto.sh" >/dev/null 2>&1 || { echo "FAIL  shared shell syntax"; failed=1; }
   [ "$failed" -eq 0 ] && echo "PASS  preflight"
-  for name in journalctl quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja; do report_capability "$name"; done
+  for name in journalctl quickshell awww-daemon brightnessctl wpctl nmcli bluetoothctl wl-paste wl-copy cliphist cmake ninja pkg-config; do report_capability "$name"; done
   return "$failed"
 }
 
@@ -372,7 +373,7 @@ validate_targets() {
 }
 
 build_release() {
-  local stage hash final revision provenance dir native_build source_key
+  local stage hash final revision provenance dir native_build source_key agent_build agent_source_key
   mkdir -p "$RELEASES"; stage="$RELEASES/.staging-$$"; mkdir -m 0755 "$stage"
   for dir in bin lib adapters config theme systemd share apps; do [ -e "$ROOT/$dir" ] && cp -a -- "$ROOT/$dir" "$stage/$dir"; done
   find "$stage" -type d -name __pycache__ -prune -exec rm -rf -- {} +
@@ -394,6 +395,25 @@ build_release() {
   MAHO_ROOT="$stage" "$stage/bin/maho-files" run --source-fingerprint >/dev/null || {
     rm -rf -- "$stage"
     die "native Maho Files artifact does not match staged runtime source"
+    return 1
+  }
+
+  if [ ! -x "$stage/apps/maho-polkit-agent/prebuilt/maho-polkit-agent" ]; then
+    agent_source_key="$(printf '%s\n' "$ROOT/apps/maho-polkit-agent" | sha256sum | awk '{print $1}')"
+    agent_build="${XDG_CACHE_HOME:-$HOME/.cache}/maho/polkit-agent-release-build-$agent_source_key"
+    if ! cmake -S "$ROOT/apps/maho-polkit-agent" -B "$agent_build" -G Ninja -DCMAKE_BUILD_TYPE=Release >&2 ||
+       ! cmake --build "$agent_build" --parallel >&2; then
+      rm -rf -- "$stage"
+      die "could not build the native Maho PolicyKit Agent release artifact"
+      return 1
+    fi
+    mkdir -p "$stage/apps/maho-polkit-agent/prebuilt"
+    install -m 0755 "$agent_build/maho-polkit-agent" "$stage/apps/maho-polkit-agent/prebuilt/maho-polkit-agent"
+  fi
+
+  "$stage/apps/maho-polkit-agent/prebuilt/maho-polkit-agent" --self-test >/dev/null || {
+    rm -rf -- "$stage"
+    die "native Maho PolicyKit Agent failed deterministic self-tests"
     return 1
   }
 
