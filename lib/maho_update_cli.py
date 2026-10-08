@@ -14,6 +14,8 @@ from maho_update_normal_authority import DEFAULT_AUTHORITY_PATH, load_normal_exe
 from maho_update_state import read_transaction, transaction_path
 
 _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
+_SHA40 = re.compile(r"[0-9a-f]{40}")
+DEFAULT_CAMPAIGN_ROOT = Path("/usr/lib/maho/update-campaign/current")
 
 
 def state_root() -> Path:
@@ -67,28 +69,34 @@ def failed_closed_status(reason: str) -> dict[str, Any]:
     }
 
 
-def _runtime_source_revision(maho_root: Path | None = None) -> str | None:
-    root = Path(os.environ.get("MAHO_ROOT", "")) if maho_root is None else Path(maho_root)
-    path = root / "share/maho/runtime-source-revision"
+def _campaign_source_revision(campaign_root: Path | None = None) -> str | None:
+    root = (
+        Path(os.environ.get("MAHO_UPDATE_CAMPAIGN_ROOT", str(DEFAULT_CAMPAIGN_ROOT)))
+        if campaign_root is None else Path(campaign_root)
+    )
+    path = root / "SOURCE_REVISION"
     try:
         value = path.read_text(encoding="utf-8").strip()
     except OSError:
         return None
-    return value if re.fullmatch(r"[0-9a-f]{40}", value) else None
+    return value if _SHA40.fullmatch(value) else None
 
 
 def _attach_normal_authority(
-    status: dict[str, Any], *, maho_root: Path | None = None,
+    status: dict[str, Any], *, campaign_root: Path | None = None,
     authority_path: Path = DEFAULT_AUTHORITY_PATH,
 ) -> dict[str, Any]:
-    revision = _runtime_source_revision(maho_root)
+    revision = _campaign_source_revision(campaign_root)
     status["normal_execution_certified"] = False
     status["normal_authority_state"] = "absent"
     status["normal_authority_id"] = None
     status["normal_certified_profile"] = None
     status["normal_certified_effects"] = []
     status["normal_certified_activation_requirements"] = []
-    if revision is None or not authority_path.exists():
+    if not authority_path.exists():
+        return status
+    if revision is None:
+        status["normal_authority_state"] = "campaign-unavailable"
         return status
     try:
         authority = load_normal_execution_authority(source_revision=revision, path=authority_path)
@@ -117,9 +125,15 @@ def _coordinator_status(root: Path) -> dict[str, Any] | None:
 
 def _attach_coordinator(status: dict[str, Any], root: Path) -> dict[str, Any]:
     coordinator = _coordinator_status(root)
+    if coordinator is None:
+        coordinator = {
+            "schema_version": 1,
+            "phase": "UNAVAILABLE",
+            "blockers": ["coordinator_state_unavailable"],
+        }
     status["coordinator"] = coordinator
-    status["coordinator_phase"] = coordinator.get("phase") if coordinator else None
-    status["update_debt_seconds"] = coordinator.get("update_debt_seconds", 0) if coordinator else 0
+    status["coordinator_phase"] = coordinator.get("phase")
+    status["update_debt_seconds"] = coordinator.get("update_debt_seconds", 0)
     return status
 
 
@@ -148,6 +162,8 @@ def _presentation_status(status: dict[str, Any]) -> str:
         if coordinator_phase == "VERIFYING_AFTER_RESTART":
             return "Verifying after restart"
         return "Ready to restart"
+    if coordinator_phase == "UNAVAILABLE" and state in {"", "NONE", "HEALTHY"}:
+        return "Blocked: coordinator_state_unavailable"
     if coordinator_phase == "UP_TO_DATE":
         return "Up to date"
     if coordinator_phase in {"CHECKING", "COALESCED"}:
@@ -179,13 +195,15 @@ def _presentation_status(status: dict[str, Any]) -> str:
 def status_payload(
     root: Path, *, maho_root: Path | None = None,
     authority_path: Path = DEFAULT_AUTHORITY_PATH,
+    campaign_root: Path | None = None,
 ) -> dict[str, Any]:
     try:
         transaction = current_transaction(root)
         history = load_history(root)
         if transaction is None:
             status = _attach_normal_authority(
-                unavailable_status(root), maho_root=maho_root, authority_path=authority_path,
+                unavailable_status(root), campaign_root=campaign_root,
+                authority_path=authority_path,
             )
             status = _attach_coordinator(status, root)
             status["presentation_status"] = _presentation_status(status)
@@ -193,15 +211,15 @@ def status_payload(
         status = product_status(transaction, history=history)
         status["history_count"] = len(history)
         status = _attach_normal_authority(
-            status, maho_root=maho_root, authority_path=authority_path,
+            status, campaign_root=campaign_root, authority_path=authority_path,
         )
         status = _attach_coordinator(status, root)
         status["presentation_status"] = _presentation_status(status)
         return status
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
         status = _attach_normal_authority(
-            failed_closed_status("authoritative_update_state_unreadable"),
-            maho_root=maho_root, authority_path=authority_path,
+            failed_closed_status("authoritative_update_state_unreadable"), campaign_root=campaign_root,
+            authority_path=authority_path,
         )
         status = _attach_coordinator(status, root)
         status["presentation_status"] = _presentation_status(status)

@@ -17,6 +17,10 @@ import stat
 from typing import Any, Mapping
 
 from maho_runtime_release import verify_release
+from maho_adaptive_maintenance_state import (
+    MaintenanceVetoError,
+    maintenance_gate_for_user,
+)
 from maho_update_campaign import (
     _generation_is_current,
     _power_evidence,
@@ -274,6 +278,12 @@ def _runtime_identity(user: str) -> dict[str, Any]:
     verification = verify_release(base / "current", base / "releases")
     if not verification.verified or not verification.content_sha256 or not verification.source_revision:
         raise RuntimeError("current immutable Maho runtime is not verified")
+    if (
+        verification.deployment_class != "production"
+        or verification.source_dirty is not False
+        or verification.trust_eligible is not True
+    ):
+        raise RuntimeError("current_immutable_maho_runtime_not_production_trust_eligible")
     return verification.as_dict()
 
 
@@ -494,7 +504,16 @@ def _read_adaptive_status(user: str, now: datetime) -> dict[str, Any]:
     return dict(raw)
 
 
-def _adaptive_ready(raw: Mapping[str, Any]) -> tuple[bool, list[str]]:
+def _adaptive_ready(
+    raw: Mapping[str, Any],
+    maintenance_gate: Mapping[str, Any] | None = None,
+) -> tuple[bool, list[str]]:
+    if maintenance_gate is not None and maintenance_gate.get("veto_active") is True:
+        source = maintenance_gate.get("source_policy")
+        reason = "adaptive_maintenance_suspended"
+        if isinstance(source, str) and source:
+            reason += ":" + source
+        return False, [reason]
     posture = raw.get("active_posture")
     if not isinstance(posture, Mapping) or posture.get("maintenance") != "eligible":
         return False, ["adaptive_maintenance_not_eligible"]
@@ -536,6 +555,19 @@ def _adaptive_ready(raw: Mapping[str, Any]) -> tuple[bool, list[str]]:
     return not reasons, reasons
 
 
+def _adaptive_evidence(
+    user: str,
+    now: datetime,
+) -> tuple[dict[str, Any], dict[str, Any], bool, list[str]]:
+    raw = _read_adaptive_status(user, now)
+    try:
+        gate = maintenance_gate_for_user(user, now=now)
+    except MaintenanceVetoError as exc:
+        raise RuntimeError("adaptive_maintenance_veto_unsafe:" + str(exc)) from exc
+    ready, reasons = _adaptive_ready(raw, gate)
+    return raw, gate, ready, reasons
+
+
 def _maintenance_transition(
     transaction: Mapping[str, Any],
     state: Mapping[str, Any],
@@ -555,14 +587,15 @@ def _maintenance_transition(
             "reasons": ["normal_execution_authority_" + authority_state.replace("-", "_")],
             "normal_execution_authority": authority_state,
         }
-    adaptive = _read_adaptive_status(user, now)
-    ready, adaptive_reasons = _adaptive_ready(adaptive)
+    adaptive, gate, ready, adaptive_reasons = _adaptive_evidence(user, now)
     if not ready:
         return current, {
             "ready": False,
             "reasons": adaptive_reasons,
             "adaptive_snapshot_id": adaptive.get("snapshot_id"),
             "adaptive_captured_at": adaptive.get("captured_at"),
+            "adaptive_veto_active": gate.get("veto_active"),
+            "adaptive_veto_source_policy": gate.get("source_policy"),
         }
     if not _generation_is_current(current):
         blocked = transition_transaction(
@@ -634,6 +667,8 @@ def _maintenance_transition(
         "runtime_identity": dict(runtime),
         "adaptive_snapshot_id": adaptive.get("snapshot_id"),
         "adaptive_captured_at": adaptive.get("captured_at"),
+        "adaptive_veto_active": gate.get("veto_active"),
+        "adaptive_veto_source_policy": gate.get("source_policy"),
         "evidence_fresh": True,
         "recovery_ready": recovery_ready,
         "disk_ready": disk_ready,
@@ -667,14 +702,15 @@ def _execution_repository_observation(repo: Mapping[str, Any]) -> dict[str, str]
 
 
 def _execution_maintenance_observation(user: str, now: datetime) -> dict[str, Any]:
-    raw = _read_adaptive_status(user, now)
-    ready, reasons = _adaptive_ready(raw)
+    raw, gate, ready, reasons = _adaptive_evidence(user, now)
     if not ready:
         raise RuntimeError("maintenance_opportunity_revoked:" + ",".join(reasons))
     return {
         "safe": True,
         "snapshot_id": raw.get("snapshot_id"),
         "captured_at": raw.get("captured_at"),
+        "veto_active": gate.get("veto_active"),
+        "veto_source_policy": gate.get("source_policy"),
         "decision_at": stamp(now),
     }
 
@@ -694,10 +730,10 @@ def _fresh_ready_normal_evidence(
     if authority_state != "current":
         reasons.append("normal_execution_authority_" + authority_state.replace("-", "_"))
     try:
-        adaptive = _read_adaptive_status(user, now)
-        adaptive_ready, adaptive_reasons = _adaptive_ready(adaptive)
+        adaptive, gate, adaptive_ready, adaptive_reasons = _adaptive_evidence(user, now)
     except RuntimeError as exc:
         adaptive = {}
+        gate = {}
         adaptive_ready = False
         adaptive_reasons = [str(exc).split(":", 1)[0]]
     if not adaptive_ready:
@@ -746,6 +782,8 @@ def _fresh_ready_normal_evidence(
         "source_revision": current["source_revision"],
         "adaptive_snapshot_id": adaptive.get("snapshot_id"),
         "adaptive_captured_at": adaptive.get("captured_at"),
+        "adaptive_veto_active": gate.get("veto_active"),
+        "adaptive_veto_source_policy": gate.get("source_policy"),
         "repository_hashes": dict(value.get("repository_hashes") or {}),
         "repository_observed_at": value.get("repository_observed_at"),
         "available_disk_bytes": available,
@@ -1719,8 +1757,6 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
     with coordinator_mutex():
         user = _coordinator_user()
         runtime = _runtime_identity(user)
-        if runtime.get("source_revision") != source_revision:
-            raise RuntimeError("immutable_runtime_source_revision_mismatch")
         policy = json.loads((root / "config/platform.json").read_text(encoding="utf-8"))
         repo = _repo_contract(policy)
         if previous and previous.get("source_revision") == source_revision:

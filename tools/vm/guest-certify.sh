@@ -121,6 +121,66 @@ update_profile() {
   update_tests
 }
 
+autonomy_convergence_profile() {
+  isolation
+  install_fresh
+  local campaign_repo=/var/tmp/maho-autonomy-campaign
+  git clone --no-checkout "$E/source.bundle" "$campaign_repo"
+  git -C "$campaign_repo" checkout --detach "$REV"
+  bash "$campaign_repo/bin/maho-update-campaign-install" install \
+    --repo "$campaign_repo" --revision "$REV"
+
+  local unit
+  for unit in \
+    maho-update-coordinator.service \
+    maho-update-coordinator.timer \
+    maho-update-activate-on-reboot.service; do
+    cmp "$SRC/config/systemd/system/$unit" "/usr/lib/systemd/system/$unit"
+    echo "PASS  installed exact $unit"
+  done
+  systemctl is-enabled --quiet maho-update-coordinator.timer
+  systemctl is-active --quiet maho-update-coordinator.timer
+  systemctl is-enabled --quiet maho-update-activate-on-reboot.service
+  systemctl is-active --quiet maho-update-activate-on-reboot.service
+  echo "PASS  automatic coordinator and explicit-reboot sentinel are enabled and active"
+
+  local deadline=$((SECONDS + 150))
+  while [ ! -r /var/lib/maho/update/coordinator.json ] && [ "$SECONDS" -lt "$deadline" ]; do
+    sleep 1
+  done
+  [ -r /var/lib/maho/update/coordinator.json ] || {
+    systemctl status maho-update-coordinator.timer maho-update-coordinator.service --no-pager || true
+    return 1
+  }
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    case "$(systemctl show -p ActiveState --value maho-update-coordinator.service)" in
+      inactive|failed) break ;;
+      *) sleep 1 ;;
+    esac
+  done
+  case "$(systemctl show -p ActiveState --value maho-update-coordinator.service)" in
+    inactive|failed) ;;
+    *) systemctl status maho-update-coordinator.service --no-pager || true; return 1 ;;
+  esac
+  cp /var/lib/maho/update/coordinator.json "$E/coordinator.json"
+  systemctl status maho-update-coordinator.timer maho-update-coordinator.service \
+    --no-pager >"$E/systemd-status.txt" || true
+  python3 - "$E/coordinator.json" "$REV" <<'PY_AUTONOMY'
+import json
+import pathlib
+import sys
+
+state = json.loads(pathlib.Path(sys.argv[1]).read_text())
+revision = sys.argv[2]
+assert state["source_revision"] == revision, state
+assert state["phase"] == "BLOCKED", state
+assert state["blockers"], state
+assert state["live_root_mutation_started"] is False, state
+assert state["reboot_performed"] is False, state
+print("PASS  timer initiated coordination and unavailable prerequisites failed closed")
+PY_AUTONOMY
+}
+
 adversarial_profile() {
   isolation; install_fresh
   u env PYTHONPATH="$SRC/lib" python3 "$SRC/tests/test_adaptive_adversarial.py"
@@ -292,6 +352,7 @@ case "$PROFILE" in
   smoke) isolation;;
   fresh-user) fresh_profile;;
   update-freeze) update_profile;;
+  autonomy-convergence) autonomy_convergence_profile;;
   resilience) adversarial_profile;;
   session) session_profile;;
   performance-4g|performance-8g) performance_profile;;

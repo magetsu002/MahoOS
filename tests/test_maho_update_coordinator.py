@@ -109,6 +109,15 @@ def adaptive_record(**overrides) -> dict:
     }
 
 
+def inactive_maintenance_gate() -> dict:
+    return {
+        "ok": True,
+        "adaptive_maintenance": "unchanged",
+        "veto_active": False,
+        "state_path": "/fixture/maintenance-veto.json",
+    }
+
+
 class FakeDiscovery:
     def __init__(self, root, **kwargs):
         self.root = Path(root)
@@ -156,6 +165,47 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertEqual(result["phase"], "WAITING_MAINTENANCE")
         new_discovery.assert_called_once()
 
+    def test_trusted_runtime_and_update_campaign_keep_independent_source_identities(self):
+        runtime = {
+            "source_revision": "composite:files@" + "b" * 40,
+            "content_sha256": "c" * 64,
+            "verified": True,
+            "deployment_class": "production",
+            "source_dirty": False,
+            "trust_eligible": True,
+        }
+        discovered = {**coordinator._base_state(NOW, REV), "phase": "UP_TO_DATE"}
+        repo = {"config_path": "/etc/maho/pacman.conf", "repositories": ["core"]}
+        with patch.object(coordinator, "_require_root"), \
+             patch.object(coordinator, "_root", return_value=ROOT), \
+             patch.object(coordinator, "_source_revision", return_value=REV), \
+             patch.object(coordinator, "read_coordinator_state", return_value=None), \
+             patch.object(coordinator, "coordinator_mutex", return_value=nullcontext()), \
+             patch.object(coordinator, "_coordinator_user", return_value="magetsu"), \
+             patch.object(coordinator, "_runtime_identity", return_value=runtime), \
+             patch.object(coordinator, "_repo_contract", return_value=repo), \
+             patch.object(coordinator, "_current_transaction", return_value=None), \
+             patch.object(coordinator, "_new_discovery", return_value=discovered) as new_discovery:
+            result = coordinator.run_once(now=NOW)
+        self.assertEqual(result["phase"], "UP_TO_DATE")
+        new_discovery.assert_called_once_with(None, REV, "magetsu", runtime, repo, NOW)
+
+    def test_development_runtime_is_not_update_coordination_trust(self):
+        verification = SimpleNamespace(
+            verified=True,
+            content_sha256="c" * 64,
+            source_revision="composite:fixture",
+            deployment_class="development",
+            source_dirty=False,
+            trust_eligible=False,
+        )
+        with patch.object(coordinator, "verify_release", return_value=verification):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "current_immutable_maho_runtime_not_production_trust_eligible",
+            ):
+                coordinator._runtime_identity("fixture")
+
     def test_schedule_is_periodic_persistent_and_boot_started(self):
         timer = (ROOT / "config/systemd/system/maho-update-coordinator.timer").read_text()
         service = (ROOT / "config/systemd/system/maho-update-coordinator.service").read_text()
@@ -165,6 +215,8 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertIn("Persistent=true", timer)
         self.assertIn("Unit=maho-update-coordinator.service", timer)
         self.assertIn("/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator run", service)
+        self.assertIn("After=network.target", service)
+        self.assertNotIn("network-online.target", service)
         self.assertIn("timers.target.wants/maho-update-coordinator.timer", package)
 
     def test_explicit_reboot_hook_arms_activation_without_initiating_reboot(self):
@@ -949,6 +1001,27 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertTrue(ready)
         self.assertEqual(reasons, [])
 
+    def test_certified_adaptive_veto_cancels_maintenance_readiness(self):
+        gate = {
+            "ok": False,
+            "adaptive_maintenance": "suspended",
+            "veto_active": True,
+            "source_policy": "battery.low",
+        }
+        ready, reasons = coordinator._adaptive_ready(adaptive_record(), gate)
+        self.assertFalse(ready)
+        self.assertEqual(reasons, ["adaptive_maintenance_suspended:battery.low"])
+
+    def test_stale_or_invalid_adaptive_veto_fails_closed(self):
+        with patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()), \
+             patch.object(
+                 coordinator,
+                 "maintenance_gate_for_user",
+                 side_effect=coordinator.MaintenanceVetoError("adaptive maintenance veto is stale"),
+             ):
+            with self.assertRaisesRegex(RuntimeError, "adaptive_maintenance_veto_unsafe"):
+                coordinator._adaptive_evidence("fixture", NOW)
+
     def test_user_activity_cancels_maintenance_readiness(self):
         for domain, change, expected in (
             ("session", {"locked": False}, "session_not_locked"),
@@ -1119,7 +1192,7 @@ class CoordinatorContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work_tmp:
             cache = Path(work_tmp) / TXID / "staging"
             cache.mkdir(parents=True)
-            with patch.dict(os.environ, {"MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}, clear=False),                  patch.object(coordinator, "_authority_state", return_value="current"),                  patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()),                  patch.object(coordinator, "_generation_is_current", return_value=True),                  patch.object(coordinator, "_candidate_capability", return_value=True),                  patch.object(coordinator.shutil, "disk_usage", return_value=fake_usage):
+            with patch.dict(os.environ, {"MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}, clear=False),                  patch.object(coordinator, "_authority_state", return_value="current"),                  patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()),                  patch.object(coordinator, "maintenance_gate_for_user", return_value=inactive_maintenance_gate()),                  patch.object(coordinator, "_generation_is_current", return_value=True),                  patch.object(coordinator, "_candidate_capability", return_value=True),                  patch.object(coordinator.shutil, "disk_usage", return_value=fake_usage):
                 current, evidence = coordinator._maintenance_transition(
                     tx, state, "testuser", runtime, NOW,
                 )
@@ -1132,6 +1205,7 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertEqual(bound["source_revision"], REV)
         self.assertEqual(bound["runtime_identity"], runtime)
         self.assertEqual(bound["adaptive_snapshot_id"], "sit-test")
+        self.assertFalse(bound["adaptive_veto_active"])
         self.assertTrue(bound["evidence_fresh"])
         self.assertTrue(bound["recovery_ready"])
         self.assertTrue(bound["disk_ready"])
@@ -1148,7 +1222,7 @@ class CoordinatorContracts(unittest.TestCase):
         fake_usage = SimpleNamespace(total=2 * 1024**3, used=1, free=512 * 1024**2)
         with tempfile.TemporaryDirectory() as work_tmp:
             (Path(work_tmp) / TXID / "staging").mkdir(parents=True)
-            with patch.dict(os.environ, {"MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}, clear=False),                  patch.object(coordinator, "_authority_state", return_value="current"),                  patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()),                  patch.object(coordinator, "_generation_is_current", return_value=True),                  patch.object(coordinator, "_candidate_capability", return_value=False),                  patch.object(coordinator.shutil, "disk_usage", return_value=fake_usage):
+            with patch.dict(os.environ, {"MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}, clear=False),                  patch.object(coordinator, "_authority_state", return_value="current"),                  patch.object(coordinator, "_read_adaptive_status", return_value=adaptive_record()),                  patch.object(coordinator, "maintenance_gate_for_user", return_value=inactive_maintenance_gate()),                  patch.object(coordinator, "_generation_is_current", return_value=True),                  patch.object(coordinator, "_candidate_capability", return_value=False),                  patch.object(coordinator.shutil, "disk_usage", return_value=fake_usage):
                 current, evidence = coordinator._maintenance_transition(
                     tx, state, "testuser", {"source_revision": REV}, NOW,
                 )

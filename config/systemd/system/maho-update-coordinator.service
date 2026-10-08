@@ -1,7 +1,6 @@
 [Unit]
 Description=Maho automatic maintenance coordinator
-Wants=network-online.target
-After=network-online.target
+After=network.target
 ConditionPathExists=/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator
 
 [Service]

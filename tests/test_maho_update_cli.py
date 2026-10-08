@@ -48,7 +48,14 @@ def main() -> None:
         root = Path(temporary)
         empty = run(root, "status", "--json")
         empty_status = json.loads(empty.stdout)
-        check("no active transaction is quietly healthy", empty.returncode == 0 and empty_status["authority_state"] == "NONE" and empty_status["notification_policy"] == "none")
+        check(
+            "no active transaction preserves calm transaction state without hiding absent automation",
+            empty.returncode == 0
+            and empty_status["authority_state"] == "NONE"
+            and empty_status["notification_policy"] == "none"
+            and empty_status["presentation_status"] == "Blocked: coordinator_state_unavailable"
+            and empty_status["coordinator"]["blockers"] == ["coordinator_state_unavailable"],
+        )
 
         transaction = pending()
         publish_transaction(root, transaction)
@@ -58,6 +65,18 @@ def main() -> None:
         check("CLI projects exact authoritative activation state", payload["authority_state"] == "INSTALLED_PENDING_ACTIVATION" and payload["activation_pending"])
         check("CLI exposes receipt history without package badges", payload["history_count"] == 1 and "package_count" not in payload)
         check("install-pending state renders Ready to restart", payload["presentation_status"] == "Ready to restart")
+        healthy_without_coordinator = _presentation_status({
+            "authority_state": "HEALTHY",
+            "blockers": [],
+            "coordinator": {
+                "phase": "UNAVAILABLE",
+                "blockers": ["coordinator_state_unavailable"],
+            },
+        })
+        check(
+            "historical healthy update cannot hide unavailable coordinator",
+            healthy_without_coordinator == "Blocked: coordinator_state_unavailable",
+        )
         check("PREPARED without current authority renders Waiting for certification", _presentation_status({"authority_state":"PREPARED","normal_execution_certified":False,"blockers":[]}) == "Waiting for certification")
         check("PREPARED with current authority renders Ready", _presentation_status({"authority_state":"PREPARED","normal_execution_certified":True,"blockers":[]}) == "Ready")
         check("ACTIVE_VERIFYING renders Verifying", _presentation_status({"authority_state":"ACTIVE_VERIFYING","normal_execution_certified":True,"blockers":[]}) == "Verifying")
@@ -72,10 +91,10 @@ def main() -> None:
         history = run(root, "history", "--json")
         check("CLI exposes durable receipt history", len(json.loads(history.stdout)) == 1)
 
-        maho_root = root / "runtime-current"
+        campaign_root = root / "campaign-current"
         revision = "a" * 40
-        (maho_root / "share/maho").mkdir(parents=True)
-        (maho_root / "share/maho/runtime-source-revision").write_text(revision + "\n", encoding="utf-8")
+        campaign_root.mkdir()
+        (campaign_root / "SOURCE_REVISION").write_text(revision + "\n", encoding="utf-8")
         authority_path = root / "normal-execution-authority.json"
         authority = issue_normal_execution_authority(
             source_revision=revision,
@@ -94,12 +113,31 @@ def main() -> None:
             now=NOW,
         )
         publish_normal_execution_authority(authority, path=authority_path)
-        direct = status_payload(root, maho_root=maho_root, authority_path=authority_path)
+        direct = status_payload(
+            root, campaign_root=campaign_root, authority_path=authority_path,
+        )
         check(
-            "direct status accepts explicit immutable runtime authority context",
+            "direct status validates authority against the installed update campaign",
             direct["normal_execution_certified"] is True
             and direct["normal_authority_state"] == "current"
             and direct["normal_authority_id"] == authority["authority_id"],
+        )
+
+        composite_runtime = root / "runtime-current"
+        (composite_runtime / "share/maho").mkdir(parents=True)
+        (composite_runtime / "share/maho/runtime-source-revision").write_text(
+            "composite:files@" + "e" * 40 + "\n", encoding="utf-8",
+        )
+        independent = status_payload(
+            root,
+            maho_root=composite_runtime,
+            campaign_root=campaign_root,
+            authority_path=authority_path,
+        )
+        check(
+            "componentized user runtime does not invalidate update campaign authority",
+            independent["normal_execution_certified"] is True
+            and independent["normal_authority_state"] == "current",
         )
 
         (root / "current").write_text("../../escape\n")

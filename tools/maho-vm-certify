@@ -29,7 +29,7 @@ if [ "$PROFILE" = torture ]; then
 fi
 
 case "$PROFILE" in
-  smoke|fresh-user|update-freeze|resilience|session) MEMORY=4096 ;;
+  smoke|fresh-user|update-freeze|resilience|session|autonomy-convergence) MEMORY=4096 ;;
   performance-4g) MEMORY=4096 ;;
   performance-8g) MEMORY=8192 ;;
   torture-session|torture-guardian|torture-runtime|torture-runtime-executor|torture-runtime-executor-after|torture-runtime-guardian-verifying|torture-postconditions|torture-network|torture-update|torture-update-compound|torture-storage|torture-final-contracts|torture-compound|torture-reboot-awaiting|torture-reboot-recovering|torture-reboot-verifying|torture-reboot-update-phases|torture-root-destruction) MEMORY=4096 ;;
@@ -46,6 +46,9 @@ done
 [ -r "$KERNEL" ] || { echo "maho-vm-certify: kernel unavailable: $KERNEL" >&2; exit 2; }
 [ -e /dev/kvm ] || { echo "maho-vm-certify: /dev/kvm unavailable" >&2; exit 2; }
 mkdir -p "$WORK/hookdir/install" "$WORK/hookdir/hooks" "$EVIDENCE"
+if [ "$PROFILE" = autonomy-convergence ]; then
+  git -C "$ROOT" bundle create "$EVIDENCE/source.bundle" HEAD
+fi
 ln -sf /usr/lib/initcpio/install/base "$WORK/hookdir/install/base"
 cp "$ROOT/tools/vm/initcpio/install/maho_vm_overlay" "$WORK/hookdir/install/"
 cp "$ROOT/tools/vm/initcpio/hooks/maho_vm_overlay" "$WORK/hookdir/hooks/"
