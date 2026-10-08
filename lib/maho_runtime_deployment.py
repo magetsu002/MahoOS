@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+
+_COMPOSITE_PART = re.compile(r"[a-z][a-z0-9-]*@([0-9a-f]{40})")
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,26 @@ def _current_revision(current: Path | None) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _composite_revisions(value: str | None) -> tuple[str, ...] | None:
+    if not isinstance(value, str) or not value.startswith("composite:"):
+        return None
+    parts = value.removeprefix("composite:").split("+")
+    if not parts or any(not part for part in parts):
+        return None
+    revisions: list[str] = []
+    labels: set[str] = set()
+    for part in parts:
+        match = _COMPOSITE_PART.fullmatch(part)
+        if match is None:
+            return None
+        label = part.split("@", 1)[0]
+        if label in labels:
+            return None
+        labels.add(label)
+        revisions.append(match.group(1))
+    return tuple(revisions)
+
+
 def plan_deployment(root: Path, current: Path | None, *, development: bool = False) -> DeploymentPlan:
     root = root.resolve()
     packaged_revision = _release_revision(root)
@@ -90,6 +114,15 @@ def plan_deployment(root: Path, current: Path | None, *, development: bool = Fal
         transition = "packaged-release"
     elif revision is not None and _git(root, "merge-base", "--is-ancestor", old, revision).returncode == 0:
         transition = "fast-forward"
+    elif revision is not None and (components := _composite_revisions(old)) is not None and all(
+        _git(root, "merge-base", "--is-ancestor", component, revision).returncode == 0
+        for component in components
+    ):
+        # Development overlays may be promoted only by a clean commit whose
+        # Git ancestry contains every exact component revision.  Unknown,
+        # malformed, omitted, or unrelated component provenance remains
+        # unverifiable and therefore cannot gain production trust.
+        transition = "composite-forward"
     else:
         known_old = bool(old and _git(root, "cat-file", "-e", f"{old}^{{commit}}").returncode == 0)
         known_new = bool(revision and _git(root, "cat-file", "-e", f"{revision}^{{commit}}").returncode == 0)

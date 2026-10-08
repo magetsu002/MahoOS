@@ -40,7 +40,6 @@ hl.window_rule({
     no_blur = true,
 })
 
-
 -- Maho Settings is a calm centered control surface, not a tiling workload.
 -- The application draws its own rim and rounded material; Hyprland only owns
 -- placement and the outer compositor geometry.
@@ -60,3 +59,16 @@ hl.window_rule({
     rounding = 20,
 })
 
+-- Authentication must remain visible and focused even if the request arrives
+-- while the user is on another workspace.
+hl.window_rule({
+    name = "maho-polkit-agent",
+    match = {
+        class = "^io[.]maho[.]PolkitAgent$",
+    },
+
+    float = true,
+    center = true,
+    pin = true,
+    stay_focused = true,
+})

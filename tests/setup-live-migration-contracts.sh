@@ -67,6 +67,50 @@ EOF_OLDER_HYPR
 validate_targets >/dev/null || fail 'older exact Maho + Waybar migration hook regressed'
 echo 'PASS older exact Maho + Waybar migration hook remains recognized'
 
+echo '=== exact Settings component loader migration ownership ==='
+settings_component="$XDG_DATA_HOME/maho/components/maho-settings/current"
+settings_hypr_target="$(hypr_target_for config/hypr/hyprland.lua)"
+mkdir -p "$settings_component"
+cat >"$settings_component/loader.lua" <<'EOF_SETTINGS_LOADER'
+-- Maho Settings component loader.
+-- Immutable Maho defaults stay owned by runtime/current. This loader adds only
+-- the Settings window/key surface plus the bounded maho.user.settings overlay.
+local home = os.getenv("HOME")
+assert(home ~= nil and home ~= "", "HOME is unavailable")
+dofile(home .. "/.local/share/maho/runtime/current/config/hypr/hyprland.lua")
+
+hl.window_rule({
+    name = "maho-settings-component",
+    match = { class = "^(io\\.maho\\.Settings)$" },
+    float = true,
+    center = true,
+    size = { "monitor_w * 0.75", "monitor_h * 0.84" },
+    border_size = 0,
+    rounding = 20,
+})
+
+hl.unbind("SUPER + CTRL + SHIFT + S")
+hl.bind(
+    "SUPER + CTRL + SHIFT + S",
+    hl.dsp.exec_cmd([["$HOME/.local/bin/maho-settings" toggle]])
+)
+
+local user_settings = package.searchpath("maho.user.settings", package.path)
+if user_settings ~= nil then
+    require("maho.user.settings")
+end
+EOF_SETTINGS_LOADER
+ln -sfn "$settings_component/loader.lua" "$settings_hypr_target"
+validate_targets >/dev/null || fail 'exact Settings component loader was rejected'
+printf '\n-- unrelated mutation\n' >>"$settings_component/loader.lua"
+if validate_targets >"$TMP/settings-reject.out" 2>"$TMP/settings-reject.err"; then
+  fail 'mutated Settings component loader was incorrectly accepted'
+fi
+grep -Fq 'refusing unmanaged Maho Hyprland config' "$TMP/settings-reject.err" || fail 'Settings loader rejection did not identify Hyprland ownership conflict'
+echo 'PASS exact Settings loader migration is accepted and later mutation fails closed'
+
+rm -f "$settings_hypr_target"
+
 echo '=== exact live kbdlight migration ownership ==='
 mkdir -p "$HOME/.local/bin" "$UNIT_DIR"
 cp "$REPO_ROOT/bin/maho-kbdlight" "$HOME/.local/bin/maho-kbdlight"

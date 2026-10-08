@@ -61,6 +61,46 @@ def main() -> None:
         forward = plan_deployment(repo, old_runtime)
         check("clean descendant transition is admitted", forward.allowed and forward.transition == "fast-forward")
 
+        composite_runtime = release(
+            base,
+            f"composite:base@{old}+feature@{new}",
+            "composite-runtime",
+        )
+        composite_forward = plan_deployment(repo, composite_runtime)
+        check(
+            "clean commit containing every composite revision is production eligible",
+            composite_forward.allowed
+            and composite_forward.trust_eligible
+            and composite_forward.transition == "composite-forward",
+        )
+
+        git(repo, "checkout", "-q", "-b", "side", old)
+        (repo / "side").write_text("side\n")
+        git(repo, "add", "side")
+        git(repo, "commit", "-qm", "side")
+        side = git(repo, "rev-parse", "HEAD")
+        git(repo, "checkout", "-q", new)
+        incomplete_composite = release(
+            base,
+            f"composite:base@{old}+side@{side}",
+            "incomplete-composite-runtime",
+        )
+        incomplete = plan_deployment(repo, incomplete_composite)
+        check(
+            "candidate missing a composite revision remains unverifiable",
+            not incomplete.allowed and incomplete.transition == "unrelated-or-unverifiable",
+        )
+        malformed_composite = release(
+            base,
+            f"composite:base@{old}+base@{new}",
+            "malformed-composite-runtime",
+        )
+        malformed = plan_deployment(repo, malformed_composite)
+        check(
+            "malformed composite provenance remains unverifiable",
+            not malformed.allowed and malformed.transition == "unrelated-or-unverifiable",
+        )
+
         package_root = base / "package-root"
         (package_root / "share/maho").mkdir(parents=True)
         (package_root / "share/maho/release.json").write_text(
