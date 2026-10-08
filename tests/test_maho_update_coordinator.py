@@ -1141,7 +1141,8 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertFalse(coordinator._adaptive_ready(raw)[0])
 
     def test_explicit_certification_does_not_claim_unattended_eligibility(self):
-        raw = adaptive_record(session={"locked": "unknown", "idle_seconds": "unknown"})
+        raw = adaptive_record(session={"locked": "unknown", "idle_seconds": "unknown"},
+                              workload={"interactive": True})
         raw["active_posture"] = {}
         with patch.object(coordinator, "_read_adaptive_status", return_value=raw), \
              patch.object(coordinator, "maintenance_gate_for_user", return_value=inactive_maintenance_gate()):
@@ -1149,8 +1150,13 @@ class CoordinatorContracts(unittest.TestCase):
                 "fixture", NOW, source_revision=REV, confirmation="CERTIFY-NORMAL:" + REV)
             self.assertTrue(evidence["safe"])
             self.assertFalse(evidence["unattended_eligible"])
+            self.assertTrue(evidence["ordinary_user_activity_permitted"])
             self.assertEqual(raw["situation"]["session"]["locked"], "unknown")
             self.assertFalse(coordinator._adaptive_ready(raw)[0])
+            raw["active_posture"] = {"maintenance": "eligible"}
+            evidence = coordinator._certification_maintenance_observation(
+                "fixture", NOW, source_revision=REV, confirmation="CERTIFY-NORMAL:" + REV)
+            self.assertFalse(evidence["unattended_eligible"])
             with self.assertRaises(ValueError):
                 coordinator._certification_maintenance_observation(
                     "fixture", NOW, source_revision=REV, confirmation="CERTIFY-NORMAL:" + "b" * 40)
@@ -1161,7 +1167,7 @@ class CoordinatorContracts(unittest.TestCase):
             ("power", {"ac_online": False}), ("power", {"percentage": "unknown"}),
             ("thermal", {"level": "hot"}), ("network", {"stability": "unstable"}),
             ("workload", {"gaming": True}), ("workload", {"compile": True}),
-            ("workload", {"rendering": True}), ("workload", {"interactive": True}),
+            ("workload", {"rendering": True}), ("workload", {"interactive": "unknown"}),
             ("workload", {"confidence": "unknown"}), ("workload", {"gaming": "unknown"}),
             ("guardian", {"unresolved_reliability": True}), ("guardian", {"severity_level": 2}),
             ("guardian", {"recovery_in_progress": True}),

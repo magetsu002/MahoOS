@@ -565,7 +565,9 @@ def _adaptive_ready(
     confidence = workload.get("confidence")
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 < confidence <= 1:
         reasons.append("workload_confidence_unknown")
-    if workload.get("gaming") is True or workload.get("interactive") is True:
+    # Explicit certification is attended: ordinary input does not imply a
+    # maintenance window, but resource-intensive work and policy vetoes still do.
+    if workload.get("gaming") is True or (not explicit_certification and workload.get("interactive") is True):
         reasons.append("interactive_workload")
     if workload.get("compile") is True:
         reasons.append("compile_in_progress")
@@ -757,8 +759,9 @@ def _certification_maintenance_observation(
         "veto_active": gate.get("veto_active"),
         "decision_at": stamp(now),
         "operation": "explicit-normal-certification",
+        "ordinary_user_activity_permitted": True,
         "source_revision": source_revision,
-        "unattended_eligible": raw.get("active_posture", {}).get("maintenance") == "eligible",
+        "unattended_eligible": _adaptive_ready(raw, gate)[0],
     }
 
 
