@@ -45,6 +45,32 @@ def main():
     rejected('activation requirement cannot be invented',lambda:authorize_normal_plan(authority,source_revision=REV,effects=['ordinary-files'],activation_requirements=['affected-process-restart']))
     tampered=copy.deepcopy(authority); tampered['certified_effects']=['ordinary-files','system-service']
     rejected('tampered certification scope breaks authority identity',lambda:verify_normal_execution_authority(tampered,source_revision=REV))
+    multi=issue_normal_execution_authority(
+        source_revision=REV,
+        transaction_id='upd-20260920T091000Z-123456abcdef',
+        package_generation_id='pkg-'+'e'*64,
+        graph_id='art-'+'f'*64,
+        packages=[
+            {'name':'vulkan-headers','installed_version':'1','candidate_version':'2','sha256':'1'*64},
+            {'name':'hwdata','installed_version':'4','candidate_version':'5','sha256':'2'*64},
+        ],
+        effects=['ordinary-files'], activation_requirements=[],
+        verification={'ok':True,'package_paths_checked':20,'mismatches':[]},
+        candidate_root_identity='candidate-root', base_root_identity='base-root',
+    )
+    check('multi-package ordinary authority preserves exact per-artifact evidence',
+          [x['name'] for x in verify_normal_execution_authority(multi,source_revision=REV)['packages']]
+          == ['hwdata','vulkan-headers'])
+    check('multi-package ordinary authority authorizes only the certified effects',
+          authorize_normal_plan(multi,source_revision=REV,effects=['ordinary-files'],activation_requirements=[])['authority_id']
+          == multi['authority_id'])
+    rejected('multi-package evidence tampering invalidates host authority',
+             lambda:verify_normal_execution_authority(
+                 dict(multi,packages=[dict(multi['packages'][0],sha256='3'*64),multi['packages'][1]]),
+                 source_revision=REV))
+    rejected('multi-package authority cannot certify service restart without proof',
+             lambda:authorize_normal_plan(multi,source_revision=REV,effects=['system-service'],
+                                          activation_requirements=['affected-system-service-restart']))
     wrong_profile=copy.deepcopy(authority); wrong_profile['certified_profile']='ordinary-files-vague'
     rejected('authority cannot broaden certified execution profile',lambda:verify_normal_execution_authority(wrong_profile,source_revision=REV))
     with tempfile.TemporaryDirectory(prefix='maho-normal-authority-') as temporary:
