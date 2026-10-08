@@ -3,11 +3,13 @@
 #include <QAbstractListModel>
 #include <QDate>
 #include <QEvent>
+#include <QFileInfo>
 #include <QPointF>
 #include <QPointer>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QVector>
 
 #include <KCoreDirLister>
@@ -17,6 +19,9 @@
 class KJob;
 class QQuickItem;
 class QQuickWindow;
+namespace KIO {
+class DirectorySizeJob;
+}
 
 class MahoDirectoryModel final : public QAbstractListModel
 {
@@ -29,7 +34,11 @@ class MahoDirectoryModel final : public QAbstractListModel
     Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
     Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
+    Q_PROPERTY(QString sortKey READ sortKey WRITE setSortKey NOTIFY sortChanged)
+    Q_PROPERTY(bool sortDescending READ sortDescending WRITE setSortDescending NOTIFY sortChanged)
     Q_PROPERTY(bool operationBusy READ operationBusy NOTIFY operationBusyChanged)
+    Q_PROPERTY(int operationProgress READ operationProgress NOTIFY operationProgressChanged)
+    Q_PROPERTY(bool canCancelOperation READ canCancelOperation NOTIFY operationBusyChanged)
     Q_PROPERTY(QString operationMessage READ operationMessage NOTIFY operationMessageChanged)
     Q_PROPERTY(bool canPaste READ canPaste NOTIFY canPasteChanged)
     Q_PROPERTY(bool canMutateCurrentDirectory READ canMutateCurrentDirectory NOTIFY currentUrlChanged)
@@ -67,7 +76,11 @@ public:
     bool canGoForward() const;
     bool showHidden() const;
     QString searchQuery() const;
+    QString sortKey() const;
+    bool sortDescending() const;
     bool operationBusy() const;
+    int operationProgress() const;
+    bool canCancelOperation() const;
     QString operationMessage() const;
     bool canPaste() const;
     bool canMutateCurrentDirectory() const;
@@ -83,24 +96,41 @@ public:
     Q_INVOKABLE void reload();
     Q_INVOKABLE void setShowHidden(bool show);
     Q_INVOKABLE void setSearchQuery(const QString &query);
+    Q_INVOKABLE void setSortKey(const QString &key);
+    Q_INVOKABLE void setSortDescending(bool descending);
 
     Q_INVOKABLE QString nameAt(int row) const;
+    Q_INVOKABLE QString iconNameAt(int row) const;
     Q_INVOKABLE bool isDirectoryAt(int row) const;
     Q_INVOKABLE void createFolder(const QString &name);
     Q_INVOKABLE void createFile(const QString &name);
     Q_INVOKABLE void renameIndex(int row, const QString &name);
     Q_INVOKABLE void trashIndex(int row);
     Q_INVOKABLE void trashRows(const QVariantList &rows);
+    Q_INVOKABLE QVariantMap preparePermanentDelete(const QVariantList &rows);
+    Q_INVOKABLE void confirmPermanentDelete(const QString &token);
+    Q_INVOKABLE void cancelPermanentDelete(const QString &token);
     Q_INVOKABLE void copyIndex(int row, bool cut = false);
     Q_INVOKABLE void copyRows(const QVariantList &rows, bool cut = false);
     Q_INVOKABLE void setSelectedRows(const QVariantList &rows);
     Q_INVOKABLE void copyPathIndex(int row);
     Q_INVOKABLE void duplicateIndex(int row);
+    Q_INVOKABLE void duplicateRows(const QVariantList &rows);
     Q_INVOKABLE void openWithIndex(int row);
+    Q_INVOKABLE QVariantMap openWithDetails(int row) const;
+    Q_INVOKABLE void openWithApplicationUrl(const QUrl &url, const QString &storageId);
     Q_INVOKABLE QString propertiesText(int row) const;
+    Q_INVOKABLE void requestProperties(int row);
+    Q_INVOKABLE void cancelProperties();
     Q_INVOKABLE bool canDropUrlsTo(const QVariantList &values, const QUrl &destination) const;
+    Q_INVOKABLE int preferredDropAction(
+        const QVariantList &values,
+        const QUrl &destination,
+        int supportedActions,
+        bool internalDrag) const;
     Q_INVOKABLE void dropUrls(const QVariantList &values, const QUrl &destination, int action);
     Q_INVOKABLE void paste();
+    Q_INVOKABLE void cancelOperation();
 
 signals:
     void currentUrlChanged();
@@ -109,15 +139,26 @@ signals:
     void historyChanged();
     void showHiddenChanged();
     void searchQueryChanged();
+    void sortChanged();
     void operationBusyChanged();
+    void operationProgressChanged();
     void operationMessageChanged();
     void canPasteChanged();
     void selectRowRequested(int row);
+    void propertiesReady(const QString &details, const QString &iconName);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    struct PermanentDeleteTarget {
+        QUrl url;
+        QString name;
+        quint64 device = 0;
+        quint64 inode = 0;
+        quint32 mode = 0;
+    };
+
     void navigate(const QUrl &url, bool recordHistory);
     void navigateTimeline(const QUrl &url, bool recordHistory);
     void recordNavigation(const QUrl &url, bool recordHistory);
@@ -129,12 +170,14 @@ private:
     void setLoading(bool loading);
     void setErrorString(const QString &error);
     void setOperationBusy(bool busy);
+    void setOperationProgress(int progress);
     void setOperationMessage(const QString &message);
     void rebuildFromLister();
     void rebuildVisibleItems();
     void sortItems(QVector<KFileItem> &items) const;
     void sortRecentItems(QVector<KFileItem> &items) const;
     void sortSearchItems(QVector<KFileItem> &items, const QString &query) const;
+    QString propertiesTextForItem(const KFileItem &item, const QString &sizeText) const;
     int searchRank(const KFileItem &item, const QString &query) const;
     QString searchDisplayName(const KFileItem &item) const;
     QVector<int> normalizedRows(const QVariantList &rows) const;
@@ -151,11 +194,25 @@ private:
         const QUrl &destination,
         QString *error,
         bool rejectSameParent = true) const;
+    static QString canonicalLocalPath(const QFileInfo &info);
+    static bool isSameOrDescendantPath(const QString &ancestor, const QString &candidate);
+    static bool localDeviceId(const QString &path, quint64 *device, bool followSymlinks = true);
+    static bool capturePermanentDeleteTarget(
+        const KFileItem &item, PermanentDeleteTarget *target, QString *error);
+    static bool permanentDeleteTargetMatches(const PermanentDeleteTarget &target);
+    Qt::DropAction resolvedDropAction(
+        const QList<QUrl> &urls,
+        const QUrl &destination,
+        Qt::DropActions supportedActions,
+        bool internalDrag,
+        Qt::KeyboardModifiers modifiers) const;
     static Qt::DropAction naturalDragAction(const QList<QUrl> &urls);
 
     KCoreDirLister m_lister;
     QPointer<KIO::ListJob> m_recentJob;
     QPointer<KIO::ListJob> m_searchJob;
+    QPointer<KIO::DirectorySizeJob> m_propertiesJob;
+    QPointer<KJob> m_activeOperation;
     QTimer m_searchDebounce;
     QDate m_recentTargetDate;
     bool m_recentRolling = false;
@@ -173,7 +230,13 @@ private:
     QString m_errorString;
     bool m_showHidden = false;
     QString m_searchQuery;
+    QString m_sortKey = QStringLiteral("name");
+    bool m_sortDescending = false;
     bool m_operationBusy = false;
+    int m_operationProgress = -1;
     QString m_operationMessage;
     QUrl m_pendingSelectionUrl;
+    QString m_pendingPermanentDeleteToken;
+    QList<PermanentDeleteTarget> m_pendingPermanentDeleteTargets;
+    qint64 m_pendingPermanentDeleteCreatedMs = 0;
 };

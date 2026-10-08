@@ -171,7 +171,18 @@ require_text "$QML" 'ScrollBar.vertical: MahoScrollBar {' "Files views are not a
 require_text "$QML" 'id: gridScrollBar' "grid scrollbar is missing"
 require_text "$QML" 'id: listScrollBar' "list scrollbar is missing"
 require_text "$QML" 'id: placesScrollBar' "places scrollbar is missing"
-require_text "$QML" 'parent: contentArea' "main content scrollbars are not raised above the selection overlay"
+require_text "$QML" 'parent: contentArea' "grid scrollbar is not raised above the selection overlay"
+require_text "$QML" 'anchors.rightMargin: 12' "selection overlay still steals the scrollbar pointer strip"
+python3 - "$QML" <<'PY_LIST_SCROLLBAR'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+start = source.index('id: listScrollBar')
+end = source.index('NumberAnimation {', start)
+body = source[start:end]
+assert 'parent:' not in body, 'list attached scrollbar must keep Qt-owned parentage'
+assert 'anchors.right:' not in body, 'list attached scrollbar must keep Qt-owned anchoring'
+PY_LIST_SCROLLBAR
 require_text "$QML" 'readonly property bool contentScrollbarDragging' "Files does not expose scrollbar pointer ownership"
 require_text "$QML" 'enabled: !root.contentScrollbarDragging' "row/background handlers can fire during scrollbar drag"
 require_text "$QML" 'onContentHeightChanged: contentY = root.boundedContentY' "dynamic model changes do not clamp scrolling"
@@ -245,7 +256,19 @@ echo "=== recent/open/action polish ==="
 require_text "$MODEL_CPP" 'timeline:/recent' "rolling Recent destination is missing"
 require_text "$MODEL_CPP" 'QDate::currentDate().addDays(-6)' "Recent is not bounded to a seven-day window"
 require_text "$MODEL_CPP" 'KIO::OpenUrlJob' "regular file opening does not use native KIO launcher"
-require_text "$MODEL_CPP" 'KIO::ApplicationLauncherJob' "Open With does not use native KDE application chooser"
+require_text "$MODEL_CPP" 'KApplicationTrader::queryByMimeType' "Open With does not source candidates from the KDE/XDG application authority"
+require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(service, this)' "Maho Open With choices do not launch through KIO"
+require_text "$MODEL_CPP" 'new KIO::ApplicationLauncherJob(this)' "unknown/no-handler fallback no longer has the native KDE chooser"
+require_text "$QML" 'id: openWithPopup' "compact Maho Open With surface is missing"
+require_text "$QML" 'iconName: "window-close"' "Open With still uses a wordy close/cancel button instead of the compact close icon"
+reject_text "$QML" 'label: "Cancel"\n                    onTriggered: openWithPopup.close()' "Open With regressed to a text Cancel button"
+require_text "$QML" 'directoryModel.openWithDetails(row)' "Open With surface does not query authoritative candidates"
+require_text "$MODEL_CPP" 'result.insert(QStringLiteral("url"), item.url())' "Open With details do not capture the exact target URL"
+require_text "$QML" 'targetUrl = details.url || ""' "Open With popup does not bind to the exact target URL at open time"
+require_text "$QML" 'directoryModel.openWithApplicationUrl(url, storageId)' "Open With surface does not launch the captured target URL through the chosen authoritative service"
+reject_text "$QML" 'directoryModel.openWithApplication(row, storageId)' "Open With can retarget to a different file when model rows reorder"
+require_text "$QML" 'required property int index' "Open With delegate lacks a stable model index for click selection"
+reject_text "$QML" 'label: "More apps…"' "ordinary Open With still exposes the oversized native chooser as a primary path"
 require_text "$MODEL_CPP" 'copyPathIndex' "Copy Path action is missing"
 require_text "$MODEL_CPP" 'duplicateIndex' "Duplicate action is missing"
 require_text "$MODEL_CPP" 'propertiesText' "Properties action is missing"
@@ -253,7 +276,7 @@ require_text "$MODEL_CPP" 'dropUrls' "native inbound drop path is missing"
 require_text "$QML" 'text: "Recent"' "Recent is not surfaced in the sidebar"
 require_text "$QML" 'label: "Open With…"' "Open With action is not surfaced"
 require_text "$QML" 'label: "Copy Path"' "Copy Path action is not surfaced"
-require_text "$QML" 'label: "Duplicate"' "Duplicate action is not surfaced"
+require_text "$QML" 'label: root.selectedCount > 1 ? "Duplicate " + root.selectedCount + " Items" : "Duplicate"' "Duplicate action is not surfaced for single and multi-selection"
 require_text "$QML" 'id: propertiesPopup' "Properties UI is missing"
 require_text "$QML" 'id: contentDropArea' "content drop target is missing"
 require_text "$CMAKE" 'KF6::KIOGui' "native file launching is not linked against KIOGui"
