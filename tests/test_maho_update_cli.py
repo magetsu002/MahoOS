@@ -48,7 +48,14 @@ def main() -> None:
         root = Path(temporary)
         empty = run(root, "status", "--json")
         empty_status = json.loads(empty.stdout)
-        check("no active transaction is quietly healthy", empty.returncode == 0 and empty_status["authority_state"] == "NONE" and empty_status["notification_policy"] == "none")
+        check(
+            "no active transaction preserves calm transaction state without hiding absent automation",
+            empty.returncode == 0
+            and empty_status["authority_state"] == "NONE"
+            and empty_status["notification_policy"] == "none"
+            and empty_status["presentation_status"] == "Blocked: coordinator_state_unavailable"
+            and empty_status["coordinator"]["blockers"] == ["coordinator_state_unavailable"],
+        )
 
         transaction = pending()
         publish_transaction(root, transaction)
@@ -58,6 +65,18 @@ def main() -> None:
         check("CLI projects exact authoritative activation state", payload["authority_state"] == "INSTALLED_PENDING_ACTIVATION" and payload["activation_pending"])
         check("CLI exposes receipt history without package badges", payload["history_count"] == 1 and "package_count" not in payload)
         check("install-pending state renders Ready to restart", payload["presentation_status"] == "Ready to restart")
+        healthy_without_coordinator = _presentation_status({
+            "authority_state": "HEALTHY",
+            "blockers": [],
+            "coordinator": {
+                "phase": "UNAVAILABLE",
+                "blockers": ["coordinator_state_unavailable"],
+            },
+        })
+        check(
+            "historical healthy update cannot hide unavailable coordinator",
+            healthy_without_coordinator == "Blocked: coordinator_state_unavailable",
+        )
         check("PREPARED without current authority renders Waiting for certification", _presentation_status({"authority_state":"PREPARED","normal_execution_certified":False,"blockers":[]}) == "Waiting for certification")
         check("PREPARED with current authority renders Ready", _presentation_status({"authority_state":"PREPARED","normal_execution_certified":True,"blockers":[]}) == "Ready")
         check("ACTIVE_VERIFYING renders Verifying", _presentation_status({"authority_state":"ACTIVE_VERIFYING","normal_execution_certified":True,"blockers":[]}) == "Verifying")

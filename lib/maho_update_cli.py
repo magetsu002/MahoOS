@@ -125,9 +125,15 @@ def _coordinator_status(root: Path) -> dict[str, Any] | None:
 
 def _attach_coordinator(status: dict[str, Any], root: Path) -> dict[str, Any]:
     coordinator = _coordinator_status(root)
+    if coordinator is None:
+        coordinator = {
+            "schema_version": 1,
+            "phase": "UNAVAILABLE",
+            "blockers": ["coordinator_state_unavailable"],
+        }
     status["coordinator"] = coordinator
-    status["coordinator_phase"] = coordinator.get("phase") if coordinator else None
-    status["update_debt_seconds"] = coordinator.get("update_debt_seconds", 0) if coordinator else 0
+    status["coordinator_phase"] = coordinator.get("phase")
+    status["update_debt_seconds"] = coordinator.get("update_debt_seconds", 0)
     return status
 
 
@@ -156,6 +162,8 @@ def _presentation_status(status: dict[str, Any]) -> str:
         if coordinator_phase == "VERIFYING_AFTER_RESTART":
             return "Verifying after restart"
         return "Ready to restart"
+    if coordinator_phase == "UNAVAILABLE" and state in {"", "NONE", "HEALTHY"}:
+        return "Blocked: coordinator_state_unavailable"
     if coordinator_phase == "UP_TO_DATE":
         return "Up to date"
     if coordinator_phase in {"CHECKING", "COALESCED"}:
