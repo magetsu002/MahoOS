@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from maho_installer_payload import validate_payload_manifest
 from maho_installer_plan import validate_plan_integrity
+from maho_update_discovery import parse_name_versions
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -27,6 +28,19 @@ def _require_text(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{field} is missing")
     return value
+
+
+def validate_package_versions(value: Any) -> dict[str, str]:
+    """Validate the complete installed inventory, not a generation label."""
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError("installed package inventory is missing")
+    if any(not isinstance(name, str) or not isinstance(version, str)
+           or not version or any(char.isspace() for char in name + version)
+           for name, version in value.items()):
+        raise ValueError("installed package inventory is invalid")
+    return dict(sorted(parse_name_versions(
+        "\n".join(f"{name} {version}" for name, version in value.items()), separator=" ",
+    ).items()))
 
 
 def build_install_receipt(
@@ -58,7 +72,7 @@ def build_install_receipt(
         if not isinstance(value, Mapping):
             raise ValueError(f"{name} phase evidence is invalid")
     material = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "maho-installation-receipt",
         "state": "PENDING_FIRST_BOOT",
         "install_attempt_id": plan_value["install_attempt_id"],
@@ -84,6 +98,9 @@ def build_install_receipt(
         "user": dict(user),
         "runtime": dict(runtime),
         "package_generation_id": payload_value["package_generation_id"],
+        "package_versions": validate_package_versions({
+            item["name"]: item["version"] for item in payload_value["packages"]
+        }),
         "kernel_generation_id": _require_text(generations.get("kernel_generation_id"), "KernelGeneration"),
         "system_generation_id": _require_text(generations.get("system_generation_id"), "SystemGeneration"),
         "boot_generation_id": _require_text(boot.get("boot_generation_id"), "BootGeneration"),
@@ -106,12 +123,16 @@ def validate_install_receipt(receipt: Mapping[str, Any]) -> dict[str, Any]:
         "system_generation_id", "boot_generation_id", "recovery_identity", "kernel",
         "initramfs", "boot", "recovery", "services", "receipt_id",
     }
+    if isinstance(receipt, Mapping) and receipt.get("schema_version") == 2:
+        fields.add("package_versions")
     if not isinstance(receipt, Mapping) or set(receipt) != fields:
         raise ValueError("installation receipt fields are invalid")
-    if receipt.get("schema_version") != 1 or receipt.get("kind") != "maho-installation-receipt":
+    if receipt.get("schema_version") not in (1, 2) or receipt.get("kind") != "maho-installation-receipt":
         raise ValueError("installation receipt schema is unsupported")
     if receipt.get("state") != "PENDING_FIRST_BOOT":
         raise ValueError("installation receipt is not pending first boot")
+    if receipt["schema_version"] == 2:
+        validate_package_versions(receipt["package_versions"])
     for name in ("payload_sha256",):
         if _SHA256.fullmatch(str(receipt.get(name, ""))) is None:
             raise ValueError(f"installation receipt {name} is invalid")
@@ -149,6 +170,15 @@ def certify_first_boot(
     if not isinstance(observation, Mapping):
         raise ValueError("first-boot observation is invalid")
     blockers: list[str] = []
+    try:
+        packages = validate_package_versions(observation.get("package_versions"))
+        expected_packages = validate_package_versions(expected.get("package_versions"))
+        if packages != expected_packages:
+            blockers.append("installed_package_inventory_mismatch")
+    except ValueError:
+        # Legacy receipts are readable evidence, but cannot certify a current
+        # installed inventory they never bound.
+        blockers.append("installed_package_inventory_missing_or_invalid")
     storage = observation.get("storage")
     if not isinstance(storage, Mapping):
         blockers.append("storage_observation_missing")

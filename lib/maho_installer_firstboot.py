@@ -21,6 +21,7 @@ from maho_installer_execute import _checkpoint, _mutation_lock, _read_journal, _
 from maho_installer_receipt import certify_first_boot, validate_install_receipt
 from maho_live_generation import publish_initial_live_generations, read_live_publication
 from maho_runtime_release import verify_release
+from maho_update_discovery import parse_name_versions
 
 
 INSTALLER_ROOT = Path("/var/lib/maho/installer")
@@ -87,6 +88,15 @@ class SystemFirstBootObserver:
             raise RuntimeError(f"Btrfs subvolume UUID is unavailable: {target}")
         return value
 
+    def _package_versions(self) -> dict[str, str]:
+        lock = Path("/var/lib/pacman/db.lck")
+        if lock.exists():
+            raise RuntimeError("package operation is active during first-boot observation")
+        packages = parse_name_versions(self._run(("pacman", "-Q")).stdout, separator=" ")
+        if not packages or lock.exists():
+            raise RuntimeError("installed package inventory is unavailable or changing")
+        return packages
+
     def _guardian(self, user_name: str, boot_id: str) -> dict[str, Any]:
         result = self._run((
             "runuser", "-u", user_name, "--", "env", "XDG_RUNTIME_DIR=/run/user/1000",
@@ -120,6 +130,7 @@ class SystemFirstBootObserver:
 
     def observe(self, receipt: Mapping[str, Any]) -> Mapping[str, Any]:
         expected = validate_install_receipt(receipt)
+        packages = self._package_versions()
         identity = json.loads(Path("/etc/maho/installation.json").read_text(encoding="utf-8"))
         root_mount = self._mount("/")
         home_mount = self._mount(f"/home/{expected['user']['name']}")
@@ -152,7 +163,7 @@ class SystemFirstBootObserver:
         ]
         enabled = lambda unit: self._run(("systemctl", "is-enabled", unit), check=False).returncode == 0
         active = lambda unit: self._run(("systemctl", "is-active", unit), check=False).returncode == 0
-        return {
+        observation = {
             "storage": {
                 "btrfs_uuid": str(root_mount.get("uuid", "")),
                 "root_fsroot": str(root_mount.get("fsroot", "")),
@@ -169,6 +180,7 @@ class SystemFirstBootObserver:
                     "kernel_generation_id", "boot_generation_id",
                 )
             },
+            "package_versions": packages,
             "runtime": {
                 "source_revision": runtime.source_revision,
                 "content_sha256": runtime.content_sha256,
@@ -215,6 +227,9 @@ class SystemFirstBootObserver:
             "failed_units": failed,
             "boot_id": boot_id,
         }
+        if self._package_versions() != packages:
+            raise RuntimeError("installed package inventory changed during first-boot observation")
+        return observation
 
 
 def run_first_boot(

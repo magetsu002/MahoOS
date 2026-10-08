@@ -288,6 +288,7 @@ def publish_initial_live_generations(
     generations = observation.get("generations")
     storage = observation.get("storage")
     boot = observation.get("boot")
+    packages = observation.get("package_versions")
     if not all(isinstance(item, Mapping) for item in (generations, storage, boot)):
         raise ValueError("initial generation observation is incomplete")
     assert isinstance(generations, Mapping) and isinstance(storage, Mapping) and isinstance(boot, Mapping)
@@ -302,6 +303,10 @@ def publish_initial_live_generations(
         raise ValueError("initial live kernel does not match receipt")
     if boot.get("boot_sha256") != receipt.get("boot", {}).get("boot_sha256"):
         raise ValueError("initial live boot artifacts do not match receipt")
+    from maho_installer_receipt import validate_package_versions
+    package_versions = validate_package_versions(packages)
+    if package_versions != validate_package_versions(receipt.get("package_versions")):
+        raise ValueError("initial live installed package inventory does not match receipt")
 
     system_path = root / "manifests/system" / f"{receipt['system_generation_id']}.json"
     kernel_path = root / "manifests/kernel" / f"{receipt['kernel_generation_id']}.json"
@@ -350,6 +355,8 @@ def publish_initial_live_generations(
         "transaction_id": receipt["install_attempt_id"],
         "initial_installation_uuid": receipt["installation_uuid"],
         "source_revision": receipt["source_revision"],
+        "package_generation_id": receipt["package_generation_id"],
+        "package_versions": package_versions,
         "filesystem_uuid": storage["btrfs_uuid"],
         "root_subvolume_uuid": storage.get("root_subvolume_uuid"),
         "boot_generation_id": receipt.get("boot_generation_id"),
@@ -377,6 +384,7 @@ def publish_initial_live_generations(
         "source_revision": receipt["source_revision"],
         "publisher_source_revision": receipt["source_revision"],
         "package_generation_id": receipt["package_generation_id"],
+        "package_versions": package_versions,
         "boot_generation_id": receipt["boot_generation_id"],
         "filesystem_uuid": storage["btrfs_uuid"],
         "root_subvolume_uuid": str(storage.get("root_subvolume_uuid", "")),
@@ -447,16 +455,23 @@ def observe_live_generation(
 def _initial_root_claims_match(proof: Any, system: SystemGeneration, claims: Mapping[str, Any]) -> bool:
     # Legacy by-name initial roots cannot authorize a particular observed UUID
     # or boot inventory. Keep them unresolved; never upgrade old proof in place.
-    if not isinstance(proof, Mapping) or proof.get("kind") != "maho-initial-root-manifest" or proof.get("schema_version") != 2:
+    if not isinstance(proof, Mapping) or proof.get("kind") != "maho-initial-root-manifest" or proof.get("schema_version") != 3:
         return False
     root_uuid = claims.get("root_subvolume_uuid")
     boot_hashes = claims.get("boot_sha256")
     if not isinstance(root_uuid, str) or not root_uuid or not isinstance(boot_hashes, Mapping) or not boot_hashes:
         return False
+    from maho_installer_receipt import validate_package_versions
+    try:
+        packages = validate_package_versions(claims.get("package_versions"))
+    except ValueError:
+        return False
     expected = {
         "install_attempt_id": claims.get("transaction_id"),
         "installation_uuid": claims.get("initial_installation_uuid"),
         "source_revision": claims.get("source_revision"),
+        "package_generation_id": system.package_set_identity,
+        "package_versions": packages,
         "filesystem_uuid": claims.get("filesystem_uuid"),
         "root_subvolume_uuid": root_uuid,
         "boot_generation_id": claims.get("boot_generation_id"),

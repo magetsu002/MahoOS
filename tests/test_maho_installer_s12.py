@@ -10,6 +10,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
@@ -235,6 +236,7 @@ def healthy_observation(receipt: dict) -> dict:
             "installation_uuid": receipt["installation_uuid"],
         },
         "machine_id": receipt["machine_id"],
+        "package_versions": dict(receipt["package_versions"]),
         "generations": {
             "system_generation_id": receipt["system_generation_id"],
             "package_generation_id": receipt["package_generation_id"],
@@ -388,6 +390,17 @@ class InitramfsOps(SystemAssemblyOps):
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
 
 
+class GenerationOps(IdentityOps):
+    def __init__(self, *args, package_output, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.package_output = package_output
+
+    def _chroot(self, root, command, *, input_bytes=None, check=True):
+        if tuple(command) != ("pacman", "-Q"):
+            raise AssertionError("unexpected generation observation command")
+        return subprocess.CompletedProcess(command, 0, stdout=self.package_output.encode(), stderr=b"")
+
+
 def make_ops(cls, tmp: Path, **kwargs):
     password = private_file(tmp, "password", b"correct horse battery staple\n")
     storage = private_file(tmp, "storage", b"storage-key\n")
@@ -506,11 +519,16 @@ def main() -> None:
     healthy = certify_first_boot(receipt, observation, verified_at="2026-09-27T00:00:00Z")
     check("successful independent first-boot evidence certifies INSTALLATION_HEALTHY", healthy["state"] == "INSTALLATION_HEALTHY")
     check("installation health does not manufacture Guardian trust", healthy["healthy_receipt"]["guardian_trust_state"] == "UNKNOWN")
+    check("receipt binds every verified payload version", receipt["schema_version"] == 2 and receipt["package_versions"] == {item["name"]: item["version"] for item in pl["packages"]})
 
     cases = [
         ("wrong root rejected", lambda o: o["storage"].__setitem__("root_fsroot", "/@wrong"), "storage_root_fsroot_mismatch"),
         ("wrong installation UUID rejected", lambda o: o["storage"].__setitem__("installation_uuid", "wrong"), "installation_uuid_mismatch"),
         ("wrong generation rejected", lambda o: o["generations"].__setitem__("system_generation_id", "gen-" + "0" * 64), "system_generation_id_mismatch"),
+        ("package version drift rejects health despite unchanged generation label", lambda o: o["package_versions"].__setitem__("base", "2-1"), "installed_package_inventory_mismatch"),
+        ("unexpected installed package rejects health", lambda o: o["package_versions"].__setitem__("unexpected", "1-1"), "installed_package_inventory_mismatch"),
+        ("missing installed package rejects health", lambda o: o["package_versions"].pop("base"), "installed_package_inventory_mismatch"),
+        ("missing package observation rejects health", lambda o: o.pop("package_versions"), "installed_package_inventory_missing_or_invalid"),
         ("wrong runtime rejected", lambda o: o["runtime"].__setitem__("content_sha256", "0" * 64), "runtime_content_sha256_mismatch"),
         ("stale Guardian evidence rejects health", lambda o: o["guardian"].__setitem__("required_evidence_fresh", False), "guardian_required_evidence_stale_or_missing"),
         ("missing recovery artifact rejects health", lambda o: o["recovery"].__setitem__("artifacts_present", False), "recovery_artifacts_missing"),
@@ -523,6 +541,19 @@ def main() -> None:
         mutate(candidate)
         result = certify_first_boot(receipt, candidate)
         check(label, result["state"] == "ATTENTION_REQUIRED" and blocker in result["blockers"])
+
+    legacy = dict(receipt); legacy.pop("package_versions"); legacy.pop("receipt_id"); legacy["schema_version"] = 1
+    legacy["receipt_id"] = "install-receipt-" + hashlib.sha256(receipt_canonical(legacy)).hexdigest()
+    check("legacy receipt remains readable", validate_install_receipt(legacy) == legacy)
+    check("legacy receipt cannot silently certify an unbound inventory", certify_first_boot(legacy, observation)["state"] == "ATTENTION_REQUIRED")
+    observer = SystemFirstBootObserver()
+    with patch.object(Path, "exists", return_value=False), patch.object(observer, "_run", return_value=subprocess.CompletedProcess([], 0, stdout="base 1-1\nbase 2-1\n")):
+        rejected("ambiguous duplicate installed metadata rejects observation", observer._package_versions)
+    with patch.object(Path, "exists", return_value=True), patch.object(observer, "_run") as queried:
+        rejected("active Pacman operation blocks observation", observer._package_versions)
+        check("locked package database is not queried", not queried.called)
+    with patch.object(Path, "exists", side_effect=[False, True]), patch.object(observer, "_run", return_value=subprocess.CompletedProcess([], 0, stdout="base 1-1\n")):
+        rejected("Pacman lock appearing during query blocks observation", observer._package_versions)
 
     secret_receipt = copy.deepcopy(receipt)
     secret_receipt["user"]["password"] = "never-store-me"
@@ -564,18 +595,23 @@ def main() -> None:
         for name in ("intel-ucode.img", "vmlinuz-linux-cachyos", "initramfs-linux-cachyos.img"):
             (esp / name).write_bytes(name.encode())
         boot_hashes = {"/boot/EFI/MahoOS/Normal/" + path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in esp.iterdir()}
-        generation = ops._phase_system_generation_published(p, pl, {"phase_evidence": {
+        generation_ops = make_ops(GenerationOps, tmp, package_output="".join(f"{item['name']} {item['version']}\n" for item in pl["packages"]))
+        generation_evidence = {"phase_evidence": {
             "KERNELS_INSTALLED": {"primary_release": "test-release"},
             "BOOT_GENERATION_PUBLISHED": {"boot_generation_id": "bootgen-" + HEX, "boot_sha256": boot_hashes},
             "RECOVERY_INSTALLED": {"recovery_identity": "recovery-test"},
             "RUNTIME_INSTALLED": {"content_sha256": HEX},
-        }}, root)
+        }}
+        generation = generation_ops._phase_system_generation_published(p, pl, generation_evidence, root)
         generations = root / "var/lib/maho/generations"
         manifest = SystemGeneration.parse(json.loads((generations / "manifests/system" / (generation["system_generation_id"] + ".json")).read_text()))
         digest = manifest.root_identity.root_manifest_sha256
         proof = json.loads((generations / "artifacts/sha256" / digest[:2] / digest[2:]).read_text())
         check("initial generation binds the observed Btrfs UUID before first boot", manifest.root_identity.snapshot_identity == "btrfs-uuid:" + identity["root_subvolume_uuid"] and proof["root_subvolume_uuid"] == identity["root_subvolume_uuid"])
-        check("initial immutable proof binds exact boot inventory and filesystem", proof["schema_version"] == 2 and proof["boot_sha256"] == boot_hashes and proof["filesystem_uuid"] == p["installation_identity"]["btrfs_uuid"])
+        check("initial immutable proof binds exact boot inventory and filesystem", proof["schema_version"] == 3 and proof["boot_sha256"] == boot_hashes and proof["filesystem_uuid"] == p["installation_identity"]["btrfs_uuid"])
+        check("initial root proof binds the final complete package inventory", proof["package_versions"] == receipt["package_versions"] and proof["package_generation_id"] == pl["package_generation_id"])
+        generation_ops.package_output += "unexpected 1-1\n"
+        rejected("package drift after bootstrap cannot publish a generation", lambda: generation_ops._phase_system_generation_published(p, pl, generation_evidence, root))
         check("preboot generation remains UNKNOWN", manifest.trust_state.value == "UNKNOWN")
 
         modules = root / "usr/lib/modules/test-release"

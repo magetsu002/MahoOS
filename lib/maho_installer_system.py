@@ -18,6 +18,7 @@ from maho_boot_authority import BootArtifact, BootGeneration, Digest, LoaderIden
 from maho_generation_v2 import RootIdentity, SystemGeneration
 from maho_installer_execute import _write_json_durable
 from maho_installer_receipt import build_install_receipt
+from maho_update_discovery import parse_name_versions
 from maho_kernel_generation import KernelGeneration, modules_tree_artifact
 from maho_recovery_generation import generation_identity
 from maho_trust_identity import ArtifactID, ProvenanceID, TransactionID, TrustState, canonical_bytes
@@ -289,9 +290,7 @@ class SystemAssemblyOps:
         ):
             raise RuntimeError("target pacman signature policy remained relaxed after offline bootstrap")
         query = self._chroot(root, ("pacman", "-Q"))
-        installed = dict(
-            line.split(" ", 1) for line in query.stdout.decode().splitlines() if " " in line
-        )
+        installed = parse_name_versions(query.stdout.decode(), separator=" ")
         expected = {item["name"]: item["version"] for item in payload["packages"]}
         if installed != expected:
             missing = sorted(set(expected) - set(installed))
@@ -841,6 +840,14 @@ class SystemAssemblyOps:
         return entries | {".manifest": identity}, manifest
 
     def _phase_system_generation_published(self, plan, payload, journal, root) -> Mapping[str, Any]:
+        # Re-observe after all target assembly phases; the bootstrap check is
+        # historical and cannot bind the final root if packages changed later.
+        package_versions = parse_name_versions(
+            self._chroot(root, ("pacman", "-Q")).stdout.decode(), separator=" ",
+        )
+        expected_packages = {item["name"]: item["version"] for item in payload["packages"]}
+        if package_versions != expected_packages:
+            raise RuntimeError("final installed package inventory drifted from verified payload")
         evidence = journal.get("phase_evidence") or {}
         kernel_info = evidence["KERNELS_INSTALLED"]
         boot_info = evidence["BOOT_GENERATION_PUBLISHED"]
@@ -871,11 +878,13 @@ class SystemAssemblyOps:
             kernel_abi=primary, modules_abi=primary, trust_state=TrustState.UNKNOWN,
         )
         root_manifest = {
-            "schema_version": 2, "kind": "maho-initial-root-manifest",
+            "schema_version": 3, "kind": "maho-initial-root-manifest",
             "install_attempt_id": plan["install_attempt_id"],
             "installation_uuid": plan["installation_identity"]["installation_uuid"],
             "source_revision": plan["source_revision"],
             "payload_sha256": payload["payload_sha256"],
+            "package_generation_id": payload["package_generation_id"],
+            "package_versions": dict(sorted(package_versions.items())),
             "runtime_content_sha256": runtime["content_sha256"],
             "boot_generation_id": boot_info["boot_generation_id"],
             "recovery_identity": recovery["recovery_identity"],
