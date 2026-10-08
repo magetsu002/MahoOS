@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from maho_update_effects import aggregate_effects, validate_provenance
 from maho_update_normal_authority import authorize_normal_plan, certification_confirmation
@@ -226,6 +226,7 @@ def _execute_normal_lifecycle(
     plan: NormalExecutionPlan,
     ops: NormalUpdateOps,
     *,
+    activation_maintenance_reobserve: Callable[[], Mapping[str, Any]] | None = None,
     now=None,
 ) -> NormalExecutionResult:
     ready = transition_transaction(
@@ -263,6 +264,18 @@ def _execute_normal_lifecycle(
         now=now,
     )
     try:
+        if activation_maintenance_reobserve is not None:
+            maintenance = activation_maintenance_reobserve()
+            if (
+                not isinstance(maintenance, Mapping)
+                or maintenance.get("safe") is not True
+                or maintenance.get("veto_active") is not False
+                or not isinstance(maintenance.get("snapshot_id"), str)
+                or not maintenance["snapshot_id"]
+                or not isinstance(maintenance.get("captured_at"), str)
+                or not maintenance["captured_at"]
+            ):
+                raise RuntimeError("certification_maintenance_evidence_not_safe")
         activation = _require_ok(ops.activate(plan), "activation")
     except Exception as exc:
         failed = transition_transaction(
@@ -481,6 +494,7 @@ def execute_normal_certification(
     ops: NormalUpdateOps,
     *,
     confirmation: str,
+    activation_maintenance_reobserve: Callable[[], Mapping[str, Any]] | None = None,
     now=None,
 ) -> NormalExecutionResult:
     """One-time host certification path. It never creates future authority itself."""
@@ -491,4 +505,10 @@ def execute_normal_certification(
         raise ValueError("exact normal certification confirmation token is required")
     if getattr(ops, "production_safe", False) is not True:
         raise ValueError("normal certification requires production-safe executor")
-    return _execute_normal_lifecycle(current, plan, ops, now=now)
+    if not callable(activation_maintenance_reobserve):
+        raise ValueError("normal certification requires fresh activation maintenance evidence")
+    return _execute_normal_lifecycle(
+        current, plan, ops,
+        activation_maintenance_reobserve=activation_maintenance_reobserve,
+        now=now,
+    )

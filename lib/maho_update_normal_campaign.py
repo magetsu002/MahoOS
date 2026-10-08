@@ -270,8 +270,18 @@ def certify_normal_update(
                 "activation_preflight": activation_preflight,
                 "reboot_performed": False,
             }
+        # Reuse the coordinator's fresh adaptive/Guardian gate at the last
+        # moment before live Pacman activation. This certification must not
+        # become a route around unattended-maintenance safety policy.
+        from maho_update_coordinator import (
+            _coordinator_user, _execution_maintenance_observation, utc_now,
+        )
+        coordinator_user = _coordinator_user()
         execution = execute_normal_certification(
             prep.transaction, prep.plan, ops, confirmation=confirmation,
+            activation_maintenance_reobserve=lambda: _execution_maintenance_observation(
+                coordinator_user, utc_now(),
+            ),
         )
         _record_certification_transaction(execution.transaction, preflight_only=False, work=work)
         if execution.transaction["state"] != UpdateState.HEALTHY.value:

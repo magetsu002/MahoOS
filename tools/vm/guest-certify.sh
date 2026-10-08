@@ -355,7 +355,7 @@ case "$PROFILE" in
   autonomy-convergence) autonomy_convergence_profile;;
   autonomy-authority)
     isolation
-    for target in normal_authority normal_certification_slot normal_preflight_isolation normal_certification_journal coordinator; do
+    for target in normal_authority normal_certification_slot normal_preflight_isolation normal_certification_journal normal_certification_maintenance coordinator; do
       name="test_maho_update_${target}.py"
       echo "RUN changed-boundary $name"
       PYTHONPATH=/mnt/maho-src/lib python3 "/mnt/maho-src/tests/$name"
