@@ -17,6 +17,7 @@ _BOOT_PREFIXES = (
     "/boot/",
     "/efi/",
     "/usr/lib/modules/",
+    "/usr/lib/firmware/",  # Pacman 90-mkinitcpio-install.hook updates initramfs for these paths.
     "/usr/lib/initcpio/",
     "/usr/lib/kernel/",
     "/usr/lib/systemd/boot/",

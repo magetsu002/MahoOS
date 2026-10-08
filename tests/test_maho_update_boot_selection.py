@@ -78,7 +78,8 @@ def full_transaction(names):
 class BootSelectionContracts(unittest.TestCase):
     def test_exact_arch_boot_packages_have_preliminary_authority(self):
         for name in (*BOOT, 'linux-lts', 'linux-lts-headers', 'linux-zen',
-                     'linux-hardened-headers', 'linux-firmware', 'systemd-sysvcompat'):
+                     'linux-hardened-headers', 'linux-firmware', 'sof-firmware',
+                     'systemd-sysvcompat'):
             with self.subTest(package=name):
                 self.assertTrue(preliminary_boot_critical(package_roles(name)))
         for name in ('linux-api-headers', 'demo-service'):
@@ -132,6 +133,19 @@ class BootSelectionContracts(unittest.TestCase):
                 effect = classify_artifact(package_name=name, roles=package_roles(name),
                                            files=['/usr/bin/innocent-looking'])
                 self.assertEqual(effect['classification'], 'boot-critical')
+
+    def test_firmware_hook_paths_are_boot_critical_even_without_known_package_roles(self):
+        effect = classify_artifact(
+            package_name='unknown-vendor-firmware', roles=[],
+            files=['/usr/lib/firmware/vendor/sound.bin'],
+        )
+        self.assertEqual(effect['classification'], 'boot-critical')
+        self.assertIn('explicit-reboot', effect['activation_requirements'])
+        sof = classify_artifact(
+            package_name='sof-firmware', roles=package_roles('sof-firmware'),
+            files=['/usr/share/licenses/sof-firmware/LICENSE'],
+        )
+        self.assertEqual(sof['classification'], 'boot-critical')
 
     def test_unsupported_boot_only_generation_never_invokes_native(self):
         with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as work:

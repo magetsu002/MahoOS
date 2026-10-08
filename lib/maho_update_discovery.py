@@ -315,7 +315,9 @@ def package_roles(name: str) -> list[str]:
         roles.update({"kernel-headers", "dkms"})
     if name in _BOOT_SYSTEMD_PACKAGES:
         roles.add("boot-policy")
-    if name == "linux-firmware" or name.startswith("linux-firmware-"):
+    # sof-firmware installs under /usr/lib/firmware and triggers the host's
+    # 90-mkinitcpio-install.hook. It cannot enter the normal candidate lane.
+    if name == "linux-firmware" or name.startswith("linux-firmware-") or name == "sof-firmware":
         roles.add("initramfs")
     if name in {"linux-cachyos", "linux-cachyos-lts"}:
         roles.update({"kernel", "initramfs", "boot-artifacts"})
