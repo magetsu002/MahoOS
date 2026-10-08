@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory() as temporary:
 
 
 # Invalid/missing TLS certificate material is rejected before NetworkManager is
-# mutated, and server-name validation is mandatory for newly authored EAP-TLS.
+# mutated; explicit CA trust is valid even without a server-name constraint.
 with tempfile.TemporaryDirectory() as temporary:
     temp = Path(temporary)
     ca = temp / "ca.pem"
@@ -118,20 +118,29 @@ with tempfile.TemporaryDirectory() as temporary:
     assert error == "CA certificate could not be found."
     run_mock.assert_not_called()
 
-    with mock.patch.object(WIFI, "run") as run_mock:
+    ca_only_calls = []
+    with mock.patch.object(WIFI, "wifi_device", return_value="wlan0"), mock.patch.object(
+        WIFI, "run", side_effect=profile_run
+    ):
         profile_uuid, error = WIFI.create_enterprise_profile(
-            "Corp TLS",
+            "EnterpriseNetwork",
             {
-                "identity": "device@example.com",
+                "identity": "device@example.test",
                 "eap": "tls",
                 "caCert": str(ca),
                 "clientCert": str(client),
                 "privateKey": str(key),
             },
         )
-    assert profile_uuid == ""
-    assert "server domain or domain suffix" in error
-    run_mock.assert_not_called()
+    assert profile_uuid == PROFILE_UUID and error == ""
+    # The explicit CA is the trust anchor; do not silently disable validation
+    # or invent a domain name that the organization never supplied.
+    # profile_run records every NetworkManager argument vector in calls.
+    argv = calls[-2][0]
+    assert argv[argv.index("802-1x.ca-cert") + 1] == str(ca.resolve())
+    assert "802-1x.domain-match" not in argv
+    assert "802-1x.domain-suffix-match" not in argv
+    assert "802-1x.system-ca-certs" not in argv
 
 
 # Private-key passwords follow the same safe transport rule as PEAP/TTLS:

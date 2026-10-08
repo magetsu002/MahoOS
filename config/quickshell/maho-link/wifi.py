@@ -886,9 +886,6 @@ def create_enterprise_profile(ssid: str, options: dict):
         return "", "Maho Link supports PEAP, TTLS, and EAP-TLS enterprise Wi-Fi."
     if eap != "tls" and phase2 not in ("mschapv2", "pap", "mschap", "chap"):
         return "", "Unsupported enterprise inner authentication method."
-    if not domain_suffix and not domain_match:
-        return "", "Enterprise Wi-Fi requires a server domain or domain suffix for certificate validation."
-
     ca_cert = ""
     client_cert = ""
     private_key = ""
@@ -896,6 +893,8 @@ def create_enterprise_profile(ssid: str, options: dict):
         ca_cert, error = validate_enterprise_file(ca_cert_input, "CA certificate")
         if error:
             return "", error
+    if not (domain_suffix or domain_match or ca_cert):
+        return "", "Enterprise Wi-Fi requires a trusted CA certificate or server domain constraint."
 
     if eap == "tls":
         if not ca_cert:

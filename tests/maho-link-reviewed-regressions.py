@@ -47,8 +47,8 @@ def profile_runner(calls, profile_uuid=PROFILE_UUID):
     return run
 
 
-# BLOCKER 1: all newly authored enterprise profiles require an explicit
-# authentication-server identity constraint.
+# BLOCKER 1: new enterprise profiles require a trusted CA or server-name
+# constraint; a custom CA alone is valid for networks without name matching.
 for eap, phase2 in (("peap", "mschapv2"), ("ttls", "pap")):
     with mock.patch.object(WIFI, "run") as run_mock:
         profile_uuid, error = WIFI.create_enterprise_profile(
@@ -56,7 +56,7 @@ for eap, phase2 in (("peap", "mschapv2"), ("ttls", "pap")):
             {"identity": "user@example.com", "eap": eap, "phase2": phase2},
         )
     assert profile_uuid == ""
-    assert "server domain or domain suffix" in error
+    assert "trusted CA certificate or server domain constraint" in error
     run_mock.assert_not_called()
 
 with tempfile.TemporaryDirectory() as temporary:
@@ -102,6 +102,29 @@ with tempfile.TemporaryDirectory() as temporary:
     assert ttls_argv[ttls_argv.index("802-1x.domain-match") + 1] == "radius.example.com"
     assert ttls_argv[ttls_argv.index("802-1x.ca-cert") + 1] == str(ca.resolve())
     assert "802-1x.system-ca-certs" not in ttls_argv
+
+    # A private, explicitly supplied CA can authenticate an enterprise RADIUS
+    # server even when the deployment supplies no server DNS-name constraint.
+    for eap, phase2 in (("peap", "mschapv2"), ("ttls", "pap")):
+        ca_only_calls = []
+        with mock.patch.object(WIFI, "wifi_device", return_value="wlan0"), mock.patch.object(
+            WIFI, "run", side_effect=profile_runner(ca_only_calls)
+        ):
+            profile_uuid, error = WIFI.create_enterprise_profile(
+                "EnterpriseNetwork",
+                {
+                    "identity": "user@example.test",
+                    "eap": eap,
+                    "phase2": phase2,
+                    "caCert": str(ca),
+                },
+            )
+        assert (profile_uuid, error) == (PROFILE_UUID, "")
+        argv = ca_only_calls[0][0]
+        assert argv[argv.index("802-1x.ca-cert") + 1] == str(ca.resolve())
+        assert "802-1x.domain-match" not in argv
+        assert "802-1x.domain-suffix-match" not in argv
+        assert "802-1x.system-ca-certs" not in argv
 
     with mock.patch.object(WIFI, "run") as run_mock:
         profile_uuid, error = WIFI.create_enterprise_profile(

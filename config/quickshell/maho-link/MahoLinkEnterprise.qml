@@ -14,9 +14,11 @@ Item {
     readonly property bool hasServerIdentity:
         domainSuffixInput.text.trim().length > 0
         || domainMatchInput.text.trim().length > 0
+    readonly property bool hasServerValidation:
+        hasServerIdentity || caCertInput.text.trim().length > 0
     readonly property bool formReady:
         identityInput.text.trim().length > 0
-        && hasServerIdentity
+        && hasServerValidation
         && (tlsMode
             ? caCertInput.text.trim().length > 0
                 && clientCertInput.text.trim().length > 0
@@ -55,8 +57,8 @@ Item {
             return
         }
 
-        if (!root.hasServerIdentity) {
-            root.wifi.errorText = "Enterprise Wi-Fi requires a server domain or domain suffix."
+        if (!root.hasServerValidation) {
+            root.wifi.errorText = "Enterprise Wi-Fi requires a trusted CA certificate or server domain constraint."
             return
         }
 
@@ -286,7 +288,7 @@ Item {
                 id: domainSuffixInput
                 width: parent.width
                 chrome: root.chrome
-                placeholder: "Server domain suffix (required unless exact domain is set)"
+                placeholder: "Server domain suffix (optional with custom CA)"
                 onSubmitted: root.submit()
             }
 
@@ -294,7 +296,7 @@ Item {
                 id: domainMatchInput
                 width: parent.width
                 chrome: root.chrome
-                placeholder: "Exact server domain / certificate name (required unless suffix is set)"
+                placeholder: "Exact server domain / certificate name (optional with custom CA)"
                 onSubmitted: root.submit()
             }
 
@@ -303,8 +305,8 @@ Item {
                 visible: true
                 wrapMode: Text.WordWrap
                 text: root.tlsMode
-                    ? "EAP-TLS requires a readable CA certificate, client certificate, private key, and an explicit server-name validation field."
-                    : "PEAP and TTLS require an explicit server domain or domain suffix. A custom CA is optional; otherwise NetworkManager uses system CA trust constrained to that server identity."
+                    ? "EAP-TLS requires a readable CA certificate, client certificate and private key. Server-name matching adds protection when available."
+                    : "PEAP and TTLS require a trusted CA certificate or a server-name constraint. If you use a custom CA without a domain, verify it is the correct CA for this network."
                 color: chrome.theme.alpha(chrome.textSecondary, 0.62)
                 font.family: "Inter"
                 font.pixelSize: 9
