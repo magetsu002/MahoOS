@@ -28,6 +28,7 @@ def main():
     ordinary=classify_artifact(package_name='brave-bin',roles=[],files=['/usr/bin/brave','/usr/share/applications/brave.desktop'])
     check('ordinary app artifact is normal', ordinary['classification']=='normal')
     rejected('empty artifact inventory fails closed by default', lambda: classify_artifact(package_name='meta',roles=[],files=[]))
+    rejected('interior traversal cannot disguise privileged or library paths', lambda: classify_artifact(package_name='demo',roles=[],files=['/usr/share/../lib/demo.so']))
     metadata=classify_artifact(package_name='meta',roles=[],files=[],allow_empty=True)
     check('explicit zero-file package remains complete metadata-only evidence',
           metadata['classification']=='normal' and metadata['file_count']==0 and metadata['effects']==['metadata-only'])
@@ -45,6 +46,9 @@ def main():
         '/etc/sysctl.d/90-demo.conf',
         '/usr/share/dbus-1/system.d/demo.conf',
     )
+    for path in ('/etc/ssl/certs/ca-certificates.crt', '/usr/share/ca-certificates/trust-source/mozilla.trust.p11-kit', '/usr/share/pacman/keyrings/archlinux.gpg', '/etc/pacman.d/gnupg/trustdb.gpg', '/etc/ca-certificates.conf'):
+        effect = classify_artifact(package_name='ordinary-looking-name', roles=[], files=[path])
+        check(f'trust-store effects require independent security review: {path}', effect['effects'] == ['trust-store'] and effect['activation_requirements'] == ['security-boundary-review'])
     for path in privilege_paths:
         effect=classify_artifact(package_name='demo',roles=[],files=[path])
         check(f'privilege authority is classified before candidate execution: {path}',

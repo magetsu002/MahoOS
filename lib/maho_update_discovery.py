@@ -565,6 +565,9 @@ def discover_coherent_subset_updates(
     recovery_generation_id: str | None = None,
     now: datetime | None = None,
     entropy: str | None = None,
+    expected_full_plan_sha256: str | None = None,
+    expected_repository_hashes: Mapping[str, str] | None = None,
+    refresh_repositories: bool = True,
 ) -> DiscoveryResult:
     """Prove an exact requested subset is a coherent independent Pacman transaction.
 
@@ -576,11 +579,20 @@ def discover_coherent_subset_updates(
     targets = tuple(sorted(set(str(item) for item in target_packages)))
     if not targets or any(_PACKAGE.fullmatch(item) is None for item in targets):
         raise ValueError("coherent subset target package set is invalid")
+    if not refresh_repositories and (
+        not expected_repository_hashes or not expected_full_plan_sha256
+        or re.fullmatch(r"[0-9a-f]{64}", expected_full_plan_sha256) is None
+        or any(re.fullmatch(r"[0-9a-f]{64}", str(value)) is None for value in expected_repository_hashes.values())
+    ):
+        raise ValueError("frozen subset solver requires exact repository and full-plan bindings")
     backend.prepare()
-    refreshed = backend.run(backend.refresh_command)
-    if refreshed.returncode != 0:
-        raise RuntimeError(f"isolated_synchronization_failed: {refreshed.stderr.strip()}")
-    backend.sync_database_hashes()
+    if refresh_repositories:
+        refreshed = backend.run(backend.refresh_command)
+        if refreshed.returncode != 0:
+            raise RuntimeError(f"isolated_synchronization_failed: {refreshed.stderr.strip()}")
+    repository_hashes = backend.sync_database_hashes()
+    if expected_repository_hashes is not None and repository_hashes != dict(expected_repository_hashes):
+        raise RuntimeError("coherent_subset_repository_snapshot_drift")
     installed_result = backend.run(backend.installed_command)
     if installed_result.returncode != 0:
         raise RuntimeError(f"installed package comparison failed: {installed_result.stderr.strip()}")
@@ -590,6 +602,8 @@ def discover_coherent_subset_updates(
         detail = " | ".join(part for part in (full_result.stderr.strip(), full_result.stdout.strip()) if part)
         raise RuntimeError(f"package_solver_incoherent: {detail or 'Pacman solver returned nonzero'}")
     full_planned, full_repositories = parse_solver_plan(full_result.stdout)
+    if expected_full_plan_sha256 is not None and _solver_plan_digest(full_planned, full_repositories) != expected_full_plan_sha256:
+        raise RuntimeError("coherent_subset_full_plan_drift")
     full_candidates = _candidate_rows(installed, full_planned)
     if not full_candidates:
         raise LookupError("no coherent update candidates were discovered")
@@ -608,6 +622,7 @@ def discover_coherent_subset_updates(
     if pre_boot:
         raise ValueError("coherent subset target is preliminarily boot-critical:" + ",".join(pre_boot))
     deferred = sorted(full_names - set(targets))
+    deferred_boot = sorted(item["name"] for item in full_packages if preliminary_boot_critical(item["roles"]))
     if deferred:
         subset_result = backend.run(backend.independent_transaction_command(deferred))
         if subset_result.returncode != 0:
@@ -629,11 +644,15 @@ def discover_coherent_subset_updates(
             raise RuntimeError(f"coherent_subset_solver_version_drift:{name}")
         if full_repositories.get(name) != selected_repositories.get(name):
             raise RuntimeError(f"coherent_subset_solver_repository_drift:{name}")
+    if backend.sync_database_hashes() != repository_hashes:
+        raise RuntimeError("coherent_subset_repository_changed_during_solver")
     packages, trusted_sources = _packages_from_candidates(selected_candidates, metadata, evidence, selected_repositories)
     proof = {
         "kind": "isolated-pacman-coherent-subset",
         "target_packages": list(targets),
         "deferred_packages": deferred,
+        "deferred_boot_packages": deferred_boot,
+        "repository_hashes": repository_hashes,
         "full_versions_sha256": _version_set_digest(full_planned),
         "selected_versions_sha256": _version_set_digest(selected_planned),
         "full_plan_sha256": _solver_plan_digest(full_planned, full_repositories),
@@ -649,7 +668,7 @@ def discover_coherent_subset_updates(
         activation_requirements=activation_requirements(packages),
         recovery_generation_id=recovery_generation_id,
         provenance_by_package=_provenance(packages),
-        selection={"kind": "coherent-subset", "deferred_boot_packages": [], "solver_proof": proof},
+        selection={"kind": "coherent-subset", "deferred_boot_packages": deferred_boot, "solver_proof": proof},
         now=now,
     )
     return DiscoveryResult(
@@ -658,5 +677,5 @@ def discover_coherent_subset_updates(
         candidate_count=len(packages),
         security_metadata_source=",".join(sorted(trusted_sources)) or None,
         selection_kind="coherent-subset",
-        deferred_boot_packages=(),
+        deferred_boot_packages=tuple(deferred_boot),
     )

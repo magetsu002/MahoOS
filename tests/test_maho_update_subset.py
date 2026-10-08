@@ -61,8 +61,16 @@ def main():
         proof=result.transaction['selection']['solver_proof']
         check('subset proof binds full solver version and repository',proof['selected_versions_match_full'] is True and proof['selected_repositories_match_full'] is True and proof['production_ignore_execution'] is False)
         check('all other updates are deferred inside isolated solver',proof['deferred_packages']==['libfoo','linux-cachyos'])
+        check('subset retains deferred boot debt in transaction and coordinator result',result.deferred_boot_packages == ('linux-cachyos',) and result.transaction['selection']['deferred_boot_packages'] == ['linux-cachyos'])
+        matched = discover_coherent_subset_updates(backend,target_packages=['teams-for-linux'],source_revision='a'*40,
+            expected_full_plan_sha256=proof['full_plan_sha256'],expected_repository_hashes={},entropy='123456abcdef')
+        check('matching staged solver snapshot permits subset proof', matched.transaction['selection']['solver_proof']['full_plan_sha256'] == proof['full_plan_sha256'])
+        rejected('changed full solver plan cannot reuse staged inspection',lambda:discover_coherent_subset_updates(
+            backend,target_packages=['teams-for-linux'],source_revision='a'*40,expected_full_plan_sha256='0'*64))
+        rejected('changed repository snapshot cannot reuse staged inspection',lambda:discover_coherent_subset_updates(
+            backend,target_packages=['teams-for-linux'],source_revision='a'*40,expected_repository_hashes={'extra':'0'*64}))
         ignores=[c for c in backend.commands if '--ignore' in c]
-        check('subset exclusion occurs only in isolated solver',len(ignores)==1 and str(backend.db) in ignores[0])
+        check('subset exclusion occurs only in isolated solver',len(ignores)==2 and all(str(backend.db) in command and '--print' in command for command in ignores))
     with tempfile.TemporaryDirectory(prefix='maho-subset-extra-') as temp:
         installed=Path(temp)/'installed'; installed.mkdir()
         bad=IsolatedPacmanDiscovery(Path(temp)/'bad',installed_db=installed,runner=Runner(extra_subset=True))

@@ -52,6 +52,14 @@ Package success is not activation. Root exchange is not health. Boot is not acce
 
 Missing, stale, replayed, wrong-target, or expired authority must fail before mutation/activation where possible and remain unresolved afterward otherwise.
 
+### Certified subset planning
+
+The coordinator can inspect an exact staged normal generation and propose a coherent subset for the existing ordinary-files/static-inventory/bounded-hook profile. Inspection rechecks archive hashes, exact package versions, independently enumerated artifact effects, installed versions and inventories, absence of scriptlets, and all triggered hook identities. Certificate and package-key stores require a separate security effect and cannot qualify as ordinary files.
+
+Subset solving uses the exact staged repository database hashes and full solver-plan identity. Repositories changing before or during solving invalidate the proposal. A failed package pool is partitioned deterministically; passing groups are combined only after an independent exact solver check. Unsupported or dependent packages remain explicit debt, including deferred native boot packages. All exclusions stay inside the isolated print-only solver.
+
+An inspection or solver result is not execution authority. The full staged generation and its first-observed debt remain authoritative while a proposal is blocked. Automatic in-place execution additionally requires independent certification of a retained frozen recovery baseline, exact generation linkage, durable interruption handling, current host/source authority, and fresh maintenance/Guardian evidence. Until that capability is certified, proposals cannot replace the active generation or bypass the existing candidate and explicit activation boundaries.
+
 ## Interruption
 
 Every durable phase must be restart-safe.

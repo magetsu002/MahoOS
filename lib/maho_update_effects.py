@@ -79,6 +79,12 @@ _LOADER_POLICY_PREFIXES = (
     "/etc/kernel/cmdline.d/", "/boot/loader/",
     "/etc/ld.so.conf.d/", "/etc/binfmt.d/", "/usr/lib/binfmt.d/",
 )
+_TRUST_STORE_PREFIXES = (
+    "/etc/ssl/", "/etc/ca-certificates/", "/etc/pki/", "/etc/gnupg/",
+    "/etc/pacman.d/gnupg/", "/usr/share/ca-certificates/",
+    "/usr/share/p11-kit/", "/usr/share/pacman/keyrings/",
+)
+_TRUST_STORE_EXACT = frozenset({"/etc/ca-certificates.conf"})
 
 
 def repository_provenance(repository: str) -> dict[str, str]:
@@ -130,7 +136,7 @@ def _normalise_package_path(value: str) -> str:
         path = "/" + path
     # PurePosixPath collapses duplicate slashes/dots without consulting host FS.
     normal = "/" + str(PurePosixPath(path)).lstrip("/")
-    if normal == "/.." or normal.startswith("/../"):
+    if ".." in PurePosixPath(normal).parts:
         raise ValueError("package file path escapes root")
     return normal
 
@@ -182,6 +188,8 @@ def classify_artifact(
             note("startup-persistence", path)
         if path in _LOADER_POLICY_EXACT or path.startswith(_LOADER_POLICY_PREFIXES):
             note("loader-policy", path)
+        if path in _TRUST_STORE_EXACT or path.startswith(_TRUST_STORE_PREFIXES) or path in {prefix.rstrip("/") for prefix in _TRUST_STORE_PREFIXES}:
+            note("trust-store", path)
         if path.startswith(_SYSTEM_SERVICE_PREFIXES):
             note("system-service", path)
         if path.startswith(_USER_SERVICE_PREFIXES):
@@ -201,7 +209,7 @@ def classify_artifact(
         activation.update({"initramfs-or-boot-refresh", "explicit-reboot"})
     if "system-service" in effects:
         activation.add("affected-system-service-restart")
-    if effects & {"privilege-authority", "startup-persistence", "loader-policy"}:
+    if effects & {"privilege-authority", "startup-persistence", "loader-policy", "trust-store"}:
         activation.add("security-boundary-review")
     if effects & {"user-service", "desktop-session"}:
         activation.add("affected-user-session-restart")

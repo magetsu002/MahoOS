@@ -16,6 +16,9 @@ from guardian_native_admission import CandidateRoots, root_identity
 from maho_update_admission import evaluate_normal_production_candidate, guardian_transaction_id
 from maho_update_native import NativeBtrfsOps
 from maho_update_normal import NormalExecutionPlan
+from maho_update_effects import classify_artifact
+from maho_update_normal_authority import NORMAL_EXECUTION_PROFILE
+from maho_update_staging import validate_manifest
 from maho_update_state import validate_transaction
 
 
@@ -172,14 +175,21 @@ class NormalProductionOps:
             effective.pop(name, None)
         return effective
 
-    def _payload_path_sets(self, payloads: Sequence[str]) -> dict[str, tuple[str, ...]]:
+    def _profile_names(self, names: Sequence[str] | None) -> tuple[str, ...]:
+        selected = tuple(sorted(set(self.expected if names is None else names)))
+        if not selected or not set(selected).issubset(self.expected):
+            raise ValueError("profile inspection package set is outside bounded normal generation")
+        return selected
+
+    def _payload_path_sets(self, payloads: Sequence[str], *, names: Sequence[str] | None = None) -> dict[str, tuple[str, ...]]:
+        selected = self._profile_names(names)
         rows: dict[str, set[str]] = {}
         for payload in payloads:
             identity = self._run((self.PACMAN, "--query", "--file", "--", payload))
             if identity.returncode != 0:
                 raise RuntimeError("cannot identify exact payload during normal preflight")
             name, sep, _version = identity.stdout.strip().partition(" ")
-            if not sep or name not in self.expected or name in rows:
+            if not sep or name not in selected or name in rows or _version != self.expected[name]:
                 raise RuntimeError("exact payload identity is outside bounded normal generation")
             listing = self._run((self.PACMAN, "--query", "--file", "--list", "--", payload))
             if listing.returncode != 0:
@@ -192,7 +202,7 @@ class NormalProductionOps:
             if not paths:
                 raise RuntimeError(f"exact payload path set is empty:{name}")
             rows[name] = paths
-        if set(rows) != set(self.expected):
+        if set(rows) != set(selected):
             raise RuntimeError("exact payload set does not cover bounded normal generation")
         return {name: tuple(sorted(paths)) for name, paths in rows.items()}
 
@@ -241,7 +251,8 @@ class NormalProductionOps:
                     break
         return tuple(triggered)
 
-    def _hook_profile(self, payloads: Sequence[str]) -> dict[str, Any]:
+    def _hook_profile(self, payloads: Sequence[str], *, names: Sequence[str] | None = None) -> dict[str, Any]:
+        selected = self._profile_names(names)
         result = self._run((self.PACMAN_CONF, "--config", "/etc/maho/pacman.conf", "HookDir"))
         hookdirs = tuple(line.strip().rstrip("/") for line in result.stdout.splitlines() if line.strip()) if result.returncode == 0 else ()
         expected_custom = str(self.CUSTOM_HOOK_DIR)
@@ -251,7 +262,7 @@ class NormalProductionOps:
         try:
             effective = self._effective_hook_files(self.SYSTEM_HOOK_DIR, self.CUSTOM_HOOK_DIR)
             triggered = self._triggered_hook_names(
-                package_names=tuple(sorted(self.expected)), archive_paths=archive_paths,
+                package_names=selected, archive_paths=archive_paths,
                 system_dir=self.SYSTEM_HOOK_DIR, custom_dir=self.CUSTOM_HOOK_DIR,
             )
         except (OSError, UnicodeError, ValueError) as exc:
@@ -287,6 +298,65 @@ class NormalProductionOps:
             "masked_hooks": list(self.MASKED_HOST_HOOKS),
             "allowed_hook_identity_sha256": identity_sha256,
             "payload_path_count": len(archive_paths),
+        }
+
+    def inspect_subset_profile(self, manifest: Mapping[str, Any]) -> dict[str, Any]:
+        """Read-only exact-artifact filtering, never solver or mutation authority.
+
+        The coordinator must separately prove dependency coherence, current host
+        authority, retained recovery baseline, and maintenance eligibility.
+        """
+        checked = validate_manifest(manifest, self.transaction, self.cache)
+        if checked["schema_version"] != 2:
+            raise ValueError("subset profile requires exact staged effect evidence")
+        packages = {item["name"]: item for item in self.transaction["package_generation"]["packages"]}
+        rows = []
+        for payload in sorted(checked["payloads"], key=lambda item: item["name"]):
+            name = payload["name"]
+            row = {"name": name, "sha256": payload["sha256"], "candidate_version": payload["version"],
+                   "installed_version": self.previous[name], "reasons": []}
+            reasons = row["reasons"]
+            try:
+                exact = self._payload_path_sets((payload["path"],), names=(name,))
+                analysis = classify_artifact(package_name=name, roles=packages[name]["roles"], files=exact[name])
+                row["effects"] = analysis
+                if analysis != payload["effects"]:
+                    reasons.append("staged_effect_analysis_drift")
+                if analysis["effects"] != ["ordinary-files"] or analysis["activation_requirements"]:
+                    reasons.append("effects_outside_ordinary_profile")
+                versions = self._run((self.PACMAN, "--query", "--", name))
+                if versions.returncode != 0 or versions.stdout.strip() != f"{name} {self.previous[name]}":
+                    reasons.append("installed_version_unknown_or_drifted")
+                live = self._live_package_paths_by_name(names=(name,))
+                if live != exact:
+                    reasons.append("package_path_set_changed")
+                scriptlet_free, reason = self._payload_scriptlet_free(payload["path"])
+                row["scriptlet_free"] = scriptlet_free
+                if not scriptlet_free:
+                    reasons.append("scriptlet_unverified_or_requires_authority")
+                    row["scriptlet_detail"] = reason
+                hooks = self._hook_profile((payload["path"],), names=(name,))
+                row["hooks"] = hooks
+                if hooks.get("ok") is not True:
+                    reasons.append("hooks_outside_certified_profile")
+            except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
+                reasons.append("profile_observation_unknown")
+                row["observation_error"] = str(exc)
+            row["profile_compatible"] = not reasons
+            rows.append(row)
+        # Refuse to bind a report to archives that changed during inspection.
+        validate_manifest(checked, self.transaction, self.cache)
+        return {
+            "schema_version": 1, "kind": "maho-normal-subset-profile-inspection",
+            "profile": NORMAL_EXECUTION_PROFILE,
+            "transaction_id": self.transaction["transaction_id"],
+            "source_revision": self.transaction["source_revision"],
+            "package_generation_id": self.transaction["package_generation"]["id"],
+            "staged_manifest_sha256": hashlib.sha256(json.dumps(checked, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+            "profile_compatible_packages": [item["name"] for item in rows if item["profile_compatible"]],
+            "deferred_packages": [item["name"] for item in rows if not item["profile_compatible"]],
+            "deferred_boot_packages": list(self.transaction["selection"]["deferred_boot_packages"]),
+            "packages": rows, "execution_authorized": False,
         }
 
     @classmethod
@@ -419,11 +489,12 @@ class NormalProductionOps:
             "promotion_authority": result.promotion_authority.as_dict() if result.promotion_authority else None,
         }
 
-    def _live_package_paths_by_name(self) -> dict[str, tuple[str, ...]]:
-        result = self._run((self.PACMAN, "--query", "--list", "--", *sorted(self.expected)))
+    def _live_package_paths_by_name(self, *, names: Sequence[str] | None = None) -> dict[str, tuple[str, ...]]:
+        selected = self._profile_names(names)
+        result = self._run((self.PACMAN, "--query", "--list", "--", *selected))
         if result.returncode != 0:
             raise RuntimeError("cannot enumerate live target package paths")
-        rows: dict[str, set[str]] = {name: set() for name in self.expected}
+        rows: dict[str, set[str]] = {name: set() for name in selected}
         for line in result.stdout.splitlines():
             name, sep, value = line.partition(" ")
             if sep and name in rows and value.startswith("/"):

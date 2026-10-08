@@ -32,11 +32,13 @@ from maho_update_campaign import (
 from maho_update_discovery import (
     IsolatedPacmanDiscovery,
     discover_independent_normal_updates,
+    discover_coherent_subset_updates,
     discover_updates,
 )
 from maho_update_maintenance import MaintenanceContext, evaluate_maintenance
 from maho_update_native import NativeBtrfsOps
 from maho_update_normal import NormalPreparationEvidence, prepare_normal_transaction
+from maho_update_normal_host import NormalProductionOps
 from maho_update_normal_authority import authorize_normal_plan, load_normal_execution_authority
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction, validate_manifest
 from maho_update_state import (
@@ -159,6 +161,7 @@ def _base_state(now: datetime, source_revision: str) -> dict[str, Any]:
         "lane": None,
         "candidate_count": 0,
         "deferred_boot_packages": [],
+        "normal_subset_proposal": None,
         "first_observed_at": None,
         "update_debt_seconds": 0,
         "blockers": [],
@@ -467,6 +470,95 @@ def _prepare_normal(
         "manifest_path": str(manifest_path),
     }
     return prepared.transaction, details
+
+
+def _plan_normal_subset(
+    transaction: Mapping[str, Any], manifest: Mapping[str, Any], cache: Path,
+    backend: IsolatedPacmanDiscovery, repository_hashes: Mapping[str, str], now: datetime,
+) -> dict[str, Any]:
+    """Coordinator-owned proposal; existing generation/debt remains authoritative.
+
+    In-place crash recovery certification must land before this proposal can
+    replace the staged generation or become production execution authority.
+    """
+    current = validate_transaction(transaction)
+    ops = NormalProductionOps(transaction=current, cache_root=cache,
+        btrfs=NativeBtrfsOps(current["transaction_id"]), candidate={})
+    inspection = ops.inspect_subset_profile(manifest)
+    proposal = {"inspection": inspection, "execution_authorized": False,
+        "status": "blocked", "blockers": ["automatic_subset_recovery_profile_uncertified"]}
+    targets = inspection["profile_compatible_packages"]
+    if not targets:
+        proposal["blockers"].append("no_exact_artifact_profile_compatible_subset")
+        return proposal
+    proof = current["selection"]["solver_proof"]
+    full_plan = proof.get("full_plan_sha256")
+    attempts = []
+    def solve(names):
+        solved = discover_coherent_subset_updates(backend, target_packages=names,
+            source_revision=current["source_revision"], now=now,
+            expected_full_plan_sha256=full_plan, expected_repository_hashes=repository_hashes,
+            refresh_repositories=False)
+        return solved
+    # A failed pool does not authorize dependent packages or erase independent
+    # ones. Partition deterministically and prove each group in the same frozen
+    # snapshot; every chosen union is independently solved again.
+    pending = [tuple(targets)]
+    coherent = []
+    solver_deferred = {}
+    try:
+        while pending:
+            names = pending.pop(0)
+            try:
+                result = solve(names)
+                attempts.append({"packages": list(names), "coherent": True})
+                coherent.append(result)
+            except RuntimeError as exc:
+                if not str(exc).startswith(("coherent_subset_solver_incoherent:", "coherent_subset_solver_selected_unexpected_packages:")):
+                    raise
+                attempts.append({"packages": list(names), "coherent": False, "reason": str(exc)})
+                if len(names) > 1:
+                    middle = len(names) // 2
+                    pending.extend((names[:middle], names[middle:]))
+                else:
+                    solver_deferred[names[0]] = str(exc)
+        if not coherent:
+            raise RuntimeError("no profile-compatible group passed the exact dependency solver")
+        coherent.sort(key=lambda item: (-len(item.transaction["package_generation"]["packages"]),
+            tuple(row["name"] for row in item.transaction["package_generation"]["packages"])))
+        solved = coherent[0]
+        if len(coherent) > 1:
+            union = sorted({row["name"] for item in coherent for row in item.transaction["package_generation"]["packages"]})
+            try:
+                solved = solve(union)
+                attempts.append({"packages": union, "coherent": True})
+            except RuntimeError as exc:
+                if not str(exc).startswith(("coherent_subset_solver_incoherent:", "coherent_subset_solver_selected_unexpected_packages:")):
+                    raise
+                attempts.append({"packages": union, "coherent": False, "reason": str(exc)})
+                chosen = {row["name"] for row in solved.transaction["package_generation"]["packages"]}
+                solver_deferred.update({name: "combined_subset_incoherent" for name in union if name not in chosen})
+    except (ValueError, LookupError, RuntimeError, OSError) as exc:
+        proposal["blockers"].append("profile_subset_solver_unproven")
+        proposal["solver_error"] = str(exc)
+        proposal["solver_attempts"] = attempts
+        return proposal
+    selected = validate_transaction(solved.transaction)
+    if selected["transaction_id"] == current["transaction_id"] or selected["source_revision"] != current["source_revision"]:
+        proposal["blockers"].append("profile_subset_transaction_identity_drift")
+        return proposal
+    original = {item["name"]: item for item in current["package_generation"]["packages"]}
+    if any(original.get(item["name"]) != item for item in selected["package_generation"]["packages"]):
+        proposal["blockers"].append("profile_subset_staged_package_identity_drift")
+        return proposal
+    if sorted(selected["selection"]["deferred_boot_packages"]) != sorted(current["selection"]["deferred_boot_packages"]):
+        proposal["blockers"].append("profile_subset_boot_debt_drift")
+        return proposal
+    proposal.update({"status": "coherent-awaiting-recovery-certification",
+        "transaction": selected, "retained_full_transaction_id": current["transaction_id"],
+        "solver_attempts": attempts, "solver_deferred": solver_deferred,
+        "deferred_packages": selected["selection"]["solver_proof"]["deferred_packages"]})
+    return proposal
 
 
 def _read_adaptive_status(user: str, now: datetime) -> dict[str, Any]:
@@ -1620,6 +1712,7 @@ def _new_discovery(
         "schema_version": SCHEMA_VERSION,
         "source_revision": source_revision,
         "phase": "CHECKING",
+        "normal_subset_proposal": None,
         "last_attempt_at": stamp(now),
         "blockers": [],
         "last_error": None,
@@ -1765,6 +1858,12 @@ def _new_discovery(
         })
         return _save(_with_debt(state, now))
     state["phase"] = "PREPARING"
+    try:
+        state["normal_subset_proposal"] = _plan_normal_subset(
+            staged.transaction, staged.manifest, cache, backend, repository_hashes, now)
+    except (ValueError, RuntimeError, OSError) as exc:
+        state["normal_subset_proposal"] = {"status": "unknown", "execution_authorized": False,
+            "blockers": ["subset_profile_observation_unknown"], "error": str(exc)}
     _save(_with_debt(state, now))
     prepared, details = _prepare_normal(staged.transaction, cache, now)
     publish_transaction(root, prepared)

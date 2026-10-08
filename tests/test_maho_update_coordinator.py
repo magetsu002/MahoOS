@@ -135,6 +135,32 @@ class FakeDiscovery:
 
 
 class CoordinatorContracts(unittest.TestCase):
+    def test_subset_proposal_retains_full_generation_and_cannot_authorize_execution(self):
+        current = prepared_tx()
+        original = json.loads(json.dumps(current))
+        selected = prepared_tx(txid="upd-20260927T070000Z-123456abcdef")
+        selected["selection"]["solver_proof"]["deferred_packages"] = []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(coordinator, "NormalProductionOps") as ops, patch.object(coordinator, "discover_coherent_subset_updates", return_value=SimpleNamespace(transaction=selected)) as solver:
+            ops.return_value.inspect_subset_profile.return_value = {"profile_compatible_packages": ["demo"]}
+            report = coordinator._plan_normal_subset(current, {}, Path(tmp), object(), {"core": "b" * 64}, NOW)
+            self.assertEqual(report["status"], "coherent-awaiting-recovery-certification")
+            self.assertFalse(report["execution_authorized"])
+            self.assertIn("automatic_subset_recovery_profile_uncertified", report["blockers"])
+            self.assertEqual(report["retained_full_transaction_id"], current["transaction_id"])
+            self.assertEqual(current, original)
+            self.assertFalse(solver.call_args.kwargs["refresh_repositories"])
+
+    def test_subset_solver_failure_keeps_full_plan_and_boot_debt(self):
+        current = prepared_tx()
+        current["selection"] = {"kind": "independent-normal", "deferred_boot_packages": ["linux"], "solver_proof": {"full_plan_sha256": "c" * 64}}
+        original = json.loads(json.dumps(current))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(coordinator, "NormalProductionOps") as ops, patch.object(coordinator, "discover_coherent_subset_updates", side_effect=RuntimeError("dependency conflict")):
+            ops.return_value.inspect_subset_profile.return_value = {"profile_compatible_packages": ["demo"]}
+            report = coordinator._plan_normal_subset(current, {}, Path(tmp), object(), {"core": "b" * 64}, NOW)
+            self.assertIn("profile_subset_solver_unproven", report["blockers"])
+            self.assertEqual(current, original)
+            self.assertNotIn("transaction", report)
+
     def test_clean_startup_state_is_idle_and_non_mutating(self):
         state = coordinator._base_state(NOW, REV)
         self.assertEqual(state["phase"], "IDLE")
