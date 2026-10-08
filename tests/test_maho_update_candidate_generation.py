@@ -61,8 +61,14 @@ def current_store(root: Path) -> tuple[SystemGeneration, KernelGeneration, dict]
     )
     root_manifest = canonical_bytes({
         "schema_version": 1,
-        "kind": "fixture-current-root",
-        "uuid": CURRENT_ROOT,
+        "kind": "maho-live-root-proof",
+        "root_subvolume_uuid": CURRENT_ROOT,
+        "source_revision": SOURCE,
+        "transaction_id": "upd-20260901T000000Z-111111111111",
+        "boot_sha256": {"/boot/vmlinuz-linux-cachyos": "5" * 64,
+                        "/boot/initramfs-linux-cachyos.img": "6" * 64},
+        "recovery_generation_id": "g3-fixture",
+        "previous_root_uuid": "99999999-9999-9999-9999-999999999999",
     })
     root_art = ArtifactID.from_content(root_manifest)
     digest = str(root_art).removeprefix("art-")
@@ -324,6 +330,15 @@ class CandidateGenerationContracts(unittest.TestCase):
                 root / "manifests/system" / f"{candidate_pub['system_generation_id']}.json"
             ).read_text()))
             self.assertIs(manifest.trust_state, TrustState.VERIFIED)
+            for key, changed in (("boot_sha256", {}),
+                                 ("recovery_generation_id", "wrong-recovery"),
+                                 ("previous_root_uuid", CANDIDATE_ROOT)):
+                relabelled = dict(promoted)
+                relabelled.pop("publication_id")
+                relabelled[key] = changed
+                relabelled["publication_id"] = str(ArtifactID.from_content(canonical_bytes(relabelled)))
+                write(root / "live.json", canonical_bytes(relabelled))
+                self.assertIsNone(read_live_publication(root), key)
 
     def test_partial_generation_promotion_replays_after_verified_manifest_write(self):
         with tempfile.TemporaryDirectory() as tmp:

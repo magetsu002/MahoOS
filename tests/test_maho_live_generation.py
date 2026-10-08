@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -10,7 +11,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from maho_live_generation import LiveGenerationObservation, publish_live_generations, read_live_publication  # noqa: E402
+from maho_live_generation import LiveGenerationObservation, publish_live_generations, publish_initial_live_generations, read_live_publication  # noqa: E402
+from maho_generation_v2 import RootIdentity, SystemGeneration  # noqa: E402
+from maho_kernel_generation import KernelGeneration  # noqa: E402
+from maho_trust_identity import ArtifactID, TrustState, canonical_bytes  # noqa: E402
 from maho_update_receipts import build_receipt  # noqa: E402
 from maho_update_state import UpdateState, bind_native_authority, create_transaction, transition_transaction  # noqa: E402
 
@@ -119,6 +123,68 @@ def main() -> None:
         tampered["package_generation_id"] = "pkg-" + "f" * 64
         (root / "live.json").write_text(json.dumps(tampered))
         check("tampered live publication fails closed", read_live_publication(root) is None)
+        for key, changed in (
+            ("package_generation_id", "pkg-" + "f" * 64),
+            ("native_transaction_id", "txn-" + "f" * 64),
+            ("transaction_id", "upd-20260924T185307Z-ffffffffffff"),
+            ("source_revision", "f" * 40),
+            ("filesystem_uuid", PREVIOUS), ("root_subvolume_uuid", PREVIOUS),
+            ("running_kernel", "wrong-kernel"), ("cmdline_sha256", "f" * 64),
+            ("boot_sha256", {}), ("recovery_generation_id", "wrong-recovery"),
+            ("previous_root_uuid", CANDIDATE), ("previous_root_read_only", False),
+        ):
+            relabelled = dict(result)
+            relabelled.pop("publication_id")
+            relabelled[key] = changed
+            relabelled["publication_id"] = "art-" + __import__("hashlib").sha256(
+                json.dumps(relabelled, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            (root / "live.json").write_text(json.dumps(relabelled))
+            check("rehashed " + key + " relabelling fails closed", read_live_publication(root) is None)
+        (root / "live.json").write_text(json.dumps(result))
+        check("original exact publication remains valid", read_live_publication(root) == result)
+
+        # Exercise the separate first-boot publisher with its actual root-proof
+        # schema; it has no previous-root lineage to borrow from an update.
+        kernel = KernelGeneration.parse(json.loads(next((root / "manifests/kernel").iterdir()).read_text()))
+        base_system = SystemGeneration.parse(json.loads(next((root / "manifests/system").iterdir()).read_text()))
+        initial = root / "initial"
+        attempt, installation, recovery = "install-test", "installation-test", "recovery-test"
+        proof_bytes = canonical_bytes({"schema_version": 1, "kind": "maho-initial-root-manifest",
+            "source_revision": SOURCE, "install_attempt_id": attempt,
+            "installation_uuid": installation, "recovery_identity": recovery})
+        artifact = ArtifactID.from_content(proof_bytes)
+        digest = str(artifact)[4:]
+        path = initial / "artifacts/sha256" / digest[:2] / digest[2:]
+        path.parent.mkdir(parents=True); path.write_bytes(proof_bytes)
+        system = SystemGeneration.create(parent_generation_id=None,
+            root_identity=RootIdentity("btrfs-subvolume:@", "uuid:" + FSUUID, digest),
+            kernel_generation_id=kernel.kernel_generation_id,
+            package_set_identity=base_system.package_set_identity,
+            transaction_id=base_system.transaction_id, provenance_id=base_system.provenance_id,
+            artifact_ids=(artifact,), trust_state=TrustState.UNKNOWN)
+        for kind, identity, manifest in (
+            ("system", system.generation_id, system.canonical_manifest()),
+            ("kernel", kernel.kernel_generation_id, replace(kernel, trust_state=TrustState.UNKNOWN).canonical_manifest()),
+        ):
+            path = initial / "manifests" / kind / (str(identity) + ".json")
+            path.parent.mkdir(parents=True); path.write_text(manifest)
+        (initial / "initial-pending.json").write_text(json.dumps({"root_manifest_artifact_id": str(artifact)}))
+        ids = {"system_generation_id": str(system.generation_id),
+               "kernel_generation_id": str(kernel.kernel_generation_id),
+               "package_generation_id": system.package_set_identity, "boot_generation_id": "bootgen-" + "a" * 64}
+        storage = {"btrfs_uuid": FSUUID, "root_fsroot": "/@", "root_subvolume_uuid": CANDIDATE}
+        boot = {"running_kernel": kernel.kernel_abi, "cmdline": observation.cmdline, "boot_sha256": result["boot_sha256"]}
+        initial_receipt = {**ids, "source_revision": SOURCE, "installation_uuid": installation,
+            "install_attempt_id": attempt, "recovery_identity": recovery, "storage": storage,
+            "kernel": {"primary_release": kernel.kernel_abi}, "boot": boot}
+        published = publish_initial_live_generations(initial_receipt,
+            {"generations": ids, "storage": storage, "boot": boot}, root=initial)
+        check("first-boot publication retains exact independent manifest bindings", read_live_publication(initial) == published)
+        for key in ("initial_installation_uuid", "recovery_generation_id", "source_revision"):
+            changed = dict(published); changed.pop("publication_id"); changed[key] = "wrong-identity"
+            changed["publication_id"] = str(ArtifactID.from_content(canonical_bytes(changed)))
+            (initial / "live.json").write_text(json.dumps(changed))
+            check("first-boot rehashed " + key + " drift fails closed", read_live_publication(initial) is None)
 
     bad = LiveGenerationObservation(**(observation.__dict__ | {"root_subvolume_uuid": PREVIOUS}))
     rejects("candidate UUID drift blocks generation publication", lambda: publish_live_generations(tx, journal, receipt, bad, publisher_source_revision="a" * 40, root=Path(temporary)))

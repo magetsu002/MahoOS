@@ -470,4 +470,51 @@ def read_live_publication(root: Path = GENERATION_ROOT) -> dict[str, Any] | None
         return None
     if ArtifactID.from_content(root_manifest) != root_artifact or hashlib.sha256(root_manifest).hexdigest() != parsed_system.root_identity.root_manifest_sha256:
         return None
+    # A recomputed publication checksum is not authority to relabel an accepted
+    # generation. Bind its claims to the independently verified manifests.
+    if any((
+        value.get("schema_version") != 1,
+        value.get("fsroot") != "/@",
+        value.get("package_generation_id") != parsed_system.package_set_identity,
+        value.get("native_transaction_id") != str(parsed_system.transaction_id),
+        f"uuid:{value.get('filesystem_uuid')}" != parsed_system.root_identity.filesystem_identity,
+        value.get("running_kernel") != parsed_kernel.kernel_abi,
+        value.get("cmdline_sha256") != parsed_kernel.cmdline_contract_sha256,
+    )):
+        return None
+    try:
+        proof = json.loads(root_manifest)
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(proof, Mapping) or proof.get("source_revision") != value.get("source_revision"):
+        return None
+    kind = proof.get("kind")
+    if kind == "maho-initial-root-manifest":
+        if (proof.get("install_attempt_id") != value.get("transaction_id")
+            or proof.get("installation_uuid") != value.get("initial_installation_uuid")
+            or proof.get("recovery_identity") != value.get("recovery_generation_id")):
+            return None
+    elif kind in {"maho-live-root-proof", "maho-update-candidate-root-proof"}:
+        if (proof.get("transaction_id") != value.get("transaction_id")
+            or f"btrfs-uuid:{value.get('root_subvolume_uuid')}" != parsed_system.root_identity.snapshot_identity
+            or value.get("previous_root_read_only") is not True):
+            return None
+        if kind == "maho-live-root-proof":
+            expected = {key: proof.get(key) for key in (
+                "boot_sha256", "recovery_generation_id", "previous_root_uuid",
+            )}
+        else:
+            boot_identity = proof.get("candidate_boot_identity")
+            recovery_evidence = proof.get("recovery_evidence")
+            if not isinstance(boot_identity, Mapping) or not isinstance(recovery_evidence, Mapping):
+                return None
+            expected = {
+                "boot_sha256": boot_identity.get("sha256"),
+                "recovery_generation_id": recovery_evidence.get("generation_id"),
+                "previous_root_uuid": proof.get("parent_root_uuid"),
+            }
+        if any(value.get(key) != item for key, item in expected.items()):
+            return None
+    else:
+        return None
     return value
