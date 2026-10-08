@@ -144,13 +144,16 @@ def certify_normal_update(
         raise RuntimeError("normal certification power policy is not satisfied")
     if Path("/var/lib/pacman/db.lck").exists():
         raise RuntimeError("live Pacman lock exists")
-    _require_certification_slot()
+    _require_certification_slot(STATE_ROOT)
 
     CACHE_ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
     os.chmod(CACHE_ROOT, 0o755)
     work = CACHE_ROOT / f"run-{os.getpid()}-{secrets.token_hex(6)}"
     work.mkdir(mode=0o755, parents=True, exist_ok=False)
     os.chmod(work, 0o755)
+    # A disposable preflight must not publish a PREPARED current transaction.
+    # Otherwise the autonomous coordinator would inherit an orphaned candidate.
+    publication_root = work / "state" if preflight_only else STATE_ROOT
     txid = None
     btrfs = None
     candidate = None
@@ -162,7 +165,7 @@ def certify_normal_update(
         )
         transaction = result.transaction
         txid = transaction["transaction_id"]
-        publish_transaction(STATE_ROOT, transaction)
+        publish_transaction(publication_root, transaction)
         cache = work / "staging"
         staging = IsolatedPacmanStaging(Path(result.isolated_db), cache, config_path=config)
         free = shutil.disk_usage("/").free
@@ -174,7 +177,7 @@ def certify_normal_update(
             raise RuntimeError("certification target became boot-critical after exact artifact inspection")
         if effects.get("effects") != ["ordinary-files"] or effects.get("activation_requirements") != []:
             raise RuntimeError("first normal certification is limited to ordinary-files with no activation requirement")
-        publish_transaction(STATE_ROOT, staged.transaction)
+        publish_transaction(publication_root, staged.transaction)
 
         btrfs = NativeBtrfsOps(txid, run_root=RUN_ROOT)
         btrfs.root_identity()
@@ -191,7 +194,7 @@ def certify_normal_update(
         )
         if prep.transaction["state"] != UpdateState.PREPARED.value:
             raise RuntimeError("normal certification preparation did not reach PREPARED")
-        publish_transaction(STATE_ROOT, prep.transaction)
+        publish_transaction(publication_root, prep.transaction)
 
         candidate = btrfs.create_candidate()
         ops = NormalProductionOps(
