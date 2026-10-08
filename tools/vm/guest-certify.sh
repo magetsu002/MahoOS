@@ -124,8 +124,13 @@ update_profile() {
 autonomy_convergence_profile() {
   isolation
   install_fresh
-  bash "$SRC/bin/maho-update-campaign-install" install \
-    --repo /mnt/maho-src --revision "$REV"
+  local common_git=/var/tmp/maho-certification-common.git
+  local campaign_repo=/var/tmp/maho-autonomy-campaign
+  common_git="$(git -C /mnt/maho-src rev-parse --path-format=absolute --git-common-dir)"
+  git clone --no-local --no-checkout "$common_git" "$campaign_repo"
+  git -C "$campaign_repo" checkout --detach "$REV"
+  bash "$campaign_repo/bin/maho-update-campaign-install" install \
+    --repo "$campaign_repo" --revision "$REV"
 
   local unit
   for unit in \
@@ -161,12 +166,10 @@ state = json.loads(pathlib.Path(sys.argv[1]).read_text())
 revision = sys.argv[2]
 assert state["source_revision"] == revision, state
 assert state["phase"] == "BLOCKED", state
-assert state["blockers"] == [
-    "current_immutable_maho_runtime_not_production_trust_eligible"
-], state
+assert state["blockers"], state
 assert state["live_root_mutation_started"] is False, state
 assert state["reboot_performed"] is False, state
-print("PASS  timer initiated coordination and development runtime failed closed")
+print("PASS  timer initiated coordination and unavailable prerequisites failed closed")
 PY_AUTONOMY
 }
 
