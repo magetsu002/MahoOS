@@ -215,6 +215,8 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertIn("Persistent=true", timer)
         self.assertIn("Unit=maho-update-coordinator.service", timer)
         self.assertIn("/usr/lib/maho/update-campaign/current/bin/maho-update-coordinator run", service)
+        self.assertIn("After=network.target", service)
+        self.assertNotIn("network-online.target", service)
         self.assertIn("timers.target.wants/maho-update-coordinator.timer", package)
 
     def test_explicit_reboot_hook_arms_activation_without_initiating_reboot(self):
