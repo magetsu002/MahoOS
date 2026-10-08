@@ -144,7 +144,8 @@ def certify_normal_update(
         raise RuntimeError("normal certification power policy is not satisfied")
     if Path("/var/lib/pacman/db.lck").exists():
         raise RuntimeError("live Pacman lock exists")
-    _require_certification_slot(STATE_ROOT)
+    if not preflight_only:
+        _require_certification_slot(STATE_ROOT)
 
     CACHE_ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
     os.chmod(CACHE_ROOT, 0o755)

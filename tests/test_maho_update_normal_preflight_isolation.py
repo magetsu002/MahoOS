@@ -59,7 +59,6 @@ class PreflightIsolationContracts(unittest.TestCase):
                 '_canonical_config': lambda root: base / 'pacman.conf',
                 '_required_repositories': lambda root: ('core',),
                 '_power': lambda: (True, True, {}),
-                '_require_certification_slot': lambda root: None,
                 'IsolatedPacmanDiscovery': Mock(),
                 'discover_coherent_subset_updates': Mock(return_value=discovery),
                 'IsolatedPacmanStaging': Mock(),
