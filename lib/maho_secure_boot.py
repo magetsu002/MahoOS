@@ -19,6 +19,7 @@ from maho_trust_identity import canonical_bytes
 
 
 EFI_GLOBAL_GUID = "8be4df61-93ca-11d2-aa0d-00e098032b8c"
+EFI_IMAGE_SECURITY_DATABASE_GUID = "d719b2cb-3d3a-4596-a3bc-dad00e67656f"
 _EFI_NAME = re.compile(r"[A-Za-z0-9_-]+-[0-9a-fA-F-]{36}")
 _BOOT_ENTRY = re.compile(r"Boot[0-9A-Fa-f]{4}-")
 
@@ -87,24 +88,25 @@ def _variable_identity(root: Path, name: str) -> str | None:
 
 
 def _signature_database_identities(root: Path, name: str) -> tuple[str, ...] | None:
-    payload = _efi_payload(root / f"{name}-{EFI_GLOBAL_GUID}")
+    namespace = EFI_IMAGE_SECURITY_DATABASE_GUID if name in {"db", "dbx"} else EFI_GLOBAL_GUID
+    payload = _efi_payload(root / f"{name}-{namespace}")
     if payload is None:
         return None
     identities: list[str] = []
     offset = 0
     while offset < len(payload):
         if len(payload) - offset < 28:
-            return (f"malformed-efi-signature-database-sha256:{hashlib.sha256(payload).hexdigest()}",)
+            return None
         signature_type = str(uuid.UUID(bytes_le=payload[offset:offset + 16])).lower()
         list_size = int.from_bytes(payload[offset + 16:offset + 20], "little")
         header_size = int.from_bytes(payload[offset + 20:offset + 24], "little")
         signature_size = int.from_bytes(payload[offset + 24:offset + 28], "little")
         if list_size < 28 + header_size or signature_size < 16 or offset + list_size > len(payload):
-            return (f"malformed-efi-signature-database-sha256:{hashlib.sha256(payload).hexdigest()}",)
+            return None
         cursor = offset + 28 + header_size
         end = offset + list_size
         if (end - cursor) % signature_size:
-            return (f"malformed-efi-signature-database-sha256:{hashlib.sha256(payload).hexdigest()}",)
+            return None
         while cursor < end:
             data = payload[cursor + 16:cursor + signature_size]
             if signature_type == "a5c059a1-94e4-4aa7-87b5-ab155c2bf072":
@@ -114,7 +116,7 @@ def _signature_database_identities(root: Path, name: str) -> tuple[str, ...] | N
                     fingerprint = x509.load_der_x509_certificate(data).fingerprint(hashes.SHA256()).hex().upper()
                     identities.append(f"x509-sha256:{fingerprint}")
                 except Exception:
-                    identities.append(f"invalid-x509-sha256:{hashlib.sha256(data).hexdigest()}")
+                    return None
             else:
                 identities.append(f"efi-signature:{signature_type}:sha256:{hashlib.sha256(data).hexdigest()}")
             cursor += signature_size
