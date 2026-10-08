@@ -89,6 +89,13 @@ class SessionEvidenceContracts(unittest.TestCase):
             self.assertEqual(observed.locked,'unknown')
             self.assertEqual(observed.idle_seconds,'unknown')
 
+    def test_compositor_inhibition_blocks_even_when_user_is_idle(self):
+        data={"observed":True,"idle":True,"idle_seconds":1500,"respects_inhibitors":True,"idle_inhibited":True}
+        with patch.object(observers,'_loginctl_properties',return_value=self.properties()), patch.object(observers,'_wayland_session_evidence',return_value=data), patch.object(observers,'_session_inhibitors',return_value=()):
+            observed,_=observers.collect_session()
+            self.assertEqual(observed.idle_seconds,1500)
+            self.assertEqual(observed.inhibitors,('wayland-idle-inhibitor',))
+
     def test_inhibitors_are_observed_and_missing_evidence_blocks(self):
         rows = [["sleep","UPower","polling","delay",0,10],
                 ["idle","player","playback","block",1000,11],

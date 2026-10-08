@@ -358,8 +358,19 @@ def _session_inhibitors() -> tuple[str, ...]:
 
 def _wayland_session_evidence(component: str, function: str) -> Mapping[str, Any]:
     root = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parents[1])
+    config = root / "config/quickshell" / component / "shell.qml"
+    if component == "maho-shell":
+        configured = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "quickshell/maho-shell/shell.qml"
+        # IPC uses the launch spelling of the config path. Keep that spelling,
+        # but only if it resolves to this exact installed source.
+        try:
+            if configured.resolve(strict=True) != config.resolve(strict=True):
+                return {}
+        except OSError:
+            return {}
+        config = configured
     return _run_json([
-        "quickshell", "ipc", "-p", str(root / "config/quickshell" / component / "shell.qml"),
+        "quickshell", "ipc", "-p", str(config),
         "call", "sessionEvidence", function,
     ])
 
@@ -396,6 +407,7 @@ def collect_session(*, previous_lock_started_monotonic: float | None = None) -> 
             recent_input = 0.0
     except ValueError:
         pass
+    compositor_inhibitors: tuple[str, ...] = ()
     if values:
         compositor = _wayland_session_evidence("maho-shell", "idle")
         duration = compositor.get("idle_seconds")
@@ -407,7 +419,9 @@ def collect_session(*, previous_lock_started_monotonic: float | None = None) -> 
         ):
             idle_seconds = float(duration)
             recent_input = idle_seconds
-    return SessionEvidence(locked, dwell, idle_seconds, recent_input, _session_inhibitors()), lock_started
+            if compositor.get("idle_inhibited") is True:
+                compositor_inhibitors = ("wayland-idle-inhibitor",)
+    return SessionEvidence(locked, dwell, idle_seconds, recent_input, _session_inhibitors() + compositor_inhibitors), lock_started
 
 
 def observe_live() -> dict[str, Any]:

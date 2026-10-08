@@ -216,18 +216,24 @@ ShellRoot {
     property int idleEvidenceTicks: 0
 
     IdleMonitor {
-        id: maintenanceIdle
+        id: inputIdle
         timeout: 1
-        respectInhibitors: true
+        respectInhibitors: false
         onIsIdleChanged: {
             root.idleEvidenceObserved = true
             root.idleEvidenceTicks = 0
         }
     }
 
+    IdleMonitor {
+        id: maintenanceIdle
+        timeout: 1
+        respectInhibitors: true
+    }
+
     Timer {
         interval: 1000
-        running: maintenanceIdle.isIdle && root.idleEvidenceObserved
+        running: inputIdle.isIdle && root.idleEvidenceObserved
         repeat: true
         onTriggered: root.idleEvidenceTicks += 1
     }
@@ -237,8 +243,9 @@ ShellRoot {
         function idle(): string {
             return JSON.stringify({
                 observed: root.idleEvidenceObserved,
-                idle: maintenanceIdle.isIdle,
-                idle_seconds: maintenanceIdle.isIdle ? 1 + root.idleEvidenceTicks : 0,
+                idle: inputIdle.isIdle,
+                idle_seconds: inputIdle.isIdle ? 1 + root.idleEvidenceTicks : 0,
+                idle_inhibited: inputIdle.isIdle && !maintenanceIdle.isIdle,
                 respects_inhibitors: maintenanceIdle.respectInhibitors
             })
         }
