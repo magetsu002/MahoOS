@@ -293,8 +293,30 @@ def parse_solver_plan(output: str) -> tuple[dict[str, str], dict[str, str]]:
     return versions, repositories
 
 
+# Recognize the host's Arch kernel and early-boot packages before asking Pacman
+# for an independently executable normal generation. Exact staged inventories
+# remain authoritative; this preliminary list is not an execution allowlist.
+_ARCH_KERNEL_PACKAGES = frozenset({
+    "linux", "linux-lts", "linux-zen", "linux-hardened", "linux-rt", "linux-rt-lts",
+})
+_ARCH_KERNEL_HEADERS = frozenset(f"{name}-headers" for name in _ARCH_KERNEL_PACKAGES)
+# systemd-libs carries the shared libraries used by PID 1 and is version-locked
+# to the systemd package; separating their generations breaks Pacman coherence.
+_BOOT_SYSTEMD_PACKAGES = frozenset({
+    "systemd", "systemd-libs", "systemd-boot", "systemd-sysvcompat", "systemd-ukify",
+})
+
+
 def package_roles(name: str) -> list[str]:
     roles: set[str] = set()
+    if name in _ARCH_KERNEL_PACKAGES:
+        roles.update({"kernel", "initramfs", "boot-artifacts"})
+    if name in _ARCH_KERNEL_HEADERS:
+        roles.update({"kernel-headers", "dkms"})
+    if name in _BOOT_SYSTEMD_PACKAGES:
+        roles.add("boot-policy")
+    if name == "linux-firmware" or name.startswith("linux-firmware-"):
+        roles.add("initramfs")
     if name in {"linux-cachyos", "linux-cachyos-lts"}:
         roles.update({"kernel", "initramfs", "boot-artifacts"})
         roles.add("primary-kernel" if name == "linux-cachyos" else "fallback-kernel")
