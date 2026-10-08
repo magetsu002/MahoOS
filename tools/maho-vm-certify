@@ -46,6 +46,9 @@ done
 [ -r "$KERNEL" ] || { echo "maho-vm-certify: kernel unavailable: $KERNEL" >&2; exit 2; }
 [ -e /dev/kvm ] || { echo "maho-vm-certify: /dev/kvm unavailable" >&2; exit 2; }
 mkdir -p "$WORK/hookdir/install" "$WORK/hookdir/hooks" "$EVIDENCE"
+if [ "$PROFILE" = autonomy-convergence ]; then
+  git -C "$ROOT" bundle create "$EVIDENCE/source.bundle" HEAD
+fi
 ln -sf /usr/lib/initcpio/install/base "$WORK/hookdir/install/base"
 cp "$ROOT/tools/vm/initcpio/install/maho_vm_overlay" "$WORK/hookdir/install/"
 cp "$ROOT/tools/vm/initcpio/hooks/maho_vm_overlay" "$WORK/hookdir/hooks/"

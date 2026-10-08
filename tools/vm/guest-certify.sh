@@ -124,10 +124,8 @@ update_profile() {
 autonomy_convergence_profile() {
   isolation
   install_fresh
-  local common_git=/var/tmp/maho-certification-common.git
   local campaign_repo=/var/tmp/maho-autonomy-campaign
-  common_git="$(git -C /mnt/maho-src rev-parse --path-format=absolute --git-common-dir)"
-  git clone --no-local --no-checkout "$common_git" "$campaign_repo"
+  git clone --no-checkout "$E/source.bundle" "$campaign_repo"
   git -C "$campaign_repo" checkout --detach "$REV"
   bash "$campaign_repo/bin/maho-update-campaign-install" install \
     --repo "$campaign_repo" --revision "$REV"
