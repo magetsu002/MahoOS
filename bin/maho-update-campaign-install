@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BASE="/usr/lib/maho/update-campaign"
+SYSTEMD_DIR="/usr/lib/systemd/system"
 ACTION="${1:-status}"
 shift || true
 SOURCE_REPO=""
@@ -110,6 +111,27 @@ verify_install() {
   [ -x "$dest/bin/maho-update-campaign" ] || fail "campaign command is not executable"
 }
 
+install_unit() {
+  local source="$1" name="$2" temporary
+  temporary="$SYSTEMD_DIR/.${name}.maho-update-$$"
+  install -d -m 0755 -o root -g root "$SYSTEMD_DIR"
+  rm -f -- "$temporary"
+  install -m 0644 -o root -g root "$source" "$temporary"
+  mv -Tf -- "$temporary" "$SYSTEMD_DIR/$name"
+}
+
+install_systemd_integration() {
+  local dest="$1" name
+  for name in \
+    maho-update-coordinator.service \
+    maho-update-coordinator.timer \
+    maho-update-activate-on-reboot.service; do
+    install_unit "$dest/config/systemd/system/$name" "$name"
+    cmp -s "$dest/config/systemd/system/$name" "$SYSTEMD_DIR/$name" \
+      || fail "installed $name does not match campaign revision"
+  done
+}
+
 install_command() {
   require_root
   command -v /usr/bin/git >/dev/null || fail "git is unavailable"
@@ -132,16 +154,22 @@ install_command() {
     trap - EXIT
   fi
   verify_install "$dest" "$rev"
+  install_systemd_integration "$dest"
   link_tmp="$BASE/.current.$$"
   rm -f -- "$link_tmp"
   ln -s "$rev" "$link_tmp"
   mv -Tf -- "$link_tmp" "$BASE/current"
   "$dest/bin/maho-update-campaign" --help >/dev/null
-  cmp -s "$dest/config/systemd/system/maho-update-activate-on-reboot.service" \
-    /usr/lib/systemd/system/maho-update-activate-on-reboot.service \
-    || fail "installed restart activation unit does not match campaign revision"
   /usr/bin/systemctl daemon-reload
+  /usr/bin/systemctl enable maho-update-coordinator.timer maho-update-activate-on-reboot.service
   /usr/bin/systemctl start maho-update-activate-on-reboot.service
+  /usr/bin/systemctl start maho-update-coordinator.timer
+  /usr/bin/systemctl is-enabled --quiet maho-update-coordinator.timer \
+    || fail "automatic maintenance coordinator timer was not enabled"
+  /usr/bin/systemctl is-active --quiet maho-update-coordinator.timer \
+    || fail "automatic maintenance coordinator timer did not become active"
+  /usr/bin/systemctl is-enabled --quiet maho-update-activate-on-reboot.service \
+    || fail "reboot activation sentinel was not enabled"
   /usr/bin/systemctl is-active --quiet maho-update-activate-on-reboot.service \
     || fail "reboot activation sentinel did not become active"
   echo "PASS  root-owned M4B update campaign payload installed"
