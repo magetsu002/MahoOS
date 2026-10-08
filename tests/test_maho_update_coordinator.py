@@ -172,6 +172,7 @@ class CoordinatorContracts(unittest.TestCase):
             'phase': 'BLOCKED', 'lane': 'normal',
             'active_transaction_id': TXID,
             'blockers': ['non_coordinator_update_transaction_active'],
+            'next_discovery_at': coordinator.stamp(NOW + timedelta(hours=1)),
         }
         runtime = {'source_revision': REV}
         repo = {'config_path': '/etc/maho/pacman.conf', 'repositories': ['core']}

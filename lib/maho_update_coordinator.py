@@ -1769,10 +1769,12 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
             and previous.get("active_transaction_id") == active["transaction_id"]
             and previous.get("source_revision") == active["source_revision"]
         )
+        invalidated = False
         if previous and (previous.get("source_revision") == source_revision or owned):
             resumed = _resume_owned(previous, source_revision, user, runtime, repo, current)
             if resumed is not None and resumed.get("phase") not in {"INVALIDATED"}:
                 return resumed
+            invalidated = resumed is not None and resumed.get("phase") == "INVALIDATED"
             active = _current_transaction(state_root())
         if active is not None and active["state"] not in {
             UpdateState.HEALTHY.value,
@@ -1789,7 +1791,7 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
                 "normal_execution_authority": _authority_state(source_revision, value.get("lane")),
             })
             return _save(_with_debt(value, current))
-        if previous and not _discovery_due(previous, current) and previous.get("phase") in {"UP_TO_DATE", "BLOCKED"}:
+        if previous and not invalidated and not _discovery_due(previous, current) and previous.get("phase") in {"UP_TO_DATE", "BLOCKED"}:
             value = dict(previous)
             value["last_attempt_at"] = stamp(current)
             return _save(_with_debt(value, current))
