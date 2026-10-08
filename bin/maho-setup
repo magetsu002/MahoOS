@@ -249,11 +249,19 @@ legacy_hypr_managed_file() {
     *) return 1 ;;
   esac
 }
+legacy_settings_component_loader() {
+  local rel="$1" path="$2"
+  local target="$DATA_HOME/maho/components/maho-settings/current/loader.lua"
+  [ "$rel" = "config/hypr/hyprland.lua" ] || return 1
+  link_is "$path" "$target" || return 1
+  sha_is "$target" "f3509da298042b75e2bfcb898eecaf2d478a33c3a54806b3fa6a5bf8d1200e08"
+}
 safe_hypr_file() {
   local rel="$1" path
   path="$(hypr_target_for "$rel")"
   [ ! -e "$path" ] && [ ! -L "$path" ] && return 0
   managed_hypr_file "$rel" && return 0
+  legacy_settings_component_loader "$rel" "$path" && return 0
   [ -f "$path" ] && [ ! -L "$path" ] && cmp -s "$path" "$ROOT/$rel" && return 0
   [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$(runtime_path "$rel")" ] && cmp -s "$path" "$(runtime_path "$rel")" && return 0
   [ -f "$path" ] && [ ! -L "$path" ] && legacy_hypr_managed_file "$rel" "$path" && return 0
