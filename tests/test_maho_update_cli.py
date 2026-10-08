@@ -72,10 +72,10 @@ def main() -> None:
         history = run(root, "history", "--json")
         check("CLI exposes durable receipt history", len(json.loads(history.stdout)) == 1)
 
-        maho_root = root / "runtime-current"
+        campaign_root = root / "campaign-current"
         revision = "a" * 40
-        (maho_root / "share/maho").mkdir(parents=True)
-        (maho_root / "share/maho/runtime-source-revision").write_text(revision + "\n", encoding="utf-8")
+        campaign_root.mkdir()
+        (campaign_root / "SOURCE_REVISION").write_text(revision + "\n", encoding="utf-8")
         authority_path = root / "normal-execution-authority.json"
         authority = issue_normal_execution_authority(
             source_revision=revision,
@@ -94,12 +94,31 @@ def main() -> None:
             now=NOW,
         )
         publish_normal_execution_authority(authority, path=authority_path)
-        direct = status_payload(root, maho_root=maho_root, authority_path=authority_path)
+        direct = status_payload(
+            root, campaign_root=campaign_root, authority_path=authority_path,
+        )
         check(
-            "direct status accepts explicit immutable runtime authority context",
+            "direct status validates authority against the installed update campaign",
             direct["normal_execution_certified"] is True
             and direct["normal_authority_state"] == "current"
             and direct["normal_authority_id"] == authority["authority_id"],
+        )
+
+        composite_runtime = root / "runtime-current"
+        (composite_runtime / "share/maho").mkdir(parents=True)
+        (composite_runtime / "share/maho/runtime-source-revision").write_text(
+            "composite:files@" + "e" * 40 + "\n", encoding="utf-8",
+        )
+        independent = status_payload(
+            root,
+            maho_root=composite_runtime,
+            campaign_root=campaign_root,
+            authority_path=authority_path,
+        )
+        check(
+            "componentized user runtime does not invalidate update campaign authority",
+            independent["normal_execution_certified"] is True
+            and independent["normal_authority_state"] == "current",
         )
 
         (root / "current").write_text("../../escape\n")
