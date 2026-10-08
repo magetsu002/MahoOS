@@ -356,11 +356,25 @@ def _session_inhibitors() -> tuple[str, ...]:
     return tuple(blockers)
 
 
+def _wayland_session_evidence(component: str, function: str) -> Mapping[str, Any]:
+    root = Path(os.environ.get("MAHO_ROOT") or Path(__file__).resolve().parents[1])
+    return _run_json([
+        "quickshell", "ipc", "-p", str(root / "config/quickshell" / component / "shell.qml"),
+        "call", "sessionEvidence", function,
+    ])
+
+
 def collect_session(*, previous_lock_started_monotonic: float | None = None) -> tuple[SessionEvidence, float | None]:
     values = _loginctl_properties()
     locked: bool | str = UNKNOWN
     if values.get("LockedHint") in {"yes", "no"}:
         locked = values["LockedHint"] == "yes"
+    # The native lock reports the compositor's secure acknowledgement, rather
+    # than treating locker process existence or a launch request as a lock.
+    if values:
+        proof = _wayland_session_evidence("maho-lock", "lockProof")
+        if proof.get("secure") is True and proof.get("locked") is True:
+            locked = True
     now = time.monotonic()
     lock_started = previous_lock_started_monotonic if locked != UNKNOWN else None
     if locked is True and lock_started is None:
@@ -382,6 +396,17 @@ def collect_session(*, previous_lock_started_monotonic: float | None = None) -> 
             recent_input = 0.0
     except ValueError:
         pass
+    if values:
+        compositor = _wayland_session_evidence("maho-shell", "idle")
+        duration = compositor.get("idle_seconds")
+        if (
+            compositor.get("observed") is True and compositor.get("respects_inhibitors") is True
+            and isinstance(compositor.get("idle"), bool)
+            and isinstance(duration, (int, float)) and not isinstance(duration, bool) and 0 <= duration < 365 * 86400
+            and (compositor["idle"] is True or duration == 0)
+        ):
+            idle_seconds = float(duration)
+            recent_input = idle_seconds
     return SessionEvidence(locked, dwell, idle_seconds, recent_input, _session_inhibitors()), lock_started
 
 

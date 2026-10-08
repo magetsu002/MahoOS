@@ -210,6 +210,40 @@ ShellRoot {
         closeMorphTimer.restart()
     }
 
+    // Read-only compositor evidence for adaptive maintenance. A missing idle
+    // event stays unknown; elapsed ticks are a conservative dwell lower bound.
+    property bool idleEvidenceObserved: false
+    property int idleEvidenceTicks: 0
+
+    IdleMonitor {
+        id: maintenanceIdle
+        timeout: 1
+        respectInhibitors: true
+        onIsIdleChanged: {
+            root.idleEvidenceObserved = true
+            root.idleEvidenceTicks = 0
+        }
+    }
+
+    Timer {
+        interval: 1000
+        running: maintenanceIdle.isIdle && root.idleEvidenceObserved
+        repeat: true
+        onTriggered: root.idleEvidenceTicks += 1
+    }
+
+    IpcHandler {
+        target: "sessionEvidence"
+        function idle(): string {
+            return JSON.stringify({
+                observed: root.idleEvidenceObserved,
+                idle: maintenanceIdle.isIdle,
+                idle_seconds: maintenanceIdle.isIdle ? 1 + root.idleEvidenceTicks : 0,
+                respects_inhibitors: maintenanceIdle.respectInhibitors
+            })
+        }
+    }
+
     IpcHandler {
         target: "edge"
 

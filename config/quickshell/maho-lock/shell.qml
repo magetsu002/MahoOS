@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Io
 
 ShellRoot {
     id: root
@@ -29,6 +30,13 @@ ShellRoot {
     MahoLockAuth {
         id: auth
         lock: sessionLock
+    }
+
+    IpcHandler {
+        target: "sessionEvidence"
+        function lockProof(): string {
+            return JSON.stringify({secure: sessionLock.secure, locked: sessionLock.locked})
+        }
     }
 
     WlSessionLock {

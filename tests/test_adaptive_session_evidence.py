@@ -71,6 +71,24 @@ class SessionEvidenceContracts(unittest.TestCase):
         shadow.apply_dwell(resumed,tracker,T0+timedelta(minutes=40))
         self.assertEqual(resumed['session']['data']['lock_dwell_seconds'],0)
 
+    def test_wayland_idle_and_secure_lock_use_real_protocol_acknowledgement(self):
+        def evidence(component, function):
+            if component == 'maho-lock':
+                return {"secure":True,"locked":True}
+            return {"observed":True,"idle":True,"idle_seconds":1201,"respects_inhibitors":True}
+        with patch.object(observers,'_loginctl_properties',return_value=self.properties(LockedHint='no',IdleHint='no')), patch.object(observers,'_wayland_session_evidence',side_effect=evidence):
+            observed,_=observers.collect_session()
+            self.assertTrue(observed.locked)
+            self.assertEqual(observed.idle_seconds,1201)
+        with patch.object(observers,'_loginctl_properties',return_value=self.properties(LockedHint='no',IdleHint='no')), patch.object(observers,'_wayland_session_evidence',return_value={"secure":False,"locked":True,"observed":False,"idle_seconds":99999}):
+            observed,_=observers.collect_session()
+            self.assertFalse(observed.locked)
+            self.assertEqual(observed.idle_seconds,0)
+        with patch.object(observers,'_loginctl_properties',return_value={}), patch.object(observers,'_wayland_session_evidence',side_effect=evidence):
+            observed,_=observers.collect_session()
+            self.assertEqual(observed.locked,'unknown')
+            self.assertEqual(observed.idle_seconds,'unknown')
+
     def test_inhibitors_are_observed_and_missing_evidence_blocks(self):
         rows = [["sleep","UPower","polling","delay",0,10],
                 ["idle","player","playback","block",1000,11],
