@@ -165,6 +165,67 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertEqual(result["phase"], "WAITING_MAINTENANCE")
         new_discovery.assert_called_once()
 
+    def test_new_campaign_reconciles_its_owned_old_prepared_transaction(self):
+        old_revision = 'b' * 40
+        previous = {
+            **coordinator._base_state(NOW, old_revision),
+            'phase': 'BLOCKED', 'lane': 'normal',
+            'active_transaction_id': TXID,
+            'blockers': ['non_coordinator_update_transaction_active'],
+        }
+        runtime = {'source_revision': REV}
+        repo = {'config_path': '/etc/maho/pacman.conf', 'repositories': ['core']}
+        discovered = {**coordinator._base_state(NOW, REV), 'phase': 'WAITING_MAINTENANCE'}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            publish_transaction(root, prepared_tx(revision=old_revision))
+            with patch.dict(os.environ, {'MAHO_UPDATE_STATE_ROOT': temp}), \
+                 patch.object(coordinator, '_require_root'), \
+                 patch.object(coordinator, '_root', return_value=ROOT), \
+                 patch.object(coordinator, '_source_revision', return_value=REV), \
+                 patch.object(coordinator, 'read_coordinator_state', return_value=previous), \
+                 patch.object(coordinator, 'coordinator_mutex', return_value=nullcontext()), \
+                 patch.object(coordinator, '_coordinator_user', return_value='magetsu'), \
+                 patch.object(coordinator, '_runtime_identity', return_value=runtime), \
+                 patch.object(coordinator, '_repo_contract', return_value=repo), \
+                 patch.object(coordinator, '_new_discovery', return_value=discovered) as new_discovery:
+                result = coordinator.run_once(now=NOW)
+            stored = read_transaction(transaction_path(root, TXID))
+        self.assertEqual(result['phase'], 'WAITING_MAINTENANCE')
+        self.assertEqual(stored['state'], 'BLOCKED')
+        self.assertEqual(stored['blockers'], ['coordinator_source_revision_changed'])
+        new_discovery.assert_called_once()
+
+    def test_new_campaign_never_reconciles_an_unrelated_prepared_pointer(self):
+        old_revision = 'b' * 40
+        unrelated = 'upd-20260927T080000Z-fedcbafedcba'
+        previous = {
+            **coordinator._base_state(NOW, old_revision),
+            'phase': 'WAITING_MAINTENANCE', 'lane': 'normal',
+            'active_transaction_id': TXID,
+        }
+        runtime = {'source_revision': REV}
+        repo = {'config_path': '/etc/maho/pacman.conf', 'repositories': ['core']}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            publish_transaction(root, prepared_tx(txid=unrelated, revision=old_revision))
+            with patch.dict(os.environ, {'MAHO_UPDATE_STATE_ROOT': temp}), \
+                 patch.object(coordinator, '_require_root'), \
+                 patch.object(coordinator, '_root', return_value=ROOT), \
+                 patch.object(coordinator, '_source_revision', return_value=REV), \
+                 patch.object(coordinator, 'read_coordinator_state', return_value=previous), \
+                 patch.object(coordinator, 'coordinator_mutex', return_value=nullcontext()), \
+                 patch.object(coordinator, '_coordinator_user', return_value='magetsu'), \
+                 patch.object(coordinator, '_runtime_identity', return_value=runtime), \
+                 patch.object(coordinator, '_repo_contract', return_value=repo), \
+                 patch.object(coordinator, '_new_discovery') as new_discovery:
+                result = coordinator.run_once(now=NOW)
+            stored = read_transaction(transaction_path(root, unrelated))
+        self.assertEqual(result['phase'], 'BLOCKED')
+        self.assertEqual(result['blockers'], ['non_coordinator_update_transaction_active'])
+        self.assertEqual(stored['state'], 'PREPARED')
+        new_discovery.assert_not_called()
+
     def test_trusted_runtime_and_update_campaign_keep_independent_source_identities(self):
         runtime = {
             "source_revision": "composite:files@" + "b" * 40,

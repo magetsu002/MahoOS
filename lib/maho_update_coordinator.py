@@ -1759,11 +1759,21 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
         runtime = _runtime_identity(user)
         policy = json.loads((root / "config/platform.json").read_text(encoding="utf-8"))
         repo = _repo_contract(policy)
-        if previous and previous.get("source_revision") == source_revision:
+        active = _current_transaction(state_root())
+        # Deployment changes the campaign source while an old, owned PREPARED
+        # transaction may still be current. Reconcile that exact owner before
+        # interpreting the pointer as an unrelated/manual transaction.
+        owned = (
+            bool(previous)
+            and active is not None
+            and previous.get("active_transaction_id") == active["transaction_id"]
+            and previous.get("source_revision") == active["source_revision"]
+        )
+        if previous and (previous.get("source_revision") == source_revision or owned):
             resumed = _resume_owned(previous, source_revision, user, runtime, repo, current)
             if resumed is not None and resumed.get("phase") not in {"INVALIDATED"}:
                 return resumed
-        active = _current_transaction(state_root())
+            active = _current_transaction(state_root())
         if active is not None and active["state"] not in {
             UpdateState.HEALTHY.value,
             UpdateState.RECOVERED.value,
