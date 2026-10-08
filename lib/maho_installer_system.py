@@ -871,7 +871,7 @@ class SystemAssemblyOps:
             kernel_abi=primary, modules_abi=primary, trust_state=TrustState.UNKNOWN,
         )
         root_manifest = {
-            "schema_version": 1, "kind": "maho-initial-root-manifest",
+            "schema_version": 2, "kind": "maho-initial-root-manifest",
             "install_attempt_id": plan["install_attempt_id"],
             "installation_uuid": plan["installation_identity"]["installation_uuid"],
             "source_revision": plan["source_revision"],
@@ -879,13 +879,16 @@ class SystemAssemblyOps:
             "runtime_content_sha256": runtime["content_sha256"],
             "boot_generation_id": boot_info["boot_generation_id"],
             "recovery_identity": recovery["recovery_identity"],
+            "filesystem_uuid": plan["installation_identity"]["btrfs_uuid"],
+            "root_subvolume_uuid": self._subvolume_uuid(root),
+            "boot_sha256": boot_info["boot_sha256"],
         }
         root_bytes = canonical_bytes(root_manifest)
         root_artifact = ArtifactID.from_content(root_bytes)
         system = SystemGeneration.create(
             parent_generation_id=None,
             root_identity=RootIdentity(
-                "btrfs-subvolume:@", f"uuid:{plan['installation_identity']['btrfs_uuid']}",
+                f"btrfs-uuid:{root_manifest['root_subvolume_uuid']}", f"uuid:{plan['installation_identity']['btrfs_uuid']}",
                 hashlib.sha256(root_bytes).hexdigest(),
             ),
             kernel_generation_id=kernel.kernel_generation_id,

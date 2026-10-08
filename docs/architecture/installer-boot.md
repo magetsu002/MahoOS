@@ -80,6 +80,8 @@ The installer must not manufacture Guardian trust, generation health, or Prevent
 
 ## Certified first boot
 
+Initial SystemGeneration identity binds the observed Btrfs subvolume UUID, rather than only the subvolume name. The immutable initial root manifest also binds the filesystem UUID, exact boot artifact hashes, BootGeneration, installation attempt, source revision, and recovery identity. First-boot publication checks these bindings before promoting trust. Publication checksums alone cannot authorize new claims. Legacy initial manifests without these bindings remain unresolved until independently recertified; a reader must not silently rewrite their identities or reuse historical acceptance as current proof.
+
 The installation remains pending across reboot.
 
 Certified first boot re-observes the installed machine and proves the expected relationships, including the relevant:

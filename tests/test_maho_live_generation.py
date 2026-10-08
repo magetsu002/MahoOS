@@ -149,15 +149,17 @@ def main() -> None:
         base_system = SystemGeneration.parse(json.loads(next((root / "manifests/system").iterdir()).read_text()))
         initial = root / "initial"
         attempt, installation, recovery = "install-test", "installation-test", "recovery-test"
-        proof_bytes = canonical_bytes({"schema_version": 1, "kind": "maho-initial-root-manifest",
+        proof_bytes = canonical_bytes({"schema_version": 2, "kind": "maho-initial-root-manifest",
             "source_revision": SOURCE, "install_attempt_id": attempt,
-            "installation_uuid": installation, "recovery_identity": recovery})
+            "installation_uuid": installation, "recovery_identity": recovery,
+            "filesystem_uuid": FSUUID, "root_subvolume_uuid": CANDIDATE,
+            "boot_generation_id": "bootgen-" + "a" * 64, "boot_sha256": result["boot_sha256"]})
         artifact = ArtifactID.from_content(proof_bytes)
         digest = str(artifact)[4:]
         path = initial / "artifacts/sha256" / digest[:2] / digest[2:]
         path.parent.mkdir(parents=True); path.write_bytes(proof_bytes)
         system = SystemGeneration.create(parent_generation_id=None,
-            root_identity=RootIdentity("btrfs-subvolume:@", "uuid:" + FSUUID, digest),
+            root_identity=RootIdentity("btrfs-uuid:" + CANDIDATE, "uuid:" + FSUUID, digest),
             kernel_generation_id=kernel.kernel_generation_id,
             package_set_identity=base_system.package_set_identity,
             transaction_id=base_system.transaction_id, provenance_id=base_system.provenance_id,
@@ -180,11 +182,34 @@ def main() -> None:
         published = publish_initial_live_generations(initial_receipt,
             {"generations": ids, "storage": storage, "boot": boot}, root=initial)
         check("first-boot publication retains exact independent manifest bindings", read_live_publication(initial) == published)
-        for key in ("initial_installation_uuid", "recovery_generation_id", "source_revision"):
+        for key in ("initial_installation_uuid", "recovery_generation_id", "source_revision", "root_subvolume_uuid", "boot_generation_id", "boot_sha256"):
             changed = dict(published); changed.pop("publication_id"); changed[key] = "wrong-identity"
             changed["publication_id"] = str(ArtifactID.from_content(canonical_bytes(changed)))
             (initial / "live.json").write_text(json.dumps(changed))
             check("first-boot rehashed " + key + " drift fails closed", read_live_publication(initial) is None)
+        (initial / "live.json").write_text(json.dumps(published))
+        for key, replacement in (("root_subvolume_uuid", PREVIOUS), ("root_fsroot", "/@other")):
+            rejects("initial observation " + key + " drift cannot publish VERIFIED", lambda: publish_initial_live_generations(
+                initial_receipt, {"generations": ids, "storage": storage | {key: replacement}, "boot": boot}, root=initial))
+            check("failed first-boot verification leaves prior publication intact", read_live_publication(initial) == published)
+        rejects("initial cmdline drift cannot publish VERIFIED", lambda: publish_initial_live_generations(
+            initial_receipt, {"generations": ids, "storage": storage, "boot": boot | {"cmdline": "root=wrong"}}, root=initial))
+
+        legacy_proof = json.loads(proof_bytes); legacy_proof["schema_version"] = 1
+        legacy_bytes = canonical_bytes(legacy_proof); legacy_artifact = ArtifactID.from_content(legacy_bytes)
+        legacy_digest = str(legacy_artifact)[4:]
+        legacy_system = SystemGeneration.create(parent_generation_id=None,
+            root_identity=RootIdentity("btrfs-subvolume:@", "uuid:" + FSUUID, legacy_digest),
+            kernel_generation_id=kernel.kernel_generation_id, package_set_identity=system.package_set_identity,
+            transaction_id=system.transaction_id, provenance_id=system.provenance_id,
+            artifact_ids=(legacy_artifact,), trust_state=TrustState.UNKNOWN)
+        path = initial / "artifacts/sha256" / legacy_digest[:2] / legacy_digest[2:]
+        path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(legacy_bytes)
+        (initial / "manifests/system" / (str(legacy_system.generation_id) + ".json")).write_text(legacy_system.canonical_manifest())
+        (initial / "initial-pending.json").write_text(json.dumps({"root_manifest_artifact_id": str(legacy_artifact)}))
+        legacy_ids = ids | {"system_generation_id": str(legacy_system.generation_id)}
+        rejects("legacy by-name roots remain unresolved rather than silently recertified", lambda: publish_initial_live_generations(
+            initial_receipt | legacy_ids, {"generations": legacy_ids, "storage": storage, "boot": boot}, root=initial))
 
     bad = LiveGenerationObservation(**(observation.__dict__ | {"root_subvolume_uuid": PREVIOUS}))
     rejects("candidate UUID drift blocks generation publication", lambda: publish_live_generations(tx, journal, receipt, bad, publisher_source_revision="a" * 40, root=Path(temporary)))

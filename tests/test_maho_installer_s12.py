@@ -32,6 +32,7 @@ from maho_installer_receipt import (
 )
 from maho_installer_firstboot import SystemFirstBootObserver
 from maho_installer_system import SystemAssemblyOps
+from maho_generation_v2 import SystemGeneration
 
 REV = "a" * 40
 ATTEMPT = "11111111-1111-4111-8111-111111111111"
@@ -557,6 +558,25 @@ def main() -> None:
         normal = ops._cmdline(p)
         recovery = ops._cmdline(p, recovery=True)
         check("normal boot is writable and recovery boot is read-only", " rw " in f" {normal} " and " ro " in f" {recovery} " and " rw " not in f" {recovery} ")
+
+        esp = root / "boot/EFI/MahoOS/Normal"
+        esp.mkdir(parents=True)
+        for name in ("intel-ucode.img", "vmlinuz-linux-cachyos", "initramfs-linux-cachyos.img"):
+            (esp / name).write_bytes(name.encode())
+        boot_hashes = {"/boot/EFI/MahoOS/Normal/" + path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in esp.iterdir()}
+        generation = ops._phase_system_generation_published(p, pl, {"phase_evidence": {
+            "KERNELS_INSTALLED": {"primary_release": "test-release"},
+            "BOOT_GENERATION_PUBLISHED": {"boot_generation_id": "bootgen-" + HEX, "boot_sha256": boot_hashes},
+            "RECOVERY_INSTALLED": {"recovery_identity": "recovery-test"},
+            "RUNTIME_INSTALLED": {"content_sha256": HEX},
+        }}, root)
+        generations = root / "var/lib/maho/generations"
+        manifest = SystemGeneration.parse(json.loads((generations / "manifests/system" / (generation["system_generation_id"] + ".json")).read_text()))
+        digest = manifest.root_identity.root_manifest_sha256
+        proof = json.loads((generations / "artifacts/sha256" / digest[:2] / digest[2:]).read_text())
+        check("initial generation binds the observed Btrfs UUID before first boot", manifest.root_identity.snapshot_identity == "btrfs-uuid:" + identity["root_subvolume_uuid"] and proof["root_subvolume_uuid"] == identity["root_subvolume_uuid"])
+        check("initial immutable proof binds exact boot inventory and filesystem", proof["schema_version"] == 2 and proof["boot_sha256"] == boot_hashes and proof["filesystem_uuid"] == p["installation_identity"]["btrfs_uuid"])
+        check("preboot generation remains UNKNOWN", manifest.trust_state.value == "UNKNOWN")
 
         modules = root / "usr/lib/modules/test-release"
         modules.mkdir(parents=True)

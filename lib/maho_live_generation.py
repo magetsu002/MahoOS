@@ -294,7 +294,9 @@ def publish_initial_live_generations(
     for key in ("system_generation_id", "kernel_generation_id", "package_generation_id", "boot_generation_id"):
         if generations.get(key) != receipt.get(key):
             raise ValueError(f"initial live {key} does not match receipt")
-    if storage.get("btrfs_uuid") != receipt.get("storage", {}).get("btrfs_uuid") or storage.get("root_fsroot") != "/@":
+    if (storage.get("btrfs_uuid") != receipt.get("storage", {}).get("btrfs_uuid")
+        or storage.get("root_subvolume_uuid") != receipt.get("storage", {}).get("root_subvolume_uuid")
+        or storage.get("root_fsroot") != "/@"):
         raise ValueError("initial live root does not match receipt")
     if boot.get("running_kernel") != receipt.get("kernel", {}).get("primary_release"):
         raise ValueError("initial live kernel does not match receipt")
@@ -340,6 +342,26 @@ def publish_initial_live_generations(
         raise ValueError("initial root manifest artifact is unavailable") from exc
     if ArtifactID.from_content(root_bytes) != artifact_id or _sha256(root_bytes) != verified_system.root_identity.root_manifest_sha256:
         raise ValueError("initial root manifest artifact does not match SystemGeneration")
+    try:
+        proof = json.loads(root_bytes)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("initial root manifest is invalid") from exc
+    bindings = {
+        "transaction_id": receipt["install_attempt_id"],
+        "initial_installation_uuid": receipt["installation_uuid"],
+        "source_revision": receipt["source_revision"],
+        "filesystem_uuid": storage["btrfs_uuid"],
+        "root_subvolume_uuid": storage.get("root_subvolume_uuid"),
+        "boot_generation_id": receipt.get("boot_generation_id"),
+        "boot_sha256": boot["boot_sha256"],
+        "recovery_generation_id": receipt["recovery_identity"],
+    }
+    if (not _initial_root_claims_match(proof, verified_system, bindings)
+        or system.package_set_identity != receipt["package_generation_id"]
+        or system.root_identity.filesystem_identity != f"uuid:{storage['btrfs_uuid']}"
+        or kernel.kernel_abi != boot["running_kernel"]
+        or kernel.cmdline_contract_sha256 != _sha256(str(boot.get("cmdline", "")).encode())):
+        raise ValueError("initial live observation does not match immutable generation proof")
     compatibility_payload = {
         "schema_version": 1, **compatibility.__dict__,
         "system_generation_id": str(compatibility.system_generation_id),
@@ -355,6 +377,7 @@ def publish_initial_live_generations(
         "source_revision": receipt["source_revision"],
         "publisher_source_revision": receipt["source_revision"],
         "package_generation_id": receipt["package_generation_id"],
+        "boot_generation_id": receipt["boot_generation_id"],
         "filesystem_uuid": storage["btrfs_uuid"],
         "root_subvolume_uuid": str(storage.get("root_subvolume_uuid", "")),
         "fsroot": storage["root_fsroot"],
@@ -419,6 +442,29 @@ def observe_live_generation(
         recovery_generation_id=recovery_generation_id,
         previous_root_uuid=previous_root_uuid, previous_root_read_only=previous_root_read_only,
     )
+
+
+def _initial_root_claims_match(proof: Any, system: SystemGeneration, claims: Mapping[str, Any]) -> bool:
+    # Legacy by-name initial roots cannot authorize a particular observed UUID
+    # or boot inventory. Keep them unresolved; never upgrade old proof in place.
+    if not isinstance(proof, Mapping) or proof.get("kind") != "maho-initial-root-manifest" or proof.get("schema_version") != 2:
+        return False
+    root_uuid = claims.get("root_subvolume_uuid")
+    boot_hashes = claims.get("boot_sha256")
+    if not isinstance(root_uuid, str) or not root_uuid or not isinstance(boot_hashes, Mapping) or not boot_hashes:
+        return False
+    expected = {
+        "install_attempt_id": claims.get("transaction_id"),
+        "installation_uuid": claims.get("initial_installation_uuid"),
+        "source_revision": claims.get("source_revision"),
+        "filesystem_uuid": claims.get("filesystem_uuid"),
+        "root_subvolume_uuid": root_uuid,
+        "boot_generation_id": claims.get("boot_generation_id"),
+        "boot_sha256": boot_hashes,
+        "recovery_identity": claims.get("recovery_generation_id"),
+    }
+    return (system.root_identity.snapshot_identity == f"btrfs-uuid:{root_uuid}"
+            and all(value is not None and proof.get(key) == value for key, value in expected.items()))
 
 
 def read_live_publication(root: Path = GENERATION_ROOT) -> dict[str, Any] | None:
@@ -490,9 +536,7 @@ def read_live_publication(root: Path = GENERATION_ROOT) -> dict[str, Any] | None
         return None
     kind = proof.get("kind")
     if kind == "maho-initial-root-manifest":
-        if (proof.get("install_attempt_id") != value.get("transaction_id")
-            or proof.get("installation_uuid") != value.get("initial_installation_uuid")
-            or proof.get("recovery_identity") != value.get("recovery_generation_id")):
+        if not _initial_root_claims_match(proof, parsed_system, value):
             return None
     elif kind in {"maho-live-root-proof", "maho-update-candidate-root-proof"}:
         if (proof.get("transaction_id") != value.get("transaction_id")
