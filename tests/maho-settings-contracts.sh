@@ -109,6 +109,12 @@ require_text "$BINDINGS" '"$HOME/.local/bin/maho-settings" toggle' "Settings sho
 require_text "$WRAPPER" 'toggle_app()' "Settings launcher has no open/close toggle behavior"
 echo PASS
 
+echo "=== Maho Settings third-party license package boundary ==="
+require_file "$ROOT/LICENSES/HYPRBIND-MAHOOS-SPECIAL-LICENSE-EXCEPTION-v1.0.txt"
+require_text "$ROOT/THIRD_PARTY_NOTICES.md" 'Hyprbind-derived Maho Settings material' "Hyprbind attribution is absent"
+require_text "$PKGBUILD" '$source_root/LICENSES/HYPRBIND-MAHOOS-SPECIAL-LICENSE-EXCEPTION-v1.0.txt' "Hyprbind exception is missing from the package"
+echo PASS
+
 echo "=== single-owner Hyprland configuration writer ==="
 require_text "$HYPR_LOADER" 'package.searchpath("maho.user.settings", package.path)' "Hyprland loader does not discover the user Settings overlay safely"
 require_text "$HYPR_LOADER" 'require("maho.user.settings")' "Hyprland loader never activates the user Settings overlay"

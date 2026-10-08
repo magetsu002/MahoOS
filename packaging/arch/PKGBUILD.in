@@ -201,6 +201,8 @@ package() {
     "$pkgdir/usr/share/doc/maho-os/THIRD_PARTY_NOTICES.md"
   install -Dm644 "$source_root/LICENSE" \
     "$pkgdir/usr/share/licenses/maho-os/LICENSE"
+  install -Dm644 "$source_root/LICENSES/HYPRBIND-MAHOOS-SPECIAL-LICENSE-EXCEPTION-v1.0.txt" \
+    "$pkgdir/usr/share/licenses/maho-os/HYPRBIND-MAHOOS-SPECIAL-LICENSE-EXCEPTION-v1.0.txt"
   install -Dm644 "$source_root/LICENSES/GPL-2.0-only.txt" \
     "$pkgdir/usr/share/licenses/maho-os/GPL-2.0-only.txt"
   install -Dm644 "$source_root/LICENSES/LGPL-3.0-only.txt" \
