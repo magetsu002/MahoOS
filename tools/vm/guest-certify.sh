@@ -152,14 +152,16 @@ autonomy_convergence_profile() {
     systemctl status maho-update-coordinator.timer maho-update-coordinator.service --no-pager || true
     return 1
   }
-  while systemctl is-active --quiet maho-update-coordinator.service \
-    && [ "$SECONDS" -lt "$deadline" ]; do
-    sleep 1
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    case "$(systemctl show -p ActiveState --value maho-update-coordinator.service)" in
+      inactive|failed) break ;;
+      *) sleep 1 ;;
+    esac
   done
-  ! systemctl is-active --quiet maho-update-coordinator.service || {
-    systemctl status maho-update-coordinator.service --no-pager || true
-    return 1
-  }
+  case "$(systemctl show -p ActiveState --value maho-update-coordinator.service)" in
+    inactive|failed) ;;
+    *) systemctl status maho-update-coordinator.service --no-pager || true; return 1 ;;
+  esac
   cp /var/lib/maho/update/coordinator.json "$E/coordinator.json"
   systemctl status maho-update-coordinator.timer maho-update-coordinator.service \
     --no-pager >"$E/systemd-status.txt" || true
