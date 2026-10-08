@@ -131,14 +131,13 @@ Item {
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.060)
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    text: "󰂯"
-                    color: root.bluetooth.bluetoothEnabled
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: "󰂯"
+                    glyphColor: root.bluetooth.bluetoothEnabled
                         ? chrome.accent
                         : chrome.theme.alpha(chrome.textSecondary, 0.86)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 19
+                    pixelSize: 19
                 }
             }
 
@@ -157,6 +156,8 @@ Item {
                 }
                 Text {
                     text: !root.bluetooth.available ? "Adapter unavailable"
+                        : root.bluetooth.powerState === "hard-blocked" ? "Hardware blocked"
+                        : root.bluetooth.powerState === "soft-blocked" ? "Software blocked"
                         : root.bluetooth.bluetoothEnabled ? "On" : "Off"
                     color: chrome.theme.alpha(chrome.textSecondary, 0.68)
                     font.family: "Inter"
@@ -173,9 +174,10 @@ Item {
                 height: 27
                 radius: 14
                 antialiasing: true
-                opacity: root.bluetooth.available && !root.bluetooth.busy ? 1 : 0.48
+                opacity: root.bluetooth.available && root.bluetooth.powerActionable && !root.bluetooth.busy ? 1 : 0.48
                 color: root.bluetooth.bluetoothEnabled
-                    ? chrome.theme.alpha(chrome.accent, toggleHover.containsMouse ? 0.77 : 0.67)
+                    ? chrome.theme.alpha(chrome.accent,
+                        (toggleHover.containsMouse || toggleHover.activeFocus) ? 0.77 : 0.67)
                     : chrome.theme.alpha(chrome.theme.surfaceHigh, 0.42)
                 border.width: 1
                 border.color: root.bluetooth.bluetoothEnabled
@@ -224,10 +226,15 @@ Item {
                 MouseArea {
                     id: toggleHover
                     anchors.fill: parent
-                    enabled: root.bluetooth.available && !root.bluetooth.busy
+                    enabled: root.bluetooth.available && root.bluetooth.powerActionable && !root.bluetooth.busy
                     hoverEnabled: true
+                    activeFocusOnTab: true
                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: root.bluetooth.setBluetoothEnabled(!root.bluetooth.bluetoothEnabled)
+                    Keys.onReturnPressed:
+                        root.bluetooth.setBluetoothEnabled(!root.bluetooth.bluetoothEnabled)
+                    Keys.onSpacePressed:
+                        root.bluetooth.setBluetoothEnabled(!root.bluetooth.bluetoothEnabled)
                 }
             }
         }
@@ -261,7 +268,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.075)
-                opacity: heroHover.containsMouse ? 1 : 0
+                opacity: heroHover.containsMouse || heroHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 145; easing.type: Easing.OutCubic }
@@ -332,12 +339,11 @@ Item {
                     color: chrome.theme.alpha(chrome.theme.foreground, 0.075)
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    text: root.glyph(root.primaryDevice ? root.primaryDevice.kind : "generic")
-                    color: chrome.theme.alpha(chrome.textPrimary, 0.96)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 34
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: root.glyph(root.primaryDevice ? root.primaryDevice.kind : "generic")
+                    glyphColor: chrome.theme.alpha(chrome.textPrimary, 0.96)
+                    pixelSize: 34
                 }
             }
 
@@ -432,8 +438,11 @@ Item {
                 id: heroHover
                 anchors.fill: parent
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.detailsRequested(root.primaryDevice)
+                Keys.onReturnPressed: root.detailsRequested(root.primaryDevice)
+                Keys.onSpacePressed: root.detailsRequested(root.primaryDevice)
             }
         }
 
@@ -531,6 +540,8 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: !root.bluetooth.available ? "Bluetooth unavailable"
+                        : root.bluetooth.powerState === "hard-blocked" ? "Bluetooth is hardware blocked"
+                        : root.bluetooth.powerState === "soft-blocked" ? "Bluetooth is software blocked"
                         : !root.bluetooth.bluetoothEnabled ? "Bluetooth is Off"
                         : !root.bluetooth.snapshotReady ? "Reading devices…"
                         : "No Paired Devices"
@@ -543,9 +554,13 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
-                    text: !root.bluetooth.bluetoothEnabled
-                        ? "Turn on Bluetooth to connect accessories and nearby devices."
-                        : "Nearby devices will appear below while Bluetooth is discovering."
+                    text: root.bluetooth.powerState === "hard-blocked"
+                        ? "Use the laptop hardware or firmware control to unblock Bluetooth."
+                        : root.bluetooth.powerState === "soft-blocked"
+                            ? "Turn on Bluetooth to clear the software block and power the adapter."
+                            : !root.bluetooth.bluetoothEnabled
+                                ? "Turn on Bluetooth to connect accessories and nearby devices."
+                                : "Nearby devices will appear below while Bluetooth is discovering."
                     color: chrome.theme.alpha(chrome.textSecondary, 0.62)
                     font.family: "Inter"
                     font.pixelSize: 10
@@ -609,17 +624,24 @@ Item {
                     font.weight: Font.Medium
 
                     MouseArea {
+                        id: discoveryHover
                         anchors.fill: parent
                         anchors.margins: -8
                         enabled: !root.bluetooth.busy
                         hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
+                        activeFocusOnTab: true
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+                        function activate() {
                             if (root.bluetooth.discovering)
                                 root.bluetooth.stopDiscovery()
                             else
                                 root.bluetooth.startDiscovery()
                         }
+
+                        onClicked: activate()
+                        Keys.onReturnPressed: activate()
+                        Keys.onSpacePressed: activate()
                     }
                 }
             }
@@ -715,15 +737,14 @@ Item {
                             }
                         }
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: "󰂯"
-                            color: chrome.theme.alpha(
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: "󰂯"
+                            glyphColor: chrome.theme.alpha(
                                 root.bluetooth.discovering ? chrome.accent : chrome.textSecondary,
                                 root.bluetooth.discovering ? 0.84 : 0.58
                             )
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 17
+                            pixelSize: 17
                         }
                     }
 
@@ -766,7 +787,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.075)
-                opacity: pairHover.containsMouse ? 1 : 0
+                opacity: pairHover.containsMouse || pairHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -847,11 +868,17 @@ Item {
                 anchors.fill: parent
                 enabled: !root.bluetooth.busy
                 hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
+                activeFocusOnTab: true
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+                function activate() {
                     if (!root.bluetooth.discovering)
                         root.bluetooth.startDiscovery()
                 }
+
+                onClicked: activate()
+                Keys.onReturnPressed: activate()
+                Keys.onSpacePressed: activate()
             }
         }
     }

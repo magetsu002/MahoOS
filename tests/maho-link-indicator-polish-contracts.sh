@@ -17,7 +17,7 @@ reject_text() {
 }
 
 echo "=== Bluetooth discovery does not flicker the power control ==="
-require_text "$STATE" 'readonly property bool busy: actionProcess.running || cancelProcess.running' "background Bluetooth snapshots still mark interaction state busy"
+require_text "$STATE" 'actionProcess.running || cancelProcess.running || pairingProcess.running' "interactive Bluetooth busy state no longer includes pairing without snapshot churn"
 reject_text "$STATE" 'readonly property bool busy: snapshotProcess.running' "Bluetooth snapshot refresh still drives interactive busy state"
 echo "PASS"
 

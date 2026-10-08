@@ -31,7 +31,7 @@ Item {
         radius: 14
         antialiasing: true
         color: chrome.theme.alpha(chrome.theme.foreground, 0.028)
-        opacity: rowHover.containsMouse ? 1 : 0
+        opacity: rowHover.containsMouse || rowHover.activeFocus ? 1 : 0
 
         Behavior on opacity {
             NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
@@ -84,16 +84,13 @@ Item {
             }
         }
 
-        Text {
-            anchors.centerIn: parent
-            anchors.verticalCenterOffset: -1
-            text: root.glyph(device.kind)
-            color: device.connected ? chrome.accent : chrome.theme.alpha(chrome.textSecondary, 0.88)
-            font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 18
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            renderType: Text.NativeRendering
+        BluetoothGlyph {
+            anchors.fill: parent
+            symbol: root.glyph(device.kind)
+            glyphColor: device.connected
+                ? chrome.accent
+                : chrome.theme.alpha(chrome.textSecondary, 0.88)
+            pixelSize: 18
         }
     }
 
@@ -161,7 +158,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.10)
-                opacity: actionHover.containsMouse ? 1 : 0
+                opacity: actionHover.containsMouse || actionHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
@@ -212,13 +209,19 @@ Item {
             anchors.fill: parent
             enabled: root.interactionEnabled
             hoverEnabled: true
+            activeFocusOnTab: true
             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: {
+
+            function activate() {
                 if (root.actionLabel !== "")
                     root.actionRequested()
                 else
                     root.selected()
             }
+
+            onClicked: activate()
+            Keys.onReturnPressed: activate()
+            Keys.onSpacePressed: activate()
         }
     }
 
@@ -230,7 +233,10 @@ Item {
         anchors.right: actionArea.left
         hoverEnabled: true
         enabled: root.interactionEnabled
+        activeFocusOnTab: true
         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: root.selected()
+        Keys.onReturnPressed: root.selected()
+        Keys.onSpacePressed: root.selected()
     }
 }

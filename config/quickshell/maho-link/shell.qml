@@ -330,6 +330,7 @@ ShellRoot {
     function closeOverlay() {
         if (!presented)
             return
+        wifi.cancelPendingConnection()
         modeAfterPlacementSave = ""
         launchPlacementUnlock.stop()
         launchPlacementLocked = false

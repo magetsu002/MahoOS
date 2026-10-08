@@ -24,12 +24,11 @@ Item {
             border.width: 1
             border.color: chrome.theme.alpha(chrome.theme.error, 0.12)
 
-            Text {
-                anchors.centerIn: parent
-                text: "󰆴"
-                color: chrome.theme.error
-                font.family: "JetBrainsMono Nerd Font"
-                font.pixelSize: 30
+            BluetoothGlyph {
+                anchors.fill: parent
+                symbol: "󰆴"
+                glyphColor: chrome.theme.error
+                pixelSize: 30
             }
         }
 
@@ -59,7 +58,7 @@ Item {
             width: parent.width
             height: 46
             radius: 14
-            color: confirmHover.containsMouse
+            color: confirmHover.containsMouse || confirmHover.activeFocus
                 ? chrome.theme.alpha(chrome.theme.error, 0.28)
                 : chrome.theme.alpha(chrome.theme.error, 0.21)
             border.width: 1
@@ -80,8 +79,11 @@ Item {
                 anchors.fill: parent
                 enabled: !root.bluetooth.busy
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.confirmed()
+                Keys.onReturnPressed: root.confirmed()
+                Keys.onSpacePressed: root.confirmed()
             }
         }
 
@@ -89,7 +91,7 @@ Item {
             width: parent.width
             height: 44
             radius: 14
-            color: cancelHover.containsMouse
+            color: cancelHover.containsMouse || cancelHover.activeFocus
                 ? chrome.theme.alpha(chrome.textSecondary, 0.12)
                 : chrome.theme.alpha(chrome.textSecondary, 0.075)
             border.width: 1
@@ -108,8 +110,11 @@ Item {
                 id: cancelHover
                 anchors.fill: parent
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.cancelRequested()
+                Keys.onReturnPressed: root.cancelRequested()
+                Keys.onSpacePressed: root.cancelRequested()
             }
         }
     }

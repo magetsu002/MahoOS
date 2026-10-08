@@ -108,16 +108,11 @@ Item {
                     }
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -1
-                    text: root.glyph(device ? device.kind : "generic")
-                    color: chrome.theme.alpha(chrome.textPrimary, 0.96)
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 37
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    renderType: Text.NativeRendering
+                BluetoothGlyph {
+                    anchors.fill: parent
+                    symbol: root.glyph(device ? device.kind : "generic")
+                    glyphColor: chrome.theme.alpha(chrome.textPrimary, 0.96)
+                    pixelSize: 37
                 }
             }
 
@@ -162,7 +157,7 @@ Item {
         Rectangle {
             id: infoCard
             width: parent.width
-            height: 53 + (root.hasQuality ? 53 : 0) + (root.hasBattery ? 53 : 0)
+            height: 106 + (root.hasQuality ? 53 : 0) + (root.hasBattery ? 53 : 0)
             radius: 19
             antialiasing: true
             color: root.glassLow
@@ -213,6 +208,42 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         text: String(device && device.type ? device.type : "Bluetooth Device")
                         color: chrome.theme.alpha(chrome.textPrimary, 0.91)
+                        font.family: "Inter"
+                        font.pixelSize: 11
+                        font.weight: Font.Medium
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width - 42
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: 1
+                    color: root.separator
+                }
+
+                Item {
+                    width: parent.width
+                    height: 53
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 17
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Saved Device"
+                        color: chrome.theme.alpha(chrome.textSecondary, 0.74)
+                        font.family: "Inter"
+                        font.pixelSize: 11
+                    }
+
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 17
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: device && device.trusted ? "Trusted"
+                            : device && device.paired ? "Paired" : "Not Saved"
+                        color: device && device.trusted
+                            ? chrome.theme.alpha(chrome.accent, 0.86)
+                            : chrome.theme.alpha(chrome.textPrimary, 0.91)
                         font.family: "Inter"
                         font.pixelSize: 11
                         font.weight: Font.Medium
@@ -342,7 +373,7 @@ Item {
                             radius: parent.radius
                             antialiasing: true
                             color: chrome.theme.alpha(chrome.theme.foreground, 0.032)
-                            opacity: connectHover.containsMouse ? 1 : 0
+                            opacity: connectHover.containsMouse || connectHover.activeFocus ? 1 : 0
 
                             Behavior on opacity {
                                 NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -362,16 +393,11 @@ Item {
                         border.width: 1
                         border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: device && device.connected ? "󰑐" : "󰂱"
-                            color: chrome.theme.alpha(chrome.textSecondary, 0.84)
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 15
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: device && device.connected ? "󰑐" : "󰂱"
+                            glyphColor: chrome.theme.alpha(chrome.textSecondary, 0.84)
+                            pixelSize: 15
                         }
                     }
 
@@ -393,13 +419,19 @@ Item {
                         anchors.fill: parent
                         enabled: !root.bluetooth.busy
                         hoverEnabled: true
+                        activeFocusOnTab: true
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: {
+
+                        function activate() {
                             if (device && device.connected)
                                 root.bluetooth.reconnectDevice(device)
                             else
                                 root.bluetooth.connectDevice(device)
                         }
+
+                        onClicked: activate()
+                        Keys.onReturnPressed: activate()
+                        Keys.onSpacePressed: activate()
                     }
                 }
 
@@ -430,7 +462,7 @@ Item {
                             radius: parent.radius
                             antialiasing: true
                             color: chrome.theme.alpha(chrome.theme.foreground, 0.032)
-                            opacity: disconnectHover.containsMouse ? 1 : 0
+                            opacity: disconnectHover.containsMouse || disconnectHover.activeFocus ? 1 : 0
 
                             Behavior on opacity {
                                 NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -450,16 +482,11 @@ Item {
                         border.width: 1
                         border.color: chrome.theme.alpha(chrome.theme.foreground, 0.050)
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: "󰂲"
-                            color: chrome.theme.alpha(chrome.textSecondary, 0.84)
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 15
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: "󰂲"
+                            glyphColor: chrome.theme.alpha(chrome.textSecondary, 0.84)
+                            pixelSize: 15
                         }
                     }
 
@@ -479,8 +506,11 @@ Item {
                         anchors.fill: parent
                         enabled: !root.bluetooth.busy
                         hoverEnabled: true
+                        activeFocusOnTab: true
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: root.bluetooth.disconnectDevice(device)
+                        Keys.onReturnPressed: root.bluetooth.disconnectDevice(device)
+                        Keys.onSpacePressed: root.bluetooth.disconnectDevice(device)
                     }
                 }
 
@@ -511,7 +541,7 @@ Item {
                             radius: parent.radius
                             antialiasing: true
                             color: chrome.theme.alpha(chrome.theme.error, 0.055)
-                            opacity: forgetHover.containsMouse ? 1 : 0
+                            opacity: forgetHover.containsMouse || forgetHover.activeFocus ? 1 : 0
 
                             Behavior on opacity {
                                 NumberAnimation { duration: 125; easing.type: Easing.OutCubic }
@@ -531,16 +561,11 @@ Item {
                         border.width: 1
                         border.color: chrome.theme.alpha(chrome.theme.error, 0.070)
 
-                        Text {
-                            anchors.centerIn: parent
-                            anchors.verticalCenterOffset: -1
-                            text: "󰆴"
-                            color: chrome.theme.error
-                            font.family: "JetBrainsMono Nerd Font"
-                            font.pixelSize: 14
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            renderType: Text.NativeRendering
+                        BluetoothGlyph {
+                            anchors.fill: parent
+                            symbol: "󰆴"
+                            glyphColor: chrome.theme.error
+                            pixelSize: 14
                         }
                     }
 
@@ -560,8 +585,11 @@ Item {
                         anchors.fill: parent
                         enabled: !root.bluetooth.busy
                         hoverEnabled: true
+                        activeFocusOnTab: true
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: root.forgetRequested()
+                        Keys.onReturnPressed: root.forgetRequested()
+                        Keys.onSpacePressed: root.forgetRequested()
                     }
                 }
             }
