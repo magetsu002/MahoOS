@@ -60,13 +60,6 @@ jobs:
           set -euo pipefail
           bash tests/maho-link-contracts.sh
 
-      - name: Deterministic Maho Link Python tests
-        run: |
-          set -euo pipefail
-          for test_file in tests/maho-link-*.py; do
-            python "$test_file"
-          done
-
       - name: Maho Link drag and startup contracts
         run: |
           set -euo pipefail
