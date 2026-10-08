@@ -247,7 +247,7 @@ def read_guardian(now: datetime) -> Mapping[str, Any] | None:
     recovery = payload.get("recovery") if isinstance(payload.get("recovery"), Mapping) else {}
     level = severity.get("level")
     if not isinstance(level, int) or isinstance(level, bool):
-        level = 0
+        level = UNKNOWN
     trust = guardian.get("trust") if isinstance(guardian.get("trust"), Mapping) else {}
     recovering = trust.get("state") == "RECOVERING" or recovery.get("in_progress") is True
     # Canonical reliability is its own authority. Guardian self-health and trust
@@ -398,6 +398,8 @@ def apply_dwell(observations: dict[str, Any], tracker: dict[str, Any], now: date
         if isinstance(locked, bool):
             dwell = update_dwell(tracker, "session_locked", locked, now)
             data["lock_dwell_seconds"] = dwell if locked else 0.0
+        else:
+            tracker.pop("session_locked", None)
 
     network = observations.get("network")
     if isinstance(network, Mapping) and isinstance(network.get("data"), Mapping):
@@ -541,7 +543,8 @@ def situation_summary(snapshot: SituationSnapshot) -> dict[str, Any]:
         "thermal": {"level": snapshot.thermal.level, "maximum_millidegree_c": snapshot.thermal.maximum_millidegree_c,
                     "freshness": snapshot.thermal.freshness},
         "session": {"locked": snapshot.session.locked, "lock_dwell_seconds": snapshot.session.lock_dwell_seconds,
-                    "idle_seconds": snapshot.session.idle_seconds, "freshness": snapshot.session.freshness},
+                    "idle_seconds": snapshot.session.idle_seconds, "inhibitors": list(snapshot.session.inhibitors),
+                    "freshness": snapshot.session.freshness},
         "workload": {"gaming": snapshot.workload.probable_gaming, "compile": snapshot.workload.probable_compile,
                      "rendering": snapshot.workload.probable_rendering, "media": snapshot.workload.probable_media,
                      "interactive": snapshot.workload.interactive, "confidence": snapshot.workload.confidence,
@@ -554,6 +557,7 @@ def situation_summary(snapshot: SituationSnapshot) -> dict[str, Any]:
         "guardian": {"active_incident": snapshot.guardian.active_incident,
                      "severity_level": snapshot.guardian.severity_level,
                      "recovery_in_progress": snapshot.guardian.recovery_in_progress,
+                     "unresolved_reliability": snapshot.guardian.unresolved_reliability,
                      "freshness": snapshot.guardian.freshness},
         "user_intent": {"power_mode": snapshot.user_intent.power_mode, "dnd": snapshot.user_intent.dnd,
                         "adaptation_opt_outs": list(snapshot.user_intent.adaptation_opt_outs)},

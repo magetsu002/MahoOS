@@ -504,9 +504,22 @@ def _read_adaptive_status(user: str, now: datetime) -> dict[str, Any]:
     return dict(raw)
 
 
+def _guardian_maintenance_safe(guardian: Mapping[str, Any]) -> bool:
+    # A diagnostic L1 is visible but has no reliability veto. Missing canonical
+    # reliability or severity cannot authorize maintenance.
+    level = guardian.get("severity_level")
+    return (
+        guardian.get("freshness") == "fresh"
+        and guardian.get("unresolved_reliability") is False
+        and guardian.get("recovery_in_progress") is False
+        and isinstance(level, int) and not isinstance(level, bool) and 0 <= level < 2
+    )
+
+
 def _adaptive_ready(
     raw: Mapping[str, Any],
     maintenance_gate: Mapping[str, Any] | None = None,
+    *, explicit_certification: bool = False,
 ) -> tuple[bool, list[str]]:
     if maintenance_gate is not None and maintenance_gate.get("veto_active") is True:
         source = maintenance_gate.get("source_policy")
@@ -515,7 +528,9 @@ def _adaptive_ready(
             reason += ":" + source
         return False, [reason]
     posture = raw.get("active_posture")
-    if not isinstance(posture, Mapping) or posture.get("maintenance") != "eligible":
+    if explicit_certification and isinstance(posture, Mapping) and posture.get("maintenance") == "suspended":
+        return False, ["adaptive_maintenance_suspended"]
+    if not explicit_certification and (not isinstance(posture, Mapping) or posture.get("maintenance") != "eligible"):
         return False, ["adaptive_maintenance_not_eligible"]
     if raw.get("blocked"):
         return False, ["adaptive_policy_blocked"]
@@ -527,18 +542,29 @@ def _adaptive_ready(
     network = situation["network"]
     guardian = situation["guardian"]
     reasons: list[str] = []
-    if session.get("locked") is not True:
-        reasons.append("session_not_locked")
-    idle = session.get("idle_seconds")
-    if isinstance(idle, bool) or not isinstance(idle, (int, float)) or idle < 20 * 60:
-        reasons.append("idle_dwell_too_short_or_unknown")
+    if not explicit_certification:
+        if session.get("locked") is not True:
+            reasons.append("session_not_locked")
+        idle = session.get("idle_seconds")
+        if isinstance(idle, bool) or not isinstance(idle, (int, float)) or idle < 20 * 60:
+            reasons.append("idle_dwell_too_short_or_unknown")
+    inhibitors = session.get("inhibitors")
+    if not isinstance(inhibitors, (list, tuple)) or inhibitors:
+        reasons.append("session_inhibitor_present_or_unknown")
     if power.get("ac_online") is not True:
         reasons.append("stable_ac_required")
     percentage = power.get("percentage")
-    if isinstance(percentage, int) and not isinstance(percentage, bool) and percentage < 25:
+    if power.get("battery_present") is True and (
+        isinstance(percentage, bool) or not isinstance(percentage, (int, float)) or not 25 <= percentage <= 100
+    ):
         reasons.append("battery_not_healthy")
     if thermal.get("level") not in {"normal", "warm"}:
         reasons.append("thermal_state_not_acceptable")
+    if any(not isinstance(workload.get(key), bool) for key in ("gaming", "interactive", "compile", "rendering")):
+        reasons.append("workload_state_unknown")
+    confidence = workload.get("confidence")
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 < confidence <= 1:
+        reasons.append("workload_confidence_unknown")
     if workload.get("gaming") is True or workload.get("interactive") is True:
         reasons.append("interactive_workload")
     if workload.get("compile") is True:
@@ -547,7 +573,7 @@ def _adaptive_ready(
         reasons.append("render_in_progress")
     if network.get("connectivity") != "online" or network.get("stability") != "stable":
         reasons.append("network_not_stable")
-    if guardian.get("active_incident") is True or guardian.get("recovery_in_progress") is True:
+    if not _guardian_maintenance_safe(guardian):
         reasons.append("guardian_unhealthy")
     level = guardian.get("severity_level")
     if isinstance(level, int) and not isinstance(level, bool) and level >= 2:
@@ -649,11 +675,7 @@ def _maintenance_transition(
         power_status_known=True,
         on_ac=power.get("ac_online") is True,
         battery_percent=power.get("percentage") if isinstance(power.get("percentage"), int) else None,
-        system_safe=(
-            guardian.get("active_incident") is not True
-            and guardian.get("recovery_in_progress") is not True
-            and (not isinstance(guardian.get("severity_level"), int) or guardian.get("severity_level") < 2)
-        ),
+        system_safe=_guardian_maintenance_safe(guardian),
         concurrent_package_or_build_operation=Path("/var/lib/pacman/db.lck").exists(),
         unattended_allowed=True,
         serious_security_issue=serious_security,
@@ -712,6 +734,31 @@ def _execution_maintenance_observation(user: str, now: datetime) -> dict[str, An
         "veto_active": gate.get("veto_active"),
         "veto_source_policy": gate.get("source_policy"),
         "decision_at": stamp(now),
+    }
+
+
+def _certification_maintenance_observation(
+    user: str, now: datetime, *, source_revision: str, confirmation: str,
+) -> dict[str, Any]:
+    from maho_update_normal_authority import certification_confirmation
+    if confirmation != certification_confirmation(source_revision):
+        raise ValueError("exact normal certification confirmation token is required")
+    raw = _read_adaptive_status(user, now)
+    gate = maintenance_gate_for_user(user, now=now)
+    if gate.get("veto_active") is not False:
+        raise RuntimeError("certification_adaptive_veto_unknown")
+    ready, reasons = _adaptive_ready(raw, gate, explicit_certification=True)
+    if not ready:
+        raise RuntimeError("certification_safety_revoked:" + ",".join(reasons))
+    return {
+        "safe": True,
+        "snapshot_id": raw.get("snapshot_id"),
+        "captured_at": raw.get("captured_at"),
+        "veto_active": gate.get("veto_active"),
+        "decision_at": stamp(now),
+        "operation": "explicit-normal-certification",
+        "source_revision": source_revision,
+        "unattended_eligible": raw.get("active_posture", {}).get("maintenance") == "eligible",
     }
 
 

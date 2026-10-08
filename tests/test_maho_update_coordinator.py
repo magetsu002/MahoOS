@@ -62,6 +62,7 @@ def adaptive_record(**overrides) -> dict:
             "locked": True,
             "lock_dwell_seconds": 3600,
             "idle_seconds": 3600,
+            "inhibitors": [],
             "freshness": "fresh",
         },
         "power": {
@@ -91,6 +92,7 @@ def adaptive_record(**overrides) -> dict:
         },
         "guardian": {
             "active_incident": False,
+            "unresolved_reliability": False,
             "severity_level": 0,
             "recovery_in_progress": False,
             "freshness": "fresh",
@@ -1127,6 +1129,55 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertFalse(ready)
         self.assertIn("guardian_unhealthy", reasons)
         self.assertIn("guardian_severity_blocks_maintenance", reasons)
+
+    def test_l1_diagnostic_uses_canonical_reliability(self):
+        raw = adaptive_record(guardian={"active_incident": True, "severity_level": 1})
+        self.assertEqual(coordinator._adaptive_ready(raw), (True, []))
+        for change in ({"unresolved_reliability": True}, {"unresolved_reliability": "unknown"},
+                       {"recovery_in_progress": "unknown"}, {"severity_level": "unknown"}):
+            candidate = adaptive_record(guardian=change)
+            self.assertFalse(coordinator._adaptive_ready(candidate)[0])
+        del raw["situation"]["guardian"]["unresolved_reliability"]
+        self.assertFalse(coordinator._adaptive_ready(raw)[0])
+
+    def test_explicit_certification_does_not_claim_unattended_eligibility(self):
+        raw = adaptive_record(session={"locked": "unknown", "idle_seconds": "unknown"})
+        raw["active_posture"] = {}
+        with patch.object(coordinator, "_read_adaptive_status", return_value=raw), \
+             patch.object(coordinator, "maintenance_gate_for_user", return_value=inactive_maintenance_gate()):
+            evidence = coordinator._certification_maintenance_observation(
+                "fixture", NOW, source_revision=REV, confirmation="CERTIFY-NORMAL:" + REV)
+            self.assertTrue(evidence["safe"])
+            self.assertFalse(evidence["unattended_eligible"])
+            self.assertEqual(raw["situation"]["session"]["locked"], "unknown")
+            self.assertFalse(coordinator._adaptive_ready(raw)[0])
+            with self.assertRaises(ValueError):
+                coordinator._certification_maintenance_observation(
+                    "fixture", NOW, source_revision=REV, confirmation="CERTIFY-NORMAL:" + "b" * 40)
+
+    def test_explicit_certification_preserves_safety_gates(self):
+        for domain, change in (
+            ("session", {"inhibitors": ["idle"]}), ("session", {"inhibitors": "unknown"}),
+            ("power", {"ac_online": False}), ("power", {"percentage": "unknown"}),
+            ("thermal", {"level": "hot"}), ("network", {"stability": "unstable"}),
+            ("workload", {"gaming": True}), ("workload", {"compile": True}),
+            ("workload", {"rendering": True}), ("workload", {"interactive": True}),
+            ("workload", {"confidence": "unknown"}), ("workload", {"gaming": "unknown"}),
+            ("guardian", {"unresolved_reliability": True}), ("guardian", {"severity_level": 2}),
+            ("guardian", {"recovery_in_progress": True}),
+        ):
+            with self.subTest(domain=domain, change=change):
+                raw = adaptive_record(**{domain: change})
+                self.assertFalse(coordinator._adaptive_ready(raw, explicit_certification=True)[0])
+        raw = adaptive_record()
+        raw["active_posture"] = {"maintenance": "suspended"}
+        self.assertFalse(coordinator._adaptive_ready(raw, explicit_certification=True)[0])
+        self.assertFalse(coordinator._adaptive_ready(
+            adaptive_record(), {"veto_active": True}, explicit_certification=True)[0])
+        with patch.object(coordinator, "_read_adaptive_status", side_effect=RuntimeError("stale")):
+            with self.assertRaisesRegex(RuntimeError, "stale"):
+                coordinator._certification_maintenance_observation(
+                    "fixture", NOW, source_revision=REV, confirmation="CERTIFY-NORMAL:" + REV)
 
     def test_missing_or_stale_adaptive_evidence_fails_closed(self):
         uid = os.getuid()

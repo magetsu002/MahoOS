@@ -304,24 +304,56 @@ def collect_window() -> WindowEvidence:
     )
 
 
-def _loginctl_properties() -> Mapping[str, str]:
-    session = os.environ.get("XDG_SESSION_ID")
-    if not session:
-        return {}
+def _session_properties(command: list[str]) -> Mapping[str, str]:
     try:
-        result = subprocess.run(
-            ["loginctl", "show-session", session, "-p", "LockedHint", "-p", "IdleHint", "-p", "IdleSinceHintMonotonic"],
-            check=False, capture_output=True, text=True, timeout=1.5,
-        )
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=1.5)
     except (OSError, subprocess.SubprocessError):
         return {}
     if result.returncode != 0:
         return {}
-    values: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1); values[key] = value
-    return values
+    return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
+def _loginctl_properties() -> Mapping[str, str]:
+    # User services have no session ID. Resolve logind's sessions for this UID
+    # rather than inheriting a possibly stale shell/session environment.
+    user = _session_properties(["loginctl", "show-user", str(os.getuid()), "-p", "Sessions"])
+    sessions = user.get("Sessions", "").split()
+    if not sessions or len(sessions) > 32 or any(not re.fullmatch(r"[a-zA-Z0-9_-]+", x) for x in sessions):
+        return {}
+    graphical = []
+    for session in sessions:
+        values = _session_properties([
+            "loginctl", "show-session", session,
+            "-p", "User", "-p", "Class", "-p", "Type", "-p", "Active", "-p", "Remote",
+            "-p", "LockedHint", "-p", "IdleHint", "-p", "IdleSinceHintMonotonic",
+        ])
+        if values.get("User") != str(os.getuid()) or values.get("Class") not in {"user", "manager", "background"}:
+            return {}
+        if values.get("Class") == "user" and values.get("Type") in {"wayland", "x11"}:
+            graphical.append(values)
+    # Multiple desktops are ambiguous even if only one currently has the seat.
+    if len(graphical) != 1 or graphical[0].get("Active") != "yes" or graphical[0].get("Remote") != "no":
+        return {}
+    return graphical[0]
+
+
+def _session_inhibitors() -> tuple[str, ...]:
+    value = _run_json([
+        "busctl", "--system", "--json=short", "call", "org.freedesktop.login1",
+        "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "ListInhibitors",
+    ])
+    data = value.get("data")
+    if value.get("type") != "a(ssssuu)" or not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], list):
+        return ("logind-inhibitors-unknown",)
+    blockers = []
+    for row in data[0]:
+        if not isinstance(row, list) or len(row) != 6 or any(not isinstance(x, str) for x in row[:4]):
+            return ("logind-inhibitors-unknown",)
+        what, who, why, mode = row[:4]
+        if "idle" in what.split(":") or (mode == "block" and "shutdown" in what.split(":")):
+            blockers.append(f"{what}:{who}:{why}:{mode}")
+    return tuple(blockers)
 
 
 def collect_session(*, previous_lock_started_monotonic: float | None = None) -> tuple[SessionEvidence, float | None]:
@@ -330,7 +362,7 @@ def collect_session(*, previous_lock_started_monotonic: float | None = None) -> 
     if values.get("LockedHint") in {"yes", "no"}:
         locked = values["LockedHint"] == "yes"
     now = time.monotonic()
-    lock_started = previous_lock_started_monotonic
+    lock_started = previous_lock_started_monotonic if locked != UNKNOWN else None
     if locked is True and lock_started is None:
         lock_started = now
     elif locked is False:
@@ -342,15 +374,15 @@ def collect_session(*, previous_lock_started_monotonic: float | None = None) -> 
     raw_since = values.get("IdleSinceHintMonotonic")
     try:
         since_micro = int(raw_since or "0")
-        if since_micro > 0:
-            idle_seconds = max(0.0, now - since_micro / 1_000_000.0)
+        if values.get("IdleHint") == "yes" and 0 < since_micro <= now * 1_000_000:
+            idle_seconds = now - since_micro / 1_000_000.0
             recent_input = idle_seconds
         elif values.get("IdleHint") == "no":
             idle_seconds = 0.0
             recent_input = 0.0
     except ValueError:
         pass
-    return SessionEvidence(locked, dwell, idle_seconds, recent_input, ()), lock_started
+    return SessionEvidence(locked, dwell, idle_seconds, recent_input, _session_inhibitors()), lock_started
 
 
 def observe_live() -> dict[str, Any]:

@@ -41,6 +41,8 @@ def main():
  assert assess_maintenance(snap(guardian={"active_incident":True,"severity_level":1})).eligible
  blocked("guardian_severity_blocks_maintenance",guardian={"active_incident":True,"severity_level":2})
  blocked("guardian_reliability_state",guardian={"active_incident":False,"unresolved_reliability":True})
+ blocked("guardian_reliability_state",guardian={"unresolved_reliability":"unknown"})
+ blocked("guardian_severity_blocks_maintenance",guardian={"severity_level":"unknown"})
  # Eligibility disappears immediately before mutation: fail closed.
  assert recheck_before_mutation(snap(session={"locked":False,"idle_seconds":0,"recent_input_seconds":0})).eligible is False
  critical=snap(maintenance={"in_critical_section":True,"interruption_safe":False})

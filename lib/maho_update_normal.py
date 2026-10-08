@@ -263,6 +263,7 @@ def _execute_normal_lifecycle(
         evidence={"install": install, "guardian_admission": admission},
         now=now,
     )
+    maintenance = None
     try:
         if activation_maintenance_reobserve is not None:
             maintenance = activation_maintenance_reobserve()
@@ -291,7 +292,7 @@ def _execute_normal_lifecycle(
         pending,
         UpdateState.ACTIVE_VERIFYING,
         reason="normal candidate activation completed; verification started",
-        evidence={"activation": activation},
+        evidence={"activation": activation, "activation_maintenance": maintenance},
         now=now,
     )
     try:
