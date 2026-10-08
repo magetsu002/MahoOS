@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${MAHO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+SOURCE="$ROOT/apps/maho-polkit-agent"
+PREBUILT="$SOURCE/prebuilt/maho-polkit-agent"
+
+if [ -x "$PREBUILT" ]; then
+    exec "$PREBUILT" "${1:-run}"
+fi
+
+for dependency in cmake ninja pkg-config; do
+    command -v "$dependency" >/dev/null 2>&1 || {
+        echo "maho-polkit-agent: $dependency is unavailable and no prebuilt agent exists" >&2
+        exit 1
+    }
+done
+
+[ -r "$SOURCE/CMakeLists.txt" ] && [ -r "$SOURCE/src/main.c" ] || {
+    echo "maho-polkit-agent: native agent source is unavailable" >&2
+    exit 1
+}
+
+source_hash="$(
+    sha256sum "$SOURCE/CMakeLists.txt" "$SOURCE/src/main.c" |
+        sha256sum | awk '{print $1}'
+)"
+BUILD="${XDG_CACHE_HOME:-$HOME/.cache}/maho/polkit-agent-build-$source_hash"
+
+cmake -S "$SOURCE" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$BUILD" --parallel 2 >/dev/null
+
+exec "$BUILD/maho-polkit-agent" "${1:-run}"
