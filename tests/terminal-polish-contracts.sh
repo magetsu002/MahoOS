@@ -29,10 +29,14 @@ require_text "$KITTY" 'include ~/.cache/maho/theme/kitty.conf' "Kitty does not c
 reject_text "$KITTY" 'current-theme.conf' "stale static Kitty theme remains authoritative"
 pass "Kitty include points only at generated Palette V2 output"
 
-require_text "$THEME" 'maho-terminal-theme" render "$canonical" "$txn/kitty.conf"' "terminal palette is not generated inside theme transaction"
+require_text "$THEME" 'render "$canonical" "$txn/kitty.conf"' "terminal palette is not generated inside theme transaction"
 require_text "$THEME" 'candidate-kitty.conf' "generated Kitty candidate is not transactionally staged"
 require_text "$THEME" 'maho-terminal-theme" reload' "Kitty live reload is not wired"
-pass "theme transaction stages and publishes terminal palette"
+require_text "$THEME" 'mode-cache' "theme mode cache is missing"
+require_text "$THEME" 'prepare_mode()' "opposite theme mode cannot be precomputed"
+require_text "$THEME" 'load_mode_candidate' "theme apply does not reuse a prepared mode"
+reject_text "$THEME" 'sleep 0.1' "theme application still has a fixed 100ms delay"
+pass "theme transaction stages, caches, and publishes terminal palette"
 
 require_text "$SETUP" 'maho-terminal-dashboard maho-terminal-theme maho-terminal-install' "terminal commands are not runtime-owned"
 require_text "$SETUP" 'maho-terminal-install")" install' "terminal config is not deployed by runtime setup"

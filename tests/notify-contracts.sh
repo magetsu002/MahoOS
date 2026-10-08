@@ -251,6 +251,8 @@ require_text "$NOTIFY_DIR/shell.qml" 'historyModel.record(' "history does not re
 require_text "$NOTIFY_DIR/shell.qml" 'notificationModel.enqueue(notification, decision.suppress)' "presentation decision does not control popup path"
 require_text "$NOTIFY_DIR/shell.qml" 'function adaptiveQuietStatus(): bool' "adaptive quiet status IPC missing"
 require_text "$NOTIFY_DIR/shell.qml" 'function setAdaptiveQuiet(enabled: bool): bool' "adaptive quiet setter IPC missing"
+require_text "$NOTIFY_DIR/shell.qml" 'function settingsStatus(): string' "Notify lacks a single-round-trip Settings status snapshot"
+require_text "$RUNTIME" 'ipc_value settingsStatus' "managed Notify runtime does not prefer the bounded status snapshot"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'maximumLineCount: 3' "long notification bodies are not clamped"
 require_text "$NOTIFY_DIR/NotificationCard.qml" 'textFormat: Text.PlainText' "notification text can render unadvertised markup"
 require_text "$NOTIFY_DIR/NotificationStack.qml" 'width: 324' "compact popup width contract missing"

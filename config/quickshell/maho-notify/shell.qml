@@ -196,6 +196,20 @@ ShellRoot {
             return historyModel.unreadCount
         }
 
+        function settingsStatus(): string {
+            return JSON.stringify({
+                dnd: historyModel.dndEnabled,
+                adaptive_quiet: root.adaptiveQuiet,
+                history_count: historyModel.retainedCount,
+                unread_count: historyModel.unreadCount,
+                visible_count: notificationModel.visibleCount,
+                queued_count: notificationModel.queuedCount,
+                live_count: notificationModel.livePopupCount,
+                dropped_count: notificationModel.droppedPopupCount,
+                suppressed_count: notificationModel.suppressedPopupCount
+            })
+        }
+
         function clearHistory(): bool {
             return historyModel.clearHistory()
         }

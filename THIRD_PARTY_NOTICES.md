@@ -2,6 +2,26 @@
 
 This file inventories third-party or provenance-sensitive material bundled directly in the MahoOS repository. It does **not** list operating-system or package-manager dependencies.
 
+## Hyprbind-derived Maho Settings material
+
+Portions of Maho Settings are derived from Hyprbind.
+
+Hyprbind Copyright (c) 2026 Mashrur Rahman Rawnok (NullifiedSec).
+
+Original project: https://github.com/NullifiedSec/hyprbind
+
+MahoOS uses Hyprbind-derived material under the project-specific **Hyprbind → MahoOS Special License Exception v1.0**. The exception expressly permits MahoOS and Maho Settings to copy, adapt, refactor, rebrand, integrate, and distribute authorized Hyprbind-derived material as part of MahoOS under **GPL-3.0-only**, while preserving Hyprbind attribution.
+
+The signed exception is preserved in:
+
+- `LICENSES/HYPRBIND-MAHOOS-SPECIAL-LICENSE-EXCEPTION-v1.0.txt`
+
+Initial Maho Settings adoption is pinned for provenance to upstream Hyprbind commit:
+
+- `b55e527b439ffd3f97d4d8c1102052095dcf7b9a` — merge of the acknowledged MahoOS exception
+
+This permission is specific to MahoOS. It does not relicense standalone upstream Hyprbind or grant MahoOS authority to issue equivalent upstream exceptions to other projects.
+
 ## Nunito
 
 Bundled material:

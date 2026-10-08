@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Maho Settings
+Comment=Configure MahoOS
+Exec=maho-settings run
+Icon=preferences-system
+Terminal=false
+Categories=Settings;System;
+StartupNotify=true
