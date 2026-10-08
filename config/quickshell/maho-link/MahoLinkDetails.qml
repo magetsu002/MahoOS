@@ -249,7 +249,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.065)
-                opacity: reconnectHover.containsMouse ? 1 : 0
+                opacity: reconnectHover.containsMouse || reconnectHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
@@ -297,8 +297,11 @@ Item {
                 anchors.fill: parent
                 enabled: !root.wifi.busy && root.wifi.currentNetwork !== null
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.wifi.reconnect()
+                Keys.onReturnPressed: root.wifi.reconnect()
+                Keys.onSpacePressed: root.wifi.reconnect()
             }
         }
 
@@ -332,7 +335,7 @@ Item {
                 radius: parent.radius
                 antialiasing: true
                 color: chrome.theme.alpha(chrome.accent, 0.065)
-                opacity: disconnectHover.containsMouse ? 1 : 0
+                opacity: disconnectHover.containsMouse || disconnectHover.activeFocus ? 1 : 0
 
                 Behavior on opacity {
                     NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
@@ -376,8 +379,11 @@ Item {
                 anchors.fill: parent
                 enabled: !root.wifi.busy
                 hoverEnabled: true
+                activeFocusOnTab: true
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: root.wifi.disconnect()
+                Keys.onReturnPressed: root.wifi.disconnect()
+                Keys.onSpacePressed: root.wifi.disconnect()
             }
         }
     }
