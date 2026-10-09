@@ -17,6 +17,7 @@ from typing import Any, Mapping
 
 from maho_generation_gc import CertifiedFileGC, InventoryError, IdentityMismatchError, StaleAuthorityError, digest_payload
 from maho_update_state import UpdateState, validate_transaction
+from maho_update_cache_layout import retirement_roots
 
 PROFILE = "retire-sealed-unexecuted-invalidated-update-archives-v1"
 ROOTS = {"auto": Path("/var/cache/maho/update-auto"), "m4b": Path("/var/cache/maho/update-m4b")}
@@ -71,13 +72,13 @@ def _documents(root: Path, uid: int, *, excluded=()):
 
 class UpdateArchiveLifecycle:
     def __init__(self, *, update_root: Path, generation_root: Path,
-                 guardian_active: Path, guardian_uid: int, roots=ROOTS,
+                 guardian_active: Path, guardian_uid: int, roots=None,
                  owner_uid: int = 0, recovery_roots=()) -> None:
         self.update_root = Path(update_root)
         self.generation_root = Path(generation_root)
         self.guardian_active = Path(guardian_active)
         self.guardian_uid = guardian_uid
-        self.roots = {k: Path(v) for k, v in roots.items()}
+        self.roots = {k: Path(v) for k, v in (retirement_roots() if roots is None else roots).items()}
         self.owner_uid = owner_uid
         self.recovery_roots = tuple(Path(p) for p in recovery_roots)
         self.executor = CertifiedFileGC(roots=self.roots,
@@ -337,7 +338,9 @@ class UpdateArchiveLifecycle:
 CERTIFICATION_CHECKS = {"retirement", "active-protection", "recovery-protection", "incident-protection",
                         "interruption", "symlink", "replay", "budget", "coordinator", "guardian-freshness"}
 PAYLOAD_FILES = ("lib/maho_generation_gc.py", "lib/maho_update_artifact_lifecycle.py",
-                 "lib/maho_update_coordinator.py", "lib/maho_update_staging.py")
+                 "lib/maho_update_coordinator.py", "lib/maho_update_staging.py",
+                 "lib/maho_update_cache_layout.py", "lib/maho_update_campaign.py",
+                 "lib/maho_update_native.py")
 
 
 def profile_payload_sha256(campaign_root: Path) -> str:
@@ -361,8 +364,9 @@ def load_retirement_authority(update_root: Path, *, source_revision: str,
     return value
 
 
-def archive_usage(roots=ROOTS) -> int:
+def archive_usage(roots=None) -> int:
     allocated = 0
+    roots = retirement_roots() if roots is None else roots
     for root in roots.values():
         if not root.exists():
             continue

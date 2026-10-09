@@ -375,6 +375,17 @@ class NativeBtrfsOps:
             if mounted != f"/{self.candidate}":
                 self.close()
                 raise RuntimeError("candidate root mounted with unexpected Btrfs identity")
+            from maho_update_cache_layout import CACHE, RECORD, UNIT_PATH, observe_layout, mount_unit
+            if RECORD.exists() or RECORD.is_symlink():
+                layout = observe_layout()
+                # The cache mount's underlying directory was empty when
+                # provisioned. Neither root snapshots nor their candidates may
+                # inherit any isolated payload or lose the mount integration.
+                excluded = self.offline_root / CACHE.relative_to("/")
+                unit = self.offline_root / UNIT_PATH.relative_to("/")
+                if (excluded.is_symlink() or not excluded.is_dir() or any(excluded.iterdir())
+                        or unit.is_symlink() or unit.read_bytes() != mount_unit(layout["filesystem_uuid"]).encode()):
+                    raise RuntimeError("candidate isolated cache exclusion or mount integration is invalid")
         except Exception:
             if destination.exists():
                 self._set_read_only(destination, False)

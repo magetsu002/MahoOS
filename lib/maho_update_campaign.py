@@ -55,6 +55,7 @@ from maho_update_normal_host import NormalProductionOps
 from maho_update_preparation import PreparationEvidence, prepare_transaction
 from maho_update_receipts import record_receipt
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction
+from maho_update_cache_layout import staging_root
 from maho_update_state import (
     UpdateState,
     bind_native_authority,
@@ -493,7 +494,7 @@ def prepare_native_campaign() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     entropy = secrets.token_hex(6)
     transaction_id = new_transaction_id(now=now, entropy=entropy)
-    work = Path("/var/cache/maho/update-m4b") / transaction_id
+    work = staging_root("m4b") / transaction_id
     discovery_root = work / "discovery"
     cache = work / "staging"
     discovery = IsolatedPacmanDiscovery(

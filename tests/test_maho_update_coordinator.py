@@ -135,6 +135,14 @@ class FakeDiscovery:
 
 
 class CoordinatorContracts(unittest.TestCase):
+    def setUp(self):
+        # These contracts inject host/preparation providers. The new cache
+        # boundary has its own independent identity/mount tests.
+        self.addCleanup(patch.stopall)
+        patch.object(coordinator, "staging_root", return_value=coordinator.DEFAULT_WORK_ROOT).start()
+        patch.object(coordinator, "transaction_root", side_effect=lambda tx, lane: coordinator.work_root()).start()
+        patch.object(coordinator, "isolation_available", return_value=True).start()
+
     def test_subset_proposal_retains_full_generation_and_cannot_authorize_execution(self):
         current = prepared_tx()
         original = json.loads(json.dumps(current))

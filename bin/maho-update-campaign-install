@@ -16,6 +16,8 @@ FILES=(
   lib/maho_installer_receipt.py
   lib/maho_generation_gc.py
   lib/maho_update_artifact_lifecycle.py
+  lib/maho_update_cache_layout.py
+  lib/maho_update_snapshot_retention.py
   lib/maho_generation_v2.py
   lib/maho_kernel_generation.py
   lib/maho_live_generation.py
@@ -59,6 +61,7 @@ FILES=(
   lib/maho_update_campaign.py
   bin/maho-update-campaign
   bin/maho-update-coordinator
+  bin/maho-update-cache-install
   config/systemd/system/maho-update-coordinator.service
   config/systemd/system/maho-update-coordinator.timer
   config/systemd/system/maho-update-activate-on-reboot.service

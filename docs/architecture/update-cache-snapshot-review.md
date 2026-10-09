@@ -1,6 +1,8 @@
 # Update cache isolation and snapshot retention — Level C review
 
-Status: proposed; implementation awaits human source/VM review.
+Status: human-approved for source implementation and disposable VM certification
+on 2026-10-09 in the active engineering session. Physical operations remain
+subject to separate exact review and approval.
 
 ## Problem and observations
 

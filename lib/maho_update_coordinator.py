@@ -41,6 +41,7 @@ from maho_update_normal import NormalPreparationEvidence, prepare_normal_transac
 from maho_update_normal_host import NormalProductionOps
 from maho_update_normal_authority import authorize_normal_plan, load_normal_execution_authority
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction, validate_manifest
+from maho_update_cache_layout import staging_root, transaction_root, isolation_available
 from maho_update_artifact_lifecycle import (
     UpdateArchiveLifecycle, archive_usage, staging_budget, reserve_bytes, load_retirement_authority,
 )
@@ -96,7 +97,8 @@ def state_root() -> Path:
 
 
 def work_root() -> Path:
-    return Path(os.environ.get("MAHO_UPDATE_AUTO_WORK_ROOT", str(DEFAULT_WORK_ROOT)))
+    override = os.environ.get("MAHO_UPDATE_AUTO_WORK_ROOT")
+    return Path(override) if override else staging_root("auto")
 
 
 def campaign_root() -> Path:
@@ -431,6 +433,12 @@ def _staging_budget_wait(transaction: Mapping[str, Any], state: Mapping[str, Any
     usage = shutil.disk_usage("/")
     details = staging_budget(transaction, allocated_bytes=archive_usage(),
                              total_bytes=usage.total, available_bytes=usage.free)
+    if not os.environ.get("MAHO_UPDATE_AUTO_WORK_ROOT"):
+        try:
+            isolation_available()
+        except (OSError, ValueError, RuntimeError) as exc:
+            details["blockers"].append("isolated_update_cache_unavailable")
+            details["cache_error"] = str(exc)
     storage = state.get("storage_maintenance") or {}
     if storage.get("phase") not in {"COMMITTED", "NO_DISPOSABLE_FILES"}:
         details["blockers"].append("certified_storage_retirement_required_before_staging")
@@ -460,7 +468,9 @@ def _invalidate_unexecuted(transaction, *, blocker, reason, now):
 
 
 def _work_for(transaction_id: str) -> tuple[Path, Path, Path]:
-    base = work_root() / transaction_id
+    override = os.environ.get("MAHO_UPDATE_AUTO_WORK_ROOT")
+    root = Path(override) if override else transaction_root(transaction_id, "auto")
+    base = root / transaction_id
     return base, base / "discovery", base / "staging"
 
 
