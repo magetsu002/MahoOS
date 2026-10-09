@@ -24,6 +24,13 @@ snapshot metadata and deletion. NativeBtrfsOps remains the native filesystem
 integration boundary. Guardian continues measuring actual available capacity.
 No new daemon, updater, general cleaner, generation identity or recovery class.
 
+Disposable-VM backend testing found that Snapper's configuration lock prevents
+another client's deletion but permits metadata promotion to important/Maho
+recovery material. Upstream 0.13.2 `Client::set_snapshot` likewise does not check
+the client lock that `Client::delete_snapshots` checks. This lock alone cannot
+certify atomic eligibility and deletion. The snapshot profile therefore remains
+read-only with explicit metadata and recovery-writer exclusion blockers.
+
 There are two independently gated changes:
 
 1. Isolate **new** staging in a dedicated Btrfs cache subvolume mounted at the

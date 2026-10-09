@@ -52,6 +52,7 @@ def protection_report(rows: Sequence[Mapping[str, Any]], *, uuid_by_number: Mapp
               "source_revision":source_revision, "profile":PROFILE,
               "execution_authorized":False, "plan":None, "objects":sorted(objects,key=lambda row:row["number"]),
               "blockers":["snapper_retention_eligibility_proof_unavailable",
+                          "snapper_metadata_exclusion_uncertified",
                           "recovery_writer_exclusion_uncertified"]}
     report["observation_sha256"] = digest_payload(report)
     return report

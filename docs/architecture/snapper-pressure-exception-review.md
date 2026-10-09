@@ -2,6 +2,12 @@
 
 Status: proposed; source/VM implementation awaits review.
 
+Backend diagnostic result: Snapper permits important/recovery metadata promotion
+by a second client while the first holds its configuration lock. The required
+exclusion proof has failed; this proposal grants no executable snapshot plan.
+A reviewed backend integration that closes that race is needed before a
+snapshot retirement capability can be certified, even for an exact exception.
+
 ## Concrete problem
 
 The root Snapper backend permits the existing desktop account to read its

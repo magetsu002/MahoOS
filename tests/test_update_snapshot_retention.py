@@ -20,6 +20,7 @@ class SnapperProtectionTests(unittest.TestCase):
         self.assertIsNone(report["plan"])
         self.assertFalse(report["objects"][0]["retirement_eligible"])
         self.assertIn("recovery_writer_exclusion_uncertified",report["blockers"])
+        self.assertIn("snapper_metadata_exclusion_uncertified",report["blockers"])
 
     def test_unreferenced_important_and_maho_snapshots_are_protected(self):
         report=self.report([{"key":"important","value":"yes"},{"key":"maho.restore_backup","value":"yes"}])
