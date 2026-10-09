@@ -20,6 +20,13 @@ DEFAULT_AUTHORITY_PATH = Path("/var/lib/maho/update/normal-execution-authority.j
 NORMAL_EXECUTION_PROFILE = "ordinary-files-in-place-static-path-set-bounded-hooks-v1"
 
 
+def _validate_profile_scope(effects: Sequence[str], activation: Sequence[str]) -> None:
+    # A checksum attributes a document; it cannot certify a new effect class.
+    # Broader effects need their own candidate/activation/recovery proof.
+    if set(effects) != {"ordinary-files"} or activation:
+        raise ValueError("normal execution profile does not certify these effects or activation")
+
+
 def _canonical(value: Mapping[str, Any]) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
@@ -71,6 +78,7 @@ def issue_normal_execution_authority(
         rows.append(row)
     if not rows or not isinstance(verification, Mapping) or verification.get("ok") is not True:
         raise ValueError("normal execution authority requires successful verification evidence")
+    _validate_profile_scope(effects, activation_requirements)
     stamp = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     material = {
         "schema_version": 1,
@@ -118,6 +126,7 @@ def verify_normal_execution_authority(value: Mapping[str, Any], *, source_revisi
         raise ValueError("normal execution authority effect scope is invalid")
     if not isinstance(activation, list) or any(not isinstance(x, str) or not x for x in activation):
         raise ValueError("normal execution authority activation scope is invalid")
+    _validate_profile_scope(effects, activation)
     packages = data.get("packages")
     if not isinstance(packages, list) or not packages:
         raise ValueError("normal execution authority package evidence is missing")

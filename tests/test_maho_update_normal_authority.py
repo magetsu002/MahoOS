@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from pathlib import Path
-import copy, stat, sys, tempfile
+import copy, stat, sys, tempfile, hashlib, json
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'lib'))
 
@@ -45,6 +45,19 @@ def main():
     rejected('activation requirement cannot be invented',lambda:authorize_normal_plan(authority,source_revision=REV,effects=['ordinary-files'],activation_requirements=['affected-process-restart']))
     tampered=copy.deepcopy(authority); tampered['certified_effects']=['ordinary-files','system-service']
     rejected('tampered certification scope breaks authority identity',lambda:verify_normal_execution_authority(tampered,source_revision=REV))
+    def rehash(value):
+        data=dict(value); data.pop('authority_id',None)
+        data['authority_id']='normal-'+hashlib.sha256(json.dumps(data,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+        return data
+    rejected('rehashing metadata cannot certify a service effect under ordinary profile',
+             lambda:verify_normal_execution_authority(rehash(tampered),source_revision=REV))
+    for effect in ('shared-library','user-service','privilege-authority','trust-store','package-hook'):
+        changed=copy.deepcopy(authority); changed['certified_effects']=['ordinary-files',effect]
+        rejected('rehashing cannot invent certified '+effect,
+                 lambda changed=changed:verify_normal_execution_authority(rehash(changed),source_revision=REV))
+    changed=copy.deepcopy(authority); changed['certified_activation_requirements']=['affected-process-restart']
+    rejected('rehashing cannot invent in-place activation authority',
+             lambda:verify_normal_execution_authority(rehash(changed),source_revision=REV))
     multi=issue_normal_execution_authority(
         source_revision=REV,
         transaction_id='upd-20260920T091000Z-123456abcdef',
