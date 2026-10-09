@@ -262,10 +262,24 @@ class UpdateArchiveLifecycle:
                 "planned_allocated_bytes": sum(r["allocated_bytes"] for r in rows),
                 "file_count": len(rows)}
 
-    def validate_protections(self, plan: Mapping[str, Any]) -> None:
+    def validate_protections(self, plan: Mapping[str, Any], *, target=None) -> None:
         inventory = self.protection_inventory()
-        by_id = {tx["transaction_id"]: (tx, digest) for tx, digest in self.transactions()}
-        for row in plan["objects"]:
+        # The full plan is checked before retirement commits. Each unlink then
+        # reobserves all live protection roots and the exact target's owner
+        # documents, without reparsing every other retired transaction.
+        rows = plan["objects"] if target is None else [target]
+        if target is not None and target not in plan["objects"]:
+            raise InventoryError("archive target is outside its committed retirement plan")
+        by_id = {}
+        for txid in {row["transaction_id"] for row in rows}:
+            if TX_PATTERN.fullmatch(txid) is None:
+                raise InventoryError("invalid archive owner identity")
+            tx, digest = _owned_json(self.update_root / "transactions" / (txid + ".json"), self.owner_uid)
+            tx = validate_transaction(tx)
+            if tx["transaction_id"] != txid:
+                raise InventoryError("cross-bound archive owner evidence")
+            by_id[txid] = tx, digest
+        for row in rows:
             key, txid = row["root"], row["transaction_id"]
             if txid not in by_id or not self.eligible(by_id[txid][0], inventory):
                 raise InventoryError("archive retirement protection changed")

@@ -130,6 +130,24 @@ class ArchiveLifecycleTests(unittest.TestCase):
         with self.assertRaises(InventoryError): self.execute(plan)
         self.assertFalse(self.lifecycle.executor.journal_path.exists())
 
+    def test_protection_arriving_between_unlinks_preserves_remaining_file(self):
+        path = self.cache / OLD / 'staging' / 'demo-2-1-any.pkg.tar.zst.sig'
+        path.write_bytes(b'signature evidence')
+        plan = self.plan()
+        original = self.lifecycle.validate_protections
+        targets = []
+        def fresh_protection(plan, *, target=None):
+            if target is not None:
+                targets.append(target['name'])
+                if len(targets) == 2:
+                    (self.generations / 'new.json').write_text(json.dumps({'tx':OLD}))
+            original(plan, target=target)
+        with self.assertRaises(InventoryError):
+            self.lifecycle.executor.execute(plan, validate_protections=fresh_protection, now=NOW)
+        self.assertEqual(len(targets), 2)
+        self.assertTrue(path.exists())
+        self.assertEqual(self.lifecycle.executor._read()['phase'], 'DELETING')
+
     def test_artifact_and_manifest_substitution_are_rejected(self):
         plan = self.plan()
         path = self.cache / OLD / 'staging' / 'demo-2-1-any.pkg.tar.zst'

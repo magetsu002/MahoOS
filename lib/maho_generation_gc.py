@@ -1145,7 +1145,7 @@ class CertifiedFileGC:
         for index, row in enumerate(plan["objects"]):
             if index in deleted:
                 continue
-            validate_protections(plan)
+            validate_protections(plan, target=row)
             parent = self._parent(row)
             try:
                 try:
