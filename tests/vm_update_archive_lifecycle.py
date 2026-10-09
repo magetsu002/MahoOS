@@ -57,6 +57,10 @@ class RealVMArchiveTests(ArchiveLifecycleTests):
         active = self.cache/ACTIVE/'staging'
         os.chown(retired, downloader, downloader)
         os.chown(active, downloader, downloader)
+        proposal = self.lifecycle.report(source_revision=REV, now=NOW, adoption_uid=downloader)
+        self.assertIsNone(proposal["plan"])
+        self.assertIs(proposal["proposal"]["execution_authorized"], False)
+        self.assertEqual(retired.stat().st_uid, downloader)
         sealed = self.lifecycle.seal_retired(download_uid=downloader)
         self.assertEqual(sealed, ['auto:'+OLD])
         self.assertEqual(retired.stat().st_uid, 0)
