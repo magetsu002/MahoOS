@@ -222,15 +222,16 @@ def install_cache(plan: Mapping[str, Any], *, confirmation: str, source_revision
                 or top_row.get("fsroot") != "/" or top_row.get("uuid") != plan["filesystem_uuid"]):
             raise InventoryError("cache provisioning top-level mount identity is unresolved")
         destination = ops.top / SUBVOLUME
+        # Revalidate these parents on restart too, before any creation or
+        # mount-owner call. A durable journal does not bless changed ancestors.
+        from maho_generation_gc import CertifiedFileGC
+        guard = CertifiedFileGC(roots={"cache":CACHE.parent}, state_root=RECORD.parent)
+        for parent in (ops.top, CACHE.parent, UNIT_PATH.parent, RECORD.parent):
+            fd = guard._trusted_directory(parent); os.close(fd)
         if journal is None:
             for p in (destination, CACHE, UNIT_PATH):
                 if p.exists() or p.is_symlink():
                     raise InventoryError("cache installation would replace unknown existing state")
-            # Parent traversal must be owned and non-writable before creation.
-            from maho_generation_gc import CertifiedFileGC
-            guard = CertifiedFileGC(roots={"cache":CACHE.parent}, state_root=RECORD.parent)
-            for parent in (CACHE.parent, UNIT_PATH.parent, RECORD.parent):
-                fd = guard._trusted_directory(parent); os.close(fd)
             journal = {"plan": dict(plan), "phase": "PREPARED"}
             _atomic_json(journal_path, journal)
         if journal["phase"] == "PREPARED":
