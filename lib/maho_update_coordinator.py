@@ -1901,6 +1901,17 @@ def _new_discovery(
             and "restart" in full["activation"]["requirements"]
         )
         if can_native_prepare:
+            # Native preparation downloads its own private archive set. Apply
+            # the same Update-owned retention and reserve gate before entering
+            # that existing lane; discovery alone grants no staging budget.
+            state.update({"active_transaction_id": None, "lane": "native-required",
+                          "package_generation_id": full["package_generation"]["id"],
+                          "candidate_count": observed["candidate_count"],
+                          "deferred_boot_packages": sorted(names)})
+            budget_wait = _staging_budget_wait(full, state, now)
+            if budget_wait is not None:
+                shutil.rmtree(base, ignore_errors=True)
+                return budget_wait
             shutil.rmtree(base, ignore_errors=True)
             previous_user = os.environ.get("MAHO_UPDATE_USER")
             os.environ["MAHO_UPDATE_USER"] = user

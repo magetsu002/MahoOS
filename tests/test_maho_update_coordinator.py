@@ -1072,6 +1072,37 @@ class CoordinatorContracts(unittest.TestCase):
         self.assertEqual(updated["first_observed_at"], coordinator.stamp(NOW))
         self.assertEqual(updated["update_debt_seconds"], 3 * 86400 + 17)
 
+    def test_boot_only_discovery_cannot_bypass_retirement_or_disk_budget(self):
+        full = create_transaction(transaction_id=TXID, source_revision=REV,
+            packages=[{"name": "linux-cachyos", "installed_version": "1", "candidate_version": "2",
+                       "repository": "core", "download_size": 1024, "installed_size": 2048,
+                       "security_relevant": False, "roles": ["kernel"]}],
+            activation_requirements=["restart"], recovery_generation_id=None, now=NOW)
+        for phase, free, allocated, blocker in (
+            ("WAITING_AUTHORITY", 80 * 1024**3, 0, "certified_storage_retirement_required_before_staging"),
+            ("NO_DISPOSABLE_FILES", 9 * 1024**3, 0, "unsafe_post_update_disk_reserve"),
+            ("NO_DISPOSABLE_FILES", 80 * 1024**3, 13 * 1024**3, "update_archive_storage_budget_exceeded"),
+        ):
+            with self.subTest(blocker=blocker), tempfile.TemporaryDirectory() as state_tmp, tempfile.TemporaryDirectory() as work_tmp:
+                env = {"MAHO_UPDATE_STATE_ROOT": state_tmp, "MAHO_UPDATE_AUTO_WORK_ROOT": work_tmp}
+                previous = coordinator._base_state(NOW, REV)
+                previous["storage_maintenance"] = {"phase": phase, "blockers": []}
+                with patch.dict(os.environ, env, clear=False), \
+                     patch.object(coordinator, "IsolatedPacmanDiscovery", FakeDiscovery), \
+                     patch.object(coordinator, "discover_independent_normal_updates", side_effect=LookupError("no coherent non-boot update candidates were discovered")), \
+                     patch.object(coordinator, "_observe_boot_only", return_value={"transaction": full, "candidate_count": 1}), \
+                     patch.object(coordinator.shutil, "disk_usage", return_value=SimpleNamespace(total=200*1024**3, free=free)), \
+                     patch.object(coordinator, "archive_usage", return_value=allocated), \
+                     patch.object(coordinator, "prepare_native_campaign") as native:
+                    result = coordinator._new_discovery(previous, REV, "testuser", {},
+                        {"config_path": "/etc/pacman.conf", "repositories": ["core"]}, NOW)
+                native.assert_not_called()
+                self.assertEqual(result["phase"], "WAITING_PREPARATION")
+                self.assertIn(blocker, result["blockers"])
+                self.assertIsNone(result["active_transaction_id"])
+                self.assertEqual(list(Path(work_tmp).iterdir()), [])
+                self.assertFalse((Path(state_tmp) / "transactions").exists())
+
     def test_duplicate_coordinator_work_coalesces_on_shared_campaign_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             lock = Path(tmp) / "campaign.lock"
