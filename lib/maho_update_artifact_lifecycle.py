@@ -214,7 +214,7 @@ class UpdateArchiveLifecycle:
             raise InventoryError("retirement manifest does not bind the complete generation")
         return cache, value, digest
 
-    def report(self, *, source_revision: str, now=None) -> dict[str, Any]:
+    def report(self, *, source_revision: str, now=None, adoption_uid: int | None = None) -> dict[str, Any]:
         inventory = self.protection_inventory()
         rows, proofs, protected, blockers = [], {}, [], []
         for tx, tx_digest in self.transactions():
@@ -236,21 +236,29 @@ class UpdateArchiveLifecycle:
                         # after its disposable bytes are gone; never reconstruct.
                         if not path.exists() and not path.is_symlink():
                             continue
-                        row = self.executor.inspect(key, txid, path.name)
+                        row = self.executor.inspect(key, txid, path.name, adoption_uid=adoption_uid)
                         if row["sha256"] != payload.get("sha256") or row["identity"][2] != payload.get("size"):
                             raise IdentityMismatchError("archive does not match its durable staging manifest")
                         group.append(row)
                         signature = path.with_name(path.name + ".sig")
                         if signature.exists() or signature.is_symlink():
-                            group.append(self.executor.inspect(key, txid, signature.name))
+                            group.append(self.executor.inspect(key, txid, signature.name, adoption_uid=adoption_uid))
                     rows.extend(group)
                     proofs[key + ":" + txid] = {"transaction_sha256": tx_digest,
                         "manifest_sha256": manifest_digest, "package_generation_id": tx["package_generation"]["id"]}
                 except (OSError, ValueError, RuntimeError) as exc:
                     blockers.append({"transaction_id": txid, "root": key, "reason": str(exc)})
-        plan = self.executor.plan(rows, source_revision=source_revision,
-                                  evidence={"inventory": inventory, "transactions": proofs}, now=now)
-        return {"plan": plan, "protected_transactions": protected, "blockers": blockers,
+        evidence = {"inventory": inventory, "transactions": proofs}
+        if adoption_uid is not None:
+            proposal = {"kind": "maho-update-archive-adoption-proposal", "schema_version": 1,
+                        "source_revision": source_revision, "objects": rows, "evidence": evidence,
+                        "execution_authorized": False}
+            proposal["proposal_sha256"] = digest_payload(proposal)
+            plan = None
+        else:
+            proposal = None
+            plan = self.executor.plan(rows, source_revision=source_revision, evidence=evidence, now=now)
+        return {"plan": plan, "proposal": proposal, "protected_transactions": protected, "blockers": blockers,
                 "planned_allocated_bytes": sum(r["allocated_bytes"] for r in rows),
                 "file_count": len(rows)}
 

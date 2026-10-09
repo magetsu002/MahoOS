@@ -952,7 +952,7 @@ class CertifiedFileGC:
             raise IdentityMismatchError("archive directory is not sealed to its lifecycle owner")
         return fd
 
-    def _parent(self, row: Mapping[str, Any]) -> int:
+    def _parent(self, row: Mapping[str, Any], *, adoption_uid: int | None = None) -> int:
         import re
         if row.get("root") not in self.roots:
             raise IdentityMismatchError("unknown archive cache root")
@@ -964,8 +964,12 @@ class CertifiedFileGC:
         base = self.roots[row["root"]]
         descriptors = []
         try:
-            for path in (base, base / txid, base / txid / "staging"):
+            for path in (base, base / txid):
                 descriptors.append(self._trusted_directory(path))
+            if adoption_uid is None:
+                descriptors.append(self._trusted_directory(base / txid / "staging"))
+            else:
+                descriptors.append(self._directory(base / txid / "staging", final_uid=adoption_uid))
             fd = descriptors.pop()
             info = os.fstat(fd)
             root_device = os.fstat(descriptors[0]).st_dev
@@ -980,9 +984,10 @@ class CertifiedFileGC:
             for descriptor in descriptors:
                 os.close(descriptor)
 
-    def inspect(self, root: str, transaction_id: str, name: str) -> dict[str, Any]:
+    def inspect(self, root: str, transaction_id: str, name: str, *,
+                adoption_uid: int | None = None) -> dict[str, Any]:
         row = {"root": root, "transaction_id": transaction_id, "name": name}
-        parent = self._parent(row)
+        parent = self._parent(row, adoption_uid=adoption_uid)
         try:
             fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
                          dir_fd=parent)
