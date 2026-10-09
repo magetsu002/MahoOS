@@ -141,6 +141,11 @@ def read_coordinator_state(root: Path | None = None) -> dict[str, Any] | None:
     value = _read_json(coordinator_path(root))
     if value is None or value.get("schema_version") != SCHEMA_VERSION:
         return None
+    if value.get("success_semantics") != "verified-installation-v1":
+        # Older coordinators recorded preparation/polling here. It cannot be
+        # upgraded into installation evidence by carrying its timestamp forward.
+        value["last_success_at"] = None
+        value["success_semantics"] = "verified-installation-v1"
     return value
 
 
@@ -152,6 +157,9 @@ def _base_state(now: datetime, source_revision: str) -> dict[str, Any]:
         "phase": "IDLE",
         "last_attempt_at": stamp(now),
         "last_success_at": None,
+        "success_semantics": "verified-installation-v1",
+        "last_execution_at": None,
+        "last_verified_at": None,
         "last_discovery_success_at": None,
         "last_preparation_success_at": None,
         "repository_observed_at": None,
@@ -179,6 +187,16 @@ def _base_state(now: datetime, source_revision: str) -> dict[str, Any]:
 
 def _save(state: Mapping[str, Any], root: Path | None = None) -> dict[str, Any]:
     value = dict(state)
+    attempted = parse_stamp(value.get("last_attempt_at"))
+    retry = parse_stamp(value.get("next_retry_at"))
+    if (str(value.get("phase", "")).startswith("WAITING_") and attempted
+            and not value.get("retry_deferred") and (retry is None or attempted >= retry)):
+        previous = read_coordinator_state(root) or {}
+        same = all(previous.get(key) == value.get(key) for key in (
+            "phase", "blockers", "active_transaction_id", "source_revision"))
+        count = min(9, int(previous.get("wait_count") or 0) + 1) if same else 1
+        value["wait_count"] = count
+        value["next_retry_at"] = stamp(attempted + _retry_delay(count))
     _atomic_json(coordinator_path(root), value, 0o644)
     return value
 
@@ -293,12 +311,12 @@ def _runtime_identity(user: str) -> dict[str, Any]:
 def _normal_plan_scope(transaction: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     current = validate_transaction(transaction)
     for event in reversed(current["history"]):
-        if event.get("state") != UpdateState.PREPARED.value:
+        if event.get("state") not in {UpdateState.PREPARED.value, UpdateState.BLOCKED.value}:
             continue
         evidence = event.get("evidence")
         plan = evidence.get("normal_plan") if isinstance(evidence, Mapping) else None
         if not isinstance(plan, Mapping):
-            break
+            continue
         effects = plan.get("effects")
         activation = plan.get("activation_requirements")
         if (
@@ -311,6 +329,41 @@ def _normal_plan_scope(transaction: Mapping[str, Any]) -> tuple[tuple[str, ...],
             break
         return tuple(effects), tuple(activation)
     raise ValueError("prepared normal plan scope is unavailable")
+
+
+def _waiting_authority(
+    transaction: Mapping[str, Any], state: Mapping[str, Any], now: datetime,
+) -> dict[str, Any] | None:
+    """Coalesce denied work before repository refresh or preparation retries.
+
+    Frozen artifacts remain unexecuted. Repository/installed state must still be
+    independently revalidated when authority becomes available; this does not
+    renew repository evidence or confer current generation trust.
+    """
+    if state.get("lane") != "normal":
+        return None
+    try:
+        _normal_plan_scope(transaction)
+    except ValueError:
+        scoped = None
+    else:
+        scoped = transaction
+    authority = _authority_state(transaction["source_revision"], "normal", transaction=scoped)
+    if authority == "current":
+        return None
+    value = dict(state)
+    value.update({
+        "phase": "WAITING_AUTHORITY",
+        "last_attempt_at": stamp(now),
+        "normal_execution_authority": authority,
+        "blockers": ["normal_execution_authority_" + authority.replace("-", "_")],
+        "maintenance_evidence": {"ready": False, "reasons": [
+            "normal_execution_authority_" + authority.replace("-", "_")],
+            "normal_execution_authority": authority},
+        "next_retry_at": None,
+        "live_root_mutation_started": False,
+    })
+    return _save(_with_debt(value, now))
 
 
 def _authority_state(
@@ -1009,6 +1062,12 @@ def _resume_owned(
         return _save(_with_debt(value, now))
     phase = transaction["state"]
     _, _, cache = _work_for(transaction_id)
+    if phase in {UpdateState.DISCOVERED.value, UpdateState.STAGED.value,
+                 UpdateState.BLOCKED.value, UpdateState.PREPARED.value,
+                 UpdateState.MAINTENANCE_READY.value}:
+        waiting = _waiting_authority(transaction, state, now)
+        if waiting is not None:
+            return waiting
 
     if state.get("lane") == "normal" and phase == UpdateState.RECOVERED.value:
         current = _current_transaction(root)
@@ -1127,7 +1186,6 @@ def _resume_owned(
             "blockers": list(result.get("transaction", {}).get("blockers") or []),
             "execution": result,
             "last_attempt_at": stamp(now),
-            "last_success_at": stamp(now),
         })
         return _save(_with_debt(value, now))
 
@@ -1233,7 +1291,8 @@ def _resume_owned(
         value.update({
             "phase": UpdateState.HEALTHY.value if postboot else "READY_TO_RESTART",
             "blockers": [],
-            "last_success_at": stamp(now),
+            "last_success_at": stamp(now) if postboot else state.get("last_success_at"),
+            "last_verified_at": stamp(now) if postboot else state.get("last_verified_at"),
             "execution": record,
             "activation_handoff_id": handoff.get("handoff_id") if isinstance(handoff, Mapping) else None,
             "candidate_system_generation_id": (
@@ -1271,7 +1330,7 @@ def _resume_owned(
                     value = dict(state)
                     value.update({
                         "phase": UpdateState.RECOVERING.value, "blockers": [],
-                        "recovery": resumed, "last_success_at": stamp(now),
+                        "recovery": resumed,
                         "reboot_required": True, "reboot_performed": False,
                         "user_status": "Exact previous system selected; restart to recover.",
                     })
@@ -1382,7 +1441,7 @@ def _resume_owned(
         waiting = recovered["phase"] == UpdateState.RECOVERING.value
         value.update({
             "phase": recovered["phase"], "blockers": [],
-            "recovery": recovered, "last_success_at": stamp(now),
+            "recovery": recovered,
             "reboot_required": bool(recovered.get("reboot_required")),
             "reboot_performed": bool(recovered.get("reboot_performed")),
             "user_status": (
@@ -1485,6 +1544,7 @@ def _resume_owned(
             "phase": UpdateState.HEALTHY.value,
             "blockers": [],
             "last_success_at": stamp(now),
+            "last_verified_at": stamp(now),
             "postboot_verification": postboot,
             "reboot_required": False,
             "reboot_performed": True,
@@ -1497,7 +1557,6 @@ def _resume_owned(
         value.update({
             "phase": "MAINTENANCE_READY",
             "blockers": [],
-            "last_success_at": stamp(now),
             "normal_execution_authority": _authority_state(
                 source_revision,
                 state.get("lane"),
@@ -1582,7 +1641,7 @@ def _resume_owned(
                 return _save(_with_debt(value, now))
         observed = read_transaction(transaction_path(root, transaction_id))
         value["execution"] = record
-        value["last_success_at"] = stamp(now)
+        value["last_execution_at"] = stamp(now)
         if observed["state"] == UpdateState.INSTALLED_PENDING_ACTIVATION.value:
             handoff = record.get("activation_handoff") if isinstance(record, Mapping) else None
             value.update({
@@ -1604,6 +1663,16 @@ def _resume_owned(
                 "reboot_required": False,
                 "reboot_performed": False,
             })
+        return _save(_with_debt(value, now))
+    if phase == UpdateState.DISCOVERED.value and state.get("lane") == "normal":
+        _, discovery_root, cache = _work_for(transaction_id)
+        staging = IsolatedPacmanStaging(discovery_root / "db", cache,
+                                       config_path=str(repo["config_path"]))
+        staged = stage_transaction(transaction, staging, now=now)
+        publish_transaction(root, staged.transaction)
+        value = dict(state)
+        value.update({"phase": "WAITING_PREPARATION", "last_attempt_at": stamp(now),
+                      "blockers": list(staged.transaction.get("blockers") or [])})
         return _save(_with_debt(value, now))
     if phase in {UpdateState.STAGED.value, UpdateState.BLOCKED.value}:
         if not cache.is_dir() or not _manifest_for(cache, transaction).is_file():
@@ -1651,8 +1720,7 @@ def _resume_owned(
         if prepared["state"] == UpdateState.PREPARED.value:
             value.update({
                 "phase": "WAITING_MAINTENANCE",
-                "last_success_at": stamp(now),
-                "last_preparation_success_at": stamp(now),
+                    "last_preparation_success_at": stamp(now),
                 "blockers": [],
                 "preparation": details,
                 "normal_execution_authority": _authority_state(source_revision, state.get("lane")),
@@ -1684,7 +1752,6 @@ def _resume_owned(
             publish_transaction(root, transitioned)
         value.update({
             "last_attempt_at": stamp(now),
-            "last_success_at": stamp(now),
             "maintenance_evidence": maintenance,
             "normal_execution_authority": _authority_state(source_revision, state.get("lane")),
             "phase": "MAINTENANCE_READY" if transitioned["state"] == UpdateState.MAINTENANCE_READY.value else "WAITING_MAINTENANCE",
@@ -1742,8 +1809,7 @@ def _new_discovery(
             shutil.rmtree(base, ignore_errors=True)
             state.update({
                 "phase": "UP_TO_DATE",
-                "last_success_at": stamp(now),
-                "last_discovery_success_at": stamp(now),
+                    "last_discovery_success_at": stamp(now),
                 "repository_observed_at": stamp(now),
                 "repository_hashes": repository_hashes,
                 "active_transaction_id": None,
@@ -1789,8 +1855,7 @@ def _new_discovery(
                 raise RuntimeError("native_preparation_repository_evidence_missing")
             state.update({
                 "phase": "WAITING_MAINTENANCE",
-                "last_success_at": stamp(now),
-                "last_discovery_success_at": stamp(now),
+                    "last_discovery_success_at": stamp(now),
                 "last_preparation_success_at": stamp(now),
                 "repository_observed_at": stamp(now),
                 "repository_hashes": dict(native_hashes),
@@ -1811,7 +1876,6 @@ def _new_discovery(
         shutil.rmtree(base, ignore_errors=True)
         state.update({
             "phase": "BLOCKED",
-            "last_success_at": stamp(now),
             "last_discovery_success_at": stamp(now),
             "repository_observed_at": stamp(now),
             "repository_hashes": observed["repository_hashes"],
@@ -1848,6 +1912,9 @@ def _new_discovery(
         "normal_execution_authority": _authority_state(source_revision, "normal"),
     })
     _save(_with_debt(state, now))
+    waiting = _waiting_authority(transaction, state, now)
+    if waiting is not None:
+        return waiting
     staging = IsolatedPacmanStaging(Path(discovered.isolated_db), cache, config_path=str(repo["config_path"]))
     staged = stage_transaction(transaction, staging, now=now)
     publish_transaction(root, staged.transaction)
@@ -1870,7 +1937,6 @@ def _new_discovery(
     if prepared["state"] == UpdateState.PREPARED.value:
         state.update({
             "phase": "WAITING_MAINTENANCE",
-            "last_success_at": stamp(now),
             "last_preparation_success_at": stamp(now),
             "blockers": [],
             "preparation": details,
@@ -1891,19 +1957,27 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
     current = (now or utc_now()).astimezone(timezone.utc)
     root = _root()
     source_revision = _source_revision(root)
-    previous = read_coordinator_state()
-    retry = parse_stamp((previous or {}).get("next_retry_at"))
-    if (
-        previous
-        and previous.get("source_revision") == source_revision
-        and retry is not None
-        and current < retry
-    ):
-        value = dict(previous)
-        value["last_attempt_at"] = stamp(current)
-        value["phase"] = "RETRY_DEFERRED"
-        return _save(_with_debt(value, current))
     with coordinator_mutex():
+        previous = read_coordinator_state()
+        retry = parse_stamp((previous or {}).get("next_retry_at"))
+        if previous and previous.get("source_revision") == source_revision and retry and current < retry:
+            # A changed authority is relevant input and may wake a denied
+            # generation immediately, without waiting for the backoff deadline.
+            active = _current_transaction(state_root())
+            authority_changed = (
+                previous.get("phase") == "WAITING_AUTHORITY" and active is not None
+                and previous.get("active_transaction_id") == active["transaction_id"]
+                and _authority_state(source_revision, "normal", transaction=active)
+                    != previous.get("normal_execution_authority")
+            )
+            if not authority_changed:
+                value = dict(previous)
+                value["last_attempt_at"] = stamp(current)
+                value["retry_deferred"] = True
+                return _save(_with_debt(value, current))
+            previous["next_retry_at"] = None
+        if previous:
+            previous.pop("retry_deferred", None)
         user = _coordinator_user()
         runtime = _runtime_identity(user)
         policy = json.loads((root / "config/platform.json").read_text(encoding="utf-8"))

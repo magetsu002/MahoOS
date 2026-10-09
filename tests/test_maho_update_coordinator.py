@@ -1403,9 +1403,64 @@ class CoordinatorContracts(unittest.TestCase):
                     )
                 stored = read_transaction(transaction_path(Path(state_tmp), TXID))
             self.assertEqual(stored["state"], "PREPARED")
-            self.assertEqual(resumed["phase"], "WAITING_MAINTENANCE")
+            self.assertEqual(resumed["phase"], "WAITING_AUTHORITY")
             self.assertIn("normal_execution_authority_stale_or_invalid", resumed["blockers"])
             self.assertFalse(resumed.get("live_root_mutation_started", False))
+
+    def test_repeated_authority_denial_preserves_transaction_and_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": tmp}), \
+                 patch.object(coordinator, "_authority_state", return_value="scope-mismatch"), \
+                 patch.object(coordinator, "_repo_hashes") as refresh, \
+                 patch.object(coordinator, "_prepare_normal") as prepare, \
+                 patch.object(coordinator, "stage_transaction") as stage:
+                tx = prepared_tx()
+                publish_transaction(root, tx)
+                path = transaction_path(root, TXID)
+                before = path.read_bytes()
+                state = {**coordinator._base_state(NOW, REV),
+                         "active_transaction_id": TXID, "lane": "normal",
+                         "repository_observed_at": coordinator.stamp(NOW - timedelta(days=1)),
+                         "repository_hashes": {"core": "old"}}
+                for i in range(36):
+                    state = coordinator._resume_owned(state, REV, "user", {}, {},
+                                                       NOW + timedelta(hours=i))
+                    self.assertEqual(state["phase"], "WAITING_AUTHORITY")
+                    self.assertIsNone(state["last_success_at"])
+                    self.assertEqual(path.read_bytes(), before)
+                refresh.assert_not_called()
+                prepare.assert_not_called()
+                stage.assert_not_called()
+                self.assertEqual(state["active_transaction_id"], TXID)
+                self.assertEqual(state["repository_hashes"], {"core": "old"})
+                self.assertEqual(state["next_retry_at"], coordinator.stamp(NOW + timedelta(hours=36)))
+
+    def test_authority_recovery_still_requires_fresh_repository_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": tmp}), \
+                 patch.object(coordinator, "_authority_state", return_value="current"), \
+                 patch.object(coordinator, "_repo_hashes", return_value={"core": "changed"}), \
+                 patch.object(coordinator, "_maintenance_transition") as maintenance:
+                publish_transaction(Path(tmp), prepared_tx())
+                state = {**coordinator._base_state(NOW, REV), "phase": "WAITING_AUTHORITY",
+                         "active_transaction_id": TXID, "lane": "normal",
+                         "repository_observed_at": coordinator.stamp(NOW - timedelta(hours=1)),
+                         "repository_hashes": {"core": "old"}}
+                result = coordinator._resume_owned(state, REV, "user", {}, {}, NOW)
+                self.assertEqual(result["phase"], "INVALIDATED")
+                self.assertIn("repository_generation_drifted", result["blockers"])
+                self.assertIsNone(result["last_success_at"])
+                maintenance.assert_not_called()
+
+    def test_legacy_preparation_timestamp_is_not_installation_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator._atomic_json(Path(tmp) / "coordinator.json", {
+                "schema_version": 1, "phase": "WAITING_PREPARATION",
+                "last_success_at": coordinator.stamp(NOW)})
+            result = coordinator.read_coordinator_state(Path(tmp))
+            self.assertIsNone(result["last_success_at"])
+            self.assertEqual(result["success_semantics"], "verified-installation-v1")
 
     def test_maintenance_policy_records_exact_authority_envelope(self):
         tx = prepared_tx()
