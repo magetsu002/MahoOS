@@ -17,6 +17,7 @@ FILES=(
   lib/maho_generation_gc.py
   lib/maho_update_artifact_lifecycle.py
   lib/maho_update_cache_layout.py
+  lib/maho_update_cache_cli.py
   lib/maho_update_snapshot_retention.py
   lib/maho_generation_v2.py
   lib/maho_kernel_generation.py

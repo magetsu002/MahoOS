@@ -160,6 +160,9 @@ def transaction_root(transaction_id: str, lane: str) -> Path:
     if legacy.exists() or legacy.is_symlink():
         if legacy.is_symlink() or not legacy.is_dir() or isolated.exists() or isolated.is_symlink():
             raise InventoryError("ambiguous or unsafe transaction cache owner")
+        from maho_generation_gc import CertifiedFileGC
+        guard = CertifiedFileGC(roots={"legacy":LEGACY_ROOTS[lane]}, state_root=RECORD.parent)
+        fd = guard._trusted_directory(legacy); os.close(fd)
         return LEGACY_ROOTS[lane]
     return staging_root(lane)
 
@@ -212,6 +215,12 @@ def install_cache(plan: Mapping[str, Any], *, confirmation: str, source_revision
         if identity.filesystem_uuid != plan["filesystem_uuid"]:
             raise InventoryError("cache installation root filesystem changed")
         ops._mount_top(identity)
+        top_rows = json.loads(ops._run(("findmnt", "--json", "--mountpoint", str(ops.top),
+                                       "--output", "TARGET,FSTYPE,FSROOT,UUID"), check=True).stdout).get("filesystems")
+        top_row = top_rows[0] if isinstance(top_rows, list) and len(top_rows) == 1 else {}
+        if (top_row.get("target") != str(ops.top) or top_row.get("fstype") != "btrfs"
+                or top_row.get("fsroot") != "/" or top_row.get("uuid") != plan["filesystem_uuid"]):
+            raise InventoryError("cache provisioning top-level mount identity is unresolved")
         destination = ops.top / SUBVOLUME
         if journal is None:
             for p in (destination, CACHE, UNIT_PATH):

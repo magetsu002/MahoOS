@@ -57,6 +57,11 @@ pass "installer trusts exact Git objects"
 grep -Fq 'unset PYTHONPATH PYTHONHOME' "$WRAPPER" || fail "Python injection variables retained"
 grep -Fq 'MAHO_UPDATE_CAMPAIGN_ROOT' "$WRAPPER" || fail "installed root is not explicit"
 pass "wrapper executes installed immutable authority"
+if "$ROOT/bin/maho-update-cache-install" plan --filesystem-uuid 11111111-1111-1111-1111-111111111111 >/dev/null 2>&1; then
+  fail "source-tree cache installer became privileged authority"
+fi
+grep -Fq 'unset PYTHONPATH PYTHONHOME' "$ROOT/bin/maho-update-cache-install" || fail "cache installer retains Python injection"
+pass "cache installer requires immutable root-owned campaign payload"
 grep -Fq 'staging_root("m4b")' "$CAMPAIGN" || fail "campaign staging does not require the exact isolated cache"
 grep -Fq 'seed_campaign(' "$CAMPAIGN" || fail "M3B target seed missing"
 grep -Fq 'prepare_l3_campaign(' "$CAMPAIGN" || fail "M3B emergency preparation missing"
