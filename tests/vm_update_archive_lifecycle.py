@@ -27,6 +27,52 @@ if not Path('/sys/class/dmi/id/product_name').read_text().strip().startswith(('S
 
 
 class RealVMArchiveTests(ArchiveLifecycleTests):
+    def test_retained_btrfs_extents_do_not_imply_physical_capacity_recovery(self):
+        import hashlib
+        import shutil
+        # Isolated guest file-backed filesystem, never a physical device.
+        image = self.base / 'extent-test.img'
+        with image.open('wb') as stream: stream.truncate(256 * 1024**2)
+        subprocess.run(['mkfs.btrfs', '-q', '-f', str(image)], check=True)
+        mount = self.base / 'extent-mount'; mount.mkdir()
+        subprocess.run(['mount', '-o', 'loop', str(image), str(mount)], check=True)
+        try:
+            cache = mount / 'cache'
+            subprocess.run(['btrfs', 'subvolume', 'create', str(cache)], check=True)
+            shutil.copytree(self.cache, cache, dirs_exist_ok=True)
+            self.cache = cache
+            content = os.urandom(16 * 1024**2)
+            path = cache / OLD / 'staging/demo-2-1-any.pkg.tar.zst'
+            path.write_bytes(content)
+            for txid in (OLD, ACTIVE):
+                manifest_path = next((cache / txid / 'staging').glob('manifest-*.json'))
+                manifest = json.loads(manifest_path.read_text())
+                payload = manifest['payloads'][0]
+                payload['path'] = str(cache / txid / 'staging/demo-2-1-any.pkg.tar.zst')
+                if txid == OLD:
+                    payload.update(size=len(content), sha256=hashlib.sha256(content).hexdigest())
+                manifest_path.write_text(json.dumps(manifest))
+            retained = mount / 'retained'
+            subprocess.run(['btrfs', 'subvolume', 'snapshot', '-r', str(cache), str(retained)], check=True)
+            subprocess.run(['btrfs', 'filesystem', 'sync', str(mount)], check=True)
+            self.lifecycle = UpdateArchiveLifecycle(update_root=self.state, generation_root=self.generations,
+                guardian_active=self.guardian, guardian_uid=0, roots={'auto':cache})
+            before = os.statvfs(mount)
+            receipt = self.lifecycle.collect(source_revision=REV, now=NOW)
+            subprocess.run(['btrfs', 'filesystem', 'sync', str(mount)], check=True)
+            after = os.statvfs(mount)
+            available_change = after.f_bavail * after.f_frsize - before.f_bavail * before.f_frsize
+            self.assertEqual(receipt['phase'], 'COMMITTED')
+            self.assertGreaterEqual(receipt['reclaimed_bytes'], 16 * 1024**2)
+            self.assertLess(available_change, 8 * 1024**2)
+            self.assertFalse(path.exists())
+            self.assertEqual((retained / OLD / 'staging/demo-2-1-any.pkg.tar.zst').read_bytes(), content)
+            print(json.dumps({'retired_allocated_bytes':receipt['reclaimed_bytes'],
+                              'physical_available_change':available_change,
+                              'retained_snapshot_intact':True}), flush=True)
+        finally:
+            subprocess.run(['umount',str(mount)], check=True)
+
     def test_real_process_death_and_new_executor_resume(self):
         for fault in ('after_prepare', 'after_retire', 'after_unlink', 'after_first_delete'):
             with self.subTest(fault=fault):

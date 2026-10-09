@@ -36,6 +36,19 @@ need a complete independently reviewed protection inventory before adoption.
 
 ## Retirement authority
 
+Capacity accounting distinguishes retired file allocation from newly available
+filesystem space. The archive receipt's `reclaimed_bytes` is the sum of
+confirmed unlinked files' allocated bytes; snapshots or clones can retain those
+extents. It does not establish physical capacity recovery. Guardian storage
+observations and staging reserves continue to use fresh filesystem availability.
+Retiring archives must never clear a low-space veto from the receipt alone.
+
+The disposable-VM matrix includes a file-backed Btrfs filesystem with a retained
+read-only snapshot: archive retirement commits, the snapshot content remains
+intact, and available capacity does not increase. Snapshot retirement and cache
+layout changes require their own owner-bound design and proof; this file-only
+profile grants neither operation.
+
 The coordinator durably publishes an exact retirement record only after proving
 an unexecuted generation invalidated or superseded and proving no protected
 reference to each disposable object. The record binds transaction, generation,
