@@ -11,7 +11,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
@@ -278,7 +278,7 @@ class CoordinatorContracts(unittest.TestCase):
              patch.object(coordinator, "_new_discovery", return_value=discovered) as new_discovery:
             result = coordinator.run_once(now=NOW)
         self.assertEqual(result["phase"], "UP_TO_DATE")
-        new_discovery.assert_called_once_with(None, REV, "magetsu", runtime, repo, NOW)
+        new_discovery.assert_called_once_with(ANY, REV, "magetsu", runtime, repo, NOW)
 
     def test_development_runtime_is_not_update_coordination_trust(self):
         verification = SimpleNamespace(
@@ -1333,7 +1333,7 @@ class CoordinatorContracts(unittest.TestCase):
             "content_sha256": "b" * 64,
             "verified": True,
         }
-        fake_usage = SimpleNamespace(total=20 * 1024**3, used=1, free=15 * 1024**3)
+        fake_usage = SimpleNamespace(total=200 * 1024**3, used=1, free=80 * 1024**3)
         with tempfile.TemporaryDirectory() as work_tmp:
             cache = Path(work_tmp) / TXID / "staging"
             cache.mkdir(parents=True)

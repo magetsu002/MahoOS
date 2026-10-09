@@ -11,6 +11,11 @@ FILES=(
   config/platform.json
   config/platform/maho-pacman.conf
   lib/maho_trust_identity.py
+  lib/maho_installer_payload.py
+  lib/maho_installer_plan.py
+  lib/maho_installer_receipt.py
+  lib/maho_generation_gc.py
+  lib/maho_update_artifact_lifecycle.py
   lib/maho_generation_v2.py
   lib/maho_kernel_generation.py
   lib/maho_live_generation.py

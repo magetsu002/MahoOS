@@ -11,6 +11,7 @@ import pwd
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 from typing import Any, Callable, Mapping, Sequence
 
@@ -23,6 +24,21 @@ LIVE_CACHE = Path("/var/cache/pacman/pkg")
 _PACKAGE = re.compile(r"[a-zA-Z0-9@._+:-]+")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 MAX_DOWNLOAD_ATTEMPTS = 3
+
+
+def seal_staged_cache(cache: Path) -> None:
+    """Return completed staging from the download account to Update ownership."""
+    if os.geteuid() != 0:
+        return
+    fd = os.open(cache, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        if not stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise ValueError("completed staging is not a directory")
+        os.fchown(fd, 0, 0)
+        os.fchmod(fd, 0o755)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 @dataclass(frozen=True)
@@ -363,11 +379,13 @@ def stage_transaction(
     resumed = any(path.is_file() for path in backend.cache.iterdir() if ".pkg.tar." in path.name)
     if manifest_path.is_file():
         try:
+            seal_staged_cache(backend.cache)
             manifest = validate_manifest(json.loads(manifest_path.read_text()), current, backend.cache)
             staged = transition_transaction(current, UpdateState.STAGED, reason="exact staged payloads resumed", evidence={"manifest": str(manifest_path)}, now=now)
             return StagingResult(staged, manifest, requirement, free, True, ())
         except (OSError, ValueError, json.JSONDecodeError):
             resumed = True
+            backend.prepare()
     if free < requirement:
         blocked = transition_transaction(
             current, UpdateState.BLOCKED, blockers=["insufficient_staging_space"],
@@ -466,6 +484,7 @@ def stage_transaction(
         "verification": "pacman-signature-policy-sha256-and-file-effects",
         "effects": effect_summary,
     }
+    seal_staged_cache(backend.cache)
     validate_manifest(manifest, current, backend.cache)
     _write_manifest(manifest_path, manifest)
     keep = {Path(item["path"]).resolve() for item in payloads}

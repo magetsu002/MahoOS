@@ -41,6 +41,9 @@ from maho_update_normal import NormalPreparationEvidence, prepare_normal_transac
 from maho_update_normal_host import NormalProductionOps
 from maho_update_normal_authority import authorize_normal_plan, load_normal_execution_authority
 from maho_update_staging import IsolatedPacmanStaging, stage_transaction, validate_manifest
+from maho_update_artifact_lifecycle import (
+    UpdateArchiveLifecycle, archive_usage, staging_budget, reserve_bytes, load_retirement_authority,
+)
 from maho_update_state import (
     UpdateState,
     new_transaction_id,
@@ -58,7 +61,7 @@ DEFAULT_WORK_ROOT = Path("/var/cache/maho/update-auto")
 DISCOVERY_INTERVAL = timedelta(minutes=30)
 REPOSITORY_EVIDENCE_MAX_AGE = timedelta(minutes=30)
 ADAPTIVE_EVIDENCE_MAX_AGE = timedelta(seconds=90)
-SAFE_STORAGE_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
+SAFE_STORAGE_RESERVE_BYTES = 20 * 1024 * 1024 * 1024
 PREPARATION_OVERHEAD_BYTES = 512 * 1024 * 1024
 MAX_RETRY = timedelta(hours=1)
 _TXID = re.compile(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
@@ -405,6 +408,57 @@ def _current_transaction(root: Path) -> dict[str, Any] | None:
     return read_transaction(transaction_path(root, transaction_id))
 
 
+def _storage_maintenance(source_revision: str, user: str, repo: Mapping[str, Any]) -> dict[str, Any]:
+    root = state_root()
+    try:
+        load_retirement_authority(root, source_revision=source_revision, campaign_root=campaign_root())
+    except FileNotFoundError:
+        return {"phase": "WAITING_AUTHORITY", "blockers": ["storage_retirement_authority_absent"],
+                "reclaimed_bytes": 0}
+    account = pwd.getpwnam(user)
+    lifecycle = UpdateArchiveLifecycle(
+        update_root=root, generation_root=Path("/var/lib/maho/generations"),
+        guardian_active=Path(account.pw_dir) / ".local/state/maho/security/guardian/active",
+        guardian_uid=account.pw_uid, recovery_roots=(Path("/var/lib/maho"),))
+    downloader = IsolatedPacmanDiscovery(work_root() / "owner-observation",
+                                        config_path=str(repo["config_path"]))._download_identity()
+    if downloader is not None:
+        lifecycle.seal_retired(download_uid=downloader[0])
+    return lifecycle.collect(source_revision=source_revision)
+
+
+def _staging_budget_wait(transaction: Mapping[str, Any], state: Mapping[str, Any], now: datetime):
+    usage = shutil.disk_usage("/")
+    details = staging_budget(transaction, allocated_bytes=archive_usage(),
+                             total_bytes=usage.total, available_bytes=usage.free)
+    storage = state.get("storage_maintenance") or {}
+    if storage.get("phase") not in {"COMMITTED", "NO_DISPOSABLE_FILES"}:
+        details["blockers"].append("certified_storage_retirement_required_before_staging")
+    elif storage.get("blockers"):
+        details["blockers"].append("obsolete_artifact_retirement_unresolved")
+    if not details["blockers"]:
+        return None
+    value = dict(state)
+    value.update({"phase": "WAITING_PREPARATION", "last_attempt_at": stamp(now),
+                  "blockers": details["blockers"], "storage_budget": details})
+    return _save(_with_debt(value, now))
+
+
+def _invalidate_unexecuted(transaction, *, blocker, reason, now):
+    states = {"DISCOVERED", "STAGED", "PREPARED", "MAINTENANCE_READY", "BLOCKED"}
+    if not all(event["state"] in states for event in transaction["history"]):
+        return transaction
+    current = transaction
+    if current["state"] == UpdateState.BLOCKED.value:
+        prior = next(event["state"] for event in reversed(current["history"][:-1])
+                     if event["state"] != UpdateState.BLOCKED.value)
+        current = transition_transaction(current, prior, now=now,
+            reason="reconcile unexecuted invalidation without preparation or execution",
+            evidence={"package_mutation_performed": False, "preparation_performed": False})
+    return transition_transaction(current, UpdateState.BLOCKED, now=now,
+                                  reason=reason, blockers=[blocker])
+
+
 def _work_for(transaction_id: str) -> tuple[Path, Path, Path]:
     base = work_root() / transaction_id
     return base, base / "discovery", base / "staging"
@@ -493,7 +547,9 @@ def _prepare_normal(
         int(item["installed_size"]) + int(item["download_size"])
         for item in current["package_generation"]["packages"]
     ) + PREPARATION_OVERHEAD_BYTES
-    available = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
+    root_usage = shutil.disk_usage("/")
+    available = min(root_usage.free, shutil.disk_usage(cache).free)
+    reserve = reserve_bytes(root_usage.total)
     candidate_ok = _candidate_capability(current["transaction_id"])
     evidence = NormalPreparationEvidence(
         discovery_generation_current=generation_current,
@@ -506,7 +562,7 @@ def _prepare_normal(
         candidate_root_available=candidate_ok,
         guardian_admission_available=True,
         execution_environment="production",
-        safe_reserve_bytes=SAFE_STORAGE_RESERVE_BYTES,
+        safe_reserve_bytes=reserve,
         gc_authority_current=True,
     )
     prepared = prepare_normal_transaction(current, manifest, cache, evidence, now=now)
@@ -517,7 +573,7 @@ def _prepare_normal(
         "battery_percent": battery,
         "required_disk_bytes": required,
         "available_disk_bytes": available,
-        "safe_reserve_bytes": SAFE_STORAGE_RESERVE_BYTES,
+        "safe_reserve_bytes": reserve,
         "candidate_root_available": candidate_ok,
         "guardian_admission_available": True,
         "manifest_path": str(manifest_path),
@@ -788,12 +844,14 @@ def _maintenance_transition(
             return current, {"ready": False, "reasons": ["native_preparation_cache_unavailable"]}
     else:
         _, _, cache = _work_for(current["transaction_id"])
-    available = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
+    root_usage = shutil.disk_usage("/")
+    available = min(root_usage.free, shutil.disk_usage(cache).free)
+    reserve = reserve_bytes(root_usage.total)
     required = sum(
         int(item["installed_size"]) + int(item["download_size"])
         for item in current["package_generation"]["packages"]
     ) + PREPARATION_OVERHEAD_BYTES
-    disk_ready = available >= required and available - required >= SAFE_STORAGE_RESERVE_BYTES
+    disk_ready = available >= required and available - required >= reserve
     recovery_ready = (
         current["recovery"].get("native_l3_certified") is True
         and isinstance(current["recovery"].get("generation_id"), str)
@@ -958,12 +1016,14 @@ def _fresh_ready_normal_evidence(
         required = 0
         recovery_ready = False
     else:
-        available = min(shutil.disk_usage("/").free, shutil.disk_usage(cache).free)
+        root_usage = shutil.disk_usage("/")
+        available = min(root_usage.free, shutil.disk_usage(cache).free)
+        reserve = reserve_bytes(root_usage.total)
         required = sum(
             int(item["installed_size"]) + int(item["download_size"])
             for item in current["package_generation"]["packages"]
         ) + PREPARATION_OVERHEAD_BYTES
-        if available < required or available - required < SAFE_STORAGE_RESERVE_BYTES:
+        if available < required or available - required < reserve:
             reasons.append("disk_headroom_unconfirmed")
         recovery_ready = _candidate_capability(current["transaction_id"])
         if not recovery_ready:
@@ -1048,14 +1108,12 @@ def _resume_owned(
     except (OSError, ValueError):
         return None
     if transaction["source_revision"] != source_revision:
-        if transaction["state"] == UpdateState.PREPARED.value:
-            transaction = transition_transaction(
-                transaction,
-                UpdateState.BLOCKED,
+        if transaction["state"] in {UpdateState.DISCOVERED.value, UpdateState.STAGED.value,
+                                     UpdateState.BLOCKED.value, UpdateState.PREPARED.value,
+                                     UpdateState.MAINTENANCE_READY.value}:
+            transaction = _invalidate_unexecuted(transaction,
                 reason="coordinator source revision changed",
-                blockers=["coordinator_source_revision_changed"],
-                now=now,
-            )
+                blocker="coordinator_source_revision_changed", now=now)
             publish_transaction(root, transaction)
         value = dict(state)
         value.update({"phase": "INVALIDATED", "blockers": ["coordinator_source_revision_changed"]})
@@ -1665,9 +1723,14 @@ def _resume_owned(
             })
         return _save(_with_debt(value, now))
     if phase == UpdateState.DISCOVERED.value and state.get("lane") == "normal":
+        state = dict(state)
+        state["storage_maintenance"] = _storage_maintenance(source_revision, user, repo)
         _, discovery_root, cache = _work_for(transaction_id)
         staging = IsolatedPacmanStaging(discovery_root / "db", cache,
                                        config_path=str(repo["config_path"]))
+        budget_wait = _staging_budget_wait(transaction, state, now)
+        if budget_wait is not None:
+            return budget_wait
         staged = stage_transaction(transaction, staging, now=now)
         publish_transaction(root, staged.transaction)
         value = dict(state)
@@ -1675,6 +1738,7 @@ def _resume_owned(
                       "blockers": list(staged.transaction.get("blockers") or [])})
         return _save(_with_debt(value, now))
     if phase in {UpdateState.STAGED.value, UpdateState.BLOCKED.value}:
+        blocked_original = transaction if phase == UpdateState.BLOCKED.value else None
         if not cache.is_dir() or not _manifest_for(cache, transaction).is_file():
             if phase == UpdateState.STAGED.value:
                 transaction = transition_transaction(
@@ -1689,15 +1753,10 @@ def _resume_owned(
             value.update({"phase": "INVALIDATED", "blockers": ["staged_preparation_artifacts_missing"]})
             return _save(_with_debt(value, now))
         if not _generation_is_current(transaction):
-            if phase == UpdateState.STAGED.value:
-                transaction = transition_transaction(
-                    transaction,
-                    UpdateState.BLOCKED,
-                    reason="staged update became stale before preparation",
-                    blockers=["stale_update_transaction"],
-                    now=now,
-                )
-                publish_transaction(root, transaction)
+            transaction = _invalidate_unexecuted(transaction,
+                reason="staged update became stale before preparation",
+                blocker="stale_update_transaction", now=now)
+            publish_transaction(root, transaction)
             value = dict(state)
             value.update({"phase": "INVALIDATED", "blockers": ["stale_update_transaction"]})
             return _save(_with_debt(value, now))
@@ -1714,7 +1773,13 @@ def _resume_owned(
                 value.update({"phase": "BLOCKED", "blockers": list(transaction.get("blockers") or [])})
                 return _save(_with_debt(value, now))
         prepared, details = _prepare_normal(transaction, cache, now)
-        publish_transaction(root, prepared)
+        if (blocked_original is not None and prepared["state"] == UpdateState.BLOCKED.value
+                and prepared["blockers"] == blocked_original["blockers"]):
+            # Reobservation without progress is coordinator status, not another
+            # staged/blocked transaction event pair on every timer tick.
+            prepared = blocked_original
+        else:
+            publish_transaction(root, prepared)
         value = dict(state)
         value["last_attempt_at"] = stamp(now)
         if prepared["state"] == UpdateState.PREPARED.value:
@@ -1915,6 +1980,12 @@ def _new_discovery(
     waiting = _waiting_authority(transaction, state, now)
     if waiting is not None:
         return waiting
+    # Publishing the replacement pointer releases only the old unexecuted
+    # transaction. Recompute retention now, before spending replacement bytes.
+    state["storage_maintenance"] = _storage_maintenance(source_revision, user, repo)
+    budget_wait = _staging_budget_wait(transaction, state, now)
+    if budget_wait is not None:
+        return budget_wait
     staging = IsolatedPacmanStaging(Path(discovered.isolated_db), cache, config_path=str(repo["config_path"]))
     staged = stage_transaction(transaction, staging, now=now)
     publish_transaction(root, staged.transaction)
@@ -1959,6 +2030,16 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
     source_revision = _source_revision(root)
     with coordinator_mutex():
         previous = read_coordinator_state()
+        storage_user = _coordinator_user()
+        storage_policy = json.loads((root / "config/platform.json").read_text(encoding="utf-8"))
+        storage_repo = _repo_contract(storage_policy)
+        try:
+            storage_result = _storage_maintenance(source_revision, storage_user, storage_repo)
+        except (OSError, ValueError, RuntimeError) as exc:
+            storage_result = {"phase": "BLOCKED", "blockers": ["storage_retirement_evidence_unresolved"],
+                              "last_error": str(exc)[:1000], "reclaimed_bytes": 0}
+        if previous:
+            previous["storage_maintenance"] = storage_result
         retry = parse_stamp((previous or {}).get("next_retry_at"))
         if previous and previous.get("source_revision") == source_revision and retry and current < retry:
             # A changed authority is relevant input and may wake a denied
@@ -1978,10 +2059,9 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
             previous["next_retry_at"] = None
         if previous:
             previous.pop("retry_deferred", None)
-        user = _coordinator_user()
+        user = storage_user
         runtime = _runtime_identity(user)
-        policy = json.loads((root / "config/platform.json").read_text(encoding="utf-8"))
-        repo = _repo_contract(policy)
+        repo = storage_repo
         active = _current_transaction(state_root())
         # Deployment changes the campaign source while an old, owned PREPARED
         # transaction may still be current. Reconcile that exact owner before
@@ -2018,7 +2098,9 @@ def run_once(*, now: datetime | None = None) -> dict[str, Any]:
             value = dict(previous)
             value["last_attempt_at"] = stamp(current)
             return _save(_with_debt(value, current))
-        return _new_discovery(previous, source_revision, user, runtime, repo, current)
+        discovery_state = previous or _base_state(current, source_revision)
+        discovery_state["storage_maintenance"] = storage_result
+        return _new_discovery(discovery_state, source_revision, user, runtime, repo, current)
 
 
 def status_payload() -> dict[str, Any]:

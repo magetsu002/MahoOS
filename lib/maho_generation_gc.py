@@ -19,6 +19,8 @@ import os
 from pathlib import Path, PurePosixPath
 import secrets
 import shutil
+import stat
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 
 
@@ -897,3 +899,275 @@ class GCExecutor:
 
 def errno_is_capacity_or_readonly(exc: OSError) -> bool:
     return exc.errno in {errno.ENOSPC, errno.EROFS, errno.EDQUOT}
+
+
+class CertifiedFileGC:
+    """Narrow GC executor for Update-owned, sealed disposable archive files.
+
+    The Update owner supplies a fresh independent protection validator. This
+    executor never traverses a directory recursively or removes a snapshot.
+    All cache/state ancestors are opened without following links. The caller
+    must hold the shared update campaign lock throughout planning and execution.
+    """
+
+    def __init__(self, *, roots: Mapping[str, Path], state_root: Path,
+                 owner_uid: int = 0) -> None:
+        self.roots = {name: Path(path) for name, path in roots.items()}
+        self.state_root = Path(state_root)
+        self.owner_uid = owner_uid
+        self.journal_path = self.state_root / "archive-retirement.json"
+        if not self.roots or any(not p.is_absolute() for p in self.roots.values()):
+            raise InventoryError("file GC requires exact absolute cache roots")
+
+    def _directory(self, path: Path, *, final_uid: int | None = None) -> int:
+        if not path.is_absolute() or ".." in path.parts:
+            raise IdentityMismatchError("unbounded GC directory")
+        fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            for index, part in enumerate(path.parts[1:], 1):
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                dir_fd=fd)
+                os.close(fd)
+                fd = child
+                info = os.fstat(fd)
+                # Disposable fixture roots may live under sticky /tmp. The
+                # production executor accepts only owner-controlled ancestors.
+                fixture_tmp = (self.owner_uid != 0 and index == 1 and part == "tmp"
+                               and info.st_uid == 0 and info.st_mode & stat.S_ISVTX)
+                allowed = {0, self.owner_uid}
+                if index == len(path.parts) - 1 and final_uid is not None:
+                    allowed.add(final_uid)
+                if (info.st_uid not in allowed or info.st_mode & 0o022) and not fixture_tmp:
+                    raise IdentityMismatchError("untrusted archive path ancestor")
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def _trusted_directory(self, path: Path) -> int:
+        fd = self._directory(path)
+        info = os.fstat(fd)
+        if info.st_uid != self.owner_uid or info.st_mode & 0o022:
+            os.close(fd)
+            raise IdentityMismatchError("archive directory is not sealed to its lifecycle owner")
+        return fd
+
+    def _parent(self, row: Mapping[str, Any]) -> int:
+        import re
+        if row.get("root") not in self.roots:
+            raise IdentityMismatchError("unknown archive cache root")
+        txid, name = row.get("transaction_id"), row.get("name")
+        if not isinstance(txid, str) or re.fullmatch(r"upd-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}", txid) is None:
+            raise IdentityMismatchError("invalid archive transaction path")
+        if not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar\.(zst|xz|gz)(\.sig)?", name) is None:
+            raise IdentityMismatchError("target is not a bounded package archive file")
+        base = self.roots[row["root"]]
+        descriptors = []
+        try:
+            for path in (base, base / txid, base / txid / "staging"):
+                descriptors.append(self._trusted_directory(path))
+            fd = descriptors.pop()
+            info = os.fstat(fd)
+            root_device = os.fstat(descriptors[0]).st_dev
+            if info.st_dev != root_device or any(os.fstat(d).st_dev != root_device for d in descriptors):
+                os.close(fd)
+                raise IdentityMismatchError("archive path crosses a mount boundary")
+            if row.get("parent_identity") not in (None, [info.st_dev, info.st_ino]):
+                os.close(fd)
+                raise IdentityMismatchError("archive parent directory changed")
+            return fd
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+
+    def inspect(self, root: str, transaction_id: str, name: str) -> dict[str, Any]:
+        row = {"root": root, "transaction_id": transaction_id, "name": name}
+        parent = self._parent(row)
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                         dir_fd=parent)
+            try:
+                before = os.fstat(fd)
+                if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                        or before.st_uid != self.owner_uid or before.st_mode & 0o022):
+                    raise IdentityMismatchError("archive file is not an exact owner-controlled regular file")
+                digest = hashlib.sha256()
+                while chunk := os.read(fd, 1024 * 1024):
+                    digest.update(chunk)
+                after = os.fstat(fd)
+                identity = lambda s: [s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns]
+                if identity(before) != identity(after):
+                    raise IdentityMismatchError("archive changed while hashing")
+                row.update({"identity": identity(after), "sha256": digest.hexdigest(),
+                            "allocated_bytes": after.st_blocks * 512,
+                            "parent_identity": [os.fstat(parent).st_dev, os.fstat(parent).st_ino]})
+                return row
+            finally:
+                os.close(fd)
+        finally:
+            os.close(parent)
+
+    def plan(self, objects: Iterable[Mapping[str, Any]], *, source_revision: str,
+             evidence: Mapping[str, Any], now: datetime | None = None) -> dict[str, Any]:
+        import re
+        if re.fullmatch(r"[0-9a-f]{40}", source_revision) is None:
+            raise InventoryError("archive retirement requires exact source identity")
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        rows = sorted((dict(row) for row in objects),
+                      key=lambda row: (row["root"], row["transaction_id"], row["name"]))
+        if len({(r["root"], r["transaction_id"], r["name"]) for r in rows}) != len(rows):
+            raise InventoryError("archive retirement has duplicate targets")
+        for row in rows:
+            if row != self.inspect(row["root"], row["transaction_id"], row["name"]):
+                raise IdentityMismatchError("archive identity changed before retirement planning")
+        value = {"schema_version": 1, "kind": "maho-certified-archive-retirement",
+                 "source_revision": source_revision, "roots": {k: str(v) for k, v in self.roots.items()},
+                 "created_at": current.isoformat(), "expires_at": (current + timedelta(minutes=5)).isoformat(),
+                 "objects": rows, "evidence": dict(evidence)}
+        value["plan_sha256"] = digest_payload(value)
+        return value
+
+    def _validate_plan(self, plan: Mapping[str, Any]) -> dict[str, Any]:
+        material = dict(plan)
+        claimed = material.pop("plan_sha256", None)
+        if (claimed != digest_payload(material)
+                or material.get("kind") != "maho-certified-archive-retirement"
+                or material.get("schema_version") != 1
+                or material.get("roots") != {k: str(v) for k, v in self.roots.items()}
+                or not isinstance(material.get("objects"), list)):
+            raise InventoryError("archive retirement authority is corrupt or cross-bound")
+        keys = [(r["root"], r["transaction_id"], r["name"]) for r in material["objects"]]
+        if keys != sorted(set(keys)):
+            raise InventoryError("archive targets are not unique and canonical")
+        return dict(plan)
+
+    def _write(self, path: Path, value: Mapping[str, Any]) -> None:
+        # State root is created by the root-owned deployment, never from an
+        # untrusted plan. Validate the containing directory before each write.
+        parent = self._trusted_directory(path.parent)
+        os.close(parent)
+        _atomic_json(path, value, 0o600)
+
+    def _read(self) -> dict[str, Any]:
+        parent = self._trusted_directory(self.state_root)
+        try:
+            fd = os.open(self.journal_path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         dir_fd=parent)
+            with os.fdopen(fd, "r") as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != self.owner_uid or info.st_mode & 0o077:
+                    raise InventoryError("archive retirement journal is untrusted")
+                value = json.load(stream)
+        finally:
+            os.close(parent)
+        material = dict(value)
+        claimed = material.pop("journal_sha256", None)
+        if claimed != digest_payload(material):
+            raise InventoryError("archive retirement journal is corrupt")
+        self._validate_plan(value["plan"])
+        if value.get("phase") not in {"PREPARED", "RETIRED", "DELETING", "COMMITTED", "CANCELLED"}:
+            raise InventoryError("archive retirement journal has an unknown phase")
+        if not isinstance(value.get("deleted"), list) or value["deleted"] != sorted(set(value["deleted"])):
+            raise InventoryError("archive retirement completion identities are corrupt")
+        if any(not isinstance(i, int) or isinstance(i, bool) or i < 0 or i >= len(value["plan"]["objects"]) for i in value["deleted"]):
+            raise InventoryError("archive retirement completion identity is out of scope")
+        if value["phase"] in {"PREPARED", "RETIRED", "CANCELLED"} and value["deleted"]:
+            raise InventoryError("archive retirement phase contradicts deletion evidence")
+        if value["phase"] == "COMMITTED" and len(value["deleted"]) != len(value["plan"]["objects"]):
+            raise InventoryError("committed archive retirement lacks completion evidence")
+        reclaimed = value.get("reclaimed_bytes")
+        if (not isinstance(reclaimed, int) or isinstance(reclaimed, bool) or reclaimed < 0
+                or reclaimed > sum(r["allocated_bytes"] for r in value["plan"]["objects"])):
+            raise InventoryError("archive retirement allocation evidence is corrupt")
+        return value
+
+    def _journal(self, plan, phase, deleted=(), reclaimed=0):
+        value = {"plan": plan, "phase": phase, "deleted": sorted(deleted), "reclaimed_bytes": reclaimed}
+        value["journal_sha256"] = digest_payload(value)
+        self._write(self.journal_path, value)
+        return value
+
+    def execute(self, plan: Mapping[str, Any], *, validate_protections,
+                now: datetime | None = None, fault_at: str | None = None) -> dict[str, Any]:
+        plan = self._validate_plan(plan)
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        created, expiry = (datetime.fromisoformat(plan[k]) for k in ("created_at", "expires_at"))
+        if not created.tzinfo or not expiry.tzinfo or not created <= current <= expiry or expiry - created != timedelta(minutes=5):
+            raise StaleAuthorityError("archive retirement authority expired or future-dated")
+        if self.journal_path.exists() or self.journal_path.is_symlink():
+            prior = self._read()
+            if prior["phase"] not in {"COMMITTED", "CANCELLED"}:
+                raise StaleAuthorityError("interrupted archive retirement must resume first")
+            if prior["plan"]["plan_sha256"] == plan["plan_sha256"]:
+                raise StaleAuthorityError("archive retirement authority is single-use")
+        validate_protections(plan)
+        for row in plan["objects"]:
+            if row != self.inspect(row["root"], row["transaction_id"], row["name"]):
+                raise IdentityMismatchError("archive drift before retirement")
+        journal = self._journal(plan, "PREPARED")
+        if fault_at == "after_prepare":
+            raise SimulatedCrash(fault_at)
+        # This is the authoritative retirement record. Only after it is fsynced
+        # can bytes disappear; transaction/manifest/incident evidence stays.
+        journal = self._journal(plan, "RETIRED")
+        if fault_at == "after_retire":
+            raise SimulatedCrash(fault_at)
+        return self._finish_files(journal, validate_protections, fault_at=fault_at)
+
+    def resume_files(self, *, validate_protections, now: datetime | None = None,
+                     fault_at: str | None = None) -> dict[str, Any]:
+        journal = self._read()
+        if journal["phase"] in {"COMMITTED", "CANCELLED"}:
+            return {"plan_sha256": journal["plan"]["plan_sha256"],
+                    "reclaimed_bytes": journal["reclaimed_bytes"], "phase": journal["phase"]}
+        if journal["phase"] == "PREPARED":
+            # No retirement committed: expiry still applies and no missing file
+            # is accepted as an interrupted deletion at this boundary.
+            current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+            expiry = datetime.fromisoformat(journal["plan"]["expires_at"])
+            created = datetime.fromisoformat(journal["plan"]["created_at"])
+            if not expiry.tzinfo or not created.tzinfo or not created <= current <= expiry:
+                raise StaleAuthorityError("uncommitted archive retirement expired")
+            validate_protections(journal["plan"])
+            for row in journal["plan"]["objects"]:
+                if row != self.inspect(row["root"], row["transaction_id"], row["name"]):
+                    raise IdentityMismatchError("archive drift before resumed retirement")
+            journal = self._journal(journal["plan"], "RETIRED")
+        return self._finish_files(journal, validate_protections, fault_at=fault_at)
+
+    def _finish_files(self, journal, validate_protections, *, fault_at=None):
+        plan, deleted, reclaimed = journal["plan"], set(journal["deleted"]), journal["reclaimed_bytes"]
+        for index, row in enumerate(plan["objects"]):
+            if index in deleted:
+                continue
+            validate_protections(plan)
+            parent = self._parent(row)
+            try:
+                try:
+                    observed = self.inspect(row["root"], row["transaction_id"], row["name"])
+                except FileNotFoundError:
+                    # Covers the unlink->journal crash gap. No replacement is
+                    # removed, and attribution remains explicitly bounded.
+                    observed = None
+                if observed is not None:
+                    if observed != row:
+                        raise IdentityMismatchError("archive drift during retirement")
+                    info = os.stat(row["name"], dir_fd=parent, follow_symlinks=False)
+                    if [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns] != row["identity"]:
+                        raise IdentityMismatchError("archive replaced before unlink")
+                    os.unlink(row["name"], dir_fd=parent)
+                    os.fsync(parent)
+                    reclaimed += row["allocated_bytes"]
+                if fault_at == "after_unlink":
+                    raise SimulatedCrash(fault_at)
+            finally:
+                os.close(parent)
+            deleted.add(index)
+            journal = self._journal(plan, "DELETING", deleted, reclaimed)
+            if fault_at == "after_first_delete":
+                raise SimulatedCrash(fault_at)
+        receipt = {"plan_sha256": plan["plan_sha256"], "reclaimed_bytes": reclaimed,
+                   "removed_file_count": len(deleted), "phase": "COMMITTED"}
+        self._write(self.state_root / ("archive-receipt-" + plan["plan_sha256"] + ".json"), receipt)
+        self._journal(plan, "COMMITTED", deleted, reclaimed)
+        return receipt
