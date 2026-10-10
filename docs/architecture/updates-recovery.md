@@ -32,6 +32,22 @@ Binds the accepted root/system identity to the relevant package, kernel, runtime
 
 A directory name or snapshot timestamp is not sufficient generation identity.
 
+### Current generation attribution
+
+Guardian attributes the accepted publication independently of Update's pending
+transaction pointer. A publication is acceptance evidence, not an observation.
+In one bounded, uncached read, Guardian compares kernel Btrfs UUIDs on the opened
+running root, host mount view, kernel/command line, exact relevant installed
+package versions and boot-content hashes. Root-owned no-follow input reads bind
+the verified manifests and exact accepted HEALTHY receipt or initial inventory;
+reobservation rejects concurrent root, package, boot or publication changes.
+Missing, writable, substituted, interrupted or expired evidence stays unresolved.
+
+This proves current root/package-version/boot-content attribution under the
+running kernel, not package-file integrity, process activation, recovery
+eligibility or Signed Boot. These remain independently assessed. No observation
+is persisted as authority and no mutation or recovery eligibility is granted.
+
 ## Candidate lifecycle
 
 Updates are prepared away from the currently accepted root.

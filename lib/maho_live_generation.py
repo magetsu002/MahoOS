@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from maho_generation_v2 import RootIdentity, SystemGeneration
 from maho_kernel_generation import CompatibilityEvidence, KernelGeneration, can_boot, modules_tree_artifact
@@ -482,10 +482,12 @@ def _initial_root_claims_match(proof: Any, system: SystemGeneration, claims: Map
             and all(value is not None and proof.get(key) == value for key, value in expected.items()))
 
 
-def read_live_publication(root: Path = GENERATION_ROOT) -> dict[str, Any] | None:
+def read_live_publication(
+    root: Path = GENERATION_ROOT, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes,
+) -> dict[str, Any] | None:
     path = root / "live.json"
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(read_bytes(path))
     except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
         return None
     if not isinstance(value, dict) or value.get("kind") != "maho-live-generation-publication":
@@ -496,12 +498,12 @@ def read_live_publication(root: Path = GENERATION_ROOT) -> dict[str, Any] | None
     if claimed != str(ArtifactID.from_content(_json_bytes(material))):
         return None
     try:
-        system = json.loads((root / "manifests/system" / f"{value['system_generation_id']}.json").read_text())
-        kernel = json.loads((root / "manifests/kernel" / f"{value['kernel_generation_id']}.json").read_text())
-        compatibility_value = json.loads((
+        system = json.loads(read_bytes(root / "manifests/system" / f"{value['system_generation_id']}.json"))
+        kernel = json.loads(read_bytes(root / "manifests/kernel" / f"{value['kernel_generation_id']}.json"))
+        compatibility_value = json.loads(read_bytes(
             root / "evidence/compatibility" /
             f"{value['system_generation_id']}--{value['kernel_generation_id']}.json"
-        ).read_text())
+        ))
         parsed_system = SystemGeneration.parse(system)
         parsed_kernel = KernelGeneration.parse(kernel)
         compatibility = CompatibilityEvidence(
@@ -526,7 +528,7 @@ def read_live_publication(root: Path = GENERATION_ROOT) -> dict[str, Any] | None
         return None
     digest = str(root_artifact).removeprefix("art-")
     try:
-        root_manifest = (root / "artifacts/sha256" / digest[:2] / digest[2:]).read_bytes()
+        root_manifest = read_bytes(root / "artifacts/sha256" / digest[:2] / digest[2:])
     except OSError:
         return None
     if ArtifactID.from_content(root_manifest) != root_artifact or hashlib.sha256(root_manifest).hexdigest() != parsed_system.root_identity.root_manifest_sha256:

@@ -339,7 +339,7 @@ preflight() {
     "$ROOT/lib/guardian_trust_status.py" \
     "$ROOT/lib/guardian_evidence.py" "$ROOT/lib/guardian_intent.py" \
     "$ROOT/lib/guardian_world_state.py" "$ROOT/lib/guardian_provider_state.py" \
-    "$ROOT/lib/guardian_journal_stream.py" "$ROOT/lib/guardian_live_state.py" \
+    "$ROOT/lib/guardian_journal_stream.py" "$ROOT/lib/guardian_live_state.py" "$ROOT/lib/guardian_generation_observation.py" \
     "$ROOT/lib/guardian_prevention.py" "$ROOT/lib/maho_prevention_scope.py" \
     "$ROOT/lib/maho_prevention_policy.py" "$ROOT/lib/maho_mutation_authority.py" \
     "$ROOT/lib/maho_process_control.py" "$ROOT/lib/maho_prevention_kernel.py" \

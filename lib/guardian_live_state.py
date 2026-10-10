@@ -41,7 +41,7 @@ from guardian_world_state import (
     build_world_state,
 )
 from maho_runtime_release import verify_release
-from maho_live_generation import read_live_publication
+from guardian_generation_observation import attribute_running_generation
 from maho_update_cli import current_transaction
 from maho_update_state import UpdateState
 
@@ -476,7 +476,7 @@ def _trust_signals(
     signals: list[TrustSignal] = [TrustSignal(
         "system.generation",
         GuardianTrustState.VERIFIED if generation is not None else GuardianTrustState.UNKNOWN,
-        "exact live transaction-backed SystemGeneration/KernelGeneration authority verified"
+        "accepted SystemGeneration/KernelGeneration matches fresh host root, package versions and boot content"
         if generation is not None else "exact live SystemGeneration/KernelGeneration authority is unavailable",
     )]
     boot = by_id.get("boot.authority")
@@ -555,40 +555,8 @@ def _object_id(value: Any) -> str:
     return f"{row.get('device', 0)}:{row.get('inode', 0)}"
 
 
-def _current_live_generation(paths: LivePaths, transaction: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    publication = read_live_publication(paths.generation_root)
-    if publication is None or not isinstance(transaction, Mapping):
-        return None
-    package_generation = transaction.get("package_generation")
-    if not isinstance(package_generation, Mapping) or any((
-        transaction.get("state") != UpdateState.HEALTHY.value,
-        transaction.get("transaction_id") != publication.get("transaction_id"),
-        transaction.get("source_revision") != publication.get("source_revision"),
-        package_generation.get("id") != publication.get("package_generation_id"),
-        platform.release() != publication.get("running_kernel"),
-    )):
-        return None
-    try:
-        cmdline = (paths.proc_root / "cmdline").read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError):
-        return None
-    if hashlib.sha256(cmdline.encode()).hexdigest() != publication.get("cmdline_sha256"):
-        return None
-    tokens = set(cmdline.split())
-    if f"root=UUID={publication.get('filesystem_uuid')}" not in tokens or "rootflags=subvol=@" not in tokens:
-        return None
-    boot = publication.get("boot_sha256")
-    if not isinstance(boot, Mapping):
-        return None
-    for raw_path, expected in boot.items():
-        path = Path(str(raw_path))
-        try:
-            observed = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError:
-            return None
-        if observed != expected:
-            return None
-    return publication
+def _current_live_generation(paths: LivePaths) -> dict[str, Any] | None:
+    return attribute_running_generation(paths.generation_root, paths.update_root, proc=paths.proc_root)
 
 
 def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) -> dict[str, Any]:
@@ -604,7 +572,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
     boot_id = _boot_id(paths)
     recovery = recovery_status_payload(paths.recovery_root, current_kernel_release=platform.release())
     transaction, authority_records, authority_errors = _update_authority(paths)
-    generation = _current_live_generation(paths, transaction)
+    generation = _current_live_generation(paths)
     prevention = prevention_status(paths.prevention_root, now=current)
 
     # Guardian self-health is about Guardian's decision machinery, not whether
@@ -663,7 +631,7 @@ def live_status(paths: LivePaths | None = None, *, now: datetime | None = None) 
             "current_system_generation": generation.get("system_generation_id") if generation else None,
             "current_kernel_generation": generation.get("kernel_generation_id") if generation else None,
             "generation_note": (
-                "exact live transaction-backed generation authority verified"
+                "accepted generation matches fresh host root, package versions and boot content; recovery and Signed Boot assessed separately"
                 if generation else "exact live generation authority unavailable; historical recovery proof is not promoted to current trust"
             ),
             "active_package_transaction_generation": package_generation,
