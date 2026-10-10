@@ -88,6 +88,52 @@ class ArchiveLifecycleTests(unittest.TestCase):
         self.assertTrue((self.state / 'transactions' / (OLD + '.json')).exists())
         self.assertEqual(self.lifecycle.collect(source_revision=REV, now=NOW)['phase'], 'NO_DISPOSABLE_FILES')
 
+    def expand_roots(self):
+        isolated = self.base / 'isolated'; isolated.mkdir(exist_ok=True)
+        self.lifecycle = UpdateArchiveLifecycle(update_root=self.state, generation_root=self.generations,
+            guardian_active=self.guardian, guardian_uid=os.getuid(),
+            roots={'auto':self.cache, 'isolated-auto':isolated}, owner_uid=os.getuid())
+
+    def test_committed_legacy_journal_survives_verified_root_expansion(self):
+        plan = self.plan(); self.execute(plan); self.expand_roots()
+        self.assertEqual(self.lifecycle.executor._read()['phase'], 'COMMITTED')
+        self.assertEqual(self.lifecycle.collect(source_revision=REV, now=NOW)['phase'], 'NO_DISPOSABLE_FILES')
+        with self.assertRaises(InventoryError): self.lifecycle.executor._validate_plan(plan)
+        self.assertTrue((self.cache / ACTIVE / 'staging/demo-2-1-any.pkg.tar.zst').exists())
+
+    def test_cancelled_legacy_journal_is_preserved_before_new_plan(self):
+        plan = self.plan(); old = self.lifecycle.executor._journal(plan, 'CANCELLED')
+        self.expand_roots()
+        self.assertEqual(self.lifecycle.collect(source_revision=REV, now=NOW)['phase'], 'COMMITTED')
+        path = self.lifecycle.executor.state_root / ('archive-history-' + plan['plan_sha256'] + '.json')
+        self.assertEqual(json.loads(path.read_text()), old)
+
+    def test_incomplete_legacy_plan_cannot_resume_with_expanded_roots(self):
+        plan = self.plan()
+        for phase in ('PREPARED', 'RETIRED', 'DELETING'):
+            with self.subTest(phase=phase):
+                self.lifecycle.executor._journal(plan, phase)
+                if 'isolated-auto' not in self.lifecycle.roots: self.expand_roots()
+                with self.assertRaises(InventoryError): self.lifecycle.executor._read()
+        self.assertTrue((self.cache / OLD / 'staging/demo-2-1-any.pkg.tar.zst').exists())
+
+    def test_completed_history_rejects_changed_or_missing_root_binding(self):
+        plan = self.plan(); self.execute(plan)
+        for roots in ({'auto':self.base/'wrong'}, {'isolated-auto':self.cache}):
+            executor = CertifiedFileGC(roots=roots, state_root=self.state/'artifact-gc', owner_uid=os.getuid())
+            with self.assertRaises(InventoryError): executor._read()
+
+    def test_completed_history_rejects_object_outside_recorded_roots(self):
+        plan = self.plan(); self.execute(plan)
+        journal = self.lifecycle.executor._read(); journal['plan']['roots'] = {'isolated-auto':str(self.cache)}
+        material = dict(journal['plan']); material.pop('plan_sha256'); journal['plan']['plan_sha256'] = digest_payload(material)
+        material = dict(journal); material.pop('journal_sha256'); journal['journal_sha256'] = digest_payload(material)
+        self.lifecycle.executor._write(self.lifecycle.executor.journal_path, journal)
+        self.expand_roots()
+        # Both roots point to the same directory to isolate object/root validation.
+        self.lifecycle.executor.roots['isolated-auto'] = self.cache
+        with self.assertRaises(InventoryError): self.lifecycle.executor._read()
+
     def test_current_pointer_and_independent_coordinator_both_protect(self):
         (self.state / 'current').write_text(OLD)
         self.assertEqual(self.plan()['objects'], [])

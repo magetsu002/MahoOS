@@ -1032,15 +1032,26 @@ class CertifiedFileGC:
         value["plan_sha256"] = digest_payload(value)
         return value
 
-    def _validate_plan(self, plan: Mapping[str, Any]) -> dict[str, Any]:
+    def _validate_plan(self, plan: Mapping[str, Any], *, completed_history: bool = False) -> dict[str, Any]:
         material = dict(plan)
         claimed = material.pop("plan_sha256", None)
+        observed_roots = material.get("roots")
+        current_roots = {k: str(v) for k, v in self.roots.items()}
+        # A completed/cancelled journal is immutable evidence, not authority
+        # to execute against newly added cache lanes. Only unchanged prior
+        # bindings may be read after an independently verified root expansion.
+        roots_match = observed_roots == current_roots
+        if completed_history and isinstance(observed_roots, dict) and observed_roots:
+            roots_match = all(current_roots.get(k) == v for k, v in observed_roots.items())
         if (claimed != digest_payload(material)
                 or material.get("kind") != "maho-certified-archive-retirement"
                 or material.get("schema_version") != 1
-                or material.get("roots") != {k: str(v) for k, v in self.roots.items()}
+                or not roots_match
                 or not isinstance(material.get("objects"), list)):
             raise InventoryError("archive retirement authority is corrupt or cross-bound")
+        if any(not isinstance(r, Mapping) or r.get("root") not in observed_roots
+               for r in material["objects"]):
+            raise InventoryError("archive target is outside its plan roots")
         keys = [(r["root"], r["transaction_id"], r["name"]) for r in material["objects"]]
         if keys != sorted(set(keys)):
             raise InventoryError("archive targets are not unique and canonical")
@@ -1069,7 +1080,7 @@ class CertifiedFileGC:
         claimed = material.pop("journal_sha256", None)
         if claimed != digest_payload(material):
             raise InventoryError("archive retirement journal is corrupt")
-        self._validate_plan(value["plan"])
+        self._validate_plan(value["plan"], completed_history=value.get("phase") in {"COMMITTED", "CANCELLED"})
         if value.get("phase") not in {"PREPARED", "RETIRED", "DELETING", "COMMITTED", "CANCELLED"}:
             raise InventoryError("archive retirement journal has an unknown phase")
         if not isinstance(value.get("deleted"), list) or value["deleted"] != sorted(set(value["deleted"])):
@@ -1105,6 +1116,9 @@ class CertifiedFileGC:
                 raise StaleAuthorityError("interrupted archive retirement must resume first")
             if prior["plan"]["plan_sha256"] == plan["plan_sha256"]:
                 raise StaleAuthorityError("archive retirement authority is single-use")
+            # Preserve the full historical proof before replacing the active
+            # journal with a different exact plan.
+            self._write(self.state_root / ("archive-history-" + prior["plan"]["plan_sha256"] + ".json"), prior)
         validate_protections(plan)
         for row in plan["objects"]:
             if row != self.inspect(row["root"], row["transaction_id"], row["name"]):
