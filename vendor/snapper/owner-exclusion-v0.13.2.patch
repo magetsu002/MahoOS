@@ -1,0 +1,191 @@
+diff --git a/server/Client.cc b/server/Client.cc
+index 97dfdca..0a6735b 100644
+--- a/server/Client.cc
++++ b/server/Client.cc
+@@ -661,11 +661,12 @@ Client::set_config(DBus::Connection& conn, DBus::Message& msg)
+ 
+     y2deb("SetConfig config_name:" << config_name << " raw:" << raw);
+ 
+-    boost::shared_lock<boost::shared_mutex> lock(big_mutex);
++    boost::unique_lock<boost::shared_mutex> lock(big_mutex);
+ 
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg);
++    check_lock(conn, msg, config_name);
+ 
+     it->setConfigInfo(raw);
+ 
+@@ -748,7 +749,10 @@ Client::lock_config(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+ 
++    // Keep the descriptor owner loaded for this entire client lifetime.
++    it->getSnapper();
+     add_lock(config_name);
+ 
+     DBus::MessageMethodReturn reply(msg);
+@@ -896,6 +900,7 @@ Client::set_snapshot(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+ 
+     Snapper* snapper = it->getSnapper();
+     Snapshots& snapshots = snapper->getSnapshots();
+@@ -931,6 +936,7 @@ Client::create_single_snapshot(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+     scd.uid = uid;
+ 
+     Snapper* snapper = it->getSnapper();
+@@ -966,6 +972,7 @@ Client::create_single_snapshot_v2(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+     scd.uid = uid;
+ 
+     Snapper* snapper = it->getSnapper();
+@@ -1004,6 +1011,7 @@ Client::create_single_snapshot_of_default(DBus::Connection& conn, DBus::Message&
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+     scd.uid = uid;
+ 
+     Snapper* snapper = it->getSnapper();
+@@ -1038,6 +1046,7 @@ Client::create_pre_snapshot(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+     scd.uid = uid;
+ 
+     Snapper* snapper = it->getSnapper();
+@@ -1073,6 +1082,7 @@ Client::create_post_snapshot(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+     scd.uid = uid;
+ 
+     Snapper* snapper = it->getSnapper();
+@@ -1193,6 +1203,7 @@ Client::set_snapshot_read_only(DBus::Connection& conn, DBus::Message& msg)
+     MetaSnappers::iterator it = meta_snappers.find(config_name);
+ 
+     check_permission(conn, msg, *it);
++    check_lock(conn, msg, config_name);
+ 
+     Snapper* snapper = it->getSnapper();
+     Snapshots& snapshots = snapper->getSnapshots();
+diff --git a/snapper/Snapper.cc b/snapper/Snapper.cc
+index 66ae6dc..ad123a9 100644
+--- a/snapper/Snapper.cc
++++ b/snapper/Snapper.cc
+@@ -24,6 +24,8 @@
+ #include "config.h"
+ 
+ #include <sys/stat.h>
++#include <sys/file.h>
++#include <unistd.h>
+ #include <sys/types.h>
+ #include <glob.h>
+ #include <cstring>
+@@ -32,9 +34,12 @@
+ #include <acl/libacl.h>
+ #include <set>
+ #include <regex>
++#include <mutex>
++#include <map>
+ #include <boost/algorithm/string.hpp>
+ 
+ #include "snapper/Snapper.h"
++#include "snapper/FileUtils.h"
+ #include "snapper/Comparison.h"
+ #include "snapper/AppUtil.h"
+ #include "snapper/Enum.h"
+@@ -63,6 +68,51 @@ namespace snapper
+     using namespace std;
+ 
+ 
++    // One real directory inode excludes daemon and direct-library owners,
++    // including differently named configurations for the same collection.
++    class SnapshotOwnerExclusion
++    {
++    public:
++        explicit SnapshotOwnerExclusion(const SDir& infos)
++        {
++            struct stat st;
++            if (infos.stat(&st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 || (st.st_mode & 0022))
++                SN_THROW(Exception("untrusted snapshot owner directory"));
++            owner_fd = fcntl(infos.fd(), F_DUPFD_CLOEXEC, 3);
++            if (owner_fd < 0)
++                SN_THROW(Exception("snapshot owner descriptor unavailable"));
++            if (flock(owner_fd, LOCK_EX | LOCK_NB) != 0)
++            {
++                close(owner_fd);
++                owner_fd = -1;
++                SN_THROW(Exception("snapshot collection already owned"));
++            }
++        }
++        ~SnapshotOwnerExclusion() { if (owner_fd >= 0) close(owner_fd); }
++        SnapshotOwnerExclusion(const SnapshotOwnerExclusion&) = delete;
++        SnapshotOwnerExclusion& operator=(const SnapshotOwnerExclusion&) = delete;
++    private:
++        int owner_fd = -1;
++    };
++
++
++    // Preserve Snapper's public object layout: ownership is private library
++    // state, never an added member that breaks existing C++ client ABI.
++    struct SnapshotOwners
++    {
++        mutex guard;
++        map<const Snapper*, unique_ptr<SnapshotOwnerExclusion>> owners;
++    };
++
++    static SnapshotOwners& snapshot_owners()
++    {
++        // Process lifetime avoids cross-DSO static destructor ordering. Normal
++        // Snapper destruction erases every entry; process death closes fds.
++        static SnapshotOwners* value = new SnapshotOwners;
++        return *value;
++    }
++
++
+     Snapper::Snapper(const string& config_name, const string& root_prefix, bool disable_filters)
+ 	: config_name(config_name), root_prefix(root_prefix), snapshots(this)
+     {
+@@ -83,6 +133,7 @@ namespace snapper
+ 	}
+ 
+ 	filesystem = Filesystem::create(*config_info, root_prefix);
++	auto owner_exclusion = make_unique<SnapshotOwnerExclusion>(openInfosDir());
+ 
+ #ifdef ENABLE_SELINUX
+ 	if (_is_selinux_enabled())
+@@ -105,6 +156,9 @@ namespace snapper
+ 	    loadIgnorePatterns();
+ 
+ 	snapshots.initialize();
++        auto& registry = snapshot_owners();
++        lock_guard<mutex> owner_lock(registry.guard);
++        registry.owners.emplace(this, std::move(owner_exclusion));
+     }
+ 
+ 
+@@ -123,6 +177,9 @@ namespace snapper
+ 		SN_CAUGHT(e);
+ 	    }
+ 	}
++        auto& registry = snapshot_owners();
++        lock_guard<mutex> owner_lock(registry.guard);
++        registry.owners.erase(this);
+     }
+ 
+ 
