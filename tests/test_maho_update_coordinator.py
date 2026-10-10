@@ -1479,6 +1479,7 @@ class CoordinatorContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.dict(os.environ, {"MAHO_UPDATE_STATE_ROOT": tmp}), \
                  patch.object(coordinator, "_authority_state", return_value="current"), \
+                 patch.object(coordinator, "_adaptive_evidence", return_value=({}, {}, True, [])), \
                  patch.object(coordinator, "_repo_hashes", return_value={"core": "changed"}), \
                  patch.object(coordinator, "_maintenance_transition") as maintenance:
                 publish_transaction(Path(tmp), prepared_tx())

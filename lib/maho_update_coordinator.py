@@ -6,6 +6,7 @@ import argparse
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -127,6 +128,11 @@ def _atomic_json(path: Path, payload: Mapping[str, Any], mode: int = 0o644) -> N
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         os.chmod(path, mode)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         try:
             temporary.unlink()
@@ -192,6 +198,13 @@ def _base_state(now: datetime, source_revision: str) -> dict[str, Any]:
 
 def _save(state: Mapping[str, Any], root: Path | None = None) -> dict[str, Any]:
     value = dict(state)
+    decision = (value.get("convergence") or {}).get("inputs", {})
+    if (not str(value.get("phase", "")).startswith("WAITING_")
+            or decision.get("phase") != value.get("phase")
+            or decision.get("decision_blockers") != sorted(set(value.get("blockers") or []))
+            or decision.get("source_revision") != value.get("source_revision")
+            or decision.get("transaction_id") != value.get("active_transaction_id")):
+        value.pop("convergence", None)
     attempted = parse_stamp(value.get("last_attempt_at"))
     retry = parse_stamp(value.get("next_retry_at"))
     if (str(value.get("phase", "")).startswith("WAITING_") and attempted
@@ -336,6 +349,65 @@ def _normal_plan_scope(transaction: Mapping[str, Any]) -> tuple[tuple[str, ...],
     raise ValueError("prepared normal plan scope is unavailable")
 
 
+def _wait_evidence(state, transaction, *, outcome, conditions, resume_when):
+    """One durable decision fingerprint, never a cached admission decision.
+
+    Conditions contain threshold/freshness decisions rather than observation
+    timestamps. Every caller reobserves its necessary gate before using this.
+    Passing a gate still requires the existing full preparation/admission path.
+    """
+    try:
+        effects, activation = _normal_plan_scope(transaction)
+        scope = {"effects": sorted(effects), "activation": sorted(activation)}
+    except ValueError:
+        scope = {"effects": "unresolved", "activation": "unresolved"}
+    inputs = {
+        "source_revision": state.get("source_revision"),
+        "phase": state.get("phase"),
+        "decision_blockers": sorted(set(state.get("blockers") or [])),
+        "transaction_source_revision": transaction["source_revision"],
+        "transaction_id": transaction["transaction_id"],
+        "package_generation_id": transaction["package_generation"]["id"],
+        "provenance_id": transaction["source_provenance"]["id"],
+        "repository_hashes": state.get("repository_hashes", {}),
+        "runtime_identity": {key: (state.get("runtime_identity") or {}).get(key)
+                             for key in ("source_revision", "content_sha256", "trust_eligible")},
+        "scope": scope,
+        "outcome": outcome,
+        "conditions": conditions,
+    }
+    value = dict(state)
+    value["convergence"] = {
+        "schema_version": 1, "outcome": outcome, "resume_when": resume_when,
+        "evidence_fingerprint": hashlib.sha256(json.dumps(
+            inputs, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        "inputs": inputs, "execution_authorized": False,
+    }
+    return value
+
+
+def _authority_observation(source_revision):
+    # Diagnostic identity only. These bytes cannot authorize an operation.
+    from maho_update_normal_authority import DEFAULT_AUTHORITY_PATH
+    try:
+        fd = os.open(DEFAULT_AUTHORITY_PATH, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_mode & 0o022 or info.st_size > 65536:
+                return {"observation": "unsafe", "execution_authorized": False}
+            raw = stream.read(65537)
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("invalid authority document")
+    except (OSError, ValueError, UnicodeError):
+        return {"observation": "unavailable", "execution_authorized": False}
+    return {"observation": "reported-only", "sha256": hashlib.sha256(raw).hexdigest(),
+            "reported_source_revision": data.get("source_revision"),
+            "source_binding_matches": data.get("source_revision") == source_revision,
+            "reported_profile": data.get("certified_profile"),
+            "execution_authorized": False}
+
+
 def _waiting_authority(
     transaction: Mapping[str, Any], state: Mapping[str, Any], now: datetime,
 ) -> dict[str, Any] | None:
@@ -368,6 +440,23 @@ def _waiting_authority(
         "next_retry_at": None,
         "live_root_mutation_started": False,
     })
+    usage = shutil.disk_usage("/")
+    required = sum(int(p["installed_size"]) + int(p["download_size"])
+                   for p in transaction["package_generation"]["packages"]) + PREPARATION_OVERHEAD_BYTES
+    reserve = reserve_bytes(usage.total)
+    value["capacity_constraints"] = {
+        "available_disk_bytes": usage.free, "required_disk_bytes": required,
+        "safe_reserve_bytes": reserve,
+        "post_update_reserve_satisfied": usage.free - required >= reserve,
+        "physical_reclamation_verified": False,
+    }
+    value = _wait_evidence(value, transaction,
+        outcome="unsupported-profile" if authority == "scope-mismatch" else "waiting-authority",
+        conditions={"authority_status": authority,
+                    "authority_observation": _authority_observation(transaction["source_revision"]),
+                    "post_update_reserve_satisfied": usage.free - required >= reserve,
+                    "required_disk_bytes": required, "safe_reserve_bytes": reserve},
+        resume_when="current source-bound certificate covering exact effects; then fresh repository, Guardian and recovery validation")
     return _save(_with_debt(value, now))
 
 
@@ -449,6 +538,61 @@ def _staging_budget_wait(transaction: Mapping[str, Any], state: Mapping[str, Any
     value = dict(state)
     value.update({"phase": "WAITING_PREPARATION", "last_attempt_at": stamp(now),
                   "blockers": details["blockers"], "storage_budget": details})
+    value = _wait_evidence(value, transaction, outcome="capacity-constrained",
+        conditions={"blockers": sorted(set(details["blockers"])),
+                    "required_disk_bytes": details["required_disk_bytes"],
+                    "safe_reserve_bytes": details["safe_reserve_bytes"],
+                    "archive_budget_bytes": details["archive_budget_bytes"]},
+        resume_when="certified disposable artifacts or additional capacity satisfy aggregate budget and post-update reserve; cache and retirement proof current")
+    return _save(_with_debt(value, now))
+
+
+def _preparation_resource_wait(transaction, state, cache, now):
+    """Cheap necessary gates before archive hashing and per-package probes."""
+    usage = shutil.disk_usage("/")
+    available = min(usage.free, shutil.disk_usage(cache).free)
+    required = sum(int(p["installed_size"]) + int(p["download_size"])
+                   for p in transaction["package_generation"]["packages"]) + PREPARATION_OVERHEAD_BYTES
+    reserve = reserve_bytes(usage.total)
+    known, power_ok, _ = _power_evidence()
+    package_busy = Path("/var/lib/pacman/db.lck").exists()
+    blockers = []
+    if available < required:
+        blockers.append("insufficient_install_space")
+    if available - required < reserve:
+        blockers.append("unsafe_post_update_disk_reserve")
+    if not known:
+        blockers.append("power_status_unknown")
+    elif not power_ok:
+        blockers.append("power_policy_unsatisfied")
+    if package_busy:
+        blockers.append("concurrent_package_or_build_operation")
+    if not blockers:
+        return None
+    value = dict(state)
+    value.update(phase="WAITING_PREPARATION", last_attempt_at=stamp(now), blockers=blockers,
+                 preparation_resources={"required_disk_bytes": required, "available_disk_bytes": available,
+                                        "safe_reserve_bytes": reserve})
+    value = _wait_evidence(value, transaction,
+        outcome="capacity-constrained" if "unsafe_post_update_disk_reserve" in blockers else "waiting-preparation",
+        conditions={"blockers": blockers, "required_disk_bytes": required, "safe_reserve_bytes": reserve},
+        resume_when="fresh power, package exclusion and canonical reserve gates pass; then complete artifact and generation validation")
+    return _save(_with_debt(value, now))
+
+
+def _maintenance_preflight_wait(transaction, state, user, now):
+    try:
+        _, _, ready, reasons = _adaptive_evidence(user, now)
+    except RuntimeError as exc:
+        ready, reasons = False, [str(exc).split(":", 1)[0]]
+    if ready:
+        return None
+    value = dict(state)
+    value.update(phase="WAITING_MAINTENANCE", last_attempt_at=stamp(now), blockers=reasons,
+                 maintenance_evidence={"ready": False, "reasons": reasons})
+    value = _wait_evidence(value, transaction, outcome="waiting-maintenance",
+        conditions={"adaptive_reasons": sorted(set(reasons))},
+        resume_when="fresh adaptive and Guardian prerequisites become eligible; then repository and exact admission revalidation")
     return _save(_with_debt(value, now))
 
 
@@ -1129,6 +1273,8 @@ def _resume_owned(
         value.update({"phase": "INVALIDATED", "blockers": ["coordinator_source_revision_changed"]})
         return _save(_with_debt(value, now))
     phase = transaction["state"]
+    state = dict(state)
+    state["runtime_identity"] = dict(runtime)
     _, _, cache = _work_for(transaction_id)
     if phase in {UpdateState.DISCOVERED.value, UpdateState.STAGED.value,
                  UpdateState.BLOCKED.value, UpdateState.PREPARED.value,
@@ -1762,6 +1908,9 @@ def _resume_owned(
             value = dict(state)
             value.update({"phase": "INVALIDATED", "blockers": ["staged_preparation_artifacts_missing"]})
             return _save(_with_debt(value, now))
+        resource_wait = _preparation_resource_wait(transaction, state, cache, now)
+        if resource_wait is not None:
+            return resource_wait
         if not _generation_is_current(transaction):
             transaction = _invalidate_unexecuted(transaction,
                 reason="staged update became stale before preparation",
@@ -1808,6 +1957,9 @@ def _resume_owned(
             })
         return _save(_with_debt(value, now))
     if phase == UpdateState.PREPARED.value:
+        maintenance_wait = _maintenance_preflight_wait(transaction, state, user, now)
+        if maintenance_wait is not None:
+            return maintenance_wait
         transaction, value, repository_ok = _revalidate_repository(transaction, state, repo, now)
         if not repository_ok:
             publish_transaction(root, transaction)
