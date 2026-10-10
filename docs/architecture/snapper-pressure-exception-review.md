@@ -1,6 +1,6 @@
 # Exact Snapper pressure exception — Level C review
 
-Status: proposed; source/VM implementation awaits review.
+Status: withdrawn. The current human mission prohibits weakening snapshot count floors. No source implementation or executable pressure exception is authorized. The following text is retained only as the historical proposal.
 
 Backend diagnostic result: Snapper permits important/recovery metadata promotion
 by a second client while the first holds its configuration lock. The required
