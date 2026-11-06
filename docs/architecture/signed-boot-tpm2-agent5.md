@@ -1,6 +1,14 @@
 # Agent 5: Secure Boot, measured boot and TPM2 unlock integration
 
-Status (2026-11-06): **source-level policy gate only; physical certification pending**. This document does not authorize any device mutation or override the installer/update transaction owners. It records new user acceptance requirements, including TPM2 auto-unlock, which conflict with the historical 2026-09-25 V1 architecture freeze that deferred TPM auto-unlock. Agent 0 must reconcile the release scope explicitly; do not silently edit or reinterpret the historical freeze.
+Status (2026-11-06): **source-level inspection/measurement/policy only; physical certification pending**. This document does not authorize any device mutation or override the installer/update transaction owners. It records new user acceptance requirements, including TPM2 auto-unlock, which conflict with the historical 2026-09-25 V1 architecture freeze that deferred TPM auto-unlock. Agent 0 must reconcile the release scope explicitly; do not silently edit or reinterpret the historical freeze.
+
+## Live read-only diagnostic, 2026-11-06
+
+The physical host was reconnected and inspected through both remote bridges (same live boot session; exact boot ID retained privately). The current boot runs Linux kernel `7.2.5-1-cachyos` and reports `SecureBoot=0`, `SetupMode=0`. Firmware `BootCurrent=0000` points to the *shared* original ESP's `/EFI/arch-limine/BOOTX64.EFI`, not the dedicated Maho ESP. `BootOrder=0001,0003,2001,2002,2003,0000`; dedicated `Boot0002 MahoOS Direct` exists but is absent from BootOrder. The current Maho ESP is `/dev/nvme0n1p5` mounted at `/boot`, with its exact partition identity verified privately; its `/EFI/MahoOS/BOOTX64.EFI` has **no PE Authenticode certificate table** and SHA-256 `3fe0de87c13a12998b3c785b0c57ddfbcd6fc57251c1b0628604583ec8e9a5ff`. Installed Limine reports `12.9.0`; current `/boot/limine.conf` has unhashed kernel/initramfs resource paths, so it is *not* an enrolled-config Secure Boot chain. The shared original ESP was not mounted for this inspection; its loader signature cannot be asserted from the present read-only evidence.
+
+LUKS2 `/dev/nvme0n1p2` is currently unlocked as `/dev/mapper/maho-migration-20261024`; this is proof of a successful unlocked current boot, **not proof of TPM auto-unlock**. TPM device nodes exist, but `tpm2_pcrread` is not installed and the current session cannot read the root/tss-only binary event log; neither PCR replay nor TPM unlock is physically certified. The separate Windows BitLocker partition is present; its recovery escrow, Windows boot health after firmware changes and recovery protector status remain **unknown**. Neither firmware BootOrder nor Secure Boot flags were changed. This physical finding supersedes the stale November 3 statement that Linux was inaccessible.
+
+`python3 bin/maho-secure-boot diagnose` now reports mounted ESP PE signature *structure*, current firmware entry, BootOrder, Secure Boot mode, TPM/event-log accessibility and explicit limitations. The diagnostic is read-only. A certificate-table presence indication is never interpreted as cryptographic validity or authorization in firmware `db`.
 
 ## Existing authority, not a new boot manager
 
@@ -21,7 +29,7 @@ Repair belongs within the landed SigningProvider/BootAuthority interface, using 
 
 ## TPM policy and its evidence gate
 
-`lib/maho_tpm_unlock_policy.py` is deliberately **pure**. `evaluate_tpm_unlock` only makes an enrollment *eligibility* decision from preexisting `BootGeneration`, `BootAuthority`, `BootEnvironmentIdentity` and `PostBootResult`, plus independently replayed TPM measurements and recovery evidence. It executes no firmware, TPM, disk or slot command. `proposed_enrollment_argv` is an inspectable plan, not approval or execution. An authoritative host-side verifier must bind each reported Limine event to the actual selected entry and artifact digests, verify PCR event-log replay against TPM SHA-256 PCR values, and establish observation freshness before supplying the gate.
+`lib/maho_tpm_unlock_policy.py` is deliberately **pure**. `evaluate_tpm_unlock` only makes an enrollment *eligibility* decision from preexisting `BootGeneration`, `BootAuthority`, `BootEnvironmentIdentity` and `PostBootResult`, plus independently replayed TPM measurements and recovery evidence. It executes no firmware, TPM, disk or slot command. `proposed_enrollment_argv` is an inspectable plan, not approval or execution. The new pure helpers `maho_limine_measurements.py`, `maho_tcg2_eventlog.py`, and `observe_limine_tpm_unlock()` can now predict exact Limine v12 SHA-256 PCR 8/9 extensions from hash-verified resources, strictly parse the TCG2 log, and replay PCR 7/8/9 events against independently supplied TPM values. This closes the **source-side algorithm** only. An authoritative host-side provider must still bind the independently read TPM PCRs, physical BootCurrent/BootGeneration, LUKS identity and event-log observations to the **same fresh boot session** and prove actual initramfs TPM2 support before supplying the gate.
 
 Preliminary binding for **Limine v12 or newer once hardware-proven**: SHA-256 PCRs **7 + 8 + 9**. PCR 7 binds the observed UEFI Secure Boot policy, PCR 8 the selected kernel command line/resource paths, and PCR 9 the Limine configuration and actual loaded kernel/initramfs/module bytes. Current upstream Limine v12 documents the relevant measurements; **older or differently built Limine cannot inherit that proof**. PCR 7 alone is insufficient; default UKI PCR 11 guidance must not be incorrectly applied to Limine Linux-protocol boots. A changed kernel or initramfs changes PCR 9 and must have a pre-authorized new unlock policy. Confirm that normal, fallback and independent recovery measurements differ as intended.
 
@@ -65,7 +73,7 @@ manage-bde -status C:
 manage-bde -protectors -get C:
 ```
 
-**Never paste a Windows BitLocker recovery key, LUKS recovery key, LUKS header, private signing key or TPM secret into a chat/log/repository.** Record only redacted readiness and fingerprints. These commands are not substitutes for live observation here; the remote computer was offline when this work was prepared.
+**Never paste a Windows BitLocker recovery key, LUKS recovery key, LUKS header, private signing key or TPM secret into a chat/log/repository.** Record only redacted readiness and fingerprints. Live Linux observations are recorded above; Windows recovery secrets and the underlying LUKS recovery methods still require private physical testing.
 
 ## Agent 0 physical ceremony: ordered gates, no assumed authorization
 
@@ -94,9 +102,13 @@ Agent 4 should call the **existing** Signed Boot publisher to request an exact s
 | Evidence | Status as of this document |
 | --- | --- |
 | Existing Signed Boot virtual proof | Historical 13/13 isolated OVMF campaign, exact head must be checked before reuse |
-| New TPM policy source validation | Focused pure Python positive/negative tests (not hardware testing) |
+| New TPM policy and event-log source validation | PASS: 24 TPM policy checks, 9 Limine predictor tests, 9 TCG2 replay tests, 5 PE signature tests; not hardware testing |
+| Signed Boot / installer / kernel / QEMU harness focused contracts | PASS on the inspected Agent 5 source (not a new OVMF run) |
+| Full core-contract campaign | STOPPED before signed-boot section: remote user systemd manager unavailable (`Failed to initialize manager`) |
+| Existing Maho Update boot-selection suite | 7/8 pass; one unrelated root-owned cache-layout fixture read denied in remote session |
 | Existing signer continuity across package updates | **UNPROVEN / blocker** |
-| Current physical Secure Boot db + ESP + firmware entries | **UNKNOWN / bridge offline** |
+| Current physical Secure Boot, dedicated ESP and firmware entries | **OBSERVED: Secure Boot disabled, BootCurrent old loader, dedicated ESP unsigned** |
+| Full current firmware trust/signature authorization | **UNPROVEN: shared ESP not mounted and no cryptographic signature verifier available** |
 | Windows encryption recovery material | **UNKNOWN / must verify privately** |
 | Limine v12 PCR 8/9 measured boot on this laptop | **UNKNOWN** |
 | TPM2 token enrollment / unlock / failed PCR recovery | **NOT PERFORMED** |
