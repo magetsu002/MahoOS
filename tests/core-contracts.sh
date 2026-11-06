@@ -286,6 +286,7 @@ for test in "$ROOT"/tests/test_adaptive_*.py; do
 done
 
 PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_generation_gc.py"
+PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_storage_lifecycle.py"
 PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_maho_update_preparation.py"
 PYTHONPATH="$ROOT/lib" python "$ROOT/tests/test_maho_update_normal.py"
 
