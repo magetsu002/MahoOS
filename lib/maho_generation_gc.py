@@ -524,6 +524,11 @@ def inventory_status(inventory: GenerationInventory, *, free_bytes: int, safe_re
         "safe_reserve_bytes": safe_reserve_bytes,
         "protected_bytes": protected_bytes,
         "reclaimable_bytes": plan.reclaimable_bytes,
+        "reclaimable_bytes_basis": "estimated-logical-object-bytes-not-btrfs-physical",
+        "non_deletable_object_reasons": {
+            item.object_id: ["external-mutation-owner-or-unavailable-authority"]
+            for item in inventory.objects if not item.gc_allowed
+        },
         "gc_eligible_object_ids": list(sorted(
             item.object_id for item in inventory.objects
             if item.gc_allowed and item.object_id not in plan.protected_object_ids
