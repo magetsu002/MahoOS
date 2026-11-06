@@ -415,22 +415,87 @@ def _package_from_kernel(kernel: Mapping[str, Any]) -> str | None:
     return pkg
 
 
-def _real_snapshot_cmdline_matches(manifest: Mapping[str, Any], kernel: Mapping[str, Any], snapshot_id: int) -> bool:
+def _single_option(tokens: Sequence[str], key: str) -> str | None:
+    values = [token[len(key) + 1:] for token in tokens if token.startswith(key + "=")]
+    return values[0] if len(values) == 1 and values[0] else None
+
+
+def _real_snapshot_mount_contract(
+    probe: Probe,
+    manifest: Mapping[str, Any],
+    kernel: Mapping[str, Any],
+    snapshot_id: int,
+    filesystem_uuid: str | None,
+    root_source: str | None,
+) -> bool:
+    """Bind a saved Limine command line to independently observed live storage.
+
+    Historical artifact hashes prove bytes, not that those bytes can mount the
+    migrated root. Only exact root, encryption and snapshot-subvolume contracts
+    are admitted; absent or ambiguous observation is not authority.
+    """
     props = manifest.get("properties")
     snapshots_path = props.get("SNAPSHOTS_PATH") if isinstance(props, Mapping) else None
-    if not isinstance(snapshots_path, str) or not snapshots_path.startswith("/"):
+    if (
+        not isinstance(snapshots_path, str)
+        or not snapshots_path.startswith("/")
+        or any(part in {".", ".."} for part in snapshots_path.split("/"))
+    ):
         return False
-    expected = f"rootflags=subvol={snapshots_path.rstrip('/')}/{snapshot_id}/snapshot"
     rows = kernel.get("cmdlineDetails")
     if not isinstance(rows, list):
         return False
-    for row in rows:
-        if not isinstance(row, Mapping):
-            continue
-        value = row.get("snapshotCmdline")
-        if isinstance(value, str) and expected in value.split():
-            return True
-    return False
+    command_lines = [
+        row["snapshotCmdline"] for row in rows
+        if isinstance(row, Mapping)
+        and row.get("limineKey", "KERNEL_CMDLINE") == "KERNEL_CMDLINE"
+        and isinstance(row.get("snapshotCmdline"), str)
+    ]
+    if len(command_lines) != 1:
+        return False
+    saved = command_lines[0].split()
+    current_text = probe.read_text("/proc/cmdline")
+    if not current_text or not filesystem_uuid or not root_source:
+        return False
+    current = current_text.split()
+
+    expected_subvol = f"{snapshots_path.rstrip('/')}/{snapshot_id}/snapshot"
+    saved_flags = _single_option(saved, "rootflags")
+    if saved_flags is None:
+        return False
+    flags = saved_flags.split(",")
+    if flags.count("subvol=" + expected_subvol) != 1 or any(
+        flag.startswith(("subvol=", "subvolid=")) and flag != "subvol=" + expected_subvol
+        for flag in flags
+    ):
+        return False
+    if saved.count("maho.recovery_snapshot=1") != 1:
+        return False
+
+    saved_root = _single_option(saved, "root")
+    current_root = _single_option(current, "root")
+    if saved_root is None or current_root is None or saved_root != current_root:
+        return False
+    mounted_device = root_source.split("[", 1)[0]
+    if saved_root.startswith("UUID="):
+        if saved_root[5:].lower() != filesystem_uuid.lower():
+            return False
+    elif saved_root.startswith("/dev/mapper/"):
+        if mounted_device != saved_root:
+            return False
+    else:
+        # PARTUUID and other aliases need a separate independently resolved
+        # block-device identity. Refuse rather than guessing.
+        return False
+
+    encryption_keys = ("rd.luks.name=", "rd.luks.uuid=", "cryptdevice=")
+    saved_encryption = sorted(token for token in saved if token.startswith(encryption_keys))
+    current_encryption = sorted(token for token in current if token.startswith(encryption_keys))
+    if saved_encryption != current_encryption:
+        return False
+    if mounted_device.startswith("/dev/mapper/") and not current_encryption:
+        return False
+    return True
 
 
 def _real_snapshot_cmdline_has_overlay(kernel: Mapping[str, Any]) -> bool:
@@ -534,6 +599,8 @@ def _boot_evidence(
     manifest_path: str | None,
     configured_boot_root: str | None,
     snapshot_id: int,
+    filesystem_uuid: str | None,
+    root_source: str | None,
 ) -> BootEvidence:
     if not manifest:
         return BootEvidence(source="unavailable", reason="limine-snapper-sync manifest unavailable or malformed")
@@ -596,10 +663,13 @@ def _boot_evidence(
     if kernel_ok is None or init_ok is None:
         files_verified = None
 
+    mount_contract_verified = None
     if real_schema:
-        relation_ok = _real_snapshot_cmdline_matches(manifest, kernel, snapshot_id)
+        mount_contract_verified = _real_snapshot_mount_contract(
+            probe, manifest, kernel, snapshot_id, filesystem_uuid, root_source,
+        )
         recovery_overlay_flagged = _real_snapshot_cmdline_has_overlay(kernel)
-        coherent = True if files_verified is True and relation_ok else False
+        coherent = bool(files_verified is True and mount_contract_verified is True)
     else:
         raw_overlay = kernel.get("recoveryOverlayFlagged")
         recovery_overlay_flagged = raw_overlay if isinstance(raw_overlay, bool) else None
@@ -628,7 +698,8 @@ def _boot_evidence(
         files_verified=files_verified,
         artifacts_coherent=coherent,
         recovery_overlay_flagged=recovery_overlay_flagged,
-        reason=None if coherent is True else "saved boot artifacts are not fully hash-verified and coherent",
+        mount_contract_verified=mount_contract_verified,
+        reason=None if coherent is True else "saved boot artifacts or root mount contract are unverified",
     )
 
 
@@ -728,6 +799,8 @@ def discover_recovery_generations(policy: Mapping[str, Any], probe: Probe) -> Re
             manifest_path,
             lss_config.get("ESP_PATH"),
             snapshot.snapshot_id,
+            fs_uuid,
+            root_source,
         )
         userdata = snapshot.userdata
         known_good = userdata.get("maho.known_good", "").lower() in {"1", "yes", "true"}
