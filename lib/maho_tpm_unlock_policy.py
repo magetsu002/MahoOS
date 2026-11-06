@@ -7,8 +7,12 @@ Signed Boot verifier and independent PCR-event-log replay provider own facts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import re
 from typing import Mapping, TYPE_CHECKING
+
+from maho_limine_measurements import LimineMeasurement
+from maho_tcg2_eventlog import parse_tcg2_eventlog, verify_limine_pcr_event_chain
 
 if TYPE_CHECKING:
     from maho_boot_authority import BootAuthority, BootGeneration
@@ -39,6 +43,37 @@ class TpmUnlockObservation:
     event_log_replay_verified: bool
     event_roles: tuple[str, ...]
     initramfs_tpm2_verified: bool
+
+
+def observe_limine_tpm_unlock(
+    *, prediction: LimineMeasurement, event_log: bytes,
+    independently_read_sha256_pcrs: Mapping[int, str],
+    boot_generation_id: str, boot_mode: str, luks_uuid: str,
+    initramfs_tpm2_verified: bool,
+) -> TpmUnlockObservation:
+    """Convert strict event-log verification into bounded unlock evidence.
+
+    The caller MUST acquire TPM PCRs independently of the supplied event log
+    and bind the reads to the same boot session. The resulting observation
+    remains dependent on actual Signed Boot postboot verification.
+    """
+    events = parse_tcg2_eventlog(event_log)
+    reasons = verify_limine_pcr_event_chain(
+        prediction=prediction, events=events,
+        independently_read_sha256_pcrs=independently_read_sha256_pcrs,
+    )
+    pcrs = {index: independently_read_sha256_pcrs[index]
+            for index in PCRS if index in independently_read_sha256_pcrs}
+    return TpmUnlockObservation(
+        boot_generation_id=boot_generation_id,
+        boot_mode=boot_mode,
+        luks_uuid=luks_uuid,
+        event_log_sha256=hashlib.sha256(event_log).hexdigest(),
+        pcr_sha256=pcrs,
+        event_log_replay_verified=not reasons,
+        event_roles=("cmdline", "limine_cfg", "kernel", "initramfs") if not reasons else (),
+        initramfs_tpm2_verified=initramfs_tpm2_verified,
+    )
 
 
 @dataclass(frozen=True)
