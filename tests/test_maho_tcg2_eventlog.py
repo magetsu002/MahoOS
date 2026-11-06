@@ -100,6 +100,19 @@ class TcgEventLogTests(unittest.TestCase):
         self.assertIn("tpm_sha256_pcr9_replay_mismatch", verify_limine_pcr_event_chain(
             prediction=pred, events=log, independently_read_sha256_pcrs=changed))
 
+    def test_spoofed_cmdline_description_rejected_even_with_expected_digest(self):
+        pred, _, log, pcrs = fixture()
+        changed = list(log)
+        original = changed[1]
+        changed[1] = type(original)(
+            original.pcr_index, original.event_type, original.sha256_digest,
+            b"cmdline: root=UUID=attacker rw",
+        )
+        blockers = verify_limine_pcr_event_chain(
+            prediction=pred, events=changed, independently_read_sha256_pcrs=pcrs,
+        )
+        self.assertIn("limine_pcr8_event_description_mismatch:0", blockers)
+
     def test_missing_tpm_bank_rejected(self):
         pred, _, log, pcrs = fixture()
         del pcrs[7]

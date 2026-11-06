@@ -132,7 +132,7 @@ def verify_limine_pcr_event_chain(
     got8 = tuple(e for e in events if e.pcr_index == 8 and e.event_type == EV_IPL)
     got9 = tuple(e for e in events if e.pcr_index == 9 and e.event_type == EV_IPL)
     descriptions8 = (
-        b"cmdline: ",
+        b"cmdline: " + prediction.kernel_cmdline.encode(),
         b"path: " + prediction.measured_resources[0].encode(),
         *(b"module_path: " + path.encode() for path in prediction.measured_resources[1:]),
     )
@@ -153,10 +153,7 @@ def verify_limine_pcr_event_chain(
         ):
             if item.sha256_digest.hex() != digest:
                 reasons.append(f"limine_pcr{number}_event_digest_mismatch:{index}")
-            if number == 8 and index == 0:
-                if not item.data.startswith(description):
-                    reasons.append("limine_pcr8_cmdline_event_mismatch")
-            elif item.data.rstrip(b"\x00") != description:
+            if item.data not in (description, description + b"\x00"):
                 reasons.append(f"limine_pcr{number}_event_description_mismatch:{index}")
     replayed = replay_sha256_pcrs(events)
     for index in (7, 8, 9):

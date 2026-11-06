@@ -24,6 +24,7 @@ class MeasurementError(ValueError):
 @dataclass(frozen=True)
 class LimineMeasurement:
     entry: str
+    kernel_cmdline: str
     config_sha256: str
     pcr8_limine_only: str
     pcr9_limine_only: str
@@ -144,6 +145,6 @@ def predict_limine_measurements(
     pcr8, d8 = _replay(pcr8_events)
     pcr9, d9 = _replay(pcr9_events)
     return LimineMeasurement(
-        entry, hashlib.sha256(config).hexdigest(), pcr8, pcr9,
+        entry, cmdline, hashlib.sha256(config).hexdigest(), pcr8, pcr9,
         (kernel,) + tuple(path for path, _ in module_rows), d8, d9,
     )
