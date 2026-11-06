@@ -82,6 +82,10 @@ def manifest_entry(number: int) -> dict[str, Any]:
             "filesVerified": True,
             "artifactsCoherent": True,
             "recoveryOverlayFlagged": True,
+            "cmdlineDetails": [{
+                "limineKey": "KERNEL_CMDLINE",
+                "snapshotCmdline": f"{MOUNT_AUTHORITY} rw rootflags=subvol=/@snapshots/{number}/snapshot maho.recovery_snapshot=1",
+            }],
         }],
     }
 
@@ -176,12 +180,17 @@ def build_fixture(spec: dict[str, Any]) -> dict[str, Any]:
     elif home_scope == "unknown":
         commands.pop(home_command)
 
-    manifest = {"filesystemUuid": FSUUID, "snapshotEntries": entries}
+    manifest = {
+        "filesystemUuid": FSUUID,
+        "properties": {"SNAPSHOTS_PATH": "/@snapshots"},
+        "snapshotEntries": entries,
+    }
     if spec.get("manifest_filesystem_uuid_missing"):
         manifest.pop("filesystemUuid")
 
     files: dict[str, Any] = {
         "/etc/machine-id": MID + "\n",
+        "/proc/cmdline": f"{MOUNT_AUTHORITY} rw rootflags=subvol=/@",
         "/etc/default/limine": f"ESP_PATH=/boot\nSNAPPER_CONFIG_NAME={spec.get('snapper_config_name', 'root')}\n",
         MANIFEST_PATH: manifest,
     }
@@ -288,6 +297,14 @@ def main() -> None:
         and boot20.kernel_sha256_expected == boot20.kernel_sha256_observed
         and boot20.initramfs_sha256_expected == boot20.initramfs_sha256_observed,
     )
+
+    ambiguous_entry_fixture = real_manifest_fixture()
+    ambiguous_entry_fixture["files"][MANIFEST_PATH]["snapshotEntries"].append(
+        copy.deepcopy(ambiguous_entry_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1])
+    )
+    ambiguous_entry = candidate(discover_recovery_generations(POLICY, FixtureProbe(ambiguous_entry_fixture)), 20)
+    check("duplicate snapshot identities in Limine history are rejected",
+          not ambiguous_entry.eligible and "boot_mount_contract_mismatch" in ambiguous_entry.rejection_reasons)
 
     real_probe = FixtureProbe(real_manifest_fixture())
     real_report = discover_recovery_generations(POLICY, real_probe)
