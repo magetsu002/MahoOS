@@ -261,4 +261,62 @@ with tempfile.TemporaryDirectory() as raw:
     executor.resume()
     check("power-loss resume completes deferred deletion", not (data / "system-old").exists())
 
+
+# Maintenance is distinct from pressure reclamation. It must converge even
+# when capacity is healthy, without broadening any protection.
+maintenance = plan_retention(inventory, free_bytes=10_000, safe_reserve_bytes=10_000, maintenance=True)
+check("bounded maintenance reclaims disposable history without pressure", bool(maintenance.removal_object_ids))
+check("bounded maintenance retains every authoritative recovery dependency", not (set(maintenance.removal_object_ids) & protected))
+check("maintenance object count remains bounded", len(maintenance.removal_object_ids) <= gc.MAINTENANCE_MAX_OBJECTS)
+check("maintenance logical-byte budget remains bounded", maintenance.planned_reclaim_bytes <= gc.MAINTENANCE_MAX_LOGICAL_BYTES)
+check("status surfaces maintenance eligible objects", inventory_status(inventory, free_bytes=10_000, safe_reserve_bytes=10_000)["maintenance_removal_object_ids"] == list(maintenance.removal_object_ids))
+
+with tempfile.TemporaryDirectory() as raw:
+    base = Path(raw)
+    inv, inventory_path, data, executor = executor_fixture(base)
+    batches = 0
+    for _ in range(10):
+        current = read_inventory(inventory_path)
+        maintenance_plan = plan_retention(current, free_bytes=100, safe_reserve_bytes=100, maintenance=True)
+        if not maintenance_plan.removal_object_ids:
+            break
+        executor.execute(maintenance_plan)
+        batches += 1
+    check("repeated no-pressure maintenance converges", batches == 1 and not plan_retention(read_inventory(inventory_path), free_bytes=100, safe_reserve_bytes=100, maintenance=True).removal_object_ids)
+    check("repeated maintenance preserves running root and kernel", (data / "root-current").exists() and (data / "kernel-current").exists())
+
+with tempfile.TemporaryDirectory() as raw:
+    base = Path(raw)
+    inv, inventory_path, data, executor = executor_fixture(base)
+    legitimate = execution_plan(inv)
+    # A self-hashed plan is not authorized simply because its object IDs exist.
+    forged = replace(legitimate, free_bytes=100, safe_reserve_bytes=100)
+    rejects("self-consistent noncanonical deletion plan is rejected", lambda: executor.execute(forged), (InventoryError,))
+    check("forged plan preserves inventory and data", read_inventory(inventory_path).inventory_sha256 == inv.inventory_sha256 and (data / "system-old").exists())
+
+with tempfile.TemporaryDirectory() as raw:
+    base = Path(raw)
+    inv, inventory_path, data, executor = executor_fixture(base)
+    exact = execution_plan(inv)
+    rejects("interrupted deletion is surfaced", lambda: executor.execute(exact, fault_at="after_first_delete"), (SimulatedCrash,))
+    remaining = [identity for identity in exact.removal_object_ids if (data / identity).is_file()]
+    check("interrupted batch has pending objects", len(remaining) >= 1)
+    (data / remaining[0]).write_text("replaced while GC was interrupted\\n", encoding="utf-8")
+    rejects("resumed cleanup refuses changed object identity", executor.resume, (IdentityMismatchError,))
+    check("resumed cleanup never deletes the replacement", (data / remaining[0]).exists() and (data / "root-current").exists())
+
+with tempfile.TemporaryDirectory() as raw:
+    base = Path(raw)
+    inv, inventory_path, data, executor = executor_fixture(base)
+    (data / "root-old").unlink()
+    (data / "root-old").mkdir()
+    (data / "root-old" / "payload").write_text("content", encoding="utf-8")
+    updated = replace(inv, objects=tuple(sorted((
+        replace(item, content_sha256=gc._tree_sha256(data / "root-old")) if item.object_id == "root-old" else item
+        for item in inv.objects
+    ), key=lambda item: item.object_id)))
+    write_inventory(inventory_path, updated)
+    rejects("generation-store GC cannot take ownership of directory deletion", lambda: executor.execute(execution_plan(updated)), (IdentityMismatchError,))
+    check("directory refusal happens before metadata retirement", read_inventory(inventory_path).inventory_sha256 == updated.inventory_sha256)
+
 print("ALL GENERATION RETENTION AND GC TESTS PASS")
