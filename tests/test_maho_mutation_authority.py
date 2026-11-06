@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ctypes
 from dataclasses import replace
+import os
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
@@ -75,6 +78,28 @@ def main() -> None:
     ))
     current = process_identity(__import__("os").getpid())
     check("live process identity binds pid start executable inode and digest", current.pid > 0 and current.start_time_ticks > 0 and current.executable_inode > 0 and len(current.executable_sha256) == 64)
+
+    # Linux /proc/PID/stat field 2 is a parenthesized comm field, not a single
+    # whitespace-delimited token. Valid process names can contain ')' and spaces.
+    libc = ctypes.CDLL(None, use_errno=True)
+    prctl = libc.prctl
+    prctl.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong)
+    prctl.restype = ctypes.c_int
+    old_name = Path("/proc/self/comm").read_bytes().strip()
+    try:
+        if prctl(15, b"maho) agent", 0, 0, 0) != 0:  # PR_SET_NAME
+            raise OSError(ctypes.get_errno(), "prctl(PR_SET_NAME) failed")
+        unusual = process_identity(os.getpid())
+        check("spaces and parentheses in process comm do not alter start identity",
+              unusual.start_time_ticks == current.start_time_ticks)
+    finally:
+        if prctl(15, old_name, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "restoring process comm failed")
+
+    with patch("maho_mutation_authority._proc_start_ticks",
+               side_effect=(current.start_time_ticks, current.start_time_ticks + 1)):
+        rejects("PID reuse during identity capture fails closed",
+                lambda: process_identity(os.getpid()))
     print("ALL MAHO MUTATION AUTHORITY TESTS PASS")
 
 
