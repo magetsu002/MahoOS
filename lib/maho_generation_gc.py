@@ -26,6 +26,11 @@ SCHEMA_VERSION = 1
 PLAN_SCHEMA_VERSION = 1
 JOURNAL_SCHEMA_VERSION = 1
 
+# Logical generation-store cleanup only. Snapper, boot history and active update
+# staging have separate mutation owners and MUST NOT enter this executor.
+MAINTENANCE_MAX_OBJECTS = 16
+MAINTENANCE_MAX_LOGICAL_BYTES = 1024 ** 3
+
 
 class InventoryError(ValueError):
     """The supplied authority is incomplete, corrupt, or internally stale."""
@@ -372,6 +377,7 @@ def _dependency_closure(objects: Mapping[str, GCObject], seeds: Iterable[str]) -
 
 def plan_retention(
     inventory: GenerationInventory, *, free_bytes: int, safe_reserve_bytes: int,
+    maintenance: bool = False,
 ) -> RetentionPlan:
     if isinstance(free_bytes, bool) or isinstance(safe_reserve_bytes, bool) or min(free_bytes, safe_reserve_bytes) < 0:
         raise ValueError("storage byte counts must be non-negative integers")
@@ -453,11 +459,21 @@ def plan_retention(
     selected_roots.clear()
     target = max(0, safe_reserve_bytes - free_bytes)
     removal_ids: set[str] = set()
-    if target:
+    if target or maintenance:
         for root in roots:
             selected_roots.add(root.object_id)
-            removal_ids = collectible()
-            if sum(objects[object_id].size_bytes for object_id in removal_ids) >= target:
+            candidate = collectible()
+            candidate_bytes = sum(objects[object_id].size_bytes for object_id in candidate)
+            if maintenance and (
+                len(candidate) > MAINTENANCE_MAX_OBJECTS
+                or candidate_bytes > MAINTENANCE_MAX_LOGICAL_BYTES
+            ):
+                # A root plus all exclusively owned dependencies is indivisible.
+                # Never silently exceed a bounded maintenance batch.
+                selected_roots.remove(root.object_id)
+                continue
+            removal_ids = candidate
+            if target and candidate_bytes >= target:
                 break
     planned = sum(objects[object_id].size_bytes for object_id in removal_ids)
     target_objects = tuple(item for item in inventory.objects if item.object_id not in removal_ids)
@@ -493,6 +509,10 @@ def plan_retention(
 def inventory_status(inventory: GenerationInventory, *, free_bytes: int, safe_reserve_bytes: int) -> dict[str, Any]:
     plan = plan_retention(inventory, free_bytes=free_bytes, safe_reserve_bytes=safe_reserve_bytes)
     objects = inventory.by_id
+    maintenance_plan = plan_retention(
+        inventory, free_bytes=free_bytes, safe_reserve_bytes=safe_reserve_bytes,
+        maintenance=True,
+    )
     protected_bytes = sum(objects[item].size_bytes for item in plan.protected_object_ids)
     return {
         "schema_version": 1,
@@ -509,6 +529,10 @@ def inventory_status(inventory: GenerationInventory, *, free_bytes: int, safe_re
             if item.gc_allowed and item.object_id not in plan.protected_object_ids
         )),
         "planned_removal_object_ids": list(plan.removal_object_ids),
+        "maintenance_removal_object_ids": list(maintenance_plan.removal_object_ids),
+        "maintenance_planned_logical_bytes": maintenance_plan.planned_reclaim_bytes,
+        "maintenance_max_objects": MAINTENANCE_MAX_OBJECTS,
+        "maintenance_max_logical_bytes": MAINTENANCE_MAX_LOGICAL_BYTES,
         "reserve_restored": plan.reserve_restored,
         "update_mutation_allowed": plan.reserve_restored,
         "protection_reasons": {key: list(value) for key, value in plan.protection_reasons.items()},
@@ -763,6 +787,8 @@ class GCExecutor:
                 raise IdentityMismatchError(f"authorized GC object is missing: {object_id}")
             if item.content_sha256 is None:
                 raise IdentityMismatchError(f"authorized GC object has no content identity: {object_id}")
+            if path.is_dir():
+                raise IdentityMismatchError("generation-store GC cannot remove directories or Btrfs subvolumes")
             if _tree_sha256(path) != item.content_sha256:
                 raise IdentityMismatchError(f"authorized GC object identity changed: {object_id}")
 
@@ -810,6 +836,15 @@ class GCExecutor:
         current = read_inventory(self.inventory_path)
         if current.inventory_sha256 != plan.source_inventory_sha256:
             raise StaleAuthorityError("GC plan does not match current inventory authority")
+        # A digest is not a signature or an authorization. Reconstruct the
+        # entire deletion policy from the authoritative inventory; a caller
+        # cannot invent a self-consistent plan that weakens protection.
+        canonical = (
+            plan_retention(current, free_bytes=plan.free_bytes, safe_reserve_bytes=plan.safe_reserve_bytes),
+            plan_retention(current, free_bytes=plan.free_bytes, safe_reserve_bytes=plan.safe_reserve_bytes, maintenance=True),
+        )
+        if not any(plan.as_dict() == candidate.as_dict() for candidate in canonical):
+            raise InventoryError("GC plan is not a canonical pressure or bounded maintenance plan")
         if set(plan.removal_object_ids) & set(plan.protected_object_ids):
             raise InventoryError("GC plan attempts to remove a protected object")
         expected_target = tuple(item for item in current.objects if item.object_id not in set(plan.removal_object_ids))
@@ -843,12 +878,19 @@ class GCExecutor:
                 continue
             item = removed[object_id]
             path = self._path_for(item)
-            if path.is_symlink() or path.is_file():
-                path.unlink(missing_ok=True)
-            elif path.is_dir():
-                shutil.rmtree(path)
-            elif path.exists():
-                raise IdentityMismatchError(f"unsupported GC object type: {object_id}")
+            if path.is_dir():
+                raise IdentityMismatchError("directory retirement requires its own mutation owner")
+            if path.exists() or path.is_symlink():
+                # Identity must still match after a crash, or after a previous
+                # deletion in the same batch. Post-commit metadata alone does
+                # not authorize deletion of replacement content.
+                if item.content_sha256 is None or _tree_sha256(path) != item.content_sha256:
+                    raise IdentityMismatchError(f"GC object changed before deletion: {object_id}")
+                if not (path.is_symlink() or path.is_file()):
+                    raise IdentityMismatchError(f"unsupported GC object type: {object_id}")
+                path.unlink()
+            # Missing after commit is consistent with a crash between unlink
+            # and journal publication; resume records that state idempotently.
             deleted.add(object_id)
             _atomic_json(self.journal_path, self._journal(plan, "DELETING", deleted, removed.values()), 0o600)
             if first and fault_at == "after_first_delete":
@@ -862,6 +904,8 @@ class GCExecutor:
             "target_inventory_sha256": plan.target_inventory.inventory_sha256,
             "removed_object_ids": list(plan.removal_object_ids),
             "reclaimed_bytes": plan.planned_reclaim_bytes,
+            "reclaimed_bytes_basis": "estimated-logical-object-bytes-not-btrfs-physical",
+            "physical_reclaimed_bytes": None,
             "reserve_restored": plan.reserve_restored,
         }
         receipt["receipt_sha256"] = digest_payload(receipt)
