@@ -153,7 +153,7 @@ def verify_limine_pcr_event_chain(
         ):
             if item.sha256_digest.hex() != digest:
                 reasons.append(f"limine_pcr{number}_event_digest_mismatch:{index}")
-            if item.data not in (description, description + b"\x00"):
+            if item.data != description + b"\x00":
                 reasons.append(f"limine_pcr{number}_event_description_mismatch:{index}")
     replayed = replay_sha256_pcrs(events)
     for index in (7, 8, 9):

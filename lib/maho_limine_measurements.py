@@ -138,8 +138,11 @@ def predict_limine_measurements(
         raise MeasurementError("limine_cmdline_invalid")
     kernel, kernel_raw = _path(kernel_value, resources)
     module_rows = tuple(_path(value, resources) for value in modules)
-    pcr8_events = (("cmdline: " + cmdline).encode(), ("path: " + kernel).encode()) + tuple(
-        ("module_path: " + path).encode() for path, _ in module_rows
+    # Limine v12 hashes only the underlying PCR8 payload bytes; its
+    # "cmdline: ", "path: ", and "module_path: " labels live in the
+    # separate EV_IPL event-description field.
+    pcr8_events = (cmdline.encode(), kernel.encode()) + tuple(
+        path.encode() for path, _ in module_rows
     )
     pcr9_events = (config, kernel_raw) + tuple(raw for _, raw in module_rows)
     pcr8, d8 = _replay(pcr8_events)

@@ -52,9 +52,9 @@ def fixture():
     raw = first_event()
     raw += event(7, 0x80000001, b"firmware db event")
     for digest, description in zip(prediction.pcr8_event_digests, description8):
-        raw += event(8, EV_IPL, description, bytes.fromhex(digest))
+        raw += event(8, EV_IPL, description + b"\x00", bytes.fromhex(digest))
     for digest, description in zip(prediction.pcr9_event_digests, description9):
-        raw += event(9, EV_IPL, description, bytes.fromhex(digest))
+        raw += event(9, EV_IPL, description + b"\x00", bytes.fromhex(digest))
     parsed = parse_tcg2_eventlog(raw)
     hardware_pcrs = replay_sha256_pcrs(parsed)
     return prediction, raw, parsed, hardware_pcrs
@@ -112,6 +112,19 @@ class TcgEventLogTests(unittest.TestCase):
             prediction=pred, events=changed, independently_read_sha256_pcrs=pcrs,
         )
         self.assertIn("limine_pcr8_event_description_mismatch:0", blockers)
+
+    def test_missing_event_description_nul_rejected_even_with_valid_digest(self):
+        pred, _, log, pcrs = fixture()
+        changed = list(log)
+        original = changed[1]
+        changed[1] = type(original)(
+            original.pcr_index, original.event_type, original.sha256_digest,
+            original.data[:-1],
+        )
+        self.assertIn("limine_pcr8_event_description_mismatch:0",
+                      verify_limine_pcr_event_chain(
+                          prediction=pred, events=changed,
+                          independently_read_sha256_pcrs=pcrs))
 
     def test_missing_tpm_bank_rejected(self):
         pred, _, log, pcrs = fixture()

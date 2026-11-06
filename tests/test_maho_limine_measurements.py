@@ -45,6 +45,28 @@ class MeasuredBootContracts(unittest.TestCase):
         self.assertEqual(len(result.pcr9_event_digests), 3)
         self.assertEqual(result.config_sha256, hashlib.sha256(config).hexdigest())
 
+    def test_limines_pcr8_reference_digest_omits_event_prefix(self):
+        config, resources = fixture()
+        result = predict(config, resources)
+        command_line = b"root=UUID=abc ro"
+        kernel_path = b"boot():/EFI/MahoOS/Normal/kernel"
+        initramfs_path = b"boot():/EFI/MahoOS/Normal/initramfs.img"
+        expected8 = tuple(hashlib.sha256(row).hexdigest()
+                          for row in (command_line, kernel_path, initramfs_path))
+        self.assertEqual(result.kernel_cmdline, command_line.decode())
+        self.assertEqual(result.pcr8_event_digests, expected8)
+        self.assertNotEqual(expected8[0], hashlib.sha256(b"cmdline: " + command_line).hexdigest())
+        self.assertNotEqual(expected8[1], hashlib.sha256(b"path: " + kernel_path).hexdigest())
+        expected9 = tuple(hashlib.sha256(row).hexdigest() for row in (
+            config, resources["/EFI/MahoOS/Normal/kernel"],
+            resources["/EFI/MahoOS/Normal/initramfs.img"],
+        ))
+        self.assertEqual(result.pcr9_event_digests, expected9)
+        replay = bytes(32)
+        for digest in expected8:
+            replay = hashlib.sha256(replay + bytes.fromhex(digest)).digest()
+        self.assertEqual(result.pcr8_limine_only, replay.hex())
+
     def test_pcr8_ignores_hash_suffix_but_pcr9_follows_kernel_update(self):
         a, paths_a = fixture(kernel=b"kernel-1")
         b, paths_b = fixture(kernel=b"kernel-2")
