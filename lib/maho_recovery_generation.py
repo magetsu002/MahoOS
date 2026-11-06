@@ -199,8 +199,8 @@ def evaluate_generation(
             reasons.append("boot_artifacts_incomplete")
         if boot.artifacts_coherent is not True:
             reasons.append("kernel_initramfs_mismatch" if boot.artifacts_coherent is False else "kernel_initramfs_coherence_unknown")
-        if boot.mount_contract_verified is False:
-            reasons.append("boot_mount_contract_mismatch")
+        if boot.mount_contract_verified is not True:
+            reasons.append("boot_mount_contract_mismatch" if boot.mount_contract_verified is False else "boot_mount_contract_unknown")
         if boot.files_verified is not True:
             reasons.append("boot_files_unverified" if boot.files_verified is None else "boot_files_verification_failed")
         if boot.recovery_overlay_flagged is False:
@@ -220,7 +220,7 @@ def evaluate_generation(
         and boot.files_verified is True
         and boot.snapshot_id == snapshot.snapshot_id
         and boot.recovery_overlay_flagged is True
-        and boot.mount_contract_verified is not False
+        and boot.mount_contract_verified is True
     )
     verification = "known-good" if eligible and known_good else "coherent" if eligible else "rejected"
     return RecoveryGeneration(
