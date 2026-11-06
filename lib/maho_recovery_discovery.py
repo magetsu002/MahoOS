@@ -420,7 +420,7 @@ def _single_option(tokens: Sequence[str], key: str) -> str | None:
     return values[0] if len(values) == 1 and values[0] else None
 
 
-def _real_snapshot_mount_contract(
+def _snapshot_mount_contract(
     probe: Probe,
     manifest: Mapping[str, Any],
     kernel: Mapping[str, Any],
@@ -607,9 +607,15 @@ def _boot_evidence(
     entries = manifest.get("snapshotEntries")
     if not isinstance(entries, list):
         return BootEvidence(source=manifest_path or "limine-snapper-sync-manifest", reason="manifest snapshotEntries missing")
-    matched = next((x for x in entries if isinstance(x, Mapping) and _manifest_snapshot_id(x) == snapshot_id), None)
-    if not isinstance(matched, Mapping):
-        return BootEvidence(source=manifest_path or "limine-snapper-sync-manifest", reason="snapshot has no Limine manifest entry")
+    matches = [x for x in entries if isinstance(x, Mapping) and _manifest_snapshot_id(x) == snapshot_id]
+    if len(matches) != 1:
+        return BootEvidence(
+            source=manifest_path or "limine-snapper-sync-manifest",
+            snapshot_id=snapshot_id,
+            mount_contract_verified=False,
+            reason="missing or ambiguous Limine snapshot entry",
+        )
+    matched = matches[0]
     kernels = matched.get("kernelEntries")
     if not isinstance(kernels, list) or not kernels:
         return BootEvidence(source=manifest_path or "limine-snapper-sync-manifest", snapshot_id=snapshot_id, reason="kernel entries missing")
@@ -663,11 +669,10 @@ def _boot_evidence(
     if kernel_ok is None or init_ok is None:
         files_verified = None
 
-    mount_contract_verified = None
+    mount_contract_verified = _snapshot_mount_contract(
+        probe, manifest, kernel, snapshot_id, filesystem_uuid, root_source,
+    )
     if real_schema:
-        mount_contract_verified = _real_snapshot_mount_contract(
-            probe, manifest, kernel, snapshot_id, filesystem_uuid, root_source,
-        )
         recovery_overlay_flagged = _real_snapshot_cmdline_has_overlay(kernel)
         coherent = bool(files_verified is True and mount_contract_verified is True)
     else:
@@ -675,9 +680,9 @@ def _boot_evidence(
         recovery_overlay_flagged = raw_overlay if isinstance(raw_overlay, bool) else None
         coherent = (
             True
-            if files_verified is True and manifest_coherent is True
+            if files_verified is True and manifest_coherent is True and mount_contract_verified is True
             else False
-            if files_verified is False or manifest_coherent is False
+            if files_verified is False or manifest_coherent is False or mount_contract_verified is False
             else None
         )
 
