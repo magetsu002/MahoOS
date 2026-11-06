@@ -29,7 +29,8 @@ def setup():
     recovery = RecoveryReadiness(True, True, True, True, True, True)
     return dict(generation=generation, authority=authority, environment=environment,
                 signed_boot=signed_boot, observation=observation, recovery=recovery,
-                limine_version="12.2.1")
+                limine_version="12.2.1", expected_luks_uuid=LUKS,
+                expected_boot_mode="normal")
 
 
 def blocked(name, args, reason):
@@ -69,6 +70,12 @@ def main():
         ("measured boot", "environment", "measured_boot_unavailable", replace_ns(args["environment"], measured_boot_available=False)),
         ("older Limine", "limine_version", "limine_measured_boot_version_unproven", "11.0"),
         ("wrong generation", "observation", "boot_generation_authority_mismatch", replace(args["observation"], boot_generation_id="bootgen-b")),
+        ("malformed generation", "observation", "boot_generation_authority_mismatch", replace(args["observation"], boot_generation_id="bootgen-"+("g"*64))),
+        ("wrong expected LUKS", "expected_luks_uuid", "luks_identity_mismatch", "ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+        ("invalid expected LUKS", "expected_luks_uuid", "expected_luks_identity_invalid", "/dev/mapper/foo"),
+        ("wrong observed LUKS", "observation", "luks_identity_mismatch", replace(args["observation"], luks_uuid="ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee")),
+        ("wrong boot mode", "observation", "observed_boot_mode_mismatch", replace(args["observation"], boot_mode="recovery")),
+        ("invalid requested boot mode", "expected_boot_mode", "expected_boot_mode_invalid", "invalid"),
         ("wrong log", "observation", "event_log_identity_unbound", replace(args["observation"], event_log_sha256="a" * 64)),
         ("unreplayed log", "observation", "pcr_event_log_replay_unverified", replace(args["observation"], event_log_replay_verified=False)),
         ("PCR7 alone", "observation", "pcr_7_8_9_sha256_incomplete", replace(args["observation"], pcr_sha256={7: PCR[7]})),
@@ -96,7 +103,9 @@ def main():
     assert any("recovery" in item for item in require_generation_unlock_coverage(**kw))
     del roles[(GEN, "fallback")]
     assert any("fallback" in item for item in require_generation_unlock_coverage(**kw))
-    print(f"PASS: {len(tests) + 5} TPM policy positive/negative and lifecycle checks")
+    bad = kw | {"candidate_generation_id": "bootgen-" + ("q" * 64)}
+    assert any("identity_invalid:normal" in item for item in require_generation_unlock_coverage(**bad))
+    print(f"PASS: {len(tests) + 6} TPM policy positive/negative and lifecycle checks")
 
 
 if __name__ == "__main__":

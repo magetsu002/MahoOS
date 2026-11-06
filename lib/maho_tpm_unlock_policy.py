@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 _VERSION = re.compile(r"([0-9]+)(?:\.([0-9]+))?(?:\.[0-9]+)*\Z")
+_BOOT_GENERATION_ID = re.compile(r"bootgen-[0-9a-f]{64}\Z")
 PCRS = (7, 8, 9)
 EVENT_ROLES = frozenset(("cmdline", "limine_cfg", "kernel", "initramfs"))
 BOOT_MODES = frozenset(("normal", "fallback", "recovery"))
@@ -99,7 +100,7 @@ def evaluate_tpm_unlock(
     *, generation: BootGeneration, authority: BootAuthority,
     environment: BootEnvironmentIdentity, signed_boot: PostBootResult,
     observation: TpmUnlockObservation, recovery: RecoveryReadiness,
-    limine_version: str,
+    limine_version: str, expected_luks_uuid: str, expected_boot_mode: str,
 ) -> TpmUnlockDecision:
     """Never substitute a SecureBoot=1 observation for Signed Boot proof.
 
@@ -118,13 +119,21 @@ def evaluate_tpm_unlock(
     match = _VERSION.fullmatch(limine_version)
     if match is None or int(match.group(1)) < 12:
         failures.append("limine_measured_boot_version_unproven")
+    if expected_boot_mode not in BOOT_MODES:
+        failures.append("expected_boot_mode_invalid")
     if observation.boot_mode not in BOOT_MODES:
         failures.append("boot_mode_unknown")
-    if (observation.boot_generation_id != generation.boot_generation_id
+    elif observation.boot_mode != expected_boot_mode:
+        failures.append("observed_boot_mode_mismatch")
+    if (_BOOT_GENERATION_ID.fullmatch(observation.boot_generation_id) is None
+            or observation.boot_generation_id != generation.boot_generation_id
             or observation.boot_generation_id != authority.permitted_boot_generation_id):
         failures.append("boot_generation_authority_mismatch")
-    if _UUID.fullmatch(observation.luks_uuid) is None:
-        failures.append("luks_identity_invalid")
+    if _UUID.fullmatch(expected_luks_uuid) is None:
+        failures.append("expected_luks_identity_invalid")
+    if (_UUID.fullmatch(observation.luks_uuid) is None
+            or observation.luks_uuid != expected_luks_uuid):
+        failures.append("luks_identity_mismatch")
     if (_SHA256.fullmatch(observation.event_log_sha256 or "") is None
             or observation.event_log_sha256 != environment.pcr_event_log_sha256):
         failures.append("event_log_identity_unbound")
@@ -193,7 +202,7 @@ def require_generation_unlock_coverage(
     )
     blockers = []
     for generation_id, role in roles:
-        if not generation_id.startswith("bootgen-") or len(generation_id) <= len("bootgen-"):
+        if _BOOT_GENERATION_ID.fullmatch(generation_id) is None:
             blockers.append(f"unlock_generation_identity_invalid:{role}")
         elif token_confirmed.get((generation_id, role)) is not True:
             blockers.append(f"tpm_unlock_unproven:{role}:{generation_id}")
