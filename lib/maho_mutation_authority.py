@@ -49,20 +49,41 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _proc_start_ticks(proc: Path, pid: int) -> int:
+    """Read field 22 without splitting the parenthesized Linux comm field.
+
+    /proc/PID/stat field 2 may contain spaces and closing parentheses; splitting
+    the whole record moves field 22 and can bind authority to a false start time.
+    """
+    raw = (proc / "stat").read_text(encoding="utf-8")
+    prefix, separator, suffix = raw.rpartition(") ")
+    if not separator or not prefix.startswith(f"{pid} ("):
+        raise ValueError("process stat identity malformed")
+    fields = suffix.split()  # starts at field 3 (state)
+    if len(fields) < 20:
+        raise ValueError("process stat truncated")
+    return int(fields[19])  # field 22 (starttime), relative to field 3
+
+
 def process_identity(pid: int) -> SubjectIdentity:
     """Capture identity that changes across PID reuse and executable replacement."""
     if not isinstance(pid, int) or pid <= 0:
         raise MutationAuthorityError("subject_pid_invalid")
     proc = Path("/proc") / str(pid)
     try:
-        fields = (proc / "stat").read_text(encoding="utf-8").split()
-        start_ticks = int(fields[21])
+        start_ticks = _proc_start_ticks(proc, pid)
         exe = (proc / "exe").resolve(strict=True)
         info = exe.stat()
         status = (proc / "status").read_text(encoding="utf-8").splitlines()
         uid_line = next(line for line in status if line.startswith("Uid:"))
         uid = int(uid_line.split()[1])
         digest = _file_sha256(exe)
+        # A PID can be recycled while its /proc files are being read. A second
+        # observation fails closed if the identity changed during capture.
+        if _proc_start_ticks(proc, pid) != start_ticks:
+            raise MutationAuthorityError("subject_identity_changed_during_capture")
+    except MutationAuthorityError:
+        raise
     except (OSError, StopIteration, ValueError, IndexError) as exc:
         raise MutationAuthorityError("subject_identity_unavailable") from exc
     return SubjectIdentity(
