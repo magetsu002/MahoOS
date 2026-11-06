@@ -10,7 +10,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from maho_secure_boot import inspect_boot_environment, inventory_boot_entries, inventory_efi_executables  # noqa: E402
+from maho_secure_boot import (  # noqa: E402
+    EFI_GLOBAL_GUID, inspect_boot_environment, inventory_boot_entries, inventory_efi_executables,
+)
+from maho_efi_pe_signature import inspect_pe_signature_structure  # noqa: E402
 
 
 def mounted_esp_candidates() -> dict[str, str]:
@@ -59,11 +62,49 @@ def mounted_esp_identity(mount: str) -> tuple[str | None, str | None]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="maho-secure-boot")
-    parser.add_argument("command", choices=("inspect", "inventory"))
+    parser.add_argument("command", choices=("inspect", "inventory", "diagnose"))
     parser.add_argument("--efivars", default="/sys/firmware/efi/efivars")
     parser.add_argument("--esp", action="append", default=[])
     args = parser.parse_args(argv)
     roots = {path: path for path in args.esp} if args.esp else mounted_esp_candidates()
+    if args.command == "diagnose":
+        partuuid = filesystem = None
+        if len(roots) == 1:
+            partuuid, filesystem = mounted_esp_identity(next(iter(roots)))
+        evidence = inspect_boot_environment(
+            efivar_root=args.efivars, esp_candidates=roots,
+            esp_gpt_partuuid=partuuid, esp_filesystem_identity=filesystem,
+        )
+        order = None
+        try:
+            raw = (Path(args.efivars) / f"BootOrder-{EFI_GLOBAL_GUID}").read_bytes()[4:]
+            if len(raw) % 2 == 0 and raw:
+                order = [f"Boot{int.from_bytes(raw[i:i + 2], 'little'):04X}"
+                         for i in range(0, len(raw), 2)]
+        except OSError:
+            pass
+        images = []
+        for image in inventory_efi_executables(roots):
+            data = (Path(roots[image.esp_identity]) / image.path.lstrip("/")).read_bytes()
+            images.append(image.as_dict() | {
+                "pe_signature_structure": inspect_pe_signature_structure(data).as_dict(),
+            })
+        print(json.dumps({
+            "schema_version": 1, "read_only": True,
+            "secure_boot": evidence.secure_boot, "setup_mode": evidence.setup_mode,
+            "tpm_available": evidence.tpm_available,
+            "event_log_accessible": evidence.measured_boot_available,
+            "mounted_esp_partuuid": partuuid, "mounted_esp_filesystem": filesystem,
+            "boot_current": evidence.boot_entry.as_dict() if evidence.boot_entry else None,
+            "boot_order": order, "efi_executables_on_mounted_esp": images,
+            "limitations": [
+                "certificate table presence never proves a valid signature or firmware db authorization",
+                "BootCurrent may refer to a different ESP that is not mounted",
+                "event-log access failure is not evidence that the TPM lacks measured boot",
+                "Windows encryption recovery and actual successful boot are not proven by this inspection",
+            ],
+        }, sort_keys=True))
+        return 0
     if args.command == "inventory":
         print(json.dumps({"schema_version": 1, "read_only": True,
                           "efi_executables": [item.as_dict() for item in inventory_efi_executables(roots)],
