@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("status")
     plan_parser = subparsers.add_parser("plan")
     plan_parser.add_argument("--output", type=Path, required=True)
+    plan_parser.add_argument("--maintenance", action="store_true", help="plan one bounded convergence batch even without storage pressure")
     apply_parser = subparsers.add_parser("apply")
     apply_parser.add_argument("--plan", type=Path, required=True)
     apply_parser.add_argument("--confirm", required=True)
@@ -68,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             plan = plan_retention(
                 inventory, free_bytes=free,
                 safe_reserve_bytes=args.safe_reserve_bytes,
+                maintenance=args.maintenance,
             )
             args.output.write_text(json.dumps(plan.as_dict(), sort_keys=True) + "\n", encoding="utf-8")
             os.chmod(args.output, 0o600)
@@ -76,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
                 "confirmation": f"GC:{plan.plan_sha256}",
                 "removal_object_ids": list(plan.removal_object_ids),
                 "reserve_restored": plan.reserve_restored,
+                "maintenance": args.maintenance,
+                "logical_reclaim_estimate_bytes": plan.planned_reclaim_bytes,
             })
             return 0
 
