@@ -18,6 +18,8 @@ SCENARIOS = json.loads((ROOT / "tests" / "fixtures" / "recovery" / "g3-platforms
 POLICY = json.loads((ROOT / "config" / "platform.json").read_text())
 MID = "0123456789abcdef0123456789abcdef"
 FSUUID = "11111111-2222-3333-4444-555555555555"
+LUKS_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+MOUNT_AUTHORITY = f"root=UUID={FSUUID} rd.luks.name={LUKS_UUID}=maho-root"
 MANIFEST_PATH = f"/boot/{MID}/limine_history/snapshots.json"
 
 
@@ -105,7 +107,7 @@ def real_manifest_entry(number: int) -> dict[str, Any]:
             ],
             "cmdlineDetails": [{
                 "limineKey": "KERNEL_CMDLINE",
-                "snapshotCmdline": f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/{number}/snapshot maho.recovery_snapshot=1",
+                "snapshotCmdline": f"{MOUNT_AUTHORITY} rw rootflags=subvol=/@snapshots/{number}/snapshot maho.recovery_snapshot=1",
             }],
         }],
     }
@@ -113,6 +115,7 @@ def real_manifest_entry(number: int) -> dict[str, Any]:
 
 def real_manifest_fixture() -> dict[str, Any]:
     fixture = build_fixture(copy.deepcopy(SCENARIOS["healthy"]))
+    fixture["files"]["/proc/cmdline"] = f"{MOUNT_AUTHORITY} rw rootflags=subvol=/@"
     fixture["files"][MANIFEST_PATH] = {
         "jsonFormatVersion": "1.3.0",
         "properties": {"SNAPSHOTS_PATH": "/@snapshots", "SUBVOLUME_PATH": "/@"},
@@ -297,8 +300,52 @@ def main() -> None:
         and real20.boot.kernel_package == "linux-cachyos"
         and real20.boot.kernel_version == "6.17.5-1"
         and real20.boot.files_verified is True
-        and real20.boot.artifacts_coherent is True,
+        and real20.boot.artifacts_coherent is True
+        and real20.boot.mount_contract_verified is True,
     )
+    stale_luks_fixture = real_manifest_fixture()
+    stale_luks_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0]["snapshotCmdline"] = (
+        f"root=UUID={FSUUID} rd.luks.name=ffffffff-ffff-ffff-ffff-ffffffffffff=maho-root "
+        "rw rootflags=subvol=/@snapshots/20/snapshot maho.recovery_snapshot=1"
+    )
+    stale_luks = candidate(discover_recovery_generations(POLICY, FixtureProbe(stale_luks_fixture)), 20)
+    check(
+        "old LUKS mount identity is never eligible even with intact saved artifacts",
+        not stale_luks.eligible and stale_luks.boot.files_verified is True
+        and stale_luks.boot.mount_contract_verified is False
+        and "boot_mount_contract_mismatch" in stale_luks.rejection_reasons,
+    )
+    stale_root_fixture = real_manifest_fixture()
+    stale_root_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0]["snapshotCmdline"] = (
+        f"root=UUID=ffffffff-ffff-ffff-ffff-ffffffffffff rd.luks.name={LUKS_UUID}=maho-root "
+        "rw rootflags=subvol=/@snapshots/20/snapshot maho.recovery_snapshot=1"
+    )
+    stale_root = candidate(discover_recovery_generations(POLICY, FixtureProbe(stale_root_fixture)), 20)
+    check("old filesystem UUID is rejected", not stale_root.eligible and "boot_mount_contract_mismatch" in stale_root.rejection_reasons)
+    ambiguous_root_fixture = real_manifest_fixture()
+    ambiguous_root_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0]["snapshotCmdline"] += f" root=UUID={FSUUID}"
+    ambiguous_root = candidate(discover_recovery_generations(POLICY, FixtureProbe(ambiguous_root_fixture)), 20)
+    check("duplicate root assignment is rejected", not ambiguous_root.eligible and "boot_mount_contract_mismatch" in ambiguous_root.rejection_reasons)
+    missing_live_cmdline_fixture = real_manifest_fixture()
+    del missing_live_cmdline_fixture["files"]["/proc/cmdline"]
+    missing_live_cmdline = candidate(discover_recovery_generations(POLICY, FixtureProbe(missing_live_cmdline_fixture)), 20)
+    check("missing independent live boot identity is rejected", not missing_live_cmdline.eligible and "boot_mount_contract_mismatch" in missing_live_cmdline.rejection_reasons)
+    missing_luks_fixture = real_manifest_fixture()
+    missing_luks_fixture["files"]["/proc/cmdline"] = f"root=UUID={FSUUID} rw rootflags=subvol=/@"
+    missing_luks = candidate(discover_recovery_generations(POLICY, FixtureProbe(missing_luks_fixture)), 20)
+    check("mapper root without independently observed LUKS identity is rejected", not missing_luks.eligible and "boot_mount_contract_mismatch" in missing_luks.rejection_reasons)
+    ambiguous_cmdline_fixture = real_manifest_fixture()
+    ambiguous_cmdline_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"].append(
+        dict(ambiguous_cmdline_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0])
+    )
+    ambiguous_cmdline = candidate(discover_recovery_generations(POLICY, FixtureProbe(ambiguous_cmdline_fixture)), 20)
+    check("ambiguous historical Limine command lines are rejected", not ambiguous_cmdline.eligible and "boot_mount_contract_mismatch" in ambiguous_cmdline.rejection_reasons)
+    tampered_live_root_fixture = real_manifest_fixture()
+    tampered_live_root_fixture["commands"][command(["findmnt", "--json", "--target", "/", "--output", "TARGET,SOURCE,FSTYPE,FSROOT,UUID"])] = result(
+        json.dumps({"filesystems": [{"target": "/", "source": "/dev/mapper/maho-root[/@]", "fstype": "btrfs", "fsroot": "/@", "uuid": "00000000-0000-0000-0000-000000000000"}]})
+    )
+    tampered_live_root = candidate(discover_recovery_generations(POLICY, FixtureProbe(tampered_live_root_fixture)), 20)
+    check("manifest and real root filesystem disagreement is rejected", not tampered_live_root.eligible and "boot_filesystem_mismatch" in tampered_live_root.rejection_reasons)
     real_no_overlay_fixture = real_manifest_fixture()
     real_no_overlay_fixture["files"][MANIFEST_PATH]["snapshotEntries"][1]["kernelEntries"][0]["cmdlineDetails"][0]["snapshotCmdline"] = f"root=UUID={FSUUID} rw rootflags=subvol=/@snapshots/20/snapshot"
     real_no_overlay = candidate(discover_recovery_generations(POLICY, FixtureProbe(real_no_overlay_fixture)), 20)
